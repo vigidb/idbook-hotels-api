@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tour Packages</title>
+</head>
+<body>
+    <h1>Tour Packages</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Trip ID</th>
+                <th>Trip Name</th>
+                <th>Get PDF Preview</th>
+{#                <th>Download PDF</th>#}
+                <!-- Add more table headings for other fields -->
+            </tr>
+        </thead>
+        <tbody>
+            {% for tour_package in tour_packages %}
+            <tr>
+                <td>{{ tour_package.trip_id }}</td>
+                <td>{{ tour_package.trip_name }}</td>
+                <td><a href="{% url 'tour_package_detail' tour_package.id %}" target="_blank">{{ tour_package.trip_id }}</a></td>
+{#                <td><a href="{% url 'generate_pdf' tour_package.id %}" target="_blank">{{ tour_package.trip_id }}</a></td>#}
+
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

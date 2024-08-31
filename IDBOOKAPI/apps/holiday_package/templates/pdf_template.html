@@ -1,0 +1,178 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Idbook Hotels</title>
+    <style>
+        /* Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Sacramento|Anonymous+Pro:wght@400;700|Poppins:wght@400;500;600;700;800;900|Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+
+        /* Global CSS */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .font_family {
+            font-family: 'Montserrat', sans-serif;
+            font-family: 'Poppins', sans-serif;
+            font-family: 'Anonymous Pro', monospace;
+            font-family: 'Sacramento', cursive;
+        }
+
+        .outer_container {
+            max-width: 1240px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* Other CSS rules ... */
+
+        /* ================ LANDING PAGE CSS BEGIN ==================== */
+
+        .landing_page {
+            /* Other CSS rules ... */
+            padding-bottom: 400px;
+        }
+
+        .landing_banner_content {
+            /* Other CSS rules ... */
+            background: linear-gradient(0deg, #111617 0%, rgba(21, 29, 32, 0.19) 35.04%, rgba(67, 83, 89, 0.00) 75%);
+        }
+
+        /* Other CSS rules ... */
+
+        /* ================= SUMMARY PAGE CSS BEGIN ================== */
+
+        .summary_page {
+            /* Other CSS rules ... */
+            padding-bottom: 400px;
+        }
+
+        /* Other CSS rules ... */
+
+        /* ============================================================ */
+    </style>
+
+</head>
+
+<body>
+    <div class="outer_container">
+
+        <!-- ====================== LANDING PAGE SECTION BEGIN ==================== -->
+        <section class="landing_page pg_padding bg_color">
+            <div class="container">
+                <div class="landing_header d_flex_center">
+                    <div class="logo">
+                        <img src="{% static 'images/logo.svg' %}" alt="Logo" title="Idbook Hotels" />
+                    </div>
+                    <div class="plan_days">
+                        <span>4N/5D</span>
+                    </div>
+                </div>
+
+                <div class="landing_content">
+                    <p class="user_name text_cap">hi suman,</p>
+                    <h2 class="lbl_explore_with text_cap">let's explore the <br /> portblair with idbook</h2>
+                </div>
+
+                <div class="landing_banner">
+                    <div class="landing_banner_content">
+                        <h3 class="lbl_magical_pkg text-center">Magical Package for The</h3>
+                        <p class="lbl_tour_place text-center text_upper">portblair</p>
+                    </div>
+                </div>
+
+                <!-- <div class="page_bg">
+                    <img src="images/page_bg.png" />
+                </div> -->
+            </div>
+        </section>
+        <!-- ==================== LANDING PAGE SECTION END ==================== -->
+
+        <!-- ====================== SUMMARY PAGE SECTION BEGIN ==================== -->
+
+        <section class="summary_page pg_padding bg_color">
+            <div class="container">
+                <div class="summary_header d_flex_center">
+                    <div class="logo">
+                        <img src="{% static 'images/logo.svg' %}" alt="Logo" title="Idbook Hotels" />
+                    </div>
+                    <div class="trip_id_container d_flex_center">
+                        <div class="trip_id">
+                            <p class="lbl_trip_id">Trip ID :</p>
+                            <p class="tripid_value">Idb83465876385</p>
+                        </div>
+                        <div class="icon_img">
+                            <img src="{% static 'images/trip_icon.png' %}" />
+                        </div>
+                    </div>
+                </div>
+                <div class="summary_card">
+                    <p class="lbl_dear">Dear <span class="card_user_name">Spandan Banerjee,</span></p>
+                    <p class="summary_greeting">Greetings from Idbookhotels.com!</p>
+                    <p class="card_desc">Idbook hotels, designed below holiday packages for your requested trip. If you
+                        need any
+                        modification in travel package you can contact Idbook hotels <br /> contact no - 7065742305,
+                        keep your <br />
+                        Trip Id- Idb83465876385 as a reference while contacting with executive.</p>
+                </div>
+
+                <div>
+                    <h3 class="main_heading">Summary</h3>
+                </div>
+
+                <div class="summary_info_outer">
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour duration :</h3>
+                            <p class="info_value sm_heading">5 Night & 6 Dayd</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_duration.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Adults :</h3>
+                            <p class="info_value sm_heading">2 adults</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_users.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour start date :</h3>
+                            <p class="info_value sm_heading">15-04-2023</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_calender.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour Location :</h3>
+                            <p class="info_value sm_heading">Portblair airport</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_location.svg' %}" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================== SUMMARY PAGE SECTION END ==================== -->
+
+    </div>
+</body>
+
+</html>

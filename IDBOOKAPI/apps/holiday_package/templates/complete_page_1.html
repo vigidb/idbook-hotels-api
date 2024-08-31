@@ -1,0 +1,112 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trip to PORTBLAIR</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .main_section {
+            width: 8.5in;
+            height: 11.5in;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .landing_page {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 50px;
+        }
+
+        .landing_page_content {
+            text-align: center;
+        }
+
+        .trip_date_and_time {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .name_and_trip h2 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-top: 20px;
+        }
+
+        .trip_days_info span {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 20px;
+            border: 2px solid #333;
+            padding: 10px 20px;
+            border-radius: 12px;
+        }
+
+        .lbl_magical_experience {
+            font-size: 32px;
+            font-weight: 700;
+            color: #333;
+            margin-top: 40px;
+        }
+
+        .checkin_container {
+            margin-top: 30px;
+        }
+
+        .checkin_container p,
+        .checkin_container h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* Add any other necessary styling... */
+    </style>
+</head>
+<body>
+    <section class="main_section">
+        <div class="landing_page">
+            <div class="landing_page_content">
+                <p class="trip_date_and_time">13 APR 2023 | 4:39 PM</p>
+
+                <div class="name_and_trip">
+                    <p>Spandan Banerjee's</p>
+                    <h2>trip to PORTBLAIR</h2>
+                </div>
+
+                <div class="trip_days_info">
+                    <span>4N/5D</span>
+                </div>
+
+                <p class="lbl_magical_experience">Magical PORTBLAIR Experience</p>
+
+                <div class="landing_checkin_out">
+                    <div class="checkin_container">
+                        <p>Check in :</p>
+                        <h3>15-04-2023</h3>
+                    </div>
+                    <div class="checkin_container">
+                        <p>Check out :</p>
+                        <h3>20-04-2023</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

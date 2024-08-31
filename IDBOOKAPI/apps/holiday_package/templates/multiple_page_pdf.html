@@ -1,0 +1,448 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Idbook Hotels</title>
+
+    <style>
+        /* fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Sacramento&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .page {
+            page-break-after: always;
+            width: 8.5in;
+            height: 11in;
+            background-color: #f7f7f7;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .font_family {
+            font-family: 'Montserrat', sans-serif;
+            font-family: 'Poppins', sans-serif;
+            font-family: 'Anonymous Pro', monospace;
+            font-family: 'Sacramento', cursive;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+    max-width: 800px; /* Adjust the width as needed */
+    width: 100%;
+    padding: 20px; /* Add padding to separate the content from the edges of the container */
+    background-color: #f7f7f7; /* Optional: Set a background color for the container */
+}
+        /* ================ GLOBAL CSS BEGIN ====================== */
+        .d_flex_center {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .text_cap {
+            text-transform: capitalize;
+        }
+
+        .text_upper {
+            text-transform: uppercase;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .pg_padding {
+            padding: 25px 0;
+            margin-bottom: 15px;
+        }
+
+        .outer_container {
+            page-break-after: always;
+    width: 8.5in;
+    height: 11in;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+
+
+}
+
+        .bg_color {
+            background: #F5F5F5;
+        }
+
+        .icon_img img {
+            width: 40px;
+            height: 40px;
+            border-radius: 7px;
+        }
+
+        .icon_md_img img {
+            height: 50px;
+            width: 50px;
+        }
+
+        .main_heading {
+            font-size: 14px;
+            color: #EEEDED;
+            font-weight: 700;
+            font-family: 'Poppins', sans-serif;
+            text-transform: uppercase;
+            padding: 14px 20px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #294483 0%, #854CAB 100%);
+            filter: drop-shadow(0px 4px 4px rgba(0, 0, 0, 0.25));
+        }
+
+        /* ================== GLOBAL CSS END ====================== */
+
+        /* ------------------ LANDING PAGE CSS BEGINS ------------------- */
+
+        .landing_header {
+            margin-bottom: 50px;
+        }
+
+        .landing_header .plan_days span {
+            font-size: 40px;
+            font-weight: 700;
+            color: #EEEDED;
+            font-family: 'Anonymous Pro', monospace;
+            padding: 16px 85px;
+            border-radius: 12px;
+            background: linear-gradient(261deg, #20498D 0%, #864CAB 100%);
+        }
+
+        .landing_header .logo img {
+            width: 300px;
+            height: auto;
+        }
+
+        .landing_content .user_name {
+            font-size: 50px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 300;
+            color: #39414B;
+        }
+
+        .landing_content .lbl_explore_with {
+            font-size: 80px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700;
+            line-height: 109px;
+            background: linear-gradient(217deg, #0A2753 1.72%, #854CAB 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 8px 0;
+        }
+
+        .landing_banner {
+            max-width: 1040px;
+            width: 100%;
+            height: 717px;
+            border-radius: 40px;
+            background: url({% static 'images/landing_bg.svg' %}) no-repeat;
+            background-position: center;
+            background-size: cover;
+            overflow: hidden;
+            margin: 25px auto 0;
+        }
+
+        .landing_banner_content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            height: 100%;
+            padding-bottom: 15px;
+            /* background: linear-gradient(0deg, #000000 1.02%, transparent 50%); */
+            background: linear-gradient(0deg, #111617 0%, rgba(21, 29, 32, 0.19) 35.04%, rgba(67, 83, 89, 0.00) 75%)
+        }
+
+        .landing_banner .lbl_magical_pkg {
+            font-size: 90px;
+            font-weight: 400;
+            line-height: 102px;
+            font-family: 'Sacramento', cursive;
+            color: #EEEDED;
+        }
+
+        .landing_banner .lbl_tour_place {
+            font-size: 60px;
+            font-weight: 700;
+            line-height: 102px;
+            font-family: 'Montserrat', sans-serif;
+            color: #EEEDED;
+        }
+
+        .landing_page {
+            background: #F5F5F5 url({% static 'images/page_bg.svg' %}) no-repeat;
+            background-position: bottom;
+            background-size: contain;
+            /* padding-bottom: 200px; */
+            padding-bottom: 400px
+        }
+
+        /* ------------------- LANDING PAGE CSS END ----------------------- */
+
+        /* ====================== SUMMARY PAGE CSS BEGIN ========================= */
+        .summary_page {
+            background: #F5F5F5 url({% static 'images/page_bg.svg' %}) no-repeat;
+            background-position: bottom;
+            background-size: contain;
+            padding-bottom: 400px;
+            /* padding-bottom: 200px; */
+        }
+
+        .trip_id_container {
+            padding: 8px 9px;
+            border-radius: 12px;
+            background: linear-gradient(270deg, #FFF 0%, rgba(255, 255, 255, 0.00) 100%);
+            box-shadow: 0px 4px 8px -4px rgba(0, 0, 0, 0.25);
+        }
+
+        .summary_header {
+            padding-bottom: 8px;
+        }
+
+        .trip_id_container .trip_id {
+            margin-right: 45px;
+        }
+
+        .trip_id_container .lbl_trip_id {
+            color: #67748E;
+            font-size: 13px;
+            font-weight: 400;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .trip_id_container .tripid_value {
+            color: #3F3F3F;
+            font-size: 14px;
+            font-weight: 400;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .summary_card {
+            border-radius: 12px;
+            background: linear-gradient(270deg, #1E498D 0%, #894DAC 100%);
+            box-shadow: 0px 4px 8px 0px rgba(0, 0, 0, 0.25);
+            padding: 18px 18px 30px;
+            margin: 45px 0;
+        }
+
+        .summary_card .card_desc,
+        .summary_card .summary_greeting {
+            color: #EEEDED;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 25px;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .summary_card .summary_greeting {
+            line-height: 34px;
+            margin: 5px 0;
+        }
+
+        .lbl_dear {
+            font-size: 15px;
+            color: #EEEDED;
+            font-weight: 600;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .summary_card .card_user_name {
+            color: #EEEDED;
+            font-size: 36px;
+            font-weight: 400;
+            line-height: 34px;
+            font-family: 'Sacramento', cursive;
+        }
+
+        .summary_info_outer {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            margin: 32px 0;
+        }
+
+        .summary_info {
+            border-radius: 12px;
+            background: #FFF;
+            box-shadow: 0px 4px 8px -4px rgba(0, 0, 0, 0.25);
+            padding: 10px 20px;
+            width: 45%;
+        }
+
+        .sm_heading {
+            font-size: 14px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .summary_info .info .info_title {
+            color: #010101;
+            line-height: 25px;
+        }
+
+        .summary_info .info .info_value {
+            color: #0099CA;
+            line-height: 35px;
+        }
+
+        /* ====================== SUMMARY PAGE CSS END ============================ */
+    </style>
+
+
+</head>
+
+<body>
+    <div class="outer_container">
+
+        <!-- ====================== LANDING PAGE SECTION BEGIN ==================== -->
+        <section class="landing_page pg_padding bg_color">
+            <div class="container">
+                <div class="landing_header d_flex_center">
+                    <div class="logo">
+                        <img src="{% static 'images/logo.svg' %}" alt="Logo" title="Idbook Hotels" />
+                    </div>
+                    <div class="plan_days">
+                        <span>4N/5D</span>
+                    </div>
+                </div>
+
+                <div class="landing_content">
+                    <p class="user_name text_cap">hi suman,</p>
+                    <h2 class="lbl_explore_with text_cap">let's explore the <br /> portblair with idbook</h2>
+                </div>
+
+                <div class="landing_banner">
+                    <div class="landing_banner_content">
+                        <h3 class="lbl_magical_pkg text-center">Magical Package for The</h3>
+                        <p class="lbl_tour_place text-center text_upper">portblair</p>
+                    </div>
+                </div>
+
+                <!-- <div class="page_bg">
+                    <img src="images/page_bg.png" />
+                </div> -->
+            </div>
+        </section>
+        <!-- ==================== LANDING PAGE SECTION END ==================== -->
+     	<!-- Add a page break to start a new page -->
+        <div style="page-break-before:always;"></div>
+        <!-- ====================== SUMMARY PAGE SECTION BEGIN ==================== -->
+
+        <section class="summary_page pg_padding bg_color">
+            <div class="container">
+                <div class="summary_header d_flex_center">
+                    <div class="logo">
+                        <img src="{% static 'images/logo.svg' %}" alt="Logo" title="Idbook Hotels" />
+                    </div>
+                    <div class="trip_id_container d_flex_center">
+                        <div class="trip_id">
+                            <p class="lbl_trip_id">Trip ID :</p>
+                            <p class="tripid_value">Idb83465876385</p>
+                        </div>
+                        <div class="icon_img">
+                            <img src="{% static 'images/trip_icon.png' %}" />
+                        </div>
+                    </div>
+                </div>
+                <div class="summary_card">
+                    <p class="lbl_dear">Dear <span class="card_user_name">Spandan Banerjee,</span></p>
+                    <p class="summary_greeting">Greetings from Idbookhotels.com!</p>
+                    <p class="card_desc">Idbook hotels, designed below holiday packages for your requested trip. If you
+                        need any
+                        modification in travel package you can contact Idbook hotels <br /> contact no - 7065742305,
+                        keep your <br />
+                        Trip Id- Idb83465876385 as a reference while contacting with executive.</p>
+                </div>
+
+                <div>
+                    <h3 class="main_heading">Summary</h3>
+                </div>
+
+                <div class="summary_info_outer">
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour duration :</h3>
+                            <p class="info_value sm_heading">5 Night & 6 Dayd</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_duration.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Adults :</h3>
+                            <p class="info_value sm_heading">2 adults</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_users.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour start date :</h3>
+                            <p class="info_value sm_heading">15-04-2023</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_calender.svg' %}" />
+                        </div>
+                    </div>
+
+                    <div class="summary_info d_flex_center">
+                        <div class="info">
+                            <h3 class="info_title sm_heading">Tour Location :</h3>
+                            <p class="info_value sm_heading">Portblair airport</p>
+                        </div>
+                        <div class="icon_md_img">
+                            <img src="{% static 'images/icon_location.svg' %}" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================== SUMMARY PAGE SECTION END ==================== -->
+
+    </div>
+</body>
+
+</html>

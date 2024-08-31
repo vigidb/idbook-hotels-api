@@ -1,0 +1,11 @@
+*.idea/
+venv
+*__pycache__
+*.pyc
+.env
+*.sqlite3
+static/
+media/
+*.sh
+../fake_data_producer.py
+*.pdf

@@ -1,0 +1,531 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IdBookPdf</title>
+    <link rel="stylesheet" href=" {% static 'fonts/Montserrat/stylesheet.css' %} " />
+    <link rel="stylesheet" href=" {% static 'fonts/NeurialGrotesk/stylesheet.css' %} " />
+    <link rel="stylesheet" href=" {% static 'fonts/MeowScript/stylesheet.css' %} " />
+    <link rel="stylesheet" href=" {% static 'css/style.css' %} " />
+
+</head>
+
+<body>
+
+    <section class="main_section">
+        <div class="landing_page">
+            <div class="landing_page_content">
+                <p class="trip_date_and_time">{{ tour_packages.date_of_journey }}</p>
+
+                <div class="name_and_trip">
+                    <p>{{ tour_packages.customer_fullname }}</p>
+                    <h2>trip to {{ tour_packages.trip_name }}</h2>
+                </div>
+
+                <div class="trip_days_info">
+                    <span>{{ tour_packages.formatted_tour_duration }}</span>
+                </div>
+
+                <p class="lbl_magical_experience">Magical {{ tour_packages.trip_name }} Experience</p>
+
+                <div class="landing_checkin_out">
+                    <div class="checkin_container">
+                        <p>Check in :</p>
+                        <h3>{{ tour_packages.date_of_journey }}</h3>
+                    </div>
+                    <div class="checkin_container">
+                        <p>Check out :</p>
+                        <h3>{{ tour_packages.check_out_date }}</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="main_section">
+        <div class="header_outer">
+            <div class="container">
+                <div class="header">
+                    <div class="logo">
+                        <a href="#">
+                            <img src=" {% static 'images/logo.svg' %} " alt="Logo" title="IdBook" width="144" height="56" />
+                        </a>
+                    </div>
+                    <div class="download_btn">
+                        <button onclick="printPDF()">Print PDF</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="journey_details_outer">
+            <div class="container">
+                <div class="journey_details">
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Date of Journey :</h4>
+                        <p class="journey_details_value">{{ tour_packages.date_of_journey }}</p>
+                    </div>
+
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Trip ID :</h4>
+                        <p class="journey_details_value">{{ tour_packages.trip_id }}</p>
+                    </div>
+
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Tour Company :</h4>
+                        <p class="journey_details_value">Idbook hotels & holidays</p>
+                    </div>
+
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Executive :</h4>
+                        <p class="journey_details_value">Akshay Salve</p>
+                    </div>
+
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Company Location :</h4>
+                        <p class="journey_details_value">Gurgoan</p>
+                    </div>
+
+                    <div class="journey_short_info">
+                        <h4 class="journey_details_heading comp_heading">Phone :</h4>
+                        <p class="journey_details_value">9711063698</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="summary_outer">
+            <div class="container">
+                <div class="summary">
+                    <h2 class="heading_bg">Summary</h2>
+
+                    <div class="summary_table">
+                        <div class="table_row flex_between">
+                            <p class="tbl_title">Tour Duration :</p>
+                            <p class="tbl_value">{{ tour_packages.formatted_tour_duration }}</p>
+                        </div>
+
+                        <div class="table_row flex_between row_bg">
+                            <p class="tbl_title">Adults :</p>
+                            <p class="tbl_value">{{ tour_packages.adults }} Adults</p>
+                        </div>
+
+                        <div class="table_row flex_between">
+                            <p class="tbl_title">Tour Start Date :</p>
+                            <p class="tbl_value">{{ tour_packages.date_of_journey }}</p>
+                        </div>
+
+                        <div class="table_row flex_between row_bg">
+                            <p class="tbl_title">Tour Start City :</p>
+                            <p class="tbl_value">{{ tour_packages.tour_start_city }}</p>
+                        </div>
+                    </div>
+
+                    <div class="greeting_card">
+                        <h3 class="lbl_greeting">Dear <span class="greeting_user">{{ tour_packages.customer_fullname }},</span></h3>
+                        <p class="lbl_greeting_from">Greetings from Idbookhotels.com!</p>
+                        <p>Idbook hotels, designed below holiday packages for your requested trip. If you need any
+                            modification in travel package you can contact Idbook hotels contact no - <a
+                                href=" {% static 'tel:+917065742305' %} ">7065742305</a>, keep
+                            your <br /> trip Id- <a href="#">{{ tour_packages.trip_id }}</a> as a reference while contacting with
+                            executive.</p>
+                    </div>
+
+                    <div class="booking_amount_info">
+                        <div class="total_booking_amount flex_between">
+                            <h3 class="tbl_title">Total Booking Amount :</h3>
+                            <p class="total_amount">Rs. {{ tour_packages.total_booking_amount }}INR-</p>
+                        </div>
+                        <div class="amount_note">
+                            <p>Advance amount to pay for the trip confirmation: {{ tour_packages.advance_amount_to_pay_for_the_trip_confirmation }} of total amount</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+
+    <div class="main_section">
+        <div class="user_details">
+            <div class="user_details_banner">
+                <img src=" {% static 'images/top_shape.png' %} " width="595" height="413" alt="Banner" title="" />
+            </div>
+
+            <div class="user_details_outer">
+                <div class="container">
+                    <div class="facilities_and_user">
+
+                        <div class="facilities_list">
+                            <h3 class="sub_heading">Details :</h3>
+                            <ul class="facilities_list_items">
+                                <li><span class="list_number">1</span>
+                                    <a href="#">Accomodations</a>
+                                </li>
+                                <li><span class="list_number">2</span>
+                                    <a href="#">Vehicles</a>
+                                </li>
+                                <li><span class="list_number">3</span>
+                                    <a href="#">Inclusion</a>
+                                </li>
+                                <li><span class="list_number">4</span>
+                                    <a href="#">Exclusion</a>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="user_details_card">
+                            <div class="executive_info">
+                                <h4 class="comp_heading">Executive :</h4>
+                                <p class="lbl_executive">Akshay Salvay</p>
+                            </div>
+                            <div class="exec_contact_info">
+                                <p class="comp_heading">Call : <span class="lbl_contact_info">9711063698</span></p>
+                                <p class="comp_heading">Email : <span
+                                        class="lbl_contact_info">akshay.salvay@gmail.com</span></p>
+                            </div>
+                            <div class="exec_cardnote_outer">
+                                <p class="exec_card_note">Quotation Created on <span class="exec_card_time">{{ accommodations.created|date:'Y-m-d H:i:s' }}</span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accomodations">
+                        <h2 class="heading_bg">accomodations</h2>
+                        <div class="accomodations_table">
+                            <div class="table_row flex_between">
+                                <p class="tbl_title">Hotal :</p>
+                                <p class="tbl_value">{{ accommodations.hotel_name }}</p>
+                            </div>
+
+                            <div class="table_row flex_between row_bg">
+                                <p class="tbl_title">Room Type :</p>
+                                <p class="tbl_value">{{ accommodations.hotel_name }}</p>
+                            </div>
+
+                            <div class="table_row flex_between">
+                                <p class="tbl_title">No of Room :</p>
+                                <p class="tbl_value">1-ROOM</p>
+                            </div>
+
+                            <div class="table_row flex_between row_bg">
+                                <p class="tbl_title">Occupancy :</p>
+                                <p class="tbl_value">DOUBLE</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="inclusion">
+                        <h2 class="heading_bg">Inclusion</h2>
+
+                        <ul class="inclusion_list">
+                            <li>Pick up & Drop up from the Airport in Port Blair.</li>
+                            <li>Sightseeing in the Port Blair,Havelocks, and Neil Islands.</li>
+                            <li>Ferry ticket for 3 destinations.</li>
+                            <li>Pick & drop up from the ferry to the ferry.</li>
+                            <li>Welcome drink on Arrival</li>
+                            <li>1 - Room on a Double Sharing basis with breakfast and Dinner.</li>
+                        </ul>
+                    </div>
+
+                    <div class="exclusion">
+                        <h2 class="heading_bg">Exclusion</h2>
+                        <ul class="exclusion_list">
+                            <li>Lunch</li>
+                            <li>Air tickets</li>
+                            <li>What not inclusive in inclusion</li>
+                            <li>GST 5%</li>
+                        </ul>
+                    </div>
+
+                    <div class="vehicle_type">
+                        <h2 class="heading_bg">VEhicle</h2>
+                        <div class="table_row flex_between">
+                            <p class="tbl_title">Car Type :</p>
+                            <p class="tbl_value">Sedan</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main_section">
+        <div class="stay_page_outer">
+            <div class="stay_header">
+                <div class="stay_header_content">
+                    <div class="logo">
+                        <a href="#">
+                            <img src=" {% static 'images/logo.svg' %} " alt="Logo" title="IdBook" width="144" height="56" />
+                        </a>
+                    </div>
+
+                    <div class="days_date">
+                        <h2>Day 1</h2>
+                        <p>Tue, 26 Sep 2023</p>
+                    </div>
+
+                    <div class="stay_title">
+                        <h2>Night stay <br /> in Port Blair</h2>
+                    </div>
+
+                    <div class="checkin_checkout_info">
+                        <div class="table_row flex_between">
+                            <p class="tbl_title">Check In :</p>
+                            <p class="tbl_value">26 Sep, Tue 2 PM</p>
+                        </div>
+                        <div class="table_row flex_between row_bg">
+                            <p class="tbl_title">Check Out :</p>
+                            <p class="tbl_value">27 Sep, Thu 12 PM</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stay_header_banner">
+                    <img src=" {% static 'images/stay_banner.png' %} " alt="Logo" title="IdBook" />
+                </div>
+            </div>
+
+            <div class="flight_places_info_outer">
+                <div class="container">
+                    <div class="flight_places_info">
+                        <p>Departure by flight to Andaman and Nicobar ( PORT BLAIR) Will reach according to flight
+                            timing.
+                            After
+                            reaching picked up from the airport to the hotel. Take some rest then go enjoy the port,
+                            Blair.
+                        </p>
+                        <ul class="flight_destination">
+                            <li>Cellular Jail</li>
+                            <li>Ross Island</li>
+                            <li>Corbyn Cove Beach</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hotel_info_outer">
+                <div class="container">
+                    <p class="hotel_info_note">*At night Dinner and overnight stay in Idbook horizon hues at 3 * hotel.
+                    </p>
+                    <div class="hotel_info">
+                        <div class="hotel_banner">
+                            <img src=" {% static 'images/hotel.jpg' %} " alt="Hotel" title="Hotel" width="135" height="135" />
+                        </div>
+                        <div class="hotel_details">
+                            <h3 class="hotel_name">Springs Field Cafe</h3>
+                            <p class="hotel_distance">14.2 km to City centre</p>
+                            <p class="hotel_location"><img src=" {% static 'images/location_icon.svg' %} " width="13" height="16" /> 80
+                                Green Avenue Road Plot No. 7, Paharganj</p>
+                            <div class="hotel_rate_review flex_between">
+                                <p class="hotel_rate"><span>₹3,935</span> night</p>
+                                <p class="hotel_review"><span>4.3 Good</span> (385 reviews)</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="page_bottom_shape">
+            <img class="bottom_shape" src=" {% static 'images/page_bottom.svg' %} " width="595" height="156" />
+            <img class="bottom_right_shape" src=" {% static 'images/page_bottom_right.svg' %} " width="208" height="139" />
+        </div>
+    </div>
+
+
+    <div class="main_section">
+        <div class="terms_conditions_outer">
+            <div class="terms_condition_header">
+                <div class="terms_header_content">
+                    <p>Idbook’s</p>
+                    <h2 class="lbl_terms_condition">Terms & <br /> Conditions</h2>
+                </div>
+                <div class="terms_header_banner">
+                    <img src=" {% static 'images/terms_banner.svg' %} " width="392" height="239" />
+                </div>
+            </div>
+
+            <div class="terms_and_conditions_outer">
+                <div class="container">
+                    <div class="terms_and_conditions">
+                        <ol>
+                            <li>Please read emails carefully and understand the contents and prices. All the
+                                emailconversations
+                                will be also part of your contract with us once you make the booking.</li>
+
+                            <li>Please take care of the belongings before leaving the car or Hotel. The company is
+                                not responsible for any loss.</li>
+
+                            <li>As per the directive given by the Government of India, all Indian/Foreign Nationals are
+                                required to provide proper proof of identification upon check-in. Valid identifications
+                                documents are: Passport & Visa together, Voters Id card, Current Drivers License. All
+                                the documents must include a photograph.</li>
+
+                            <li>Hotel/camps or any kind of accommodation can deny stay if valid id proof is not
+                                provided. The company is not responsible for any ID proof-related issues. <br /> For
+                                extra adults, many hotels provide extra mattresses also instead of extra beds. Kindly
+                                inform us in advance if you prefer only an extra bed instead of an extra mattress.</li>
+
+                            <li>It is presumed that the tourist is medically fit to undertake the tour. If you have a
+                                certain kind of allergy (especially for food) or any serious health issues kindly inform
+                                us in advance.</li>
+                            </li>
+
+                            <li>Many small hotels/resorts do not have lifts so kindly inform us in advance if you are
+                                not comfortable with stairs.</li>
+                            </li>
+
+                            <li>Generally, hotel check-in time is 14:00 hrs and checkout time is 11:00 hrs across India.
+                                Confirm early check-in or late checkout will be chargeable if not included in the cost.
+                                Kindly contact the hotel directly if you want complimentary.</li>
+                            </li>
+
+                            <li>Decide the menu and options of items for the menu. Some hotels have a Meal credit policy
+                                instead of a Buffet or Fixed Menu during low occupancy in hotels – This meal credit
+                                amount is decided by hotel management – if bills go above the given meal credit amount
+                                then the extra amount should be paid directly at the respective hotel.</li>
+
+                            <li>Room service for the food or packing is charged extra at many hotels.
+                                Due to any reason if Vehicle breakdown due to technical reasons we will try our best to
+                                arrange another vehicle as soon as possible for the major problems. For minor problems
+                                which will not take much time vehicle will be repaired. Kindly cooperate.</li>
+
+                            <li>We shall not be responsible for any delays & alterations in the program or expenses
+                                incurred directly or indirectly due to natural hazards, flight cancellations, accidents,
+                                breakdown of transport, weather, sickness, landslides, closures/blockades due to
+                                political unrest, or any such incidents, in that case, the trip will be postponed as per
+                                the selected dates in futures.</li>
+
+                            <li>AC will not work in all hill areas or stopped/parked vehicles.</li>
+
+                            <li>Drivers will not drive in No entry zones and should not be forced to drive on narrow
+                                streets or roads which can create a traffic jam. The normal working hours of the driver
+                                are 12 hrs in case you want services more than 12 hours in a day kindly inform us in
+                                advance.</li>
+                            </li>
+
+                            <li>In some hill areas roads driving after sunset and music are not allowed due to the risk
+                                of life. Kindly cooperate for the same.</li>
+                            </li>
+
+                            <li>Pick up and drop point will be one only (If multiple pickups and drop please mentions
+                                email conversation before booking)</li>
+                            </li>
+
+                            <li>In case you want multiple visits to some particular place kindly mention in advance
+                                because some places are having very high charges for parking.
+                                Tour destination/route cannot change without prior notice (Amended route and tour
+                                Destination rates may be change)</li>
+
+                            <li>We reserve the right to give you a similar car if the car you booked is unavailable.
+                            </li>
+
+                            <li>At many of the tourist destinations/hill stations some of the road/shopping market/mall
+                                roads have “NO ENTRY” for all / some bigger tourist vehicles depending on the
+                                destination along with time restrictions also. In this kind of situation, guests have to
+                                manage another available mode of transport with an additional cost and on a direct
+                                payment basis, this cost is not included in the ideal package inclusion.</li>
+                        </ol>
+
+
+                        <div class="payment_policy">
+                            <h2 class="heading_bg">PAYMENT POLICY</h2>
+
+                            <ol class="payment_policies_list">
+                                <li>Except for flight or train tickets, 70% advance and 20 % before 30 days of the trip,
+                                    and 10% after check-in.</li>
+                                <li>All payment modes are accepted and the EMI option is also available.</li>
+                                <li>Book now and pay later option available.</li>
+                            </ol>
+                        </div>
+
+                        <div class="cancellation_policy">
+                            <h2 class="heading_bg">Cancellation Policy</h2>
+
+                            <ol class="cancellation_policy_list">
+                                <li>Before 30 days 100% refund, before 15 days 50% refund, before 7 days, 25% refund,
+                                    and if a natural calamity occurs then 100% refund or trip postponed.</li>
+                            </ol>
+                        </div>
+
+                        <div class="refund_policy">
+                            <h2 class="heading_bg">Refund Policy</h2>
+
+                            <ol class="refund_policy_list">
+                                <li>Before 30 days 100% refund, before 15 days 50% refund, before 7 days, 25% refund,
+                                    and if a natural calamity occurs then 100% refund or trip postponed.</li>
+                            </ol>
+                        </div>
+
+
+                        <div class="bank_account_details">
+                            <h2 class="heading_bg">bank account details</h2>
+                            <div class="account_details_table">
+                                <div class="table_row flex_between">
+                                    <p class="tbl_title">Account Name :</p>
+                                    <p class="tbl_value">IDBOOK TRADE & ECOMMERCE PVT LTD</p>
+                                </div>
+
+                                <div class="table_row flex_between row_bg">
+                                    <p class="tbl_title">Account Number :</p>
+                                    <p class="tbl_value">9876543210</p>
+                                </div>
+
+                                <div class="table_row flex_between">
+                                    <p class="tbl_title">Bank :</p>
+                                    <p class="tbl_value">AXIS BANK</p>
+                                </div>
+
+                                <div class="table_row flex_between row_bg">
+                                    <p class="tbl_title">IFSC Code :</p>
+                                    <p class="tbl_value">DC00001876SD</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+
+    <section class="main_section">
+        <div class="thankyou_page">
+            <div class="thankyou_page_content">
+                <div class="logo">
+                    <a href="#">
+                        <img src=" {% static 'images/logo.svg' %} " alt="Logo" title="IdBook" width="262" height="102" />
+                    </a>
+                </div>
+
+                <div class="journey_wishes">
+                    <p>Happy Journey</p>
+                    <h2>Time to travel</h2>
+                </div>
+
+                <div class="th_btn">
+                    <div class="th_btn_text">enjoy your trip to the fullest</div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <script>
+        function printPDF() {
+            // Open a new window with the URL of the Django view that generates the PDF
+            const printWindow = window.open('/tour-packages/{{ tour_packages.id }}', '_blank');
+            printWindow.onload = function () {
+                // Wait for the window to load, then trigger the print function
+                printWindow.print();
+            };
+        }
+    </script>
+</body>
+
+</html>

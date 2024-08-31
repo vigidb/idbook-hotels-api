@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Create Tour Package</title>
+    <!-- Include Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+
+            <h2>Accommodations</h2>
+            {{ accommodation_formset.management_form }}
+            {% for form in accommodation_formset %}
+                <fieldset class="form-group">
+                    {{ form.as_table }}
+                </fieldset>
+            {% endfor %}
+
+            <h2>Inclusions/Exclusions</h2>
+            {{ inclusion_exclusion_formset.management_form }}
+            {% for form in inclusion_exclusion_formset %}
+                <fieldset class="form-group">
+                    {{ form.as_table }}
+                </fieldset>
+            {% endfor %}
+
+            <h2>Vehicles</h2>
+            {{ vehicle_formset.management_form }}
+            {% for form in vehicle_formset %}
+                <fieldset class="form-group">
+                    {{ form.as_table }}
+                </fieldset>
+            {% endfor %}
+
+            <h2>Daily Plans</h2>
+            {{ daily_plan_formset.management_form }}
+            {% for form in daily_plan_formset %}
+                <fieldset class="form-group">
+                    {{ form.as_table }}
+                </fieldset>
+            {% endfor %}
+
+            <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+    </div>
+
+    <!-- Include Bootstrap JS (optional) -->
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
