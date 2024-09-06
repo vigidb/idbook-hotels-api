@@ -19,7 +19,7 @@ coreschema
 cryptography
 cssselect2
 djangify
-django
+Django==4.2.3
 django-appconf
 django-cors-headers
 django-environ

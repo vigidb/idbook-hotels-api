@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: idbook
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: vigneshnu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    # command: gunicorn --config gunicorn.conf.py IDBOOKAPI.wsgi:application
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DJANGO_SETTINGS_MODULE=IDBOOKAPI.settings
+
+volumes:
+  postgres_data:

@@ -1,32 +1,22 @@
-# Base image with Python and pip
-FROM python:3.12-alpine AS base
+# Base image
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
 # Set the working directory
 WORKDIR /app
 
-# Install app dependencies
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt 
-# Development stage
-FROM base AS development
+# Install dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set the DJANGO_SETTINGS_MODULE for development
-# ENV DJANGO_SETTINGS_MODULE=my_project.settings.development
+# Copy the project files
+COPY . /app/
 
-# Expose the development port (optional: for running Django's development server)
+# Expose the port the app runs on
 EXPOSE 8000
 
-# Apply migrations and start the development server
-# CMD python manage.py IDBOOKAPI/makemigrations && python IDBOOKAPI/manage.py migrate && python manage.py IDBOOKAPI/runserver 0.0.0.0:8000
-CMD python IDBOOKAPI/manage.py migrate && python manage.py IDBOOKAPI/runserver 0.0.0.0:8000
-
-# Production stage
-FROM base AS production
-
-# Collect static files and prepare for production deployment (if needed)
-# For example, if you use Django's "collectstatic" management command to collect static files,
-# Apply migrations and start the production server
-# If you are using Gunicorn as the production server, you can use the following line to start it:
-# CMD ["gunicorn", "--bind", "0.0.0.0:8000", "qa.wsgi"]
-
-
+# Run the application
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "IDBOOKAPI.wsgi:application"]
