@@ -40,9 +40,10 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    roles = models.ManyToManyField('Role', related_name='user_role', help_text="Select roles associated with this user.")
-    email = models.EmailField(db_index=True, validators=[EmailValidator], null=True, blank=True, help_text="Email address of the user.")
-    mobile_number = models.CharField(max_length=10, db_index=True, unique=True,
+    roles = models.ManyToManyField('Role', related_name='user_role', blank=True, help_text="Select roles associated with this user.")
+    email = models.EmailField(db_index=True, validators=[EmailValidator],
+                              null=True, blank=True, help_text="Email address of the user.")
+    mobile_number = models.CharField(max_length=10, db_index=True, blank=True, null=True,
                                      validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
                                                                 message='Enter a valid phone number')],
                                      help_text="Mobile number of the user (10 digits only).")
@@ -62,8 +63,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the user account was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the user account was last updated.")
 
-    USERNAME_FIELD = 'mobile_number'
-    REQUIRED_FIELDS = ['email',]
+    # USERNAME_FIELD = 'mobile_number'
+    USERNAME_FIELD = 'id'
+    # REQUIRED_FIELDS = ['email',]
 
     objects = UserManager()
 

@@ -35,7 +35,7 @@ class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
         if serializer.is_valid():
             user = serializer.save()
             # send welcome email to user
-            send_welcome_email(user.email)
+            # send_welcome_email(user.email)
             refresh = RefreshToken.for_user(user)
             token = {
                              'refresh': str(refresh),
@@ -52,6 +52,7 @@ class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
             errors = serializer.errors
             data = {
                 "password": errors.get('password', [])[0] if 'password' in errors else "",
+                "email": errors.get('email',[])[0] if 'email' in errors else "",
                 "mobile_number": errors.get('mobile_number', [])[0] if 'mobile_number' in errors else "",
                 "roles": errors.get('roles', []) if 'roles' in errors else ""
             }

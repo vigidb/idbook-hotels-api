@@ -3,6 +3,8 @@ from django.core.validators import RegexValidator
 
 from .models import User
 from .mobile_authentication import PhonePasswordAuthBackend
+from .email_authentication  import EmailPasswordAuthBackend
+from django.contrib.auth import authenticate
 from IDBOOKAPI.utils import format_custom_id
 
 
@@ -20,7 +22,8 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('custom_id', 'password', 'mobile_number', 'category', 'is_active', 'roles')
+        fields = ('custom_id', 'password', 'email', 'mobile_number',
+                  'category', 'is_active', 'roles')
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate_roles(self, value):
@@ -30,37 +33,48 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         mobile_number = validated_data.get('mobile_number')
-        roles = validated_data.pop('roles')
+        email = validated_data.get('email')
+        # roles = validated_data.pop('roles')
 
-        if User.objects.filter(mobile_number=mobile_number).exists():
+        if not mobile_number and not email:
+            raise serializers.ValidationError({'message': 'Provide either mobile number or email'})
+
+        if mobile_number and User.objects.filter(mobile_number=mobile_number).exists():
             raise serializers.ValidationError({'message': 'User with this mobile number already exists.'})
+
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError({'message': 'User with this email already exists.'})
 
         user = User(**validated_data)
         user.set_password(validated_data['password'])
-        if roles[0].short_code != 'CUS':
-            user.is_active = False
-        if roles[0].short_code == 'HOT':
-            user.is_active = True
-        user.custom_id = format_custom_id(roles[0].short_code, mobile_number)
-        user.category = roles[0].name.title()
+        user.is_active = True
+##        if roles[0].short_code != 'CUS':
+##            user.is_active = False
+##        if roles[0].short_code == 'HOT':
+##            user.is_active = True
+        # user.custom_id = format_custom_id(roles[0].short_code, mobile_number)
+        # user.category = roles[0].name.title()
         user.save()
-        user.roles.set(roles)
+        #user.roles.set(roles)
 
         return user
 
 
 class LoginSerializer(serializers.Serializer):
-    # email = serializers.EmailField()
-    mobile_number = serializers.CharField()
+    email = serializers.EmailField(required=False, allow_null=True)
+    mobile_number = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     password = serializers.CharField(write_only=True)
 
     def validate(self, validated_data):
-        # email = validated_data.get('email')
+        email = validated_data.get('email')
         mobile_number = validated_data.get('mobile_number')
         password = validated_data.get('password')
+        user = ''
 
-        # user = authenticate(username=email, password=password)
-        user = PhonePasswordAuthBackend().authenticate(mobile_number=mobile_number, password=password)
+        if email:
+            user = EmailPasswordAuthBackend().authenticate(email=email, password=password)
+        elif mobile_number:
+            user = PhonePasswordAuthBackend().authenticate(mobile_number=mobile_number, password=password)
 
         if user:
             if not user.is_active:
@@ -76,6 +90,7 @@ class LoginSerializer(serializers.Serializer):
         user = instance['user']
         ret['custom_id'] = user.custom_id
         ret['mobile_number'] = user.mobile_number
+        ret['email'] = user.email
         ret['category'] = user.category
         ret['is_active'] = user.is_active
         return ret
