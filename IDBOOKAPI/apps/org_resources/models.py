@@ -142,6 +142,8 @@ class CompanyDetail(models.Model):
     company_logo = models.URLField(blank=True)
     company_phone = models.CharField(max_length=50)
     company_email = models.CharField(max_length=50)
+    gstin_no = models.CharField(max_length=100, null=True)
+    pan_no = models.CharField(max_length=100, blank=True)
 
     full_address = models.CharField(max_length=100)
     district = models.CharField(max_length=20)

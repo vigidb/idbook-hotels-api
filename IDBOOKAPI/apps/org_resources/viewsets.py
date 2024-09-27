@@ -44,6 +44,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
             # Create a custom response
             custom_response = self.get_response(
+                status='success',
                 data=response.data,  # Use the data from the default response
                 message="CompanyDetail Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
@@ -103,6 +104,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
+                status='success',
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
 

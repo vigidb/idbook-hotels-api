@@ -27,8 +27,9 @@ class ORGMUserSerializer(serializers.ModelSerializer):
 class BusinessDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = BusinessDetail
-        fields = ('business_name','business_logo','business_phone',
-                  'business_email', 'country')
+##        fields = ('business_name','business_logo','business_phone',
+##                  'business_email', 'country')
+        exclude = ('user', )
 
     def create(self, validated_data):
         request = self.context.get('request')
