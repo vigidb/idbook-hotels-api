@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'apps.coupons',
     'apps.customer',
     'apps.org_resources',
+    'apps.org_managements',
     'apps.hotels',
     'apps.holiday_package',
 ]

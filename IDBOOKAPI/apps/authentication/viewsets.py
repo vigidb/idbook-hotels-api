@@ -14,7 +14,8 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from .models import User
-from .serializers import UserSignupSerializer, LoginSerializer
+from .serializers import (UserSignupSerializer, LoginSerializer,
+                          UserListSerializer)
 from .emails import send_welcome_email
 
 User = get_user_model()
@@ -28,22 +29,41 @@ def homepage(request):
 class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
     serializer_class = UserSignupSerializer
 
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
             user = serializer.save()
+            # userlist_serializer = UserListSerializer(user)
+            user_data = {'id': user.id,
+                         'mobile_number': user.mobile_number if user.mobile_number else '',
+                         'email': user.email if user.email else '',
+                         'name': user.get_full_name(),
+                         'roles': [],
+                         'permissions': []}
             # send welcome email to user
             # send_welcome_email(user.email)
             refresh = RefreshToken.for_user(user)
-            token = {
-                             'refresh': str(refresh),
-                             'access': str(refresh.access_token)
-                         }
+##            token = {
+##                             'refresh': str(refresh),
+##                             'access': str(refresh.access_token)
+##                         }
+            data = {'refreshToken': str(refresh),
+                    'accessToken': str(refresh.access_token),
+                    'expiresIn': 0,
+                    'user': user_data,
+                    }
+##            response = self.get_response(
+##                data=[serializer.data, token],
+##                message="User Created",
+##                status_code=status.HTTP_200_OK,
+##                )
             response = self.get_response(
-                data=[serializer.data, token],
-                message="User Created",
+                data=data,
+                status="success",
+                message="Signup successful",
                 status_code=status.HTTP_200_OK,
                 )
             self.log_response(response)  # Log the response before returning
@@ -75,15 +95,21 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
         if serializer.is_valid():
             user = serializer.validated_data['user']
             refresh = RefreshToken.for_user(user)
-            data = [serializer.data,
-                    {
-                        'refresh': str(refresh),
-                        'access': str(refresh.access_token)
-                     }
-                    ]
+##            data = [serializer.data,
+##                    {
+##                        'refresh': str(refresh),
+##                        'access': str(refresh.access_token)
+##                     }
+##                    ]
+            data = {'refreshToken': str(refresh),
+                    'accessToken': str(refresh.access_token),
+                    'expiresIn': 0,
+                    'user': serializer.data,
+                    }
             response = self.get_response(
                 data=data,
-                message="Login successfully",
+                status="success",
+                message="Login successful",
                 status_code=status.HTTP_200_OK,
                 )
             self.log_response(response)  # Log the response before returning

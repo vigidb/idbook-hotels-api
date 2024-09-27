@@ -22,8 +22,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('custom_id', 'password', 'email', 'mobile_number',
-                  'category', 'is_active', 'roles')
+        fields = ('id', 'password', 'email', 'first_name','last_name','mobile_number','roles')
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate_roles(self, value):
@@ -88,10 +87,34 @@ class LoginSerializer(serializers.Serializer):
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         user = instance['user']
-        ret['custom_id'] = user.custom_id
-        ret['mobile_number'] = user.mobile_number
-        ret['email'] = user.email
-        ret['category'] = user.category
-        ret['is_active'] = user.is_active
+        user_roles = [uroles for uroles in user.roles.values('id','name')]
+        ret['id'] = user.id
+        ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
+        ret['email'] = user.email if user.email else ''
+        ret['name'] =  user.get_full_name() #user.first_name if user.first_name else ''
+        ret['roles'] = user_roles
+        ret['permissions'] = []
+        
+        # ret['category'] = user.category
+        # ret['is_active'] = user.is_active
         return ret
 
+class UserListSerializer(serializers.Serializer):
+    class Meta:
+        model = User
+        fields = '__all__'
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        user = instance['user']
+        user_roles = [uroles for uroles in user.roles.values('id','name')]
+        ret['id'] = user.id
+        ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
+        ret['email'] = user.email if user.email else ''
+        ret['name'] = user.get_full_name()#user.first_name if user.first_name else ''
+        ret['roles'] = user_roles
+        ret['permissions'] = []
+        
+        # ret['category'] = user.category
+        # ret['is_active'] = user.is_active
+        return ret

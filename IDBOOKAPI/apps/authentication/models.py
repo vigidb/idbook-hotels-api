@@ -70,13 +70,18 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     def __str__(self):
-        return str(self.mobile_number)
+        if self.mobile_number:
+            return str(self.mobile_number)
+        else:
+            return str(self.email)
 
     def get_short_name(self):
         return self.first_name
 
     def get_full_name(self):
-        return "{} {}".format(self.first_name, self.last_name)
+        first_name = self.first_name if self.first_name else ''
+        last_name = self.last_name if self.last_name else ''
+        return "{} {}".format(first_name, last_name)
 
     def has_perm(self, perm, obj=None):
         return True

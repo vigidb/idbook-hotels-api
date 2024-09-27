@@ -8,6 +8,8 @@ CustomUser = get_user_model()
 class EmailPasswordAuthBackend(ModelBackend):
     def authenticate(self, request=None, email=None, password=None, **kwargs):
         try:
+            if not email:
+                return None
             user = CustomUser.objects.get(Q(email=email))
             if user.check_password(password):
                 return user

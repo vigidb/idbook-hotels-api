@@ -3,12 +3,12 @@ from rest_framework import status
 import logging
 
 
-def generate_response(data=None, message="", status_code='', is_error=False):
+def generate_response(data=None, message="", status_code='', is_error=False, status=''):
     if data is None:
         data = []
     response = {
-        'is_error': is_error,
-        'code': status_code,
+        'status': status,
+        # 'code': status_code,
         'message': message,
         'data': data
     }
@@ -16,8 +16,8 @@ def generate_response(data=None, message="", status_code='', is_error=False):
 
 
 class StandardResponseMixin:
-    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False):
-        return generate_response(data, message, status_code, is_error)
+    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status=''):
+        return generate_response(data, message, status_code, is_error, status)
 
 
 class LoggingMixin:

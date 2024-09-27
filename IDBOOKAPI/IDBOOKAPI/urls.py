@@ -11,6 +11,7 @@ from IDBOOKAPI.img_kit import ImagekitioService
 from apps.authentication.viewsets import homepage
 from apps.administrator.urls import router as administrator_router
 from apps.org_resources.urls import router as org_resources_router
+from apps.org_managements.urls import router as org_managements_router
 from apps.holiday_package.urls import router as holiday_package_router
 from apps.customer.urls import router as customer_router
 from apps.coupons.urls import router as coupons_router
@@ -48,6 +49,7 @@ urlpatterns = [
     # include routers
     re_path('api/v1/administrator/', include(administrator_router.urls)),
     re_path('api/v1/org-resources/', include(org_resources_router.urls)),
+    re_path('api/v1/org-managements/', include(org_managements_router.urls)),
     re_path('api/v1/holiday-package/', include(holiday_package_router.urls)),
     re_path('api/v1/customer/', include(customer_router.urls)),
     re_path('api/v1/coupons/', include(coupons_router.urls)),
