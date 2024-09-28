@@ -8,7 +8,7 @@ from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, RoomType, Occupancy, Enquiry, BankDetail,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
-    TermsAndConditions, Legality, Career, FAQs
+    TermsAndConditions, Legality, Career, FAQs, Address
 )
 
 
@@ -67,6 +67,7 @@ class BankDetailAdmin(admin.ModelAdmin):
 admin.site.register(BankDetail, BankDetailAdmin)
 
 admin.site.register(Enquiry)
+admin.site.register(Address)
 admin.site.register(AboutUs)
 admin.site.register(PrivacyPolicy)
 admin.site.register(RefundAndCancellationPolicy)
