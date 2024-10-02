@@ -23,3 +23,37 @@ class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = '__all__'
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            if instance.user:
+                name = instance.user.get_full_name()
+                email = instance.user.email if instance.user.email else ''
+                mobile_number = instance.user.mobile_number if instance.user.mobile_number else ''
+                user_details = {"name":name, "email":email, "mobile_number":mobile_number}
+                representation['user'] = user_details
+            if instance.company_user:
+                company_object = instance.company_user.company_detail.first()
+                company_details = {}
+                if company_object:
+                    company_name = company_object.company_name if company_object.company_name else ''
+                    company_phone = company_object.company_phone if company_object.company_phone else ''
+                    company_email = company_object.company_email if company_object.company_email else ''
+                    company_details = {'company_name':company_name,
+                                        'company_phone':company_phone,
+                                        'company_email':company_email}
+                    
+                if not company_object:
+                    business_object = instance.company_user.business_detail.first()
+                    if business_object:
+                        company_name = business_object.business_name if business_object.business_name else ''
+                        company_phone = business_object.business_phone if business_object.business_phone else ''
+                        company_email = business_object.business_email if business_object.business_email else ''
+                        company_details = {'company_name':company_name,
+                                           'company_phone':company_phone,
+                                           'company_email':company_email}
+                        
+                representation['company_user'] = company_details
+
+        return representation

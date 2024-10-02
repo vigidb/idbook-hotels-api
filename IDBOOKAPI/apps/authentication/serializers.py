@@ -14,8 +14,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
         validators=[
             RegexValidator(
                 regex=r'^(?=.*[a-zA-Z])(?=.*\d)(?=.*[@#$!%^&*()\-_+=])[A-Za-z\d@#$!%^&*()\-_+=]{8,}$',
-                message="""Password must be at least 8 characters long and contain at least one letter, 
-                one number, and one special character."""
+                message="""Password must be at least 8 characters long and contain at least one letter, one number, and one special character."""
             )
         ]
     )
@@ -30,19 +29,29 @@ class UserSignupSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'message': 'User role with multiple choice not allowed.'})
         return value
 
+    def validate(self, attrs):
+        email = attrs.get("email", '')
+        mobile_number = attrs.get("mobile_number", '')
+        if not email and not mobile_number:
+            raise serializers.ValidationError('Provide either mobile number or email')
+        return attrs
+            
+
+    def validate_mobile_number(self, value):
+        if value and User.objects.filter(mobile_number=value).exists():
+             raise serializers.ValidationError("Mobile number already exists.")
+        return value
+            
+
+    def validate_email(self, value):
+        if value and User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('Email already exists.')
+        return value
+
     def create(self, validated_data):
         mobile_number = validated_data.get('mobile_number')
         email = validated_data.get('email')
         # roles = validated_data.pop('roles')
-
-        if not mobile_number and not email:
-            raise serializers.ValidationError({'message': 'Provide either mobile number or email'})
-
-        if mobile_number and User.objects.filter(mobile_number=mobile_number).exists():
-            raise serializers.ValidationError({'message': 'User with this mobile number already exists.'})
-
-        if email and User.objects.filter(email=email).exists():
-            raise serializers.ValidationError({'message': 'User with this email already exists.'})
 
         user = User(**validated_data)
         user.set_password(validated_data['password'])
@@ -77,9 +86,9 @@ class LoginSerializer(serializers.Serializer):
 
         if user:
             if not user.is_active:
-                raise serializers.ValidationError('User account is disabled.')
+                raise serializers.ValidationError('account_inactive')
         else:
-            raise serializers.ValidationError('User not found or password incorrect.')
+            raise serializers.ValidationError('credentials_error')
 
         validated_data['user'] = user
         return validated_data

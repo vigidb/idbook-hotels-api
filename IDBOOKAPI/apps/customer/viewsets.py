@@ -8,6 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import (
     CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
 )
+from rest_framework.decorators import action
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from .serializers import (CustomerSerializer)
@@ -17,7 +18,8 @@ from .models import (Customer)
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
+    #permission_classes = [AnonymousCanViewOnlyPermission,]
+    permission_classes = [IsAuthenticated]
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'district', 'area_name', 'city_name', 'starting_price', 'rating',]
     http_method_names = ['get', 'post', 'put', 'patch']
@@ -135,3 +137,43 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='user-based/update', url_name='user-based-update')
+    def user_based_update(self, request):
+        user_id = request.user.id
+        instance = self.queryset.filter(user_id=user_id).first()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        if serializer.is_valid():
+            response = self.perform_update(serializer)
+            custom_response = self.get_response(
+                status='success',
+                data=serializer.data,  # Use the data from the default response
+                message="Customer Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+
+            )
+        else:
+            custom_response = self.get_response(
+                status='error',
+                data=serializer.errors,  # Use the data from the default response
+                message="Customer Updation Failed",
+                status_code=status.HTTP_400_BAD_REQUEST
+
+            )
+        
+        return custom_response
+
+    @action(detail=False, methods=['GET'], url_path='user-based/retrieve',
+            url_name='user-based-retrieve')
+    def user_based_retrieve(self, request):
+        user_id = request.user.id
+        instance = self.queryset.filter(user_id=user_id).first()
+        serializer = CustomerSerializer(instance)
+        custom_response = self.get_response(
+            status='success',
+            data=serializer.data,  # Use the data from the default response
+            message="Customer Details",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+

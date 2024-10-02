@@ -1,10 +1,14 @@
-from django.urls import path
+from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from apps.authentication.viewsets import *
+from rest_framework import routers
 
+
+router = routers.DefaultRouter()
+router.register(r'', UserCreateAPIView, basename='')
 
 urlpatterns = [
-    path('auth/signup', UserCreateAPIView.as_view(), name='signup'),
+    # path('auth/signup', UserCreateAPIView.as_view(), name='signup'),
     path('auth/login', LoginAPIView.as_view(), name='login'),
     path('auth/logout', LogoutAPIView.as_view(), name='logout'),
     path('auth/forgot-password/', ForgotPasswordAPIView.as_view(), name='forgot-password'),
@@ -14,4 +18,7 @@ urlpatterns = [
     path('auth/reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(),
          name='password_reset_confirm'),
     path('auth/reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
+    path('auth/signup/', include(router.urls)),
 ]
+
+# path('', include(router.urls)),

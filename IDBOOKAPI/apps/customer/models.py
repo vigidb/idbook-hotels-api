@@ -5,14 +5,20 @@ from IDBOOKAPI.basic_resources import GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANG
 
 
 class Customer(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="customer_profile")
-    address = models.ForeignKey(Address, on_delete=models.CASCADE, verbose_name="customer_address")
-    gender = models.CharField(max_length=10, choices=GENDER_CHOICES,
+    user = models.ForeignKey(User, on_delete=models.CASCADE,
+                             verbose_name="customer_profile")
+    company_user = models.ForeignKey(User, on_delete=models.CASCADE,
+                                     related_name="customer_cmp_profile")
+    address = models.ForeignKey(Address, on_delete=models.CASCADE, null=True, blank=True,
+                                verbose_name="customer_address")
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True,
                               help_text="Select the gender of the customer."
                               )
-    date_of_birth = models.DateField(help_text="Enter the date of birth of the customer.")
+    date_of_birth = models.DateField(null=True, blank=True,
+                                     help_text="Enter the date of birth of the customer.")
     profile_picture = models.URLField(default='')
-    id_proof_type = models.CharField(max_length=20, choices=KYC_DOCUMENT_CHOICES, blank=True, null=True,)
+    id_proof_type = models.CharField(max_length=20, choices=KYC_DOCUMENT_CHOICES,
+                                     blank=True, null=True,)
     id_proof = models.URLField(default='')
     pan_card = models.URLField(default='')
     pan_card_number = models.CharField(max_length=20, blank=True, null=True,)

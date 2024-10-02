@@ -14,9 +14,13 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from .models import User
+from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
                           UserListSerializer)
 from .emails import send_welcome_email
+
+from rest_framework.decorators import action
+from rest_framework import viewsets
 
 User = get_user_model()
 
@@ -26,8 +30,9 @@ def homepage(request):
     return HttpResponse(f"Welcome to APIs server please visit <a href='/api/v1/docs'>{HOST}/api/v1/docs</a> or <a href='/api/v1/docs2'>{HOST}/api/v1/docs2</a> ")
 
 
-class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
+class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     serializer_class = UserSignupSerializer
+    http_method_names = ['get', 'post', 'put', 'patch']
 
 
     def create(self, request, *args, **kwargs):
@@ -46,20 +51,13 @@ class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
             # send welcome email to user
             # send_welcome_email(user.email)
             refresh = RefreshToken.for_user(user)
-##            token = {
-##                             'refresh': str(refresh),
-##                             'access': str(refresh.access_token)
-##                         }
+
             data = {'refreshToken': str(refresh),
                     'accessToken': str(refresh.access_token),
                     'expiresIn': 0,
                     'user': user_data,
                     }
-##            response = self.get_response(
-##                data=[serializer.data, token],
-##                message="User Created",
-##                status_code=status.HTTP_200_OK,
-##                )
+
             response = self.get_response(
                 data=data,
                 status="success",
@@ -69,20 +67,55 @@ class UserCreateAPIView(CreateAPIView, StandardResponseMixin, LoggingMixin):
             self.log_response(response)  # Log the response before returning
             return response
         else:
+            error_list = []
             errors = serializer.errors
-            data = {
-                "password": errors.get('password', [])[0] if 'password' in errors else "",
-                "email": errors.get('email',[])[0] if 'email' in errors else "",
-                "mobile_number": errors.get('mobile_number', [])[0] if 'mobile_number' in errors else "",
-                "roles": errors.get('roles', []) if 'roles' in errors else ""
-            }
-            response = self.get_response(
-                data=[serializer.data],
-                message=data,
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                is_error=True)
+            for field_name, field_errors in serializer.errors.items():
+                for ferror in field_errors:
+                    error_list.append({"field":field_name, "message": ferror})
+
+            response = self.get_error_response(message="Signup Failed", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_401_UNAUTHORIZED)
             self.log_response(response)  # Log the response before returning
             return response
+
+    @action(detail=False, methods=['POST'], url_path='customer', url_name='customer-signup',
+            permission_classes=[IsAuthenticated])
+    def company_based_customer_signup(self, request):
+        user_id = request.user.id
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid() and user_id:
+            user_serializer = serializer.save()
+            customer_id = user_serializer.id
+            Customer.objects.create(user_id=customer_id, company_user_id=user_id)
+            
+            
+
+            data = {'user': serializer.data}
+            response = self.get_response(
+                data=data,
+                status="success",
+                message="Signup successful",
+                status_code=status.HTTP_200_OK
+                )
+            return response
+        else:
+##            response = self.get_response(
+##                status="failed",
+##                message="Sign Up Failed",
+##                status_code=status.HTTP_401_UNAUTHORIZED
+##                )
+            error_list = []
+            errors = serializer.errors
+            for field_name, field_errors in serializer.errors.items():
+                for ferror in field_errors:
+                    error_list.append({"field":field_name, "message": ferror})
+
+            response = self.get_error_response(message="Signup Failed", status="error",
+                                               errors=error_list,error_code="VALIDATION_ERROR",
+                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            return response
+        
 
 
 class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
@@ -115,12 +148,32 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
             self.log_response(response)  # Log the response before returning
             return response
         else:
+            error_list = []
+            message, error_code = "", ""
             errors = serializer.errors
-            response = self.get_response(
-                data=[serializer.data],
-                message=errors['non_field_errors'][0],
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                is_error=True)
+            for field_name, field_errors in serializer.errors.items():
+                for ferror in field_errors:
+                    if ferror == 'account_inactive':
+                        message = "Your account is locked or inactive. Please contact support."
+                        ferror = message
+                        error_code = "ACCOUNT_INACTIVE"
+                    elif ferror == 'credentials_error':
+                        message = "Invalid email or password"
+                        ferror = message
+                        error_code = "INVALID_CREDENTIALS"
+                    else:
+                        message = ferror
+                        error_code = "INVALID_CREDENTIALS"
+                    error_list.append({"field":field_name, "message": ferror})
+
+            response = self.get_error_response(message=message, status="error",
+                                                    errors=error_list,error_code=error_code,
+                                                    status_code=status.HTTP_401_UNAUTHORIZED)
+##            response = self.get_response(
+##                data=[serializer.data],
+##                message=errors['non_field_errors'][0],
+##                status_code=status.HTTP_401_UNAUTHORIZED,
+##                is_error=True)
             self.log_response(response)  # Log the response before returning
             return response
 
@@ -149,6 +202,7 @@ class LogoutAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
             )
         self.log_response(response)  # Log the response before returning
         return response
+        
 
 
 class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):

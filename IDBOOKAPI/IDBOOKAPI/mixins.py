@@ -14,10 +14,24 @@ def generate_response(data=None, message="", status_code='', is_error=False, sta
     }
     return Response(response, status=status_code)
 
+def generate_error_response(errors, message, error_code, status, status_code):
+    response = {
+        'status': status,
+        'message': message,
+        'errors': errors,
+        'errorCode':error_code
+    }
+    return Response(response, status=status_code)
+
+
 
 class StandardResponseMixin:
     def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status=''):
         return generate_response(data, message, status_code, is_error, status)
+
+    def get_error_response(self, message="", status='', errors=[],
+                           error_code="", status_code=status.HTTP_401_UNAUTHORIZED):
+        return generate_error_response(errors, message, error_code, status, status_code)
 
 
 class LoggingMixin:
