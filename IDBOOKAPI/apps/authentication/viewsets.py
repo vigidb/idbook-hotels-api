@@ -31,6 +31,7 @@ def homepage(request):
 
 
 class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = User.objects.all()
     serializer_class = UserSignupSerializer
     http_method_names = ['get', 'post', 'put', 'patch']
 
