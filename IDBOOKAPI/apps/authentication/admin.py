@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import AbstractUser, Permission
 from django.contrib.auth.admin import UserAdmin
 # from django.contrib.auth.forms import UserChangeForm, UserCreationForm
-from .models import Role
+from .models import Role, UserOtp
 
 User = get_user_model()
 
@@ -73,6 +73,7 @@ class RoleAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Role, RoleAdmin)
+admin.site.register(UserOtp)
 
 admin.site.site_title = 'IDBookHotels Admin Panel'
 admin.site.site_header = 'IDBookHotels'

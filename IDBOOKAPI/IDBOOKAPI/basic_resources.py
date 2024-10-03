@@ -1097,3 +1097,7 @@ COUNTRY_CHOICES = (
    ("INDIA", "INDIA"), ("NEPAL", "NEPAL"), ("BHUTAN", "BHUTAN"), ("CHINA", "CHINA"), ("UAE", "UAE"),
    ("MALDIVES", "MALDIVES"),
 )
+OTP_TYPE_CHOICES = (
+    ('MOBILE', 'MOBILE'),
+    ('EMAIL', 'EMAIL'),
+)

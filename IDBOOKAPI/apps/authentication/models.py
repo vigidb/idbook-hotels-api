@@ -9,6 +9,16 @@ from django.dispatch import receiver
 from django.core.validators import (EmailValidator, RegexValidator)
 from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator)
 
+from IDBOOKAPI.basic_resources import OTP_TYPE_CHOICES
+
+class UserOtp(models.Model):
+    otp = models.PositiveIntegerField(help_text="otp")
+    otp_type = models.CharField(max_length=25, choices=OTP_TYPE_CHOICES,
+                                default='EMAIL', help_text="otp generated medium")
+    user_account =  models.CharField(max_length=100, help_text="Email or Mobile Number")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
 
 class Role(models.Model):
     name = models.CharField(max_length=50, unique=True, help_text="Name of the role.")

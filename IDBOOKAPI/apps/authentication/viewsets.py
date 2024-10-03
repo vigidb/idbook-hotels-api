@@ -13,14 +13,18 @@ from rest_framework.generics import (
     CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
-from .models import User
+from IDBOOKAPI.email_utils import send_otp_email, send_password_forget_email
+from IDBOOKAPI.otp_utils import generate_otp
+from .models import User, UserOtp
 from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
                           UserListSerializer)
-from .emails import send_welcome_email
+# from .emails import send_welcome_email
 
 from rest_framework.decorators import action
 from rest_framework import viewsets
+from django.utils import timezone
+
 
 User = get_user_model()
 
@@ -34,6 +38,18 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
     http_method_names = ['get', 'post', 'put', 'patch']
+
+    def get_user_with_tokens(self, user):
+        user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
+                     'email': user.email if user.email else '', 'name': user.get_full_name(),
+                     'roles': [], 'permissions': []}
+            
+        refresh = RefreshToken.for_user(user)
+
+        data = {'refreshToken': str(refresh), 'accessToken': str(refresh.access_token),
+                'expiresIn': 0, 'user': user_data}
+
+        return data
 
 
     def create(self, request, *args, **kwargs):
@@ -101,11 +117,6 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 )
             return response
         else:
-##            response = self.get_response(
-##                status="failed",
-##                message="Sign Up Failed",
-##                status_code=status.HTTP_401_UNAUTHORIZED
-##                )
             error_list = []
             errors = serializer.errors
             for field_name, field_errors in serializer.errors.items():
@@ -116,6 +127,61 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                errors=error_list,error_code="VALIDATION_ERROR",
                                                status_code=status.HTTP_401_UNAUTHORIZED)
             return response
+
+    @action(detail=False, methods=['POST'], url_path='email/generate-otp',
+            url_name='generate-email-otp')
+    def generate_email_otp(self, request):
+        to_email = request.data.get('email', '')
+        
+        # generate otp
+        otp = generate_otp(no_digits=4)
+        # delete any previous otp for the user account
+        UserOtp.objects.filter(user_account=to_email).delete()
+        # save otp
+        UserOtp.objects.create(otp=otp, otp_type='EMAIL', user_account=to_email)
+        # send email
+        send_otp_email(otp, [to_email])
+        
+        response = self.get_response(data={}, status="success",
+                                     message="OTP Success",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+    @action(detail=False, methods=['POST'], url_path='buser/email-otp',
+            url_name='buser-email-otp-signup')
+    def email_otp_based_buser_signup(self, request):
+        email = request.data.get('email', '')
+        otp = request.data.get('otp', None)
+        
+        user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
+        if user_otp:
+            current_time = timezone.now()
+            timediff = current_time - user_otp.created
+            timediff_in_minutes = timediff.total_seconds()/60
+
+            if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+                response = self.get_response(data={}, status="sucess",
+                                     message="OTP Expired",
+                                     status_code=status.HTTP_200_OK)
+            else:
+                check_existing_user = User.objects.filter(email=email).first()
+                if check_existing_user:
+                    data = self.get_user_with_tokens(check_existing_user)
+                    response = self.get_response(data=data, status="success",
+                                                 message="Login successful",
+                                                 status_code=status.HTTP_200_OK)
+                else:
+                    new_user = User.objects.create(email=email)
+                    data = self.get_user_with_tokens(new_user)
+                    response = self.get_response(data=data, status="success",
+                                                 message="Signup successful",
+                                                 status_code=status.HTTP_200_OK)
+        else:
+            response = self.get_response(data={}, status="failed",
+                                         message="Invalid OTP",
+                                         status_code=status.HTTP_200_OK)
+        return response
+        
         
 
 
@@ -218,15 +284,18 @@ class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin)
 
                 reset_password_token = str(refresh.access_token)
                 reset_password_link = f"{settings.FRONTEND_URL}/reset-password/?token={reset_password_token}"
+                print("reset password link", reset_password_link)
+                # email reset password link
+                send_password_forget_email(reset_password_link, [email])
 
                 # Send reset password email
-                send_mail(
-                    'Reset Password',
-                    f'Click the following link to reset your password: {reset_password_link}',
-                    settings.DEFAULT_FROM_EMAIL,
-                    [email],
-                    fail_silently=False,
-                )
+##                send_mail(
+##                    'Reset Password',
+##                    f'Click the following link to reset your password: {reset_password_link}',
+##                    settings.DEFAULT_FROM_EMAIL,
+##                    [email],
+##                    fail_silently=False,
+##                )
 
             except User.DoesNotExist:
                 response = self.get_response(
@@ -246,21 +315,25 @@ class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin)
 
 
 class ResetPasswordAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    permission_classes = (IsAuthenticated,)
+    
     def post(self, request):
         self.log_request(request)  # Log the incoming request
-        token = request.data.get('token')
+        user = request.user
+        #token = request.data.get('token')
         password = request.data.get('password')
-
-        if token and password:
+        token = request.auth
+        
+        if user and password:
             try:
-                token_obj = RefreshToken(token)
-                user_id = token_obj.get('user_id')
-                user = User.objects.get(id=user_id)
+##                token_obj = RefreshToken(token)
+##                user_id = token_obj.get('user_id')
+                user = User.objects.get(id=user.id)
                 user.set_password(password)
                 user.save()
 
                 # Blacklist the token used for password reset
-                token.blacklist()
+                # token.blacklist()
                 response = self.get_response(
                     message="Password has been successfully reset.",
                     status_code=status.HTTP_200_OK,
