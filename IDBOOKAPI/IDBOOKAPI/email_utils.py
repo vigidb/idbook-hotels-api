@@ -1,5 +1,15 @@
 from django.core.mail import send_mail
 from django.conf import settings
+from django.core.validators import validate_email
+
+
+def email_validation(email):
+    try:
+        validate_email(email)
+        return True
+    except Exception as e:
+        return False
+
 
 
 def send_otp_email(otp, to_emails):

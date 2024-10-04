@@ -13,7 +13,8 @@ from rest_framework.generics import (
     CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
-from IDBOOKAPI.email_utils import send_otp_email, send_password_forget_email
+from IDBOOKAPI.email_utils import (send_otp_email, send_password_forget_email,
+                                   email_validation)
 from IDBOOKAPI.otp_utils import generate_otp
 from .models import User, UserOtp
 from apps.customer.models import Customer
@@ -131,55 +132,89 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     @action(detail=False, methods=['POST'], url_path='email/generate-otp',
             url_name='generate-email-otp')
     def generate_email_otp(self, request):
-        to_email = request.data.get('email', '')
+        try:
+            to_email = request.data.get('email', '')
+            valid = email_validation(to_email)
+            if not valid:
+                response = self.get_error_response(message="Invalid Email", status="error",
+                                                   errors=[], error_code="INVALID_EMAIL",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+            
+            # generate otp
+            otp = generate_otp(no_digits=4)
+            # delete any previous otp for the user account
+            UserOtp.objects.filter(user_account=to_email).delete()
+            # save otp
+            UserOtp.objects.create(otp=otp, otp_type='EMAIL', user_account=to_email)
+            # send email
+            send_otp_email(otp, [to_email])
+            
+            response = self.get_response(data={}, status="success",
+                                         message="OTP Success",
+                                         status_code=status.HTTP_200_OK)
+        except Exception as e:
+            print(e)
+            response = self.get_error_response(message="Internal server error. Please try again later.",
+                                               status="error",
+                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # generate otp
-        otp = generate_otp(no_digits=4)
-        # delete any previous otp for the user account
-        UserOtp.objects.filter(user_account=to_email).delete()
-        # save otp
-        UserOtp.objects.create(otp=otp, otp_type='EMAIL', user_account=to_email)
-        # send email
-        send_otp_email(otp, [to_email])
-        
-        response = self.get_response(data={}, status="success",
-                                     message="OTP Success",
-                                     status_code=status.HTTP_200_OK)
         return response
 
     @action(detail=False, methods=['POST'], url_path='buser/email-otp',
             url_name='buser-email-otp-signup')
     def email_otp_based_buser_signup(self, request):
-        email = request.data.get('email', '')
-        otp = request.data.get('otp', None)
-        
-        user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
-        if user_otp:
-            current_time = timezone.now()
-            timediff = current_time - user_otp.created
-            timediff_in_minutes = timediff.total_seconds()/60
+        try:
+            email = request.data.get('email', '')
+            otp = request.data.get('otp', None)
 
-            if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-                response = self.get_response(data={}, status="sucess",
-                                     message="OTP Expired",
-                                     status_code=status.HTTP_200_OK)
-            else:
-                check_existing_user = User.objects.filter(email=email).first()
-                if check_existing_user:
-                    data = self.get_user_with_tokens(check_existing_user)
-                    response = self.get_response(data=data, status="success",
-                                                 message="Login successful",
-                                                 status_code=status.HTTP_200_OK)
+            valid = email_validation(email)
+            if not valid:
+                response = self.get_error_response(message="Invalid Email", status="error",
+                                                   errors=[], error_code="INVALID_EMAIL",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+            if not otp:
+                response = self.get_error_response(message="OTP Missing", status="error",
+                                                   errors=[], error_code="OTP_MISSING",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+            
+            user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
+            if user_otp:
+                current_time = timezone.now()
+                timediff = current_time - user_otp.created
+                timediff_in_minutes = timediff.total_seconds()/60
+
+                if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+                    response = self.get_error_response(message="OTP Expired", status="error",
+                                                   errors=[], error_code="OTP_EXPIRED",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
                 else:
-                    new_user = User.objects.create(email=email)
-                    data = self.get_user_with_tokens(new_user)
-                    response = self.get_response(data=data, status="success",
-                                                 message="Signup successful",
-                                                 status_code=status.HTTP_200_OK)
-        else:
-            response = self.get_response(data={}, status="failed",
-                                         message="Invalid OTP",
-                                         status_code=status.HTTP_200_OK)
+                    check_existing_user = User.objects.filter(email=email).first()
+                    if check_existing_user:
+                        data = self.get_user_with_tokens(check_existing_user)
+                        response = self.get_response(data=data, status="success",
+                                                     message="Login successful",
+                                                     status_code=status.HTTP_200_OK)
+                    else:
+                        new_user = User.objects.create(email=email)
+                        data = self.get_user_with_tokens(new_user)
+                        response = self.get_response(data=data, status="success",
+                                                     message="Signup successful",
+                                                     status_code=status.HTTP_200_OK)
+            else:
+                response = self.get_error_response(message="Invalid Credentials", status="error",
+                                                   errors=[], error_code="INVALID_CREDENTIALS",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+        except Exception as e:
+            print(e)
+            response = self.get_error_response(message="Internal server error. Please try again later.",
+                                               status="error",
+                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
         return response
         
         
