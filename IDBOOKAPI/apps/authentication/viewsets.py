@@ -14,7 +14,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.email_utils import (send_otp_email, send_password_forget_email,
-                                   email_validation)
+                                   email_validation, get_domain)
 from IDBOOKAPI.otp_utils import generate_otp
 from .models import User, UserOtp
 from apps.customer.models import Customer
@@ -25,6 +25,8 @@ from .serializers import (UserSignupSerializer, LoginSerializer,
 from rest_framework.decorators import action
 from rest_framework import viewsets
 from django.utils import timezone
+
+from apps.org_managements.utils import get_domain_business_details
 
 
 User = get_user_model()
@@ -100,14 +102,18 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     @action(detail=False, methods=['POST'], url_path='customer', url_name='customer-signup',
             permission_classes=[IsAuthenticated])
     def company_based_customer_signup(self, request):
-        user_id = request.user.id
+        user = request.user
+        user_id = user.id
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid() and user_id:
             user_serializer = serializer.save()
+            user_serializer.company_id = user.company_id
+            user_serializer.category = 'CL_CUST'
+            user_serializer.save()
+            
             customer_id = user_serializer.id
-            Customer.objects.create(user_id=customer_id, company_user_id=user_id)
-            
-            
+            Customer.objects.create(user_id=customer_id, added_user=user)
+    
 
             data = {'user': serializer.data}
             response = self.get_response(
@@ -168,6 +174,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         try:
             email = request.data.get('email', '')
             otp = request.data.get('otp', None)
+            business_id, category = "", ""
 
             valid = email_validation(email)
             if not valid:
@@ -180,6 +187,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                    errors=[], error_code="OTP_MISSING",
                                                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
                 return response
+
+            
             
             user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
             if user_otp:
@@ -199,7 +208,13 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                      message="Login successful",
                                                      status_code=status.HTTP_200_OK)
                     else:
-                        new_user = User.objects.create(email=email)
+                        domain_name = get_domain(email)
+                        if domain_name == 'idbookhotels.com':
+                            bdetails = get_domain_business_details(domain_name)
+                            if bdetails:
+                                business_id = bdetails.id
+                                category = "B_USR"
+                        new_user = User.objects.create(email=email, business_id=business_id, category=category)
                         data = self.get_user_with_tokens(new_user)
                         response = self.get_response(data=data, status="success",
                                                      message="Signup successful",

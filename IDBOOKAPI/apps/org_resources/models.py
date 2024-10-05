@@ -136,12 +136,15 @@ class BankDetail(models.Model):
 
 
 class CompanyDetail(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
+    #user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
+    added_user = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   related_name='company_list', null=True, blank=True)
 
     company_name = models.CharField(max_length=50)
     company_logo = models.URLField(blank=True)
     company_phone = models.CharField(max_length=50)
     company_email = models.CharField(max_length=50)
+    domain_name = models.CharField(max_length=50, blank=True, null=True)
     gstin_no = models.CharField(max_length=100, null=True)
     pan_no = models.CharField(max_length=100, blank=True)
 

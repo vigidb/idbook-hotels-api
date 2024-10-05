@@ -32,7 +32,8 @@ from .serializers import UserSerializer, RoleSerializer, PermissionSerializer
 class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [HasRoleModelPermission]
+    # permission_classes = [HasRoleModelPermission]
+    permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'put', 'patch']
     lookup_field = 'mobile_number'
 
@@ -111,6 +112,9 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        category = request.GET.get('category', '')
+        if category:
+            self.queryset = self.queryset.filter(category=category)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -160,6 +164,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
 
 
 class RoleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

@@ -11,6 +11,7 @@ class BusinessDetail(models.Model):
      business_logo = models.URLField(blank=True)
      business_phone = models.CharField(max_length=50, blank=True, null=True)
      business_email = models.CharField(max_length=50, blank=True, null=True)
+     domain_name = models.CharField(max_length=50, blank=True, null=True)
      full_address = models.CharField(max_length=100, blank=True, null=True)
      gstin_no = models.CharField(max_length=100, blank=True, null=True)
      pan_no = models.CharField(max_length=100, blank=True, null=True)

@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import Permission, Group
 from django.contrib.auth import authenticate
 from IDBOOKAPI.img_kit import upload_media_to_bucket
+from apps.authentication.models import User
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality, Career, FAQs, UploadedMedia
@@ -11,7 +12,39 @@ from .models import (
 class CompanyDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompanyDetail
-        fields = '__all__'
+        exclude = ('added_user', )
+
+    def validate_company_email(self, value):
+        if not value:
+             raise serializers.ValidationError(
+                 {'message': 'Company email missing'})
+        if value:
+            company_detail = CompanyDetail.objects.filter(company_email=value).first()
+            if company_detail:
+                raise serializers.ValidationError(
+                 {'message': 'Company email alredy present'})
+        return value
+            
+
+    def create(self, validated_data):
+        try:
+            request = self.context.get('request')
+            company_email = validated_data.get('company_email', '')
+            print("company email::", company_email)
+            company_detail = CompanyDetail(**validated_data)
+            company_detail.added_user = request.user
+            company_detail.save()
+            user = User.objects.filter(email=company_email).first()
+            if not user:
+                User.objects.create(email=company_email, category='CL_ADMIN',
+                                    company_id=company_detail.id)
+            else:
+                user.category='CL_ADMIN'
+                user.company_id=company_detail.id
+            return company_detail
+        except Exception as e:
+            raise serializers.ValidationError(
+                {'message': 'Internal Server Error'})          
 
 
 class UploadedMediaSerializer(serializers.ModelSerializer):

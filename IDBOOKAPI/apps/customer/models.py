@@ -6,9 +6,10 @@ from IDBOOKAPI.basic_resources import GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANG
 
 class Customer(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE,
-                             verbose_name="customer_profile")
-    company_user = models.ForeignKey(User, on_delete=models.CASCADE,
-                                     related_name="customer_cmp_profile")
+                             verbose_name="customer_profile",
+                             help_text="user profile in user table")
+    added_user = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   related_name="customer_profiles", null=True,blank=True)
     address = models.ForeignKey(Address, on_delete=models.CASCADE, null=True, blank=True,
                                 verbose_name="customer_address")
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True,

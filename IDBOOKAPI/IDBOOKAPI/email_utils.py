@@ -10,7 +10,14 @@ def email_validation(email):
     except Exception as e:
         return False
 
-
+def get_domain(email):
+    domain_name = ""
+    if email:
+        try:
+            domain_name = email[email.index('@') + 1 : ]
+        except Exception as e:
+            print(e)
+    return domain_name
 
 def send_otp_email(otp, to_emails):
     subject = 'Idbook Sign Up Verification Code'

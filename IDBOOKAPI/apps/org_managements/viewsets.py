@@ -70,12 +70,15 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
             )
         else:
             # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+##            custom_response = self.get_response(
+##                data=serializer.errors,  # Use the serializer's error details
+##                message="Validation Error",
+##                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
+##                is_error=True
+##            )
+            custom_response = self.get_error_response(message="Validation error", status="error",
+                                               errors=serializer.errors,error_code="VALIDATION_ERROR",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
