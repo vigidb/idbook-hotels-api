@@ -213,8 +213,12 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                             bdetails = get_domain_business_details(domain_name)
                             if bdetails:
                                 business_id = bdetails.id
-                                category = "B_USR"
-                        new_user = User.objects.create(email=email, business_id=business_id, category=category)
+                        if business_id:
+                            category = "B_USR"
+                            new_user = User.objects.create(email=email, business_id=business_id, category=category)
+                        else:
+                            category = "B_CUST"
+                            new_user = User.objects.create(email=email, category=category)
                         data = self.get_user_with_tokens(new_user)
                         response = self.get_response(data=data, status="success",
                                                      message="Signup successful",
