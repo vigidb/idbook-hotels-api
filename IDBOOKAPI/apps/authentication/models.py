@@ -11,6 +11,7 @@ from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator)
 
 from IDBOOKAPI.basic_resources import OTP_TYPE_CHOICES
 
+
 class UserOtp(models.Model):
     otp = models.PositiveIntegerField(help_text="otp")
     otp_type = models.CharField(max_length=25, choices=OTP_TYPE_CHOICES,
@@ -50,7 +51,8 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    roles = models.ManyToManyField('Role', related_name='user_role', blank=True, help_text="Select roles associated with this user.")
+    roles = models.ManyToManyField('Role', related_name='user_role', blank=True,
+                                   help_text="Select roles associated with this user.")
     email = models.EmailField(db_index=True, validators=[EmailValidator],
                               null=True, blank=True, help_text="Email address of the user.")
     mobile_number = models.CharField(max_length=10, db_index=True, blank=True, null=True,
@@ -63,6 +65,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     referral = models.CharField(max_length=120, blank=True, help_text="Referral code associated with the user.")
     custom_id = models.CharField(max_length=15, blank=True, db_index=True, help_text="Custom ID for the user.")
     category = models.CharField(max_length=20, blank=True, help_text="Category of the user.")
+    business_id = models.BigIntegerField(null=True, blank=True, help_text="Business detail id")
+    company_id = models.BigIntegerField(null=True, blank=True, help_text="company detail id")
 
     email_verified = models.BooleanField(default=False, help_text="Whether the user's email address is verified.")
     mobile_verified = models.BooleanField(default=False, help_text="Whether the user's mobile number is verified.")

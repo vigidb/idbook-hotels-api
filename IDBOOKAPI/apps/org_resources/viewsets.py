@@ -27,7 +27,7 @@ from IDBOOKAPI.basic_resources import DISTRICT_DATA
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
     serializer_class = CompanyDetailSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
+    permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'put', 'patch']
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
