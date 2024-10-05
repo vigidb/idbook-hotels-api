@@ -27,6 +27,7 @@ from rest_framework import viewsets
 from django.utils import timezone
 
 from apps.org_managements.utils import get_domain_business_details
+from apps.authentication.tasks import send_email_task
 
 
 User = get_user_model()
@@ -154,7 +155,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             # save otp
             UserOtp.objects.create(otp=otp, otp_type='EMAIL', user_account=to_email)
             # send email
-            send_otp_email(otp, [to_email])
+            # send_otp_email(otp, [to_email])
+            send_email_task.apply_async(args=[otp, [to_email]])
             
             response = self.get_response(data={}, status="success",
                                          message="OTP Success",
