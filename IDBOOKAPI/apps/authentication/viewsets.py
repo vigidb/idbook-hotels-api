@@ -62,11 +62,14 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         if serializer.is_valid():
             user = serializer.save()
+            customer_id = user.id
+            Customer.objects.create(user_id=customer_id, active=True)
             # userlist_serializer = UserListSerializer(user)
             user_data = {'id': user.id,
                          'mobile_number': user.mobile_number if user.mobile_number else '',
                          'email': user.email if user.email else '',
                          'name': user.get_full_name(),
+                         'category': user.category,
                          'roles': [],
                          'permissions': []}
             # send welcome email to user
@@ -109,7 +112,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if serializer.is_valid() and user_id:
             user_serializer = serializer.save()
             user_serializer.company_id = user.company_id
-            user_serializer.category = 'CL_CUST'
+            user_serializer.category = 'CL-CUST'
             user_serializer.save()
             
             customer_id = user_serializer.id
@@ -216,10 +219,10 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                             if bdetails:
                                 business_id = bdetails.id
                         if business_id:
-                            category = "B_USR"
+                            category = "B-USR"
                             new_user = User.objects.create(email=email, business_id=business_id, category=category)
                         else:
-                            category = "B_CUST"
+                            category = "B-CUST"
                             new_user = User.objects.create(email=email, category=category)
                         data = self.get_user_with_tokens(new_user)
                         response = self.get_response(data=data, status="success",
@@ -409,6 +412,25 @@ class ResetPasswordAPIView(APIView, StandardResponseMixin, LoggingMixin):
             status_code=status.HTTP_400_BAD_REQUEST,
             is_error=True)
         self.log_response(response)  # Log the response before returning
+        return response
+
+
+class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = User.objects.all()
+    serializer_class = UserListSerializer
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    @action(detail=False, methods=['GET'], url_path='detail',
+            permission_classes=[IsAuthenticated],
+            url_name='user-profile-detail')
+    def get_user_profile_detail(self, request):
+
+        user = request.user
+        #print("customer profile", user.customer_profile.all())
+        userlist_serializer = UserListSerializer(user)
+        response = self.get_response(data=userlist_serializer.data, status="success",
+                                     message="Profile Retrieved",
+                                     status_code=status.HTTP_200_OK)
         return response
 
 

@@ -19,6 +19,10 @@ from apps.org_resources.models import *
 # from payment_gateways.models import *
 from IDBOOKAPI.utils import format_custom_id
 
+class CustomerProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Customer
+        fields = '__all__'
 
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:

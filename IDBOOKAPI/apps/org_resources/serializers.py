@@ -30,17 +30,17 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
         try:
             request = self.context.get('request')
             company_email = validated_data.get('company_email', '')
+            company_phone = validated_data.get('company_phone', '')
             print("company email::", company_email)
             company_detail = CompanyDetail(**validated_data)
-            company_detail.added_user = request.user
+
+##            try:
+##                if request.user:
+##                    company_detail.added_user = request.user
+##            except Exception as e:
+##                print("Added User Empty for Company Create", e)
+                
             company_detail.save()
-            user = User.objects.filter(email=company_email).first()
-            if not user:
-                User.objects.create(email=company_email, category='CL_ADMIN',
-                                    company_id=company_detail.id)
-            else:
-                user.category='CL_ADMIN'
-                user.company_id=company_detail.id
             return company_detail
         except Exception as e:
             raise serializers.ValidationError(

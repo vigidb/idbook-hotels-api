@@ -7,6 +7,13 @@ from .email_authentication  import EmailPasswordAuthBackend
 from django.contrib.auth import authenticate
 from IDBOOKAPI.utils import format_custom_id
 
+from apps.customer.serializers import CustomerProfileSerializer
+from apps.org_resources.serializers import CompanyDetailSerializer
+from apps.org_managements.serializers import BusinessDetailSerializer
+from apps.org_managements.utils import get_business_details
+from apps.org_resources.db_utils import get_company_details
+
+
 
 class UserSignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -21,7 +28,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'password', 'email', 'first_name','last_name','mobile_number','roles')
+        fields = ('id', 'password', 'email', 'name','mobile_number','roles')
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate_roles(self, value):
@@ -37,10 +44,10 @@ class UserSignupSerializer(serializers.ModelSerializer):
         return attrs
             
 
-    def validate_mobile_number(self, value):
-        if value and User.objects.filter(mobile_number=value).exists():
-             raise serializers.ValidationError("Mobile number already exists.")
-        return value
+##    def validate_mobile_number(self, value):
+##        if value and User.objects.filter(mobile_number=value).exists():
+##             raise serializers.ValidationError("Mobile number already exists.")
+##        return value
             
 
     def validate_email(self, value):
@@ -56,6 +63,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
         user = User(**validated_data)
         user.set_password(validated_data['password'])
         user.is_active = True
+        user.category = 'B-CUST'
 ##        if roles[0].short_code != 'CUS':
 ##            user.is_active = False
 ##        if roles[0].short_code == 'HOT':
@@ -103,10 +111,13 @@ class LoginSerializer(serializers.Serializer):
         ret['name'] =  user.get_full_name() #user.first_name if user.first_name else ''
         ret['roles'] = user_roles
         ret['permissions'] = []
+        ret['business_id'] = user.business_id if user.business_id else ''
+        ret['company_id'] = user.company_id if user.company_id else ''
         
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
         return ret
+
 
 class UserListSerializer(serializers.Serializer):
     class Meta:
@@ -115,14 +126,40 @@ class UserListSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        user = instance['user']
+        user = instance
+        user_category = user.category
+        
+        business_id, company_id  = user.business_id, user.company_id
+        business_data, company_data = {}, {}
+        customer_data = {}
+        
+        customer = user.customer_profile.all().first()
+        if customer:
+            customer_serializer = CustomerProfileSerializer(customer)
+            customer_data = customer_serializer.data
+
+        if business_id:
+            business_details = get_business_details(business_id)
+            business_serializer = BusinessDetailSerializer(business_details)
+            business_data = business_serializer.data
+
+        if company_id:
+            company_details = get_company_details(company_id)
+            company_serializer = CompanyDetailSerializer(company_details)
+            company_data = company_serializer.data
+            
+        
         user_roles = [uroles for uroles in user.roles.values('id','name')]
         ret['id'] = user.id
         ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
         ret['email'] = user.email if user.email else ''
-        ret['name'] = user.get_full_name()#user.first_name if user.first_name else ''
+        ret['name'] = user.get_full_name()
         ret['roles'] = user_roles
         ret['permissions'] = []
+        ret['category'] = user_category
+        ret['customer_details'] = customer_data
+        ret['business_details'] = business_data
+        ret['company_details'] = company_data
         
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
