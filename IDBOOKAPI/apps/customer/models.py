@@ -6,10 +6,12 @@ from IDBOOKAPI.basic_resources import GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANG
 
 class Customer(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE,
+                             related_name="customer_profile",
                              verbose_name="customer_profile",
                              help_text="user profile in user table")
     added_user = models.ForeignKey(User, on_delete=models.CASCADE,
-                                   related_name="customer_profiles", null=True,blank=True)
+                                   related_name="customer_profiles", null=True,blank=True,
+                                   help_text="Confirmed / Added User")
     address = models.ForeignKey(Address, on_delete=models.CASCADE, null=True, blank=True,
                                 verbose_name="customer_address")
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True,
@@ -44,4 +46,4 @@ class Customer(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.first_name} {self.user.last_name}"
+        return f"{self.user.email}"

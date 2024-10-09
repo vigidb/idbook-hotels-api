@@ -157,6 +157,7 @@ class CompanyDetail(models.Model):
     location = models.CharField(max_length=255, help_text="Google map URL")
     latitude = models.FloatField(default=0, help_text="Latitude")
     longitude = models.FloatField(default=0, help_text="Longitude")
+    approved = models.BooleanField(default=False)
 
 
 class UploadedMedia(models.Model):

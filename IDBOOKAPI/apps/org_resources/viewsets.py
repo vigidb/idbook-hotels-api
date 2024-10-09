@@ -22,12 +22,16 @@ from .models import (
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality, Career, FAQs, UploadedMedia
 )
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
+from apps.authentication.models import User
+
+from rest_framework import decorators
 
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
     serializer_class = CompanyDetailSerializer
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
+    permission_classes = []
     http_method_names = ['get', 'post', 'put', 'patch']
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
@@ -40,12 +44,38 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
-            response = super().create(request, *args, **kwargs)
+            company_detail = serializer.save()
+            #response = super().create(request, *args, **kwargs)
+
+            # create or update user based on company email
+            user = User.objects.filter(email=company_detail.company_email).first()
+            if not user:
+                user = User.objects.create(email=company_detail.company_email, category='CL-ADMIN',
+                                           company_id=company_detail.id)
+            else:
+                user.category='CL-ADMIN'
+                user.company_id=company_detail.id
+                user.save()
+
+            if user:
+                refresh = RefreshToken.for_user(user)
+
+                data = {'refreshToken': str(refresh),
+                        'accessToken': str(refresh.access_token),
+                        'expiresIn': 0,
+                        'company': serializer.data,
+                        }
+            else:
+                data = {'refreshToken': "",
+                        'accessToken': "",
+                        'expiresIn': 0,
+                        'company': serializer.data,
+                        }
 
             # Create a custom response
             custom_response = self.get_response(
                 status='success',
-                data=response.data,  # Use the data from the default response
+                data=data,  # Use the data from the default response
                 message="CompanyDetail Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
 
@@ -121,6 +151,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    #@decorators.action(permission_classes=[IsAuthenticated])
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 

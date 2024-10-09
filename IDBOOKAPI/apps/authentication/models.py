@@ -59,6 +59,7 @@ class User(AbstractBaseUser, PermissionsMixin):
                                      validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
                                                                 message='Enter a valid phone number')],
                                      help_text="Mobile number of the user (10 digits only).")
+    name = models.CharField(max_length=30, null=True, blank=True, help_text="Name of the user.")
     first_name = models.CharField(max_length=30, null=True, blank=True, help_text="First name of the user.")
     last_name = models.CharField(max_length=30, null=True, blank=True, help_text="Last name of the user.")
 
@@ -84,18 +85,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     def __str__(self):
-        if self.mobile_number:
+        if self.email:
+            return str(self.email)
+        elif self.mobile_number:
             return str(self.mobile_number)
         else:
-            return str(self.email)
-
+            return str(self.id)
+    
     def get_short_name(self):
         return self.first_name
 
     def get_full_name(self):
-        first_name = self.first_name if self.first_name else ''
-        last_name = self.last_name if self.last_name else ''
-        return "{} {}".format(first_name, last_name)
+        name = self.name if self.name else ''
+        return name
 
     def has_perm(self, perm, obj=None):
         return True
