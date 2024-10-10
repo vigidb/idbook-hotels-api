@@ -13,6 +13,8 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from .serializers import (BookingSerializer, AppliedCouponSerializer)
 from .models import (Booking, AppliedCoupon)
 
+from apps.booking.tasks import send_booking_email_task
+
 
 class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Booking.objects.all()
@@ -34,6 +36,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
+
+            send_booking_email_task.apply_async(args=[1])
 
             # Create a custom response
             custom_response = self.get_response(

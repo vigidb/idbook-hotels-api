@@ -5,11 +5,17 @@ from django.db import models
 from decimal import Decimal
 from django.urls import reverse
 from django.db.models.signals import post_save, pre_save
+
 from apps.coupons.models import Coupon
 from apps.authentication.models import User
 from apps.hotels.models import Property, Room
 from apps.customer.models import Customer
-from IDBOOKAPI.basic_resources import BOOKING_STATUS_CHOICES, TIME_SLOTS, ROOM_CHOICES
+from apps.holiday_package.models import TourPackage
+
+from IDBOOKAPI.basic_resources import (
+    BOOKING_STATUS_CHOICES, TIME_SLOTS,
+    ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
+    FLIGHT_TRIP, FLIGHT_CLASS)
 
 
 # class BookingManager(models.Manager):
@@ -26,24 +32,101 @@ from IDBOOKAPI.basic_resources import BOOKING_STATUS_CHOICES, TIME_SLOTS, ROOM_C
 #             pass
 #         return obj, created
 
+class HotelBooking(models.Model):
+    enquired_property = models.CharField(max_length=255, null=True, blank=True)
+    confirmed_property = models.ForeignKey(Property, on_delete=models.DO_NOTHING,
+                                           null=True, blank=True,
+                                           verbose_name="booking_property")
+    room = models.ForeignKey(Room, on_delete=models.DO_NOTHING,
+                             null=True, blank=True,
+                             verbose_name="booking_room")
+    booking_slot = models.CharField(max_length=25, choices=TIME_SLOTS,
+                                    default='24 HOURS', help_text="booking type.")
+    
+    room_type = models.CharField(max_length=25, choices=ROOM_CHOICES,
+                                 default='DELUXE', help_text="booked room type.")
+    checkin_time = models.DateField(auto_now=False, auto_now_add=False,
+                                    blank=True, null=True,
+                                    help_text="Check-in time for the property.")
+    checkout_time = models.DateField(auto_now=False, auto_now_add=False,
+                                     blank=True, null=True,
+                                     help_text="Check-out time for the property.")
+    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")    
+ 
+
+class HolidayPackageBooking(models.Model):
+    enquired_holiday_package = models.CharField(max_length=255, null=True, blank=True)
+    confirmed_holiday_package = models.ForeignKey(TourPackage, on_delete=models.DO_NOTHING,
+                                                  null=True, blank=True, verbose_name="holiday_package")
+
+
+class VehicleBooking(models.Model):
+    pickup_addr = models.CharField(max_length=255, null=True, blank=True)
+    dropoff_addr = models.CharField(max_length=255, null=True, blank=True)
+    pickup_time = models.DateField(auto_now=False, auto_now_add=False,
+                                   blank=True, null=True, help_text="Pickup date and time")
+    vehicle_type = models.CharField(max_length=25, choices=VEHICLE_TYPE,
+                                    default='CAR', help_text="vehicle type.")
+
+    def __str__(self):
+        return str(self.id)
+
+    class Meta:
+        verbose_name_plural = 'VehicleBookings'
+    
+
+class FlightBooking(models.Model):
+    flight_trip = models.CharField(max_length=25, choices=FLIGHT_TRIP,
+                                   default='ROUND', help_text="flight trip (one-way or round).")
+    flight_class  = models.CharField(max_length=25, choices=FLIGHT_CLASS,
+                                   default='ECONOMY', help_text="flight class")
+    departure_date = models.DateField(auto_now=False, auto_now_add=False,
+                                      blank=True, null=True, help_text="Departure Date")
+    return_date = models.DateField(auto_now=False, auto_now_add=False,
+                                   blank=True, null=True,
+                                    help_text="Return Date")
+    flying_from = models.CharField(max_length=255, null=True, blank=True)
+    flying_to = models.CharField(max_length=255, null=True, blank=True)
+    
+    def __str__(self):
+        return str(self.id)
+
+    class Meta:
+        verbose_name_plural = 'FlightBookings'
+    
+
 
 class Booking(models.Model):
-    property = models.ForeignKey(Property, on_delete=models.DO_NOTHING, verbose_name="booking_property")
-    room = models.ForeignKey(Room, on_delete=models.DO_NOTHING, verbose_name="booking_room")
-    user = models.ForeignKey(User, on_delete=models.DO_NOTHING, verbose_name="booking_user")
-    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, verbose_name="booking_coupon")
 
-    booking_type = models.CharField(max_length=25, choices=TIME_SLOTS, default='24 HOURS', help_text="booking type.")
-    room_type = models.CharField(max_length=25, choices=ROOM_CHOICES, default='DELUXE', help_text="booked room type.")
-    checkin_time = models.DateField(auto_now=False, auto_now_add=False, help_text="Check-in time for the property.")
-    checkout_time = models.DateField(auto_now=False, auto_now_add=False, help_text="Check-out time for the property.")
-    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
-    person_capacity = models.PositiveSmallIntegerField(default=1, help_text="adults count")
-    child_capacity = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    user = models.ForeignKey(User, on_delete=models.DO_NOTHING,
+                             null=True, blank=True,
+                             verbose_name="booking_user")
 
-    deal_price = models.DecimalField(max_digits=10, decimal_places=2)
+    booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
+                                    default='HOTEL', help_text="booking type.")
+    hotel_booking = models.ForeignKey(HotelBooking, on_delete=models.DO_NOTHING,
+                                      null=True, blank=True,
+                                      verbose_name="hotel_booking")
+    holiday_package_booking = models.ForeignKey(HolidayPackageBooking, on_delete=models.DO_NOTHING,
+                                                null=True, blank=True,
+                                                verbose_name="hotel_package_booking")
+    vehicle_booking = models.ForeignKey(VehicleBooking, on_delete=models.DO_NOTHING,
+                                        null=True, blank=True, verbose_name="vehicle_booking")
+    flight_booking = models.ForeignKey(FlightBooking, on_delete=models.DO_NOTHING,
+                                        null=True, blank=True, verbose_name="flight_booking")
+    
+
+    adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
+    child_count = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    infant_count = models.PositiveSmallIntegerField(default=0, help_text="infant count")
+
+    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL,
+                               null=True, blank=True,
+                               verbose_name="booking_coupon")
+
+    deal_price = models.DecimalField(default=0, max_digits=10, decimal_places=2)
     discount = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
-    final_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    final_amount = models.DecimalField(default=0, max_digits=10, decimal_places=2)
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
 
     active = models.BooleanField(default=True)
@@ -51,6 +134,14 @@ class Booking(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     # objects = BookingManager()
+
+class HolidayPackageHotelDetail(models.Model):
+    hotel_booking = models.ForeignKey(HotelBooking, on_delete=models.DO_NOTHING,
+                                 null=True, blank=True,
+                                 verbose_name="hotel_booking")
+    holiday_package_booking = models.ForeignKey(HolidayPackageBooking, on_delete=models.DO_NOTHING,
+                                 null=True, blank=True,
+                                 verbose_name="holiday_package_booking")
 
 
 class AppliedCoupon(models.Model):

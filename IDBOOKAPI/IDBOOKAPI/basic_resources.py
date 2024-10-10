@@ -25,6 +25,30 @@ BED_TYPE_CHOICES = (
     ('SINGLE', 'SINGLE'),
 )
 
+BOOKING_TYPE = (
+    ('HOLIDAYPACK', 'HOLIDAYPACK'),
+    ('HOTEL', 'HOTEL'),
+    ('VEHICLE', 'VEHICLE'),
+    ('FLIGHT', 'FLIGHT'),
+)
+
+VEHICLE_TYPE = (
+    ('CAR', 'CAR'),
+    ('TRAVELLER', 'TRAVELLER'),
+    ('BUS', 'BUS')
+)
+
+FLIGHT_TRIP = (
+    ('ONE-WAY', 'ONE-WAY'),
+    ('ROUND', 'ROUND'),
+)
+
+FLIGHT_CLASS = (
+    ('ECONOMY', 'ECONOMY'),
+    ('BUSINESS', 'BUSINESS'),
+    ('FIRST', 'FIRST'),
+) 
+
 TIME_SLOTS = (
     ('4 HOURS', 4),
     ('8 HOURS', 8),
