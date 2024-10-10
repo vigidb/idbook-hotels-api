@@ -13,8 +13,10 @@ app.autodiscover_tasks()
 #app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
 
 email_send_queue = "email-send-queue"
+email_booking_queue = "email-booking-queue"
 app.conf.task_routes = {
     'apps.authentication.tasks.send_email_task': {'queue': email_send_queue},
+    'apps.booking.tasks.send_booking_email_task': {'queue': email_send_queue}
 }
 
 

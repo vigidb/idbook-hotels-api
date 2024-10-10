@@ -172,12 +172,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return response
+    
 
     @action(detail=False, methods=['POST'], url_path='buser/email-otp',
             url_name='buser-email-otp-signup')
     def email_otp_based_buser_signup(self, request):
         try:
             email = request.data.get('email', '')
+            mobile_number = request.data.get('mobile_number', '')
+            name = request.data.get('name', '')
             otp = request.data.get('otp', None)
             business_id, category = "", ""
 
@@ -220,10 +223,13 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                 business_id = bdetails.id
                         if business_id:
                             category = "B-USR"
-                            new_user = User.objects.create(email=email, business_id=business_id, category=category)
+                            new_user = User.objects.create(name=name, email=email, mobile_number=mobile_number,
+                                                           business_id=business_id, category=category)
                         else:
                             category = "B-CUST"
-                            new_user = User.objects.create(email=email, category=category)
+                            new_user = User.objects.create(name=name, email=email,
+                                                           mobile_number=mobile_number,
+                                                           category=category)
                         data = self.get_user_with_tokens(new_user)
                         response = self.get_response(data=data, status="success",
                                                      message="Signup successful",
@@ -380,20 +386,31 @@ class ResetPasswordAPIView(APIView, StandardResponseMixin, LoggingMixin):
         self.log_request(request)  # Log the incoming request
         user = request.user
         #token = request.data.get('token')
-        password = request.data.get('password')
+        password = request.data.get('password', '')
+        old_password = request.data.get('old_password', '')
         token = request.auth
+
         
         if user and password:
             try:
 ##                token_obj = RefreshToken(token)
 ##                user_id = token_obj.get('user_id')
                 user = User.objects.get(id=user.id)
+                
+                if not user.check_password(old_password):
+                    response = self.get_error_response(
+                        message="Invalid Password", status="error", errors=[],
+                        error_code="INVALID_PASSWORD", status_code=status.HTTP_401_UNAUTHORIZED)
+                    
+                    return response
+                    
                 user.set_password(password)
                 user.save()
 
                 # Blacklist the token used for password reset
                 # token.blacklist()
                 response = self.get_response(
+                    data={}, status="success",
                     message="Password has been successfully reset.",
                     status_code=status.HTTP_200_OK,
                     )
@@ -407,12 +424,53 @@ class ResetPasswordAPIView(APIView, StandardResponseMixin, LoggingMixin):
                 self.log_response(response)  # Log the response before returning
                 return response
 
+        response = self.get_error_response(
+            message="Invalid token or missing password", status="error", errors=[],
+            error_code="INVALID_CREDENTIALS", status_code=status.HTTP_401_UNAUTHORIZED)
+        self.log_response(response)  # Log the response before returning
+        return response
+
+class ResetPasswordTokenAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    permission_classes = (IsAuthenticated,)
+    
+    def post(self, request):
+        self.log_request(request)  # Log the incoming request
+        user = request.user
+        #token = request.data.get('token')
+        password = request.data.get('password')
+        token = request.auth
+        
+        if user and password:
+            try:
+##                token_obj = RefreshToken(token)
+##                user_id = token_obj.get('user_id')
+                user = User.objects.get(id=user.id)
+                user.set_password(password)
+                user.save()
+
+                # Blacklist the token used for password reset
+                # token.blacklist()
+                response = self.get_response(data={}, status="success",
+                                         message="Password has been successfully reset.",
+                                         status_code=status.HTTP_200_OK)
+                
+                self.log_response(response)  # Log the response before returning
+                return response
+            except Exception:
+                response = self.get_response(
+                    message="Something went wrong",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    is_error=True)
+                self.log_response(response)  # Log the response before returning
+                return response
+
         response = self.get_response(
             message="Invalid token or missing password",
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             is_error=True)
         self.log_response(response)  # Log the response before returning
         return response
+
 
 
 class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
