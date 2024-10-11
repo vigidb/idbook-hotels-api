@@ -45,16 +45,16 @@ class HotelBooking(models.Model):
     
     room_type = models.CharField(max_length=25, choices=ROOM_CHOICES,
                                  default='DELUXE', help_text="booked room type.")
-    checkin_time = models.DateField(auto_now=False, auto_now_add=False,
-                                    blank=True, null=True,
-                                    help_text="Check-in time for the property.")
-    checkout_time = models.DateField(auto_now=False, auto_now_add=False,
-                                     blank=True, null=True,
-                                     help_text="Check-out time for the property.")
+    checkin_time = models.DateTimeField(blank=True, null=True,
+                                        help_text="Check-in time for the property.")
+    checkout_time = models.DateTimeField(blank=True, null=True,
+                                         help_text="Check-out time for the property.")
     bed_count = models.PositiveIntegerField(default=1, help_text="bed count")    
  
 
 class HolidayPackageBooking(models.Model):
+    no_days = models.PositiveIntegerField(default=0, help_text="planned days")
+    available_start_date = models.DateTimeField(null=True, blank=True) 
     enquired_holiday_package = models.CharField(max_length=255, null=True, blank=True)
     confirmed_holiday_package = models.ForeignKey(TourPackage, on_delete=models.DO_NOTHING,
                                                   null=True, blank=True, verbose_name="holiday_package")
@@ -63,8 +63,7 @@ class HolidayPackageBooking(models.Model):
 class VehicleBooking(models.Model):
     pickup_addr = models.CharField(max_length=255, null=True, blank=True)
     dropoff_addr = models.CharField(max_length=255, null=True, blank=True)
-    pickup_time = models.DateField(auto_now=False, auto_now_add=False,
-                                   blank=True, null=True, help_text="Pickup date and time")
+    pickup_time = models.DateTimeField(blank=True, null=True, help_text="Pickup date and time")
     vehicle_type = models.CharField(max_length=25, choices=VEHICLE_TYPE,
                                     default='CAR', help_text="vehicle type.")
 
@@ -80,11 +79,8 @@ class FlightBooking(models.Model):
                                    default='ROUND', help_text="flight trip (one-way or round).")
     flight_class  = models.CharField(max_length=25, choices=FLIGHT_CLASS,
                                    default='ECONOMY', help_text="flight class")
-    departure_date = models.DateField(auto_now=False, auto_now_add=False,
-                                      blank=True, null=True, help_text="Departure Date")
-    return_date = models.DateField(auto_now=False, auto_now_add=False,
-                                   blank=True, null=True,
-                                    help_text="Return Date")
+    departure_date = models.DateTimeField(null=True, blank=True, help_text="Departure Date")
+    return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
     flying_from = models.CharField(max_length=255, null=True, blank=True)
     flying_to = models.CharField(max_length=255, null=True, blank=True)
     

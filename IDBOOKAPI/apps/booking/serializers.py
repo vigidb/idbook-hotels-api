@@ -47,12 +47,12 @@ class BookingSerializer(serializers.ModelSerializer):
         return hotel_booking
 
     def create_holidaypack_booking(self, data):
-        enquired_holidaypack = data.get('enquired_holiday_package', '')
-        # start_date
-        # end date
-        # location
+        enquired_holidaypack = data.get('enquired_holidaypack', '')
+        no_days = data.get('no_days', 0)
+        available_start_date = data.get('available_start_date', '')
         holidaypack_booking = HolidayPackageBooking.objects.create(
-            enquired_holiday_package=enquired_holidaypack)
+            enquired_holiday_package=enquired_holidaypack, no_days=no_days,
+            available_start_date=available_start_date)
         return holidaypack_booking
 
     def create_vehicle_booking(self, data):

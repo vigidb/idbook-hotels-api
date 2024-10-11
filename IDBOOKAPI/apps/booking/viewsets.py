@@ -36,8 +36,10 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
-
-            send_booking_email_task.apply_async(args=[1])
+            if response.data:
+                booking_id = response.data.get('id')
+                print("Booking Id", booking_id)
+                send_booking_email_task.apply_async(args=[booking_id])
 
             # Create a custom response
             custom_response = self.get_response(

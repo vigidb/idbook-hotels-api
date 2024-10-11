@@ -1,4 +1,4 @@
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
 from django.core.validators import validate_email
 
@@ -42,3 +42,13 @@ def send_welcome_email(user_email):
     recipient_list = [user_email]
 
     send_mail(subject, message, from_email, recipient_list)
+
+def send_booking_email(booking, to_emails, html_content):
+    print("Inside Email1")
+    
+    from_email = settings.EMAIL_HOST_USER
+    print("from mail", from_email)
+    subject = "New Booking Enquiry"
+    status = send_mail(subject, html_content, from_email, to_emails,
+                       fail_silently=False, html_message=html_content)
+    print(status)
