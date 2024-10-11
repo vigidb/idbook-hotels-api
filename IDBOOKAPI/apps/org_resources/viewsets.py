@@ -48,10 +48,11 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             #response = super().create(request, *args, **kwargs)
 
             # create or update user based on company email
-            user = User.objects.filter(email=company_detail.company_email).first()
+            user = User.objects.filter(email=company_detail.contact_email_address).first()
             if not user:
-                user = User.objects.create(email=company_detail.company_email, category='CL-ADMIN',
-                                           company_id=company_detail.id)
+                user = User.objects.create(name=company_detail.contact_person_name,
+                                           email=company_detail.contact_email_address,
+                                           category='CL-ADMIN', company_id=company_detail.id)
             else:
                 user.category='CL-ADMIN'
                 user.company_id=company_detail.id
