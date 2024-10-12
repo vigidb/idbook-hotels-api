@@ -34,11 +34,12 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
             print("company email::", company_email)
             company_detail = CompanyDetail(**validated_data)
 
-##            try:
-##                if request.user:
-##                    company_detail.added_user = request.user
-##            except Exception as e:
-##                print("Added User Empty for Company Create", e)
+            try:
+                if request.user:
+                    company_detail.added_user = request.user
+                    company_detail.approved = True
+            except Exception as e:
+                print("Added User Empty for Company Create", e)
                 
             company_detail.save()
             return company_detail

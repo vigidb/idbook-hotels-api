@@ -24,7 +24,8 @@ from .models import (
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
 
-from rest_framework import decorators
+#from rest_framework import decorators
+from rest_framework.decorators import action
 
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -178,6 +179,67 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='create',
+            url_name='create-company', permission_classes=[IsAuthenticated])
+    def create_company_by_badmin(self, request):
+        buser_id = request.user.id
+        
+        # Create an instance of your serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            company_detail = serializer.save()
+            #response = super().create(request, *args, **kwargs)
+
+            # create or update user based on company email
+            user = User.objects.filter(email=company_detail.contact_email_address).first()
+            if not user:
+                user = User.objects.create(name=company_detail.contact_person_name,
+                                           email=company_detail.contact_email_address,
+                                           category='CL-ADMIN', company_id=company_detail.id)
+            else:
+                user.category='CL-ADMIN'
+                user.company_id=company_detail.id
+                user.save()
+
+##            if user:
+##                refresh = RefreshToken.for_user(user)
+##
+##                data = {'refreshToken': str(refresh),
+##                        'accessToken': str(refresh.access_token),
+##                        'expiresIn': 0,
+##                        'company': serializer.data,
+##                        }
+##            else:
+##                data = {'refreshToken': "",
+##                        'accessToken': "",
+##                        'expiresIn': 0,
+##                        'company': serializer.data,
+##                        }
+
+            # Create a custom response
+            custom_response = self.get_response(
+                status='success',
+                data=serializer.data,  # Use the data from the default response
+                message="CompanyDetail Created",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            custom_response = self.get_response(
+                data=serializer.errors,  # Use the serializer's error details
+                message="Validation Error",
+                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
+                is_error=True
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+        
 
 
 class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

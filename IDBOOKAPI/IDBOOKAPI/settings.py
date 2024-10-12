@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     # 'rest_framework_tracking',
     'django_filters',
+    'storages',
     'corsheaders',
     'drf_yasg',
     'imagekit',
@@ -190,8 +191,12 @@ REST_FRAMEWORK = {
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+##MEDIA_URL = '/media/'
+##MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+
+PUBLIC_MEDIA_LOCATION = 'media'
+MEDIA_URL = f'https://idbookhotels.s3.eu-north-1.amazonaws.com/{PUBLIC_MEDIA_LOCATION}/'
+DEFAULT_FILE_STORAGE = 'IDBOOKAPI.storage_backend.PublicMediaStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
@@ -232,6 +237,14 @@ EMAIL_HOST_USER = env("NOREPLY_EMAIL")
 EMAIL_HOST_PASSWORD = env("NOREPLY_PAASWORD")
 
 OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
+
+
+
+AWS_S3_URL = env("AWS_S3_URL")
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
 
 # PAGINATION_PAGE_SIZE = env_config("PAGINATION_PAGE_SIZE")
 # NDR_EMAIL_HOST_USER = env_config("NDR_EMAIL_HOST_USER")
