@@ -27,7 +27,10 @@ from rest_framework import viewsets
 from django.utils import timezone
 
 from apps.org_managements.utils import get_domain_business_details
+from apps.customer.utils import db_utils 
+
 from apps.authentication.tasks import send_email_task
+
 
 
 User = get_user_model()
@@ -102,6 +105,76 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                     status_code=status.HTTP_401_UNAUTHORIZED)
             self.log_response(response)  # Log the response before returning
             return response
+
+        
+    @action(detail=False, methods=['POST'], url_path='customer/mail/signup-link', url_name='customer-mail-signup-link',
+            permission_classes=[IsAuthenticated])
+    def mail_customer_signup_link(self, request):
+        company_user = request.user
+        customer_email = request.data.get('email', '')
+        company_id = company_user.company_id
+        
+        user = User.objects.filter(email=email).first()
+        if not user:
+            user = User.objects.create(email=customer_email, company_id=company_id)
+            customer = db_utils.create_customer_signup_entry(user, added_user)
+        else:
+            customer = db_utils.check_customer_exist(user.id)
+            if not customer:
+                customer = db_utils.create_customer_signup_entry(user, added_user)
+            #user.category = 'CL-CUST'
+            user.company_id = company_id
+            user.save()
+
+        refresh = RefreshToken.for_user(user)
+        customer_signup_token = str(refresh.access_token)
+
+        customer_signup_link = f"{settings.FRONTEND_URL}/signup-link/?token={customer_signup_token}&email={customer_email}"
+
+        response = self.get_response(
+            status="success",
+            message="If the provided email exists, a sign up link has been sent to your employee email address.",
+            status_code=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['POST'], url_path='customer/signup-link/process', url_name='customer-signup-link-process',
+            permission_classes=[IsAuthenticated])
+    def customer_signup_link_process(self, request):
+        user = request.user
+        email = request.data.get('email')
+        password = request.data.get('password')
+
+        token_email = user.email
+        if not user == email:
+            pass
+
+        user.set_password(password)
+        user.category = 'CL-CUST'
+        user.save()
+
+        user_data = {'id': user.id,
+                     'mobile_number': user.mobile_number if user.mobile_number else '',
+                     'email': user.email if user.email else '',
+                     'name': user.get_full_name(),
+                     'category': user.category,
+                     'roles': [],
+                     'permissions': []}
+            # send welcome email to user
+            # send_welcome_email(user.email)
+        refresh = RefreshToken.for_user(user)
+
+        data = {'refreshToken': str(refresh),
+                'accessToken': str(refresh.access_token),
+                'expiresIn': 0,
+                'user': user_data,
+                }
+
+        response = self.get_response(
+            data = data,
+            status="success",
+            message="Signup Process Success.",
+            status_code=status.HTTP_200_OK)
+        
 
     @action(detail=False, methods=['POST'], url_path='customer', url_name='customer-signup',
             permission_classes=[IsAuthenticated])

@@ -35,6 +35,14 @@ def send_password_forget_email(reset_password_link, to_emails):
     status = send_mail(subject, message, from_email, to_emails)
     print("email status::", status)
 
+def send_signup_link_email(signup_link, to_emails):
+    subject = 'Idbook SignUp Link'
+    message = "Click the following link to sign up: {signup_link}".format(
+        signup_link=signup_link)
+    from_email = settings.EMAIL_HOST_USER
+    status = send_mail(subject, message, from_email, to_emails)
+    print("email status::", status)
+
 def send_welcome_email(user_email):
     subject = 'Welcome to IDbook Hotels!'
     message = 'Thank you for joining us. We hope you enjoy your experience.'
