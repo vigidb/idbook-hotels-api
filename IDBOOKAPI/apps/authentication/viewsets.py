@@ -409,6 +409,118 @@ class LogoutAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
         return response
         
 
+class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = User.objects.all()
+    serializer_class = UserSignupSerializer
+
+    @action(detail=False, methods=['POST'], url_path='otp-reset', url_name='password-otp-reset',
+            permission_classes=[])
+    def otp_based_password_reset(self, request):
+        email = request.data.get('email', '')
+        password = request.data.get('password', None)
+        otp = request.data.get('otp', None)
+        
+        valid = email_validation(email)
+        if not valid:
+            response = self.get_error_response(message="Invalid Email", status="error",
+                                               errors=[], error_code="INVALID_EMAIL",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+        
+        if not otp:
+            response = self.get_error_response(message="OTP Missing", status="error",
+                                               errors=[], error_code="OTP_MISSING",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        if not password:
+            response = self.get_error_response(message="Password Missing", status="error",
+                                               errors=[], error_code="PASSWORD_MISSING",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+            
+            
+        user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
+        print(user_otp)
+
+        if not user_otp:
+            response = self.get_error_response(message="Invalid Credentials", status="error",
+                                               errors=[], error_code="INVALID_CREDENTIALS",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+        
+        current_time = timezone.now()
+        timediff = current_time - user_otp.created
+        timediff_in_minutes = timediff.total_seconds()/60
+
+        if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+            response = self.get_error_response(message="OTP Expired", status="error",
+                                           errors=[], error_code="OTP_EXPIRED",
+                                           status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            response = self.get_error_response(message="User Not Found", status="error",
+                                               errors=[], error_code="USER_MISSING",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+            
+        
+        user.set_password(password)
+        user.save()
+
+        response = self.get_response(
+            data={}, status="success", message="Password has been successfully reset. Please login",
+            status_code=status.HTTP_201_CREATED,
+            )
+        return response
+
+    @action(detail=False, methods=['POST'], url_path='profile-reset', url_name='password-otp-reset',
+            permission_classes=[IsAuthenticated])
+    def profile_password_reset(self, request):
+        user = request.user
+        password = request.data.get('password', '')
+        old_password = request.data.get('old_password', '')
+        token = request.auth
+
+        if '' in (user, password, old_password):
+            response = self.get_error_response(
+                message="Missing Fields", status="error", errors=[],
+                        error_code="INVALID_FIELDS", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        
+        try:
+            user = User.objects.get(id=user.id)
+            
+            if not user.check_password(old_password):
+                response = self.get_error_response(
+                    message="Invalid Password", status="error", errors=[],
+                    error_code="INVALID_PASSWORD", status_code=status.HTTP_401_UNAUTHORIZED)
+                
+                return response
+                
+            user.set_password(password)
+            user.save()
+
+            response = self.get_response(
+                data={}, status="success",
+                message="Password has been successfully reset.",
+                status_code=status.HTTP_201_CREATED,
+                )
+            self.log_response(response)  # Log the response before returning
+            return response
+        except Exception as e:
+            print(e)
+            response = self.get_response(
+                message="Something went wrong",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                is_error=True)
+            self.log_response(response)  # Log the response before returning
+            return response
+    
 
 class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
     def post(self, request):

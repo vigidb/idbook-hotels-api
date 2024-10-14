@@ -10,6 +10,9 @@ router.register(r'', UserCreateAPIView, basename='')
 user_router = routers.DefaultRouter()
 user_router.register(r'profile', UserProfileViewset, basename='profile')
 
+password_router = routers.DefaultRouter()
+password_router.register(r'', PasswordProcessViewSet, basename='password-process')
+
 urlpatterns = [
     # path('auth/signup', UserCreateAPIView.as_view(), name='signup'),
     path('auth/login', LoginAPIView.as_view(), name='login'),
@@ -23,7 +26,8 @@ urlpatterns = [
          name='password_reset_confirm'),
     path('auth/reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
     path('auth/signup/', include(router.urls)),
-    path('auth/user/', include(user_router.urls))
+    path('auth/user/', include(user_router.urls)),
+    path('auth/password/', include(password_router.urls))
 ]
 
 # path('', include(router.urls)),
