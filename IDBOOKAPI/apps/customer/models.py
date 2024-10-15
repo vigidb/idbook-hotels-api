@@ -1,7 +1,9 @@
 from django.db import models
 from apps.authentication.models import User
 from apps.org_resources.models import Address
-from IDBOOKAPI.basic_resources import GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES
+from IDBOOKAPI.basic_resources import (
+    GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES,
+    CUSTOMER_GROUP)
 
 
 class Customer(models.Model):
@@ -41,6 +43,11 @@ class Customer(models.Model):
                                             help_text="Any dietary restrictions or preferences for the customer.")
     special_requests = models.TextField(blank=True, null=True,
                                         help_text="Any special requests or notes from the customer.")
+
+    group_name = models.CharField(max_length=10, default='DEFAULT', choices=CUSTOMER_GROUP,
+                                          help_text="Group for the customer.")
+    employee_id = models.CharField(max_length=20, null=True, blank=True)
+    department = models.CharField(max_length=30, null=True, blank=True)
 
     privileged = models.BooleanField(default=False, help_text="Whether the customer is privileged.")
     active = models.BooleanField(default=False, help_text="Whether the customer is active.")
