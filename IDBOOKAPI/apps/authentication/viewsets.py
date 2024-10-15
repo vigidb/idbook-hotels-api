@@ -29,7 +29,8 @@ from django.utils import timezone
 from apps.org_managements.utils import get_domain_business_details
 from apps.customer.utils import db_utils 
 
-from apps.authentication.tasks import send_email_task
+from apps.authentication.tasks import (
+    send_email_task, customer_signup_link_task)
 
 
 
@@ -107,21 +108,39 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             return response
 
         
-    @action(detail=False, methods=['POST'], url_path='customer/mail/signup-link', url_name='customer-mail-signup-link',
+    @action(detail=False, methods=['POST'], url_path='customer/signup-link', url_name='customer-signup-link',
             permission_classes=[IsAuthenticated])
-    def mail_customer_signup_link(self, request):
+    def customer_signup_link(self, request):
         company_user = request.user
-        customer_email = request.data.get('email', '')
+        email = request.data.get('email', '')
+        gender = request.data.get('gender', '')
+        mobile_number = request.data.get('mobile_number', '')
+        name = request.data.get('name', '')
+        employee_id = request.data.get('employee_id', '')
+        group_name = request.data.get('group_name', 'DEFAULT')
+        department = request.data.get('department', '')
+        
         company_id = company_user.company_id
+
+        if not company_id:
+            response = self.get_error_response(message="The user is not associated with any company.", status="error",
+                                               errors=[], error_code="COMPANY_MISSING",
+                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            return response
+            
         
         user = User.objects.filter(email=email).first()
         if not user:
-            user = User.objects.create(email=customer_email, company_id=company_id)
-            customer = db_utils.create_customer_signup_entry(user, added_user)
+            user = User.objects.create(email=email, company_id=company_id, mobile_number=mobile_number, name=name)
+            customer = db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
+                                                             employee_id=employee_id, group_name=group_name,
+                                                             department=department)
         else:
             customer = db_utils.check_customer_exist(user.id)
             if not customer:
-                customer = db_utils.create_customer_signup_entry(user, added_user)
+                customer = db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
+                                                                 employee_id=employee_id, group_name=group_name,
+                                                                 department=department)
             #user.category = 'CL-CUST'
             user.company_id = company_id
             user.save()
@@ -129,27 +148,38 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         refresh = RefreshToken.for_user(user)
         customer_signup_token = str(refresh.access_token)
 
-        customer_signup_link = f"{settings.FRONTEND_URL}/signup-link/?token={customer_signup_token}&email={customer_email}"
+        customer_signup_link = f"{settings.FRONTEND_URL}signup-link/?token={customer_signup_token}&email={email}"
+        print(customer_signup_link)
+        customer_signup_link_task.apply_async(args=[customer_signup_link, [email]])
 
         response = self.get_response(
             status="success",
             message="If the provided email exists, a sign up link has been sent to your employee email address.",
             status_code=status.HTTP_200_OK,
         )
+        return response
 
     @action(detail=False, methods=['POST'], url_path='customer/signup-link/process', url_name='customer-signup-link-process',
             permission_classes=[IsAuthenticated])
     def customer_signup_link_process(self, request):
         user = request.user
+        name = request.data.get('name')
         email = request.data.get('email')
-        password = request.data.get('password')
+        password = request.data.get('password', '')
+        mobile_number = request.data.get('mobile_number', '')
 
         token_email = user.email
-        if not user == email:
-            pass
+        if not token_email == email:
+            response = self.get_error_response(message="Email Mismatch", status="error",
+                                               errors=[], error_code="EMAIL_MISMATCH",
+                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            return response
 
-        user.set_password(password)
+        user.name = name
+        if password:
+            user.set_password(password)
         user.category = 'CL-CUST'
+        user.mobile_number = mobile_number
         user.save()
 
         user_data = {'id': user.id,
@@ -173,7 +203,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             data = data,
             status="success",
             message="Signup Process Success.",
-            status_code=status.HTTP_200_OK)
+            status_code=status.HTTP_201_CREATED)
+        return response
         
 
     @action(detail=False, methods=['POST'], url_path='customer', url_name='customer-signup',

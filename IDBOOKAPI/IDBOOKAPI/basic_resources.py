@@ -1125,3 +1125,9 @@ OTP_TYPE_CHOICES = (
     ('MOBILE', 'MOBILE'),
     ('EMAIL', 'EMAIL'),
 )
+
+CUSTOMER_GROUP = (
+    ('ORG', 'ORG'),
+    ('ADMIN', 'ADMIN'),
+    ('DEFAULT', 'DEFAULT'),
+)
