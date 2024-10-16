@@ -15,6 +15,8 @@ from .models import (Booking, AppliedCoupon)
 
 from apps.booking.tasks import send_booking_email_task
 
+from rest_framework.decorators import action
+
 
 class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Booking.objects.all()
@@ -143,6 +145,20 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['GET'], permission_classes=[IsAuthenticated],
+            url_path='user/retrieve', url_name='user-retrieve')
+    def user_based_retrieve(self, request):
+  
+        booking = self.queryset.filter(user=request.user)
+        booking_serializer = BookingSerializer(booking, many=True)
+        
+        response = self.get_response(
+            data=booking_serializer.data, status="success", message="Retrieve Booking Success",
+            status_code=status.HTTP_200_OK,
+            )
+        return response
+    
 
 
 class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

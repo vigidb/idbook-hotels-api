@@ -14,16 +14,17 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
         model = CompanyDetail
         exclude = ('added_user', )
 
-    def validate_company_email(self, value):
-        if not value:
-             raise serializers.ValidationError(
-                 {'message': 'Company email missing'})
-        if value:
-            company_detail = CompanyDetail.objects.filter(company_email=value).first()
-            if company_detail:
-                raise serializers.ValidationError(
-                 {'message': 'Company email alredy present'})
-        return value
+##    def validate_company_email(self, value):
+####        if not value:
+####             raise serializers.ValidationError(
+####                 {'message': 'Company email missing'})
+##        
+##        if value:
+##            company_detail = CompanyDetail.objects.filter(company_email=value).first()
+##            if company_detail:
+##                raise serializers.ValidationError(
+##                 {'message': 'Company email already present'})
+##        return value
             
 
     def create(self, validated_data):

@@ -37,6 +37,15 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
 
+    permission_classes_by_action = {'create': [AllowAny], 'update': [IsAuthenticated]}
+
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            # action is not set return default permission_classes
+            return [permission() for permission in self.permission_classes]
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -93,7 +102,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
-
+    
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 

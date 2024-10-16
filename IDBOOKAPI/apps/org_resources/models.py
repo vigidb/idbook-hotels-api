@@ -142,7 +142,7 @@ class CompanyDetail(models.Model):
 
     company_name = models.CharField(max_length=50)
     brand_name = models.CharField(max_length=100, null=True, blank=True)
-    company_logo = models.URLField(blank=True)
+    company_logo = models.FileField(upload_to='company/logo/', blank=True, null=True)
     company_phone = models.CharField(max_length=50, null=True, blank=True)
     company_email = models.CharField(max_length=50, null=True, blank=True)
     domain_name = models.CharField(max_length=50, blank=True, null=True)

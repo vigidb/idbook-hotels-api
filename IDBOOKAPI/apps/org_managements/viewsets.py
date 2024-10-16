@@ -54,6 +54,14 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         self.log_request(request) # log the incoming request
         # Create an instance of your serializer with the request data
         #serializer = self.get_serializer(data=request.data, context={'user_id': user_id})
+        
+        existing_detail = BusinessDetail.objects.filter(user=request.user)
+        if existing_detail:
+            custom_response = self.get_error_response(message="Business deatil is already available", status="error",
+                                               errors=[],error_code="VALIDATION_ERROR",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return custom_response
+        
         serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
@@ -64,18 +72,11 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
             custom_response = self.get_response(
                 status='success',
                 data=response.data,  # Use the data from the default response
-                message="Business Details Updated",
+                message="Business Details Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
 
             )
         else:
-            # If the serializer is not valid, create a custom response with error details
-##            custom_response = self.get_response(
-##                data=serializer.errors,  # Use the serializer's error details
-##                message="Validation Error",
-##                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-##                is_error=True
-##            )
             custom_response = self.get_error_response(message="Validation error", status="error",
                                                errors=serializer.errors,error_code="VALIDATION_ERROR",
                                                status_code=status.HTTP_406_NOT_ACCEPTABLE)
