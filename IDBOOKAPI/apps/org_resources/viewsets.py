@@ -26,6 +26,7 @@ from apps.authentication.models import User
 
 #from rest_framework import decorators
 from rest_framework.decorators import action
+from django.db.models import Q
 
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -138,6 +139,19 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+        search = request.query_params.get('search', '')
+
+        if search:
+            search_q_filter = Q(company_name__icontains=search) | Q(brand_name__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+        
+
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
 
@@ -147,6 +161,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 status='success',
                 message="List Retrieved",
+                count=count,
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
 
             )

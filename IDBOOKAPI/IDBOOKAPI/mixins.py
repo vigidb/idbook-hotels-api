@@ -3,13 +3,14 @@ from rest_framework import status
 import logging
 
 
-def generate_response(data=None, message="", status_code='', is_error=False, status=''):
+def generate_response(data=None, message="", status_code='', is_error=False, status='', count=0):
     if data is None:
         data = []
     response = {
         'status': status,
         # 'code': status_code,
         'message': message,
+        'count': count,
         'data': data
     }
     return Response(response, status=status_code)
@@ -26,8 +27,8 @@ def generate_error_response(errors, message, error_code, status, status_code):
 
 
 class StandardResponseMixin:
-    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status=''):
-        return generate_response(data, message, status_code, is_error, status)
+    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status='', count=0):
+        return generate_response(data, message, status_code, is_error, status, count)
 
     def get_error_response(self, message="", status='', errors=[],
                            error_code="", status_code=status.HTTP_401_UNAUTHORIZED):
