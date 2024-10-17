@@ -57,9 +57,12 @@ urlpatterns = [
     re_path('api/v1/hotels/', include(hotels_router.urls)),
 
     # JWT token authentication
-    re_path('api/v1/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # order is important
     re_path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     re_path('api/v1/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    re_path('api/v1/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # re_path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # re_path('api/v1/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
 
     # API documents
     re_path(r'^api/v1/docs2/(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
