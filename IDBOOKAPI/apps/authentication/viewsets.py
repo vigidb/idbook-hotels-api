@@ -148,7 +148,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         refresh = RefreshToken.for_user(user)
         customer_signup_token = str(refresh.access_token)
 
-        customer_signup_link = f"{settings.FRONTEND_URL}signup-link/?token={customer_signup_token}&email={email}"
+        customer_signup_link = f"{settings.FRONTEND_URL}/signup-link/?token={customer_signup_token}&email={email}"
         print(customer_signup_link)
         customer_signup_link_task.apply_async(args=[customer_signup_link, [email]])
 

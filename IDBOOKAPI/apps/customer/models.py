@@ -14,7 +14,7 @@ class Customer(models.Model):
     added_user = models.ForeignKey(User, on_delete=models.CASCADE,
                                    related_name="customer_profiles", null=True,blank=True,
                                    help_text="Confirmed / Added User")
-    address = models.CharField(max_length=100, null=True, blank=True,
+    address = models.TextField(null=True, blank=True,
                                help_text="Full address", verbose_name="customer_address")
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True,
                               help_text="Select the gender of the customer."

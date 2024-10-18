@@ -149,7 +149,7 @@ class CompanyDetail(models.Model):
     company_website = models.URLField(null=True, blank=True)
     gstin_no = models.CharField(max_length=100, null=True)
     pan_no = models.CharField(max_length=100, blank=True)
-    registered_address = models.CharField(max_length=100, null=True, blank=True)
+    registered_address = models.TextField(blank=True, null=True)
 
     contact_person_name = models.CharField(max_length=50, null=True, blank=True)
     contact_number = models.CharField(max_length=10, null=True, blank=True)
