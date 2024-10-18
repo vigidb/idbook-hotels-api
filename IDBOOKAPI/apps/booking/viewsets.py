@@ -55,6 +55,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             # Create a custom response
             custom_response = self.get_response(
+                status="success",
                 data=response.data,  # Use the data from the default response
                 message="Booking Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
@@ -62,12 +63,10 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             )
         else:
             # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -87,20 +86,18 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             # Create a custom response
             custom_response = self.get_response(
+                status="success",
                 data=response.data,  # Use the data from the default response
                 message="Booking Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
 
             )
         else:
-            # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
-
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
@@ -130,6 +127,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if response.status_code == status.HTTP_200_OK:
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
+                status="success",
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 count=count,
@@ -138,12 +136,9 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             )
         else:
             # If the response status code is not OK, it's an error
-            custom_response = self.get_response(
-                data=None,
-                message="Error Occurred",
-                status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
-            )
+            custom_response = self.get_error_response(
+                message="Error Occurred", data=None, status="error",
+                errors=[],error_code="VALIDATION_ERROR", status_code=response.status_code)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response

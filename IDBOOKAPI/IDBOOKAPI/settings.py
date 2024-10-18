@@ -77,7 +77,7 @@ ROOT_URLCONF = 'IDBOOKAPI.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -235,6 +235,7 @@ EMAIL_USE_TLS = env("EMAIL_USE_TLS")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EMAIL_HOST_USER = env("NOREPLY_EMAIL")
 EMAIL_HOST_PASSWORD = env("NOREPLY_PAASWORD")
+CORPORATE_EMAIL = env("CORPORATE_EMAIL")
 
 OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
 

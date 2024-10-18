@@ -19,12 +19,15 @@ def get_domain(email):
             print(e)
     return domain_name
 
-def send_otp_email(otp, to_emails):
-    subject = 'Idbook Sign Up Verification Code'
+def send_otp_email(otp, to_emails, template=None):
+    subject = 'Idbook Login or Sign Up Verification Code'
+    
     message = "Please use the verification code below to sign in.\
 \n {OTP} \n If you didn’t request this, you can ignore this email.".format(OTP=otp)
     from_email = settings.EMAIL_HOST_USER
-    status = send_mail(subject, message, from_email, to_emails)
+    # status = send_mail(subject, message, from_email, to_emails)
+    status = send_mail(subject, template, from_email, to_emails,
+                       fail_silently=False, html_message=template)
     print("email status::", status)
 
 def send_password_forget_email(reset_password_link, to_emails):
@@ -52,7 +55,6 @@ def send_welcome_email(user_email):
     send_mail(subject, message, from_email, recipient_list)
 
 def send_booking_email(booking, to_emails, html_content):
-    print("Inside Email1")
     
     from_email = settings.EMAIL_HOST_USER
     print("from mail", from_email)
