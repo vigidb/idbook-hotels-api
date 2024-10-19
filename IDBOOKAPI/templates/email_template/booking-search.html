@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Booking Enquiry</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #f5f6fa;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 20px auto;
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #1D498D -1.97%, #3C65A4 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+    }
+
+    .content {
+      padding: 20px;
+    }
+
+    .content h1 {
+      font-size: 22px;
+      margin-bottom: 10px;
+      text-align: center;
+      color: #345b9c;
+    }
+
+    .sub-heading {
+      font-size: 16px;
+      color: #666;
+      text-align: center;
+    }
+
+    /* Information Box */
+    .info-box {
+      background-color: #f7f9fc;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .info-box h2 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #1D498D;
+    }
+
+    .info-box p {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .info-box strong {
+      color: #333;
+    }
+
+    /* Flexbox for side by side layout */
+    .flex-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .flex-item {
+      flex: 1;
+      margin-right: 15px;
+    }
+
+    .flex-item:last-child {
+      margin-right: 0;
+    }
+
+    /* Room Info Table */
+    table {
+      width: 100%;
+      margin-top: 15px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+
+    th {
+      background-color: #d9e2f5;
+      color: #333;
+    }
+
+    /* CTA Buttons */
+    .cta {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .cta a {
+      text-decoration: none;
+      padding: 12px 25px;
+      border-radius: 6px;
+      color: white;
+      background-color: #1D498D;
+      margin-right: 10px;
+      font-size: 14px;
+      display: inline-block;
+    }
+
+    .cta a.download {
+      background-color: #555;
+    }
+
+    /* Footer Section */
+    .footer {
+      text-align: center;
+      background-color: #f5f6fa;
+      padding: 15px;
+      font-size: 12px;
+      color: #888;
+      margin-top: 20px;
+    }
+
+    .footer a {
+      color: #345b9c;
+      text-decoration: none;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 600px) {
+      .content {
+        padding: 15px;
+      }
+
+      .flex-container {
+        flex-direction: column;
+      }
+
+      table th, table td {
+        font-size: 12px;
+      }
+
+      .cta a {
+        padding: 10px 20px;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section -->
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook%20logo.png?updatedAt=1726323905017" alt="Hotel 100 Petals Logo">
+    </div>
+
+    <!-- Booking Confirmation Content -->
+    <div class="content">
+      <h1>{{ booking_type}} Booking</h1>
+      <p class="sub-heading">Hi Admin, Please find the booking enquiry details below!</p>
+
+      <div class="info-box">
+        <h2>Booking Details</h2>
+        
+        
+        {% if booking_type == "HOTEL" %}
+		<!-- Hotel Booking -->
+		<!-- Check-in/Check-out and Confirmation/Amount -->
+		<div class="flex-container">
+		  <!-- Check-in and Check-out -->
+		  <div class="flex-item">
+		    <p><strong>Check-in:</strong> {{ checkin_time }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Check-out:</strong> {{ checkout_time }}</p>
+		  </div>
+		</div>
+		
+		<div class="flex-container">
+		  <!-- Member Count -->
+		  <div class="flex-item">
+		    <p><strong>Adults:</strong> {{ adult_count }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Children:</strong> {{ child_count }}</p>
+		  </div>
+		</div>
+
+
+		<div class="flex-container">
+		  <!-- Enquired Property Details -->
+		  <div class="flex-item">
+		    <p><strong>Enquired Property:</strong> {{ enquired_property }}</p>
+		  </div>
+		</div>
+		<!-- End Hotel Booking --->
+        {% elif booking_type == "HOLIDAYPACK" %}
+		<!-- Hotel Package Booking -->
+		<div class="flex-container">
+		  <!-- Check-in and Check-out -->
+		  <div class="flex-item">
+		    <p><strong>Start date:</strong> {{ available_start_date }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong> No of Days:</strong> {{ no_days }}</p>
+		  </div>
+		</div>
+		
+		<div class="flex-container">
+		  <!-- Member Count -->
+		  <div class="flex-item">
+		    <p><strong>Adults:</strong> {{ adult_count }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Children:</strong> {{ child_count }}</p>
+		  </div>
+		</div>
+
+
+		<div class="flex-container">
+		  <!-- Enquired Property Details -->
+		  <div class="flex-item">
+		    <p><strong>Enquired Holiday Package:</strong> {{ enquired_holiday_package }}</p>
+		  </div>
+		</div>
+		<!-- End Holiday Package Booking --->
+        {% elif booking_type == "VEHICLE" %}
+		<!-- Vehicle Booking -->
+		<div class="flex-container">
+		  <!-- Check-in and Check-out -->
+		  <div class="flex-item">
+		    <p><strong>Pickup Address:</strong> {{ pickup_addr }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Dropoff Address:</strong> {{ dropoff_addr }}</p>
+		  </div>
+		</div>
+		
+		<div class="flex-container">
+		  
+		  <div class="flex-item">
+		    <p><strong>Pick up Time:</strong> {{ pickup_time }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Vehicle Type:</strong> {{ vehicle_type }}</p>
+		  </div>
+		</div>
+		
+		<div class="flex-container">
+		  <!-- Member Count -->
+		  <div class="flex-item">
+		    <p><strong>Adults:</strong> {{ adult_count }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Children:</strong> {{ child_count }}</p>
+		  </div>
+		</div>
+		<!-- End Vehicle Booking --->
+        {% elif booking_type == "FLIGHT" %}
+		<!-- Flight Booking -->
+		<div class="flex-container">
+		  <div class="flex-item">
+		    <p><strong>Flight Trip:</strong> {{ flight_trip }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Flight Class:</strong> {{ flight_class }}</p>
+		  </div>
+		</div>
+		<!-- Departure and Return Date-->
+		<div class="flex-container">
+		  <div class="flex-item">
+		    <p><strong>Departure Date:</strong> {{ departure_date }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Return Date:</strong> {{ return_date }}</p>
+		  </div>
+		</div>
+		<!-- Airport Details -->
+		<div class="flex-container">
+		  <div class="flex-item">
+		    <p><strong>Flying From:</strong> {{ flying_from }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Flying To:</strong> {{ flying_to }}</p>
+		  </div>
+		</div>
+		
+		<div class="flex-container">
+		  <!-- Member Count -->
+		  <div class="flex-item">
+		    <p><strong>Adults:</strong> {{ adult_count }}</p>
+		  </div>
+		  <div class="flex-item">
+		    <p><strong>Children:</strong> {{ child_count }}</p>
+		  </div>
+		</div>
+		<!-- End Flight Booking --->
+	{% endif %}
+        
+      </div>
+      
+      
+
+      <!-- Customer Details -->
+      <div class="info-box">
+        <h2>Customer Details</h2>
+        <p><strong>Name:</strong> {{ name }}</p>
+        <p><strong>Email:</strong> {{ email }}</p>
+        <p><strong>Phone:</strong> {{ mobile_number }}</p>
+      </div>
+
+    <!-- Footer Section -->
+    <div class="footer">
+      <p>Idbook Hotels | Address: Gangtok, Sikkim, India</p>
+      <p>Email: support@idbookhotels.com | Phone: +91-1234567890</p>
+      <p><a href="#">Privacy Policy</a> | <a href="#">Terms and Conditions</a></p>
+    </div>
+  </div>
+</body>
+</html>

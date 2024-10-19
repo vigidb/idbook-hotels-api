@@ -34,11 +34,12 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     serializer_class = CompanyDetailSerializer
     # permission_classes = [IsAuthenticated]
     permission_classes = []
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
 
-    permission_classes_by_action = {'create': [AllowAny], 'update': [IsAuthenticated]}
+    permission_classes_by_action = {'create': [AllowAny], 'update': [IsAuthenticated],
+                                    'destroy': [IsAuthenticated]}
 
     def get_permissions(self):
         try: 
@@ -261,6 +262,19 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def destroy(self, request, pk=None):
+
+        instance = self.get_object()
+        instance.is_active=False
+        instance.save()
+
+        custom_response = self.get_response(
+            status='success', data=None,
+            message="Company set to inactive status",
+            status_code=status.HTTP_200_OK,
+            )
         return custom_response
 
         
