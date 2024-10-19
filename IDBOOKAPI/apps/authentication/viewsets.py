@@ -30,7 +30,7 @@ from apps.org_managements.utils import get_domain_business_details
 from apps.customer.utils import db_utils 
 
 from apps.authentication.tasks import (
-    send_email_task, customer_signup_link_task)
+    send_email_task, customer_signup_link_task, send_signup_email_task)
 
 
 
@@ -69,6 +69,9 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             customer_id = user.id
             Customer.objects.create(user_id=customer_id, active=True)
             # userlist_serializer = UserListSerializer(user)
+            # send welcome email
+            send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email]])
+            
             user_data = {'id': user.id,
                          'mobile_number': user.mobile_number if user.mobile_number else '',
                          'email': user.email if user.email else '',

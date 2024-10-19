@@ -17,6 +17,7 @@ email_send_queue = "email-send-queue"
 app.conf.task_routes = {
     'apps.authentication.tasks.send_email_task': {'queue': email_send_queue},
     'apps.authentication.tasks.customer_signup_link_task': {'queue': email_send_queue},
+    'apps.authentication.tasks.send_signup_email_task': {'queue': email_send_queue},
     'apps.booking.tasks.send_booking_email_task': {'queue': email_send_queue}
 }
 

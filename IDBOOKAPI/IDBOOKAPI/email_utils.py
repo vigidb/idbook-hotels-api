@@ -46,13 +46,12 @@ def send_signup_link_email(signup_link, to_emails):
     status = send_mail(subject, message, from_email, to_emails)
     print("email status::", status)
 
-def send_welcome_email(user_email):
-    subject = 'Welcome to IDbook Hotels!'
-    message = 'Thank you for joining us. We hope you enjoy your experience.'
-    from_email = settings.EMAIL_HOST_USER  # Using the sender's email from settings
-    recipient_list = [user_email]
-
-    send_mail(subject, message, from_email, recipient_list)
+def send_welcome_email(template, to_emails):
+    subject = 'Welcome to Idbook Hotels!'
+    from_email = settings.EMAIL_HOST_USER
+    status = send_mail(subject, template, from_email, to_emails,
+                       fail_silently=False, html_message=template)
+    print("welcome email status::", status)
 
 def send_booking_email(booking, to_emails, html_content):
     

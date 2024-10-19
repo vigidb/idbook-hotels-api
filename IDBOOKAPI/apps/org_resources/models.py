@@ -166,6 +166,7 @@ class CompanyDetail(models.Model):
     latitude = models.FloatField(default=0, help_text="Latitude")
     longitude = models.FloatField(default=0, help_text="Longitude")
     approved = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, help_text="Whether the company is active.")
 
 
 class UploadedMedia(models.Model):
