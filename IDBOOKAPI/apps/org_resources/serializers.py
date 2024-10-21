@@ -5,7 +5,8 @@ from IDBOOKAPI.img_kit import upload_media_to_bucket
 from apps.authentication.models import User
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
-    AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality, Career, FAQs, UploadedMedia
+    AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification
 )
 
 
@@ -157,3 +158,14 @@ class FAQsSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQs
         fields = '__all__'
+
+class CountryDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CountryDetails
+        fields = '__all__'
+
+class UserNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserNotification
+        fields = '__all__'
+
