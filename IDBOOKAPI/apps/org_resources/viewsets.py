@@ -15,14 +15,15 @@ from .serializers import (
     AmenityCategorySerializer, AmenitySerializer, EnquirySerializer, RoomTypeSerializer, OccupancySerializer,
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
-    UploadedMediaSerializer
+    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
-    AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality, Career, FAQs, UploadedMedia
-)
+    AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification)
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
+import requests, json
 
 #from rest_framework import decorators
 from rest_framework.decorators import action
@@ -1964,6 +1965,159 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = CountryDetails.objects.all()
+    serializer_class = CountryDetailsSerializer
+    # permission_classes = [IsAuthenticated]
+    permission_classes = []
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                message="List Retrieved",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_response(
+                data=None,
+                message="Error Occurred",
+                status_code=response.status_code,  # Use the status code from the default response
+                is_error=True
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+
+    @action(detail=False, methods=['POST'], url_path='populate-data',
+            url_name='populate-data')
+    def populate_data(self, request):
+
+        print("inside populate data")
+        state_list = []
+        state_dict = {}
+
+        url = "https://api.data.gov.in/resource/37231365-78ba-44d5-ac22-3deec40b9197?\
+api-key=579b464db66ec23bdd000001866538987f0a43d077631b3bc448cc72&format=json&limit=800"
+
+        payload = {}
+        headers = {}
+
+        response = requests.request("GET", url, headers=headers, data=payload)
+
+        data = response.json()
+        records = data['records']
+        for state in records:
+            state_code = state['state_code']
+            state_name = state['state_name_english']
+            district_name = state['district_name_english']
+##            print(district_name)
+            if state_dict.get(state_name, ''):
+                dict_list = state_dict[state_name].get('district_list', [])
+                dict_list.append(district_name)
+                state_dict[state_name]['district_list'] = dict_list
+            else:
+                state_dict[state_name] = {'state_code':state_code, 'district_list':[district_name]}
+                
+        CountryDetails.objects.filter(country_name="India").update(country_details=state_dict)
+            
+        custom_response = self.get_response(
+            data=state_dict,  # Use the data from the default response
+            message="Success",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+
+class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = UserNotification.objects.all()
+    serializer_class = UserNotificationSerializer
+    permission_classes = [IsAuthenticated]
+    permission_classes = []
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
+
+    def partial_update(self, request, *args, **kwargs):
+        #self.log_request(request)  # Log the incoming request
+
+        # Get the object to be updated
+        instance = self.get_object()
+
+        print("Inside partial update")
+
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default update logic
+            response = super().partial_update(request, *args, **kwargs)
+
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                message="FAQs Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful update
+
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            custom_response = self.get_response(
+                data=serializer.errors,  # Use the serializer's error details
+                message="Validation Error",
+                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
+                is_error=True
+            )
+
+        #self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    @action(detail=False, methods=['GET'], url_path='user-based/retrieve',
+            url_name='user-based-retrieve', permission_classes=[IsAuthenticated])
+    def get_user_based_notification(self, request, *args, **kwargs):
+        user = request.user
+        self.queryset = self.queryset.filter(user=user)
+        count = self.queryset.count()
+
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                status='success',
+                message="List Retrieved",
+                count=count,
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_response(
+                data=None,
+                message="Error Occurred",
+                status_code=response.status_code,  # Use the status code from the default response
+                is_error=True
+            )
+
+        #self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+        
+        
+
+    
+    
 
 
 class GetDistrictStateView(APIView):

@@ -422,3 +422,25 @@ class FAQs(models.Model):
 
     def __str__(self):
         return self.title
+
+class CountryDetails(models.Model):
+    country_name = models.CharField(max_length=150, blank=True, null=True)
+    country_short_name = models.CharField(max_length=20, blank=True, null=True)
+    country_phone_code = models.CharField(max_length=10, blank=True, null=True)
+    country_details = models.JSONField(blank=True, null=True)
+
+    def __str__(self):
+        return self.country_name
+
+
+class UserNotification(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
+    title = models.CharField(max_length=150, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    is_read = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.user.email
+    
