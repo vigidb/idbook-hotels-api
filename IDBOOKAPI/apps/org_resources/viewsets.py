@@ -28,6 +28,7 @@ import requests, json
 #from rest_framework import decorators
 from rest_framework.decorators import action
 from django.db.models import Q
+from django.conf import settings
 
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -2007,9 +2008,10 @@ class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         print("inside populate data")
         state_list = []
         state_dict = {}
+        COUNTRY_API_KEY = settings.COUNTRY_API_KEY
 
         url = "https://api.data.gov.in/resource/37231365-78ba-44d5-ac22-3deec40b9197?\
-api-key=579b464db66ec23bdd000001866538987f0a43d077631b3bc448cc72&format=json&limit=800"
+api-key={key}&format=json&limit=800".format(key=COUNTRY_API_KEY)
 
         payload = {}
         headers = {}
