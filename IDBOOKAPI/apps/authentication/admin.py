@@ -65,7 +65,7 @@ class CustomUserAdmin(BaseUserAdmin):
 admin.site.register(User)
 admin.site.register(Permission)
 # Remove Group Model from admin. We're not using it.
-admin.site.unregister(Group)
+# admin.site.unregister(Group)
 
 
 class RoleAdmin(admin.ModelAdmin):

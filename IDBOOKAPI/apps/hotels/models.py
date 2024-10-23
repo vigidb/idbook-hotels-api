@@ -54,7 +54,7 @@ class Property(models.Model):
     managed_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='property_manager', help_text="Select a user as the property manager.")
     added_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='property_added_by')
     service_category = models.CharField(max_length=255, choices=SERVICE_CATEGORY_TYPE_CHOICES, default='', help_text="Select the service category for this property.")
-    address = models.ForeignKey(Address, on_delete=models.CASCADE, null=True, verbose_name="property_address")
+    address = models.TextField(blank=True, null=True) 
     custom_id = models.CharField(max_length=15, blank=True, db_index=True, null=True, help_text="Custom ID for the property.")
 
     name = models.CharField(max_length=70, db_index=True, help_text="Name of the property.")

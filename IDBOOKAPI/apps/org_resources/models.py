@@ -18,6 +18,8 @@ from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator,
 from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
 from IDBOOKAPI.basic_resources import (ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES, COUNTRY_CHOICES)
 
+from django.core.validators import (EmailValidator, RegexValidator)
+
 
 class AmenityCategory(models.Model):
     title = models.CharField(max_length=200, unique=True)
@@ -143,8 +145,11 @@ class CompanyDetail(models.Model):
     company_name = models.CharField(max_length=50)
     brand_name = models.CharField(max_length=100, null=True, blank=True)
     company_logo = models.FileField(upload_to='company/logo/', blank=True, null=True)
-    company_phone = models.CharField(max_length=50, null=True, blank=True)
-    company_email = models.CharField(max_length=50, null=True, blank=True)
+    company_phone = models.CharField(max_length=50, null=True, blank=True,
+                                     validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                                message='Enter a valid phone number')])
+    company_email = models.EmailField(validators=[EmailValidator],
+                              null=True, blank=True, help_text="Email address of the company.")
     domain_name = models.CharField(max_length=50, blank=True, null=True)
     company_website = models.URLField(null=True, blank=True)
     gstin_no = models.CharField(max_length=100, null=True)
@@ -152,9 +157,12 @@ class CompanyDetail(models.Model):
     registered_address = models.TextField(blank=True, null=True)
 
     contact_person_name = models.CharField(max_length=50, null=True, blank=True)
-    contact_number = models.CharField(max_length=10, null=True, blank=True)
+    contact_number = models.CharField(max_length=10, null=True, blank=True,
+                                      validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                                message='Enter a valid phone number')])
     designation = models.CharField(max_length=50, null=True, blank=True)
-    contact_email_address = models.CharField(max_length=50, null=True, blank=True)
+    contact_email_address = models.EmailField(validators=[EmailValidator],
+                                              null=True, blank=True, help_text="Email address of the contact person.")
     
     district = models.CharField(max_length=20, null=True, blank=True)
     state = models.CharField(max_length=30, choices=STATE_CHOICES, default='')

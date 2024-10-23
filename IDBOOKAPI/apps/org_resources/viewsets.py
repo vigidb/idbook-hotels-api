@@ -30,6 +30,7 @@ from rest_framework.decorators import action
 from django.db.models import Q
 from django.conf import settings
 
+from apps.authentication.utils import db_utils as auth_db_utils
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
@@ -96,13 +97,18 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
             )
         else:
-            # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+##            # If the serializer is not valid, create a custom response with error details
+##            custom_response = self.get_response(
+##                data=serializer.errors,  # Use the serializer's error details
+##                message="Validation Error",
+##                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
+##                is_error=True
+##            )
+            
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -129,12 +135,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             )
         else:
             # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -219,6 +223,8 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             # If the serializer is valid, perform the default creation logic
             company_detail = serializer.save()
             #response = super().create(request, *args, **kwargs)
+            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
+            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
 
             # create or update user based on company email
             user = User.objects.filter(email=company_detail.contact_email_address).first()
@@ -231,20 +237,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 user.company_id=company_detail.id
                 user.save()
 
-##            if user:
-##                refresh = RefreshToken.for_user(user)
-##
-##                data = {'refreshToken': str(refresh),
-##                        'accessToken': str(refresh.access_token),
-##                        'expiresIn': 0,
-##                        'company': serializer.data,
-##                        }
-##            else:
-##                data = {'refreshToken': "",
-##                        'accessToken': "",
-##                        'expiresIn': 0,
-##                        'company': serializer.data,
-##                        }
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
 
             # Create a custom response
             custom_response = self.get_response(
@@ -255,13 +251,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
             )
         else:
-            # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response

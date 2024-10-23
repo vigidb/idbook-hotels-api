@@ -22,7 +22,8 @@ admin.site.register(RoomType, RoomTypeAdmin)
 
 
 class CompanyDetailAdmin(admin.ModelAdmin):
-    list_display = ('company_name', 'company_phone', 'company_email', 'district', 'state', 'country', 'pin_code')
+    list_display = ('company_name', 'company_phone', 'company_email', 'district', 'state',
+                    'country', 'pin_code', 'contact_email_address')
     search_fields = ('company_name', 'company_phone', 'company_email', 'district', 'state', 'country', 'pin_code')
     list_filter = ('state', 'country')
 

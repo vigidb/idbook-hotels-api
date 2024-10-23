@@ -49,8 +49,16 @@ class HotelBooking(models.Model):
                                         help_text="Check-in time for the property.")
     checkout_time = models.DateTimeField(blank=True, null=True,
                                          help_text="Check-out time for the property.")
-    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")    
- 
+    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
+    confirmed_checkin_time = models.DateTimeField(
+        blank=True, null=True, help_text="Confirmed Check-in time for the property.")
+    confirmed_checkout_time = models.DateTimeField(
+        blank=True, null=True, help_text="Confirmed Check-out time for the property.")
+    room_subtotal = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
+    service_tax =  models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the room.")
+    
 
 class HolidayPackageBooking(models.Model):
     no_days = models.PositiveIntegerField(default=0, help_text="planned days")
@@ -97,6 +105,7 @@ class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.DO_NOTHING,
                              null=True, blank=True,
                              verbose_name="booking_user")
+    confirmation_code = models.CharField(max_length=500, null=True, blank=True)
 
     booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
                                     default='HOTEL', help_text="booking type.")
@@ -123,6 +132,8 @@ class Booking(models.Model):
     deal_price = models.DecimalField(default=0, max_digits=10, decimal_places=2)
     discount = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
     final_amount = models.DecimalField(default=0, max_digits=10, decimal_places=2)
+    total_payment_made = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Total Payment Made")
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
 
     active = models.BooleanField(default=True)
@@ -130,6 +141,10 @@ class Booking(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     # objects = BookingManager()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.cached_status = self.status
 
 class HolidayPackageHotelDetail(models.Model):
     hotel_booking = models.ForeignKey(HotelBooking, on_delete=models.DO_NOTHING,
