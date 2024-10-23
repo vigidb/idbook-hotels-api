@@ -1,6 +1,17 @@
 # booking utils
+from IDBOOKAPI.otp_utils import generate_otp
 
-def generate_html_for_mail(booking):
+def generate_booking_confirmation_code(booking_id, booking_type):
+    random_number = generate_otp(no_digits=4)
+    
+    confirmation_code = "IDB_{booking_type}_{booking_id}{random_number}".format(
+        booking_type=booking_type, booking_id=booking_id,
+        random_number=random_number)
+
+    return confirmation_code
+    
+
+def generate_htmlcontext_search_booking(booking):
     if booking:
         booking_type = booking.booking_type
         adult_count = booking.adult_count
@@ -8,10 +19,6 @@ def generate_html_for_mail(booking):
         name = booking.user.name
         email = booking.user.email
         mobile_number = booking.user.mobile_number
-
-##        html_content = f'''<p>Booking Enquiry as follows: </p>
-##Booking Type:: {booking_type} <br> No.of Adult::{adult_count} <br>
-##No.of Child::{child_count} <br>'''
 
         context = {'booking_type': booking_type, 'name':name,
                    'email':email, 'mobile_number':mobile_number}
@@ -23,11 +30,6 @@ def generate_html_for_mail(booking):
                 checkin_time = hotel_booking.checkin_time
                 checkout_time = hotel_booking.checkout_time
 
-##                hotel_booking_content = f'''Enquired Property:: {enquired_property} <br>
-##CheckIn Time::{checkin_time} <br>
-##CheckOut Time:: {checkout_time} <br>'''
-##
-##                html_content = html_content + hotel_booking_content
                 context['enquired_property'] =  enquired_property
                 context['checkin_time'] =  checkin_time
                 context['checkout_time'] =  checkout_time
@@ -47,10 +49,6 @@ def generate_html_for_mail(booking):
                 context['available_start_date'] =  available_start_date
                 context['adult_count'] = adult_count
                 context['child_count'] = child_count
-
-##                holidaypack_booking_content = f'''Enquired Holiday Package:: {enquired_holiday_package} <br>
-##No of Days:: {no_days} <br> Available Start Date:: {available_start_date} <br>'''
-##                html_content = html_content + holidaypack_booking_content
                 
         elif booking_type == "VEHICLE":
             vehicle_booking = booking.vehicle_booking
@@ -67,11 +65,6 @@ def generate_html_for_mail(booking):
                 context['vehicle_type'] =  vehicle_type
                 context['adult_count'] = adult_count
                 context['child_count'] = child_count
-
-##                vehicle_booking_content = f'''PickUp Address:: {pickup_addr} <br>
-##Drop Off Address:: {dropoff_addr} <br> 'PickUp Time:: {pickup_time} <br>'''
-##
-##                html_content = html_content + vehicle_booking_content
                 
         elif booking_type == 'FLIGHT':
             flight_booking = booking.flight_booking
@@ -92,17 +85,112 @@ def generate_html_for_mail(booking):
                 context['flying_to'] = flying_to
                 context['adult_count'] = adult_count
                 context['child_count'] = child_count
-
-##                flight_booking_content = f'''Flight Trip:: {flight_trip} <br>
-##Flight Class:: {flight_class} <br> Departure Date:: {departure_date} <br>
-##Return Date:: {return_date} <br> Flying From:: {flying_from} <br>
-##Flying To:: {flying_to} <br>'''
-##                html_content = html_content + flight_booking_content
                 
                 
         return context
 
                 
+def generate_context_confirmed_booking(booking):
+    booking_type = booking.booking_type
+    adult_count = booking.adult_count
+    child_count = booking.child_count
+    name = booking.user.name
+    email = booking.user.email
+    mobile_number = booking.user.mobile_number
+    total_payment_made = booking.total_payment_made
+    confirmation_code = booking.confirmation_code
+    final_amount = booking.final_amount
+    total_balance_due = final_amount - total_payment_made
+
+    occupancy = "{adult_count} Adults".format(adult_count=adult_count)
+    if child_count:
+        occupancy = occupancy + "{child_count} Child".format(
+            child_count=child_count)
+        
+    context = {'booking_type': booking_type, 'name':name,
+               'email':email, 'mobile_number':mobile_number,
+               'total_payment_made':total_payment_made,
+               'confirmation_code':confirmation_code,
+               'occupancy':occupancy,
+               'total_balance_due':total_balance_due,
+               'total_booking_amount':final_amount}
+    
+    if booking_type == "HOTEL":
+        property_name, property_address = '', ''
+        property_email, property_phone_no = '', ''
+        room_type = ''
+        
+        confirmed_checkin_time, confirmed_checkout_time = None, None
+        room_subtotal, service_tax = None, None
+        
+        
+        hotel_booking = booking.hotel_booking
+        if hotel_booking:
+            confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+            confirmed_checkout_time = hotel_booking.confirmed_checkout_time
+            room_subtotal = hotel_booking.room_subtotal
+            service_tax = hotel_booking.service_tax
+            
+            confirmed_property = hotel_booking.confirmed_property
+            if confirmed_property:
+                property_name = confirmed_property.name
+                property_address = confirmed_property.address
+                property_email = confirmed_property.email
+                property_phone_no = confirmed_property.phone_no
                 
+            confirmed_room = hotel_booking.room
+            if confirmed_room:
+                room_type = confirmed_room.room_type
+                price_for_24_hours = confirmed_room.price_for_24_hours
+        
+
+        context['confirmed_checkin_time'] = confirmed_checkin_time
+        context['confirmed_checkout_time'] = confirmed_checkout_time
+        context['room_subtotal'] = room_subtotal
+        context['service_tax'] = service_tax
+
+        context['property_name'] = property_name
+        context['property_address'] = property_address
+        context['property_email'] = property_email
+        context['property_phone_no'] = property_phone_no
+
+        context['room_type'] = room_type
+        
+    elif booking_type == "HOLIDAYPACK":
+        holidaypack_booking = booking.holiday_package_booking
+        trip_id, trip_name = "", ""
+        tour_duration, date_of_journey = "", ""
+
+        daily_plans = []
+        
+        if holidaypack_booking:
+           confirmed_pack = holidaypack_booking.confirmed_holiday_package
+           if confirmed_pack:
+               trip_id = confirmed_pack.trip_id
+               trip_name = confirmed_pack.trip_name
+               tour_duration = confirmed_pack.tour_duration
+               date_of_journey = confirmed_pack.date_of_journey
+               daily_plans = confirmed_pack.tour_daily_plan.all()
+               print("daily plan::", daily_plans)
+
+##               for dplan in daily_plans:
+##                   title = dplan.title
+##                   plan_date = dplan.plan_date
+##                   stay = dplan.stay
+##                   check_in = dplan.check_in
+##                   check_out = dplan.check_out
+##                   detailed_plan
+
+        context['trip_id'] = trip_id
+        context['trip_name'] = trip_name
+        context['tour_duration'] = tour_duration
+        context['date_of_journey'] = date_of_journey
+        context['daily_plans'] = daily_plans
+               
+
+    return context
+        
+                
+            
             
             

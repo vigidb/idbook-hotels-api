@@ -27,10 +27,14 @@ from rest_framework import viewsets
 from django.utils import timezone
 
 from apps.org_managements.utils import get_domain_business_details
-from apps.customer.utils import db_utils 
+from apps.customer.utils import db_utils as customer_db_utils
 
 from apps.authentication.tasks import (
     send_email_task, customer_signup_link_task, send_signup_email_task)
+
+from apps.authentication.utils import db_utils
+
+from IDBOOKAPI.permissions import HasRoleModelPermission
 
 
 
@@ -135,13 +139,13 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         user = User.objects.filter(email=email).first()
         if not user:
             user = User.objects.create(email=email, company_id=company_id, mobile_number=mobile_number, name=name)
-            customer = db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
+            customer = customer_db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
                                                              employee_id=employee_id, group_name=group_name,
                                                              department=department)
         else:
-            customer = db_utils.check_customer_exist(user.id)
+            customer = customer_db_utils.check_customer_exist(user.id)
             if not customer:
-                customer = db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
+                customer = customer_db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
                                                                  employee_id=employee_id, group_name=group_name,
                                                                  department=department)
             #user.category = 'CL-CUST'
@@ -184,6 +188,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         user.category = 'CL-CUST'
         user.mobile_number = mobile_number
         user.save()
+
+        grp = db_utils.get_group_by_name('CORPORATE-GRP')
+        role = db_utils.get_role_by_name('CORP-EMP')
+
+        if grp:
+            user.groups.add(grp)
+        if role:
+            user.roles.add(role)
+
 
         user_data = {'id': user.id,
                      'mobile_number': user.mobile_number if user.mobile_number else '',

@@ -51,7 +51,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             if response.data:
                 booking_id = response.data.get('id')
                 print("Booking Id", booking_id)
-                send_booking_email_task.apply_async(args=[booking_id])
+                booking_type = 'search-booking'
+                send_booking_email_task.apply_async(args=[booking_id, booking_type])
 
             # Create a custom response
             custom_response = self.get_response(

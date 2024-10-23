@@ -53,11 +53,10 @@ def send_welcome_email(template, to_emails):
                        fail_silently=False, html_message=template)
     print("welcome email status::", status)
 
-def send_booking_email(booking, to_emails, html_content):
+def send_booking_email(subject, booking, to_emails, html_content):
     
     from_email = settings.EMAIL_HOST_USER
     print("from mail", from_email)
-    subject = "New Booking Enquiry"
     status = send_mail(subject, html_content, from_email, to_emails,
                        fail_silently=False, html_message=html_content)
     print(status)
