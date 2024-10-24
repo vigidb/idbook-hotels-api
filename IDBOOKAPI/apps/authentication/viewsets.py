@@ -32,7 +32,7 @@ from apps.customer.utils import db_utils as customer_db_utils
 from apps.authentication.tasks import (
     send_email_task, customer_signup_link_task, send_signup_email_task)
 
-from apps.authentication.utils import db_utils
+from apps.authentication.utils import (db_utils, authentication_utils)
 
 from IDBOOKAPI.permissions import HasRoleModelPermission
 
@@ -52,14 +52,25 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     http_method_names = ['get', 'post', 'put', 'patch']
 
     def get_user_with_tokens(self, user):
-        user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
-                     'email': user.email if user.email else '', 'name': user.get_full_name(),
-                     'roles': [], 'permissions': []}
+##        profile_picture = ''
+##        customer_profile = user.customer_profile
+##        if user.customer_profile:
+##            profile_picture = customer_profile.profile_picture
+##            employee_id = customer_profile.employee_id
+##            
+##
+##        user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
+##                     'email': user.email if user.email else '', 'name': user.get_full_name(),
+##                     'roles': [], 'permissions': [], 'category': user.category,
+##                     'profile_picture':profile_picture,
+##                     'business_id': user.business_id if user.business_id else '',
+##                     'company_id' : user.company_id if user.company_id else ''}
             
         refresh = RefreshToken.for_user(user)
+        data = authentication_utils.user_representation(user, refresh_token = refresh)
 
-        data = {'refreshToken': str(refresh), 'accessToken': str(refresh.access_token),
-                'expiresIn': 0, 'user': user_data}
+##        data = {'refreshToken': str(refresh), 'accessToken': str(refresh.access_token),
+##                'expiresIn': 0, 'user': user_data}
 
         return data
 
@@ -73,26 +84,14 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             customer_id = user.id
             Customer.objects.create(user_id=customer_id, active=True)
             # userlist_serializer = UserListSerializer(user)
+            
             # send welcome email
             send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email]])
-            
-            user_data = {'id': user.id,
-                         'mobile_number': user.mobile_number if user.mobile_number else '',
-                         'email': user.email if user.email else '',
-                         'name': user.get_full_name(),
-                         'category': user.category,
-                         'roles': [],
-                         'permissions': []}
-            # send welcome email to user
-            # send_welcome_email(user.email)
+            # generate token
             refresh = RefreshToken.for_user(user)
-
-            data = {'refreshToken': str(refresh),
-                    'accessToken': str(refresh.access_token),
-                    'expiresIn': 0,
-                    'user': user_data,
-                    }
-
+            # user representation
+            data = authentication_utils.user_representation(user, refresh_token = refresh)
+            
             response = self.get_response(
                 data=data,
                 status="success",
@@ -197,23 +196,29 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if role:
             user.roles.add(role)
 
-
-        user_data = {'id': user.id,
-                     'mobile_number': user.mobile_number if user.mobile_number else '',
-                     'email': user.email if user.email else '',
-                     'name': user.get_full_name(),
-                     'category': user.category,
-                     'roles': [],
-                     'permissions': []}
-            # send welcome email to user
-            # send_welcome_email(user.email)
+##        profile_picture = ''
+##        customer_profile = user.customer_profile
+##        if user.customer_profile:
+##            profile_picture = customer_profile.profile_picture
+##            employee_id = customer_profile.employee_id
+##
+##
+##        user_data = {'id': user.id,
+##                     'mobile_number': user.mobile_number if user.mobile_number else '',
+##                     'email': user.email if user.email else '',
+##                     'name': user.get_full_name(),
+##                     'category': user.category,
+##                     'roles': [],
+##                     'permissions': []}
+            
         refresh = RefreshToken.for_user(user)
+        data = authentication_utils.user_representation(user, refresh_token = refresh)
 
-        data = {'refreshToken': str(refresh),
-                'accessToken': str(refresh.access_token),
-                'expiresIn': 0,
-                'user': user_data,
-                }
+##        data = {'refreshToken': str(refresh),
+##                'accessToken': str(refresh.access_token),
+##                'expiresIn': 0,
+##                'user': user_data,
+##                }
 
         response = self.get_response(
             data = data,
@@ -386,11 +391,14 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 ##                        'access': str(refresh.access_token)
 ##                     }
 ##                    ]
-            data = {'refreshToken': str(refresh),
-                    'accessToken': str(refresh.access_token),
-                    'expiresIn': 0,
-                    'user': serializer.data,
-                    }
+##            data = {'refreshToken': str(refresh),
+##                    'accessToken': str(refresh.access_token),
+##                    'expiresIn': 0,
+##                    'user': serializer.data,
+##                    }
+
+            data = authentication_utils.user_representation(user, refresh_token=refresh)
+            
             response = self.get_response(
                 data=data,
                 status="success",
