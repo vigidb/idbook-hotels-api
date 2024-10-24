@@ -179,7 +179,7 @@ class BookingSerializer(serializers.ModelSerializer):
             'enquired_property':enquired_property, 'booking_slot':booking_slot,
             'room_type':room_type, 'checkin_time': checkin_time,
             'checkout_time':checkout_time, 'bed_count':bed_count,
-            'confirmed_property':confirmed_property,'room':room}
+            'confirmed_property':confirmed_property_json,'room':room_json}
          
         return hotel_json
 

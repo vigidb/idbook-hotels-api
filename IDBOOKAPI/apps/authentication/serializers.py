@@ -101,22 +101,32 @@ class LoginSerializer(serializers.Serializer):
         validated_data['user'] = user
         return validated_data
 
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        user = instance['user']
-        user_roles = [uroles for uroles in user.roles.values('id','name')]
-        ret['id'] = user.id
-        ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
-        ret['email'] = user.email if user.email else ''
-        ret['name'] =  user.get_full_name() #user.first_name if user.first_name else ''
-        ret['roles'] = user_roles
-        ret['permissions'] = []
-        ret['business_id'] = user.business_id if user.business_id else ''
-        ret['company_id'] = user.company_id if user.company_id else ''
-        
-        # ret['category'] = user.category
-        # ret['is_active'] = user.is_active
-        return ret
+##    def to_representation(self, instance):
+##        ret = super().to_representation(instance)
+##        profile_picture, employee_id = "", ""
+##        user = instance['user']
+##        user_roles = [uroles for uroles in user.roles.values('id','name')]
+##
+##        ret['id'] = user.id
+##        ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
+##        ret['email'] = user.email if user.email else ''
+##        ret['name'] =  user.get_full_name() #user.first_name if user.first_name else ''
+##        ret['roles'] = user_roles
+##        ret['permissions'] = []
+##        ret['business_id'] = user.business_id if user.business_id else ''
+##        ret['company_id'] = user.company_id if user.company_id else ''
+##        ret['category'] = user.category
+##        ret['is_active'] = user.is_active
+##
+##        customer_profile = user.customer_profile
+##        if user.customer_profile:
+##            profile_picture = customer_profile.profile_picture
+##            employee_id = customer_profile.employee_id
+##            
+##        ret['profile_picture'] = profile_picture
+##        # ret['employee_id'] = employee_id
+##        
+##        return ret
 
 
 class UserListSerializer(serializers.Serializer):
