@@ -39,6 +39,47 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##            # action is not set return default permission_classes
 ##            return [permission() for permission in self.permission_classes]
 
+    def booking_filter_ops(self):
+        filter_dict = {}
+        company_id, user_id = None, None
+        
+        user = self.request.user
+        user.category = 'CL-ADMIN'
+        if user.category == 'B-ADMIN':
+             company_id = self.request.query_params.get('company_id', None)
+        elif user.category == 'CL-ADMIN':
+            company_id = user.company_id if user.company_id else -1
+            user_id = self.request.query_params.get('user_id', None)
+        elif user.category == 'CL-CUST':
+            user_id = user.id
+
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+        
+        # filter 
+        booking_status = self.request.query_params.get('status', '')
+        if booking_status:
+            filter_dict['status'] = booking_status
+        if company_id:
+            filter_dict['user__company_id'] = company_id
+        if user_id:
+            filter_dict['user__id'] = user_id
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
+        # search 
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(confirmation_code__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+
+        return count
+    
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -104,23 +145,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        print("Inside Booking")
-
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
-        booking_status = self.request.query_params.get('status', '')
-##        search = request.query_params.get('search', '')
-##
-##        if search:
-##            search_q_filter = Q(company_name__icontains=search) | Q(brand_name__icontains=search)
-##            self.queryset = self.queryset.filter(search_q_filter)
-
-        if booking_status:
-            self.queryset = self.queryset.filter(status=booking_status)
         
-
-        count = self.queryset.count()
-        self.queryset = self.queryset[offset:offset+limit]
+        count = self.booking_filter_ops()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -174,19 +200,19 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             url_path='user/retrieve', url_name='user-retrieve')
     def user_based_retrieve(self, request):
   
-        self.queryset = self.queryset.filter(user=request.user)
-        
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
-        booking_status = self.request.query_params.get('status', '')
-
-        if booking_status:
-            self.queryset = self.queryset.filter(status=booking_status)
-        
-
-        count = self.queryset.count()
-        self.queryset = self.queryset[offset:offset+limit]
-        
+##        self.queryset = self.queryset.filter(user=request.user)
+##        
+##        offset = int(self.request.query_params.get('offset', 0))
+##        limit = int(self.request.query_params.get('limit', 10))
+##        booking_status = self.request.query_params.get('status', '')
+##
+##        if booking_status:
+##            self.queryset = self.queryset.filter(status=booking_status)
+##        
+##
+##        count = self.queryset.count()
+##        self.queryset = self.queryset[offset:offset+limit]
+        count = self.booking_filter_ops()
         booking_serializer = BookingSerializer(self.queryset, many=True)
         
         response = self.get_response(
