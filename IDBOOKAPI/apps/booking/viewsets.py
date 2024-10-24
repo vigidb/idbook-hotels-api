@@ -44,7 +44,6 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         company_id, user_id = None, None
         
         user = self.request.user
-        user.category = 'CL-ADMIN'
         if user.category == 'B-ADMIN':
              company_id = self.request.query_params.get('company_id', None)
         elif user.category == 'CL-ADMIN':
