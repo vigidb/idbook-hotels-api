@@ -24,6 +24,13 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                 email_template = get_template('email_template/booking-confirmation.html')
             elif booking.booking_type == 'HOLIDAYPACK':
                 email_template = get_template('email_template/booking-confirmation-holidaypack.html')
+            elif booking.booking_type == 'HOLIDAYPACK':
+                email_template = get_template('email_template/booking-confirmation-holidaypack.html')
+            elif booking.booking_type == 'VEHICLE':
+                email_template = get_template('email_template/booking-confirmation-vehicle.html')
+            elif booking.booking_type == 'FLIGHT':
+                email_template = get_template('email_template/booking-confirmation-flight.html')
+                
             context = generate_context_confirmed_booking(booking)
             print("context", context)
             html_content = email_template.render(context)
