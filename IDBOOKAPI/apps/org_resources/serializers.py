@@ -47,7 +47,18 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
             return company_detail
         except Exception as e:
             raise serializers.ValidationError(
-                {'message': 'Internal Server Error'})          
+                {'message': 'Internal Server Error'})
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        company = instance
+        if company and company.business_rep:
+            brep_name = company.business_rep.name
+            brep_email = company.business_rep.email
+            brep_mobile_number = company.business_rep.mobile_number
+            ret['business_rep'] = {"name":brep_name, "email":brep_email,
+                                   "mobile_number":brep_mobile_number}
+        return ret
 
 
 class UploadedMediaSerializer(serializers.ModelSerializer):

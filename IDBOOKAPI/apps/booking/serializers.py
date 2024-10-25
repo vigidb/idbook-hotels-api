@@ -28,42 +28,77 @@ class BookingSerializer(serializers.ModelSerializer):
         model = Booking
         fields = '__all__'
 
+##    def validate(self, attrs):
+##        raise serializers.ValidationError('Provide either mobile number or email')
+##        return attrs
+
+##    def to_internal_value(self, data):
+##        raise serializers.ValidationError({"key": []})
+
+    def validation_error_response(self, error_data):
+        error_response = {"status": "error", "message": "Validation Error",
+                          "errors": [{ "field": "non_field_value", "message": error_data}],
+                          "errorCode": "VALIDATION_ERROR"}
+        return error_response
+
     def create_hotel_booking(self, data):
         room_type = data.get('room_type', 'DELUXE')
-        checkin_time = data.get('checkin_time', '')
-        print("check in time::", checkin_time)
-        checkout_time = data.get('checkout_time', '')
+        checkin_time = data.get('checkin_time', None)
+        if not checkin_time:
+            checkin_time = None
+        checkout_time = data.get('checkout_time', None)
+        if not checkout_time:
+            checkout_time = None
         bed_count = data.get('bed_count', 1)
         
         enquired_property = data.get('enquired_property', '')
         booking_slot = data.get('booking_slot', '24 HOURS')
 
-        hotel_booking = HotelBooking.objects.create(
-            room_type=room_type, checkin_time=checkin_time,
-            checkout_time=checkout_time, bed_count=bed_count,
-            enquired_property=enquired_property,
-            booking_slot=booking_slot
-            )
+        try:
+            hotel_booking = HotelBooking.objects.create(
+                room_type=room_type, checkin_time=checkin_time,
+                checkout_time=checkout_time, bed_count=bed_count,
+                enquired_property=enquired_property,
+                booking_slot=booking_slot
+                )
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
         return hotel_booking
 
     def create_holidaypack_booking(self, data):
         enquired_holidaypack = data.get('enquired_holidaypack', '')
         no_days = data.get('no_days', 0)
         available_start_date = data.get('available_start_date', '')
-        holidaypack_booking = HolidayPackageBooking.objects.create(
-            enquired_holiday_package=enquired_holidaypack, no_days=no_days,
-            available_start_date=available_start_date)
+        if not available_start_date:
+            available_start_date = None
+        try:
+            holidaypack_booking = HolidayPackageBooking.objects.create(
+                enquired_holiday_package=enquired_holidaypack, no_days=no_days,
+                available_start_date=available_start_date)
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
         return holidaypack_booking
 
     def create_vehicle_booking(self, data):
         pickup_addr = data.get('pickup_addr', '')
         dropoff_addr = data.get('dropoff_addr', '')
         pickup_time = data.get('pickup_time', '')
+        if not pickup_time:
+            pickup_time = None
         vehicle_type = data.get('vehicle_type', 'CAR')
 
-        vehicle_booking = VehicleBooking.objects.create(
-            pickup_addr=pickup_addr, dropoff_addr=dropoff_addr,
-            pickup_time=pickup_time, vehicle_type=vehicle_type)
+        try:
+            vehicle_booking = VehicleBooking.objects.create(
+                pickup_addr=pickup_addr, dropoff_addr=dropoff_addr,
+                pickup_time=pickup_time, vehicle_type=vehicle_type)
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
 
         return vehicle_booking
     
@@ -71,14 +106,23 @@ class BookingSerializer(serializers.ModelSerializer):
         flight_trip = data.get('flight_trip', 'ROUND')
         flight_class = data.get('flight_class', 'ECONOMY')
         departure_date = data.get('departure_date', '')
+        if not departure_date:
+            departure_date = None
         return_date = data.get('return_date', '')
+        if not return_date:
+            return_date = None
         flying_from = data.get('flying_from', '')
         flying_to = data.get('flying_to', '')
 
-        flight_booking = FlightBooking.objects.create(
-            flight_trip=flight_trip, flight_class=flight_class,
-            departure_date=departure_date, return_date=return_date,
-            flying_from=flying_from, flying_to=flying_to)
+        try:
+            flight_booking = FlightBooking.objects.create(
+                flight_trip=flight_trip, flight_class=flight_class,
+                departure_date=departure_date, return_date=return_date,
+                flying_from=flying_from, flying_to=flying_to)
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
 
         return flight_booking   
         
@@ -213,6 +257,8 @@ class BookingSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         booking_type = instance.booking_type
         if instance:
+            if instance.user:
+                representation['user'] = {'name':instance.user.name, 'email':instance.user.email}
             if booking_type == 'HOLIDAYPACK':
                 holidaypack_booking = instance.holiday_package_booking
                 if holidaypack_booking:

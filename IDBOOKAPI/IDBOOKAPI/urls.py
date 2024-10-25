@@ -17,6 +17,7 @@ from apps.customer.urls import router as customer_router
 from apps.coupons.urls import router as coupons_router
 from apps.booking.urls import router as booking_router
 from apps.hotels.urls import router as hotels_router
+from apps.vehicle_management.urls import router as vehicle_router
 
 
 schema_view = get_schema_view(
@@ -55,6 +56,7 @@ urlpatterns = [
     re_path('api/v1/coupons/', include(coupons_router.urls)),
     re_path('api/v1/booking/', include(booking_router.urls)),
     re_path('api/v1/hotels/', include(hotels_router.urls)),
+    re_path('api/v1/vehcile-management/', include(vehicle_router.urls)),
 
     # JWT token authentication
     # order is important

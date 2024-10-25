@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'apps.org_managements',
     'apps.hotels',
     'apps.holiday_package',
+    'apps.vehicle_management',
 ]
 
 MIDDLEWARE = [

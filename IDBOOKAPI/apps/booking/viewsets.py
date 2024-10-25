@@ -16,7 +16,8 @@ from .models import (Booking, AppliedCoupon)
 from apps.booking.tasks import send_booking_email_task
 
 from rest_framework.decorators import action
-from django.db.models import Q
+from django.db.models import Q, Sum
+from IDBOOKAPI.basic_resources import BOOKING_TYPE
 
 
 class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -44,6 +45,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         company_id, user_id = None, None
         
         user = self.request.user
+        print(user.category)
+        # user.category = 'CL-ADMIN'
         if user.category == 'B-ADMIN':
              company_id = self.request.query_params.get('company_id', None)
         elif user.category == 'CL-ADMIN':
@@ -51,15 +54,15 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             user_id = self.request.query_params.get('user_id', None)
         elif user.category == 'CL-CUST':
             user_id = user.id
-
-        # offset and pagination
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
         
         # filter 
         booking_status = self.request.query_params.get('status', '')
         if booking_status:
             filter_dict['status'] = booking_status
+        booking_type = self.request.query_params.get('booking_type', '')
+        if booking_type:
+            filter_dict['booking_type'] = booking_type
+            
         if company_id:
             filter_dict['user__company_id'] = company_id
         if user_id:
@@ -72,6 +75,12 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if search:
             search_q_filter = Q(confirmation_code__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
+
+
+    def booking_pagination_ops(self):
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
 
         count = self.queryset.count()
         self.queryset = self.queryset[offset:offset+limit]
@@ -144,8 +153,10 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        
-        count = self.booking_filter_ops()
+
+        # filter and pagination
+        self.booking_filter_ops()
+        count = self.booking_pagination_ops()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -211,12 +222,48 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##
 ##        count = self.queryset.count()
 ##        self.queryset = self.queryset[offset:offset+limit]
-        count = self.booking_filter_ops()
+
+        # filter and pagination
+        self.booking_filter_ops()
+        count = self.booking_pagination_ops()
         booking_serializer = BookingSerializer(self.queryset, many=True)
         
         response = self.get_response(
             data=booking_serializer.data, status="success", message="Retrieve Booking Success",
             count=count,
+            status_code=status.HTTP_200_OK,
+            )
+        return response
+
+    @action(detail=False, methods=['GET'], permission_classes=[IsAuthenticated],
+            url_path='summary', url_name='booking-summary')
+    def booking_summary(self, request):
+        print("Inside booking summary")
+        booking_summary = {}
+        booking_type = self.request.query_params.get('booking_type', '')
+        self.booking_filter_ops()
+        if not booking_type:
+            booking_type_list = BOOKING_TYPE #self.queryset.order_by().values_list('booking_type').distinct()
+            
+            for btype in booking_type_list:
+                total_count  = self.queryset.filter(booking_type=btype[1]).count()
+                total_booking_amount = self.queryset.filter(
+                    booking_type=btype[0]).aggregate(Sum('final_amount'))
+                total_amount = total_booking_amount.get('final_amount__sum')
+                booking_summary[btype[1]] = {'total_booking_amount': total_amount,
+                                             'total_count':total_count}
+        else:
+            total_count  = self.queryset.filter(booking_type=booking_type).count()
+            total_booking_amount = self.queryset.filter(
+                booking_type=booking_type).aggregate(Sum('final_amount'))
+            total_amount = total_booking_amount.get('final_amount__sum')
+            booking_summary[booking_type] = {'total_booking_amount': total_amount,
+                                             'total_count':total_count}
+                
+            
+        # total_booking_amount = self.queryset.aggregate(Sum('final_amount'))
+        response = self.get_response(
+            data=booking_summary, status="success", message="Booking Summary Success",
             status_code=status.HTTP_200_OK,
             )
         return response

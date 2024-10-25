@@ -141,6 +141,8 @@ class CompanyDetail(models.Model):
     #user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
     added_user = models.ForeignKey(User, on_delete=models.CASCADE,
                                    related_name='company_list', null=True, blank=True)
+    business_rep = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   related_name='business_representative', null=True, blank=True)
 
     company_name = models.CharField(max_length=50)
     brand_name = models.CharField(max_length=100, null=True, blank=True)

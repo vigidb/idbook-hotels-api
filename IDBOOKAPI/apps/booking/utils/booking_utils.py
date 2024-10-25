@@ -186,6 +186,64 @@ def generate_context_confirmed_booking(booking):
         context['tour_duration'] = tour_duration
         context['date_of_journey'] = date_of_journey
         context['daily_plans'] = daily_plans
+
+    elif booking_type == "VEHICLE":
+        pickup_addr, dropoff_addr = '', ''
+        pickup_time, vehicle_type = '', ''
+        vehicle_no, driver_name = '', ''
+        contact_email, contact_number = '', ''
+        vehicle_subtotal, service_tax = '', ''
+        
+        vehicle_booking = booking.vehicle_booking
+        if vehicle_booking:
+                pickup_addr = vehicle_booking.pickup_addr
+                dropoff_addr = vehicle_booking.dropoff_addr
+                pickup_time = vehicle_booking.pickup_time
+                vehicle_subtotal = vehicle_booking.vehicle_subtotal
+                service_tax = vehicle_booking.service_tax
+
+                confirmed_vehicle = vehicle_booking.confirmed_vehicle
+                if confirmed_vehicle:
+                    vehicle_type = confirmed_vehicle.vehicle_type
+                    vehicle_no = confirmed_vehicle.vehicle_no
+                    driver_name = confirmed_vehicle.driver_name
+                    contact_email = confirmed_vehicle.contact_email
+                    contact_number = confirmed_vehicle.contact_number       
+            
+        context['pickup_addr'] = pickup_addr
+        context['dropoff_addr'] =  dropoff_addr
+        context['pickup_time'] =  pickup_time
+        context['vehicle_type'] =  vehicle_type
+        context['vehicle_no'] = vehicle_no
+        context['driver_name'] =  driver_name
+        context['contact_email'] =  contact_email
+        context['contact_number'] = contact_number
+        context['vehicle_subtotal'] = vehicle_subtotal
+        context['service_tax'] = service_tax
+        
+    elif booking_type == "FLIGHT":
+        flight_trip, flight_class = '', ''
+        departure_date, return_date = '', ''
+        flying_from, flying_to = '', ''
+        flight_subtotal, service_tax = '', ''
+        
+        flight_booking = booking.flight_booking
+        if flight_booking:
+            flight_trip = flight_booking.flight_trip
+            flight_class = flight_booking.flight_class
+            departure_date = flight_booking.departure_date
+            return_date = flight_booking.return_date
+            flying_from = flight_booking.flying_from
+            flying_to = flight_booking.flying_to
+
+        context['flight_trip'] = flight_trip
+        context['flight_class'] =  flight_class
+        context['departure_date'] =  departure_date
+        context['return_date'] =  return_date
+        context['flying_from'] = flying_from
+        context['flying_to'] =  flying_to
+        context['flight_subtotal'] = flight_subtotal
+        context['service_tax'] = service_tax
                
 
     return context

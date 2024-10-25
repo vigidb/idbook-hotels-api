@@ -11,6 +11,7 @@ from apps.authentication.models import User
 from apps.hotels.models import Property, Room
 from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
+from apps.vehicle_management.models import VehicleDetail
 
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
@@ -74,6 +75,15 @@ class VehicleBooking(models.Model):
     pickup_time = models.DateTimeField(blank=True, null=True, help_text="Pickup date and time")
     vehicle_type = models.CharField(max_length=25, choices=VEHICLE_TYPE,
                                     default='CAR', help_text="vehicle type.")
+    
+    confirmed_vehicle = models.ForeignKey(
+        VehicleDetail, on_delete=models.DO_NOTHING,
+        null=True, blank=True, verbose_name="confirmed_vehicle_booking")
+    vehicle_subtotal = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Vehicle Rental Price.")
+    service_tax =  models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the vehicle rental.")
+
 
     def __str__(self):
         return str(self.id)
@@ -91,6 +101,7 @@ class FlightBooking(models.Model):
     return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
     flying_from = models.CharField(max_length=255, null=True, blank=True)
     flying_to = models.CharField(max_length=255, null=True, blank=True)
+    flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
     
     def __str__(self):
         return str(self.id)
