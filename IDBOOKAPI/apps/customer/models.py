@@ -3,7 +3,7 @@ from apps.authentication.models import User
 from apps.org_resources.models import Address
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES,
-    CUSTOMER_GROUP)
+    CUSTOMER_GROUP, TXN_TYPE_CHOICES)
 
 
 class Customer(models.Model):
@@ -56,3 +56,29 @@ class Customer(models.Model):
 
     def __str__(self):
         return f"{self.user.email}"
+
+class Wallet(models.Model):
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_user')
+    balance = models.FloatField(default=0, blank=True, null=True)
+
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return str(self.user.email)
+
+class WalletTransaction(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_transactions')
+    amount = models.FloatField()
+    transaction_type = models.CharField(max_length=10, choices=TXN_TYPE_CHOICES,
+                                        help_text="Credit / Debit")
+    transaction_id = models.CharField(max_length=350, null=True, blank=True, help_text="transaction id")
+    transaction_details = models.TextField(help_text="Transaction description")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return str(self.user.email)
+    

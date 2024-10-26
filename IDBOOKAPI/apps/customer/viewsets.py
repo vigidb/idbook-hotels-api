@@ -11,8 +11,11 @@ from rest_framework.generics import (
 from rest_framework.decorators import action
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from .serializers import (CustomerSerializer)
-from .models import (Customer)
+from .serializers import (
+    CustomerSerializer, WalletSerializer,
+    WalletTransactionSerializer)
+from .models import (Customer, Wallet, WalletTransaction)
+from django.db.models import Q
 
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -24,6 +27,46 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     # filterset_fields = ['service_category', 'district', 'area_name', 'city_name', 'starting_price', 'rating',]
     http_method_names = ['get', 'post', 'put', 'patch']
     # lookup_field = 'custom_id'
+
+    def customer_filter_ops(self):
+        filter_dict = {}
+        company_id, user_id = None, None
+        
+        user = self.request.user
+        print(user.category)
+        # user.category = 'B-ADMIN'
+        if user.category == 'B-ADMIN':
+             company_id = self.request.query_params.get('company_id', None)
+        elif user.category == 'CL-ADMIN':
+            company_id = user.company_id if user.company_id else -1
+            user_id = self.request.query_params.get('user_id', None)
+        elif user.category == 'CL-CUST':
+            user_id = user.id
+        
+        #company_id = 25    
+        if company_id:
+            filter_dict['user__company_id'] = company_id
+        if user_id:
+            filter_dict['user__id'] = user_id
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
+        # search 
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(employee_id__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+
+    def customer_pagination_ops(self):
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+
+        return count
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -88,6 +131,8 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        self.customer_filter_ops()
+        count = self.customer_pagination_ops()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -95,6 +140,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if response.status_code == status.HTTP_200_OK:
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
+                count = count,
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
@@ -173,6 +219,76 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             status='success',
             data=serializer.data,  # Use the data from the default response
             message="Customer Details",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+
+class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = Wallet.objects.all()
+    serializer_class = WalletSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    @action(detail=False, methods=['GET'], url_path='balance',
+            url_name='retrieve-wallet-balance')
+    def user_based_wallet_retrieve(self, request):
+        balance = 0
+        user_id = request.user.id
+        instance = self.queryset.filter(user_id=user_id).first()
+        if instance:
+            balance = instance.balance
+        data = {'balance': balance}
+        custom_response = self.get_response(
+            status='success',
+            data=data,  # Use the data from the default response
+            message="Customer Wallet Balance",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+
+class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = WalletTransaction.objects.all()
+    serializer_class = WalletTransactionSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    def wtransaction_filter_ops(self):
+        filter_dict = {}
+        
+        # filter 
+        transaction_type = self.request.query_params.get('transaction_type', '')
+        if transaction_type:
+            filter_dict['transaction_type'] = transaction_type
+        
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
+
+    def wtransaction_pagination_ops(self):
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+
+        return count
+
+    @action(detail=False, methods=['GET'], url_path='user',
+            url_name='retrieve-wallet-balance')
+    def user_based_wallet_transaction(self, request):
+        user_id = request.user.id
+        self.queryset = self.queryset.filter(user_id=user_id)
+        # filter and pagination
+        self.wtransaction_filter_ops()
+        count = self.wtransaction_pagination_ops()
+        instance = self.queryset
+        serializer = WalletTransactionSerializer(instance, many=True)
+        custom_response = self.get_response(
+            status='success',
+            count=count,
+            data=serializer.data,  # Use the data from the default response
+            message="Wallet Transaction Details",
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
             )
         return custom_response
