@@ -15,6 +15,7 @@ from .serializers import (
     CustomerSerializer, WalletSerializer,
     WalletTransactionSerializer)
 from .models import (Customer, Wallet, WalletTransaction)
+from django.db.models import Q
 
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -26,6 +27,46 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     # filterset_fields = ['service_category', 'district', 'area_name', 'city_name', 'starting_price', 'rating',]
     http_method_names = ['get', 'post', 'put', 'patch']
     # lookup_field = 'custom_id'
+
+    def customer_filter_ops(self):
+        filter_dict = {}
+        company_id, user_id = None, None
+        
+        user = self.request.user
+        print(user.category)
+        # user.category = 'B-ADMIN'
+        if user.category == 'B-ADMIN':
+             company_id = self.request.query_params.get('company_id', None)
+        elif user.category == 'CL-ADMIN':
+            company_id = user.company_id if user.company_id else -1
+            user_id = self.request.query_params.get('user_id', None)
+        elif user.category == 'CL-CUST':
+            user_id = user.id
+        
+        #company_id = 25    
+        if company_id:
+            filter_dict['user__company_id'] = company_id
+        if user_id:
+            filter_dict['user__id'] = user_id
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
+        # search 
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(employee_id__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+
+    def customer_pagination_ops(self):
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+
+        return count
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -90,6 +131,8 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        self.customer_filter_ops()
+        count = self.customer_pagination_ops()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -97,6 +140,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if response.status_code == status.HTTP_200_OK:
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
+                count = count,
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
