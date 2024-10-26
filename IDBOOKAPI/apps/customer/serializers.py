@@ -65,3 +65,16 @@ class CustomerSerializer(serializers.ModelSerializer):
                 representation['company_user'] = company_details
 
         return representation
+
+class WalletSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Wallet
+        fields = '__all__'
+
+class WalletTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WalletTransaction
+        fields = '__all__'
+
+
+        

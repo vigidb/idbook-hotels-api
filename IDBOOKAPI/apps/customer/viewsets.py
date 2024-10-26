@@ -11,8 +11,10 @@ from rest_framework.generics import (
 from rest_framework.decorators import action
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from .serializers import (CustomerSerializer)
-from .models import (Customer)
+from .serializers import (
+    CustomerSerializer, WalletSerializer,
+    WalletTransactionSerializer)
+from .models import (Customer, Wallet, WalletTransaction)
 
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -173,6 +175,76 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             status='success',
             data=serializer.data,  # Use the data from the default response
             message="Customer Details",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+
+class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = Wallet.objects.all()
+    serializer_class = WalletSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    @action(detail=False, methods=['GET'], url_path='balance',
+            url_name='retrieve-wallet-balance')
+    def user_based_wallet_retrieve(self, request):
+        balance = 0
+        user_id = request.user.id
+        instance = self.queryset.filter(user_id=user_id).first()
+        if instance:
+            balance = instance.balance
+        data = {'balance': balance}
+        custom_response = self.get_response(
+            status='success',
+            data=data,  # Use the data from the default response
+            message="Customer Wallet Balance",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+
+class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = WalletTransaction.objects.all()
+    serializer_class = WalletTransactionSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    def wtransaction_filter_ops(self):
+        filter_dict = {}
+        
+        # filter 
+        transaction_type = self.request.query_params.get('transaction_type', '')
+        if transaction_type:
+            filter_dict['transaction_type'] = transaction_type
+        
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
+
+    def wtransaction_pagination_ops(self):
+        # offset and pagination
+        offset = int(self.request.query_params.get('offset', 0))
+        limit = int(self.request.query_params.get('limit', 10))
+
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset:offset+limit]
+
+        return count
+
+    @action(detail=False, methods=['GET'], url_path='user',
+            url_name='retrieve-wallet-balance')
+    def user_based_wallet_transaction(self, request):
+        user_id = request.user.id
+        self.queryset = self.queryset.filter(user_id=user_id)
+        # filter and pagination
+        self.wtransaction_filter_ops()
+        count = self.wtransaction_pagination_ops()
+        instance = self.queryset
+        serializer = WalletTransactionSerializer(instance, many=True)
+        custom_response = self.get_response(
+            status='success',
+            count=count,
+            data=serializer.data,  # Use the data from the default response
+            message="Wallet Transaction Details",
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
             )
         return custom_response

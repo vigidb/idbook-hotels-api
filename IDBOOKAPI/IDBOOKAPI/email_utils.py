@@ -60,3 +60,14 @@ def send_booking_email(subject, booking, to_emails, html_content):
     status = send_mail(subject, html_content, from_email, to_emails,
                        fail_silently=False, html_message=html_content)
     print(status)
+
+def send_booking_email_with_attachment(subject, file, to_emails, html_content):
+    
+    from_email = settings.EMAIL_HOST_USER
+    msg = EmailMultiAlternatives(subject, html_content, from_email,
+                                 to_emails)
+    if file:
+        msg.attach('flight-ticket.pdf', file.read())
+    msg.content_subtype = 'html'
+    status = msg.send()
+    print(status)
