@@ -284,7 +284,35 @@ class BookingSerializer(serializers.ModelSerializer):
 
         return representation
 
+class QueryFilterBookingSerializer(serializers.ModelSerializer):
+    company_id = serializers.IntegerField(required=False)
+    user_id = serializers.IntegerField(required=False)
+    offset = serializers.IntegerField(required=False)
+    limit = serializers.IntegerField(required=False)
+    search = serializers.CharField(required=False, help_text='Available columns: confirmation_code')
+    
+    class Meta:
+        model = Booking
+        fields = ('booking_type', 'status', 'company_id', 'user_id', 'offset', 'limit', 'search')
+##        extra_kwargs = {
+##            'company_id': {
+##                'help_text': 'Corporate Id'
+##            }
+##        }
 
+class QueryFilterUserBookingSerializer(serializers.ModelSerializer):
+    offset = serializers.IntegerField(required=False)
+    limit = serializers.IntegerField(required=False)
+    search = serializers.CharField(required=False, help_text='Available columns: confirmation_code')
+    
+    class Meta:
+        model = Booking
+        fields = ('booking_type', 'status', 'offset', 'limit', 'search')
+##        extra_kwargs = {
+##            'company_id': {
+##                'help_text': 'Corporate Id'
+##            }
+##        }
 
 
 class AppliedCouponSerializer(serializers.ModelSerializer):

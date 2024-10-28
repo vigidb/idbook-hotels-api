@@ -164,6 +164,15 @@ def format_tour_duration(input_str):
 
     return None
 
+def paginate_queryset(request, queryset):
+    offset = int(request.query_params.get('offset', 0))
+    limit = int(request.query_params.get('limit', 10))
+
+    count = queryset.count()
+    queryset = queryset[offset:offset+limit]
+
+    return count, queryset
+
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 

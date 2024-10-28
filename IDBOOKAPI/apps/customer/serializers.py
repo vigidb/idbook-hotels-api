@@ -53,7 +53,7 @@ class CustomerSerializer(serializers.ModelSerializer):
                                         'company_email':company_email}
                     
                 if not company_object:
-                    business_object = instance.company_user.business_detail.first()
+                    business_object = instance.user.business_detail.first()
                     if business_object:
                         company_name = business_object.business_name if business_object.business_name else ''
                         company_phone = business_object.business_phone if business_object.business_phone else ''
@@ -66,6 +66,17 @@ class CustomerSerializer(serializers.ModelSerializer):
 
         return representation
 
+class QueryFilterCustomerSerializer(serializers.ModelSerializer):
+    company_id = serializers.IntegerField(required=False)
+    user_id = serializers.IntegerField(required=False)
+    offset = serializers.IntegerField(required=False)
+    limit = serializers.IntegerField(required=False)
+    search = serializers.CharField(required=False, help_text='Available columns: employee_id')
+    
+    class Meta:
+        model = Customer
+        fields = ('company_id', 'user_id', 'offset', 'limit', 'search')
+
 class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
@@ -76,5 +87,13 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
         model = WalletTransaction
         fields = '__all__'
 
+class QueryFilterWalletTransactionSerializer(serializers.ModelSerializer):
+    offset = serializers.IntegerField(required=False)
+    limit = serializers.IntegerField(required=False)
+    #search = serializers.CharField(required=False, help_text='Available columns: employee_id')
+    
+    class Meta:
+        model = WalletTransaction
+        fields = ('transaction_type', 'offset', 'limit')
 
         

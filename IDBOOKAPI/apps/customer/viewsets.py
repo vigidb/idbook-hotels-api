@@ -11,12 +11,18 @@ from rest_framework.generics import (
 from rest_framework.decorators import action
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
+from IDBOOKAPI.utils import paginate_queryset
 from .serializers import (
     CustomerSerializer, WalletSerializer,
     WalletTransactionSerializer)
+# filter serializer for swagger
+from .serializers import QueryFilterCustomerSerializer, QueryFilterWalletTransactionSerializer
 from .models import (Customer, Wallet, WalletTransaction)
 from django.db.models import Q
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
+from rest_framework.parsers import MultiPartParser
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Customer.objects.all()
@@ -31,12 +37,12 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def customer_filter_ops(self):
         filter_dict = {}
         company_id, user_id = None, None
-        
         user = self.request.user
-        print(user.category)
+        print("user category:: ", user.category)
         # user.category = 'B-ADMIN'
         if user.category == 'B-ADMIN':
              company_id = self.request.query_params.get('company_id', None)
+             user_id = self.request.query_params.get('user_id', None)
         elif user.category == 'CL-ADMIN':
             company_id = user.company_id if user.company_id else -1
             user_id = self.request.query_params.get('user_id', None)
@@ -57,16 +63,16 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             search_q_filter = Q(employee_id__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
 
-
-    def customer_pagination_ops(self):
-        # offset and pagination
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
-
-        count = self.queryset.count()
-        self.queryset = self.queryset[offset:offset+limit]
-
-        return count
+##
+##    def customer_pagination_ops(self):
+##        # offset and pagination
+##        offset = int(self.request.query_params.get('offset', 0))
+##        limit = int(self.request.query_params.get('limit', 10))
+##
+##        count = self.queryset.count()
+##        self.queryset = self.queryset[offset:offset+limit]
+##
+##        return count
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -129,10 +135,15 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    @swagger_auto_schema(
+        query_serializer=QueryFilterCustomerSerializer, operation_description="List Customer Based on User Roles",
+        responses={200: CustomerSerializer(many=True)})
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        print("Inside customer")
         self.customer_filter_ops()
-        count = self.customer_pagination_ops()
+        # count = self.customer_pagination_ops()
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -184,10 +195,16 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='user-based/update', url_name='user-based-update')
+    @action(detail=False, methods=['POST'], parser_classes = [MultiPartParser],
+            url_path='user-based/update', url_name='user-based-update')
     def user_based_update(self, request):
         user_id = request.user.id
         instance = self.queryset.filter(user_id=user_id).first()
+        if not instance:
+            custom_response = self.get_error_response(
+                message="No customer associated with the user", status="error",
+                errors=[],error_code="CUSTOMER_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         if serializer.is_valid():
             response = self.perform_update(serializer)
@@ -199,13 +216,18 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             )
         else:
-            custom_response = self.get_response(
-                status='error',
-                data=serializer.errors,  # Use the data from the default response
-                message="Customer Updation Failed",
-                status_code=status.HTTP_400_BAD_REQUEST
-
-            )
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            
+##            custom_response = self.get_response(
+##                status='error',
+##                data=serializer.errors,  # Use the data from the default response
+##                message="Customer Updation Failed",
+##                status_code=status.HTTP_400_BAD_REQUEST
+##
+##            )
         
         return custom_response
 
@@ -264,16 +286,21 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         self.queryset = self.queryset.filter(**filter_dict)
 
 
-    def wtransaction_pagination_ops(self):
-        # offset and pagination
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
+##    def wtransaction_pagination_ops(self):
+##        # offset and pagination
+##        offset = int(self.request.query_params.get('offset', 0))
+##        limit = int(self.request.query_params.get('limit', 10))
+##
+##        count = self.queryset.count()
+##        self.queryset = self.queryset[offset:offset+limit]
+##
+##        return count
 
-        count = self.queryset.count()
-        self.queryset = self.queryset[offset:offset+limit]
 
-        return count
-
+    @swagger_auto_schema(
+        query_serializer=QueryFilterWalletTransactionSerializer,
+        operation_description="List Wallet Transaction Based on User",
+        responses={200: WalletTransactionSerializer(many=True)})
     @action(detail=False, methods=['GET'], url_path='user',
             url_name='retrieve-wallet-balance')
     def user_based_wallet_transaction(self, request):
@@ -281,7 +308,8 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         self.queryset = self.queryset.filter(user_id=user_id)
         # filter and pagination
         self.wtransaction_filter_ops()
-        count = self.wtransaction_pagination_ops()
+        # count = self.wtransaction_pagination_ops()
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
         instance = self.queryset
         serializer = WalletTransactionSerializer(instance, many=True)
         custom_response = self.get_response(
