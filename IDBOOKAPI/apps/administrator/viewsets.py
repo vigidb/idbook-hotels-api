@@ -26,7 +26,7 @@ from apps.authentication.models import User, Role
 # from payment_gateways.models import *
 
 from .models import available_permission_queryset
-from .serializers import UserSerializer, RoleSerializer, PermissionSerializer, UserListSerializer
+from .serializers import UserSerializer, RoleSerializer, PermissionSerializer, UserAdminListSerializer
 
 
 class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -39,7 +39,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
     action_serializers = {
         'retrieve': UserSerializer,
-        'list': UserListSerializer,
+        'list': UserAdminListSerializer,
         'create': UserSerializer,
         'update': UserSerializer
     }

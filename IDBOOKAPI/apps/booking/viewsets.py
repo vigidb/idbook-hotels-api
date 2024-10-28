@@ -10,7 +10,9 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
+from IDBOOKAPI.utils import paginate_queryset
 from .serializers import (BookingSerializer, AppliedCouponSerializer)
+from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
 from .models import (Booking, AppliedCoupon)
 
 from apps.booking.tasks import send_booking_email_task
@@ -18,6 +20,13 @@ from apps.booking.tasks import send_booking_email_task
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
 from IDBOOKAPI.basic_resources import BOOKING_TYPE
+
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+##test_param = openapi.Parameter(
+##    'test', openapi.IN_QUERY, description="test manual param",
+##    type=openapi.TYPE_BOOLEAN)
 
 
 class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -40,13 +49,15 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##            # action is not set return default permission_classes
 ##            return [permission() for permission in self.permission_classes]
 
+
     def booking_filter_ops(self):
+        
         filter_dict = {}
         company_id, user_id = None, None
         
         user = self.request.user
         print(user.category)
-        # user.category = 'CL-ADMIN'
+        #user.category = 'B-ADMIN'
         if user.category == 'B-ADMIN':
              company_id = self.request.query_params.get('company_id', None)
         elif user.category == 'CL-ADMIN':
@@ -87,7 +98,18 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
         return count
     
+##    @swagger_auto_schema(
+##        manual_parameters=[test_param], operation_description="Create Booking",
+##        request_body=openapi.Schema(
+##            type=openapi.TYPE_OBJECT,
+##            required=["data"],
+##            properties={
+##                "code": openapi.Schema(type=openapi.TYPE_STRING),
+##            },
+##         ),
+##        responses={201: AppliedCouponSerializer(many=True)})
 
+    #@swagger_auto_schema(query_serializer=BookingSerializer, request_body= BookingSerializer, manual_parameters=[test_param])
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -151,12 +173,16 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    
+    @swagger_auto_schema(
+        query_serializer=QueryFilterBookingSerializer, operation_description="List Booking Based on User Roles",
+        responses={200: BookingSerializer(many=True)})
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
         # filter and pagination
         self.booking_filter_ops()
-        count = self.booking_pagination_ops()
+        count, self.queryset = paginate_queryset(self.request, self.queryset) #self.booking_pagination_ops()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -206,6 +232,9 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    @swagger_auto_schema(
+        query_serializer=QueryFilterUserBookingSerializer, operation_description="User Based Booking Retrieve",
+        responses={200: BookingSerializer(many=True)})
     @action(detail=False, methods=['GET'], permission_classes=[IsAuthenticated],
             url_path='user/retrieve', url_name='user-retrieve')
     def user_based_retrieve(self, request):
@@ -225,7 +254,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
         # filter and pagination
         self.booking_filter_ops()
-        count = self.booking_pagination_ops()
+        # count = self.booking_pagination_ops()
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
         booking_serializer = BookingSerializer(self.queryset, many=True)
         
         response = self.get_response(

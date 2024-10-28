@@ -98,7 +98,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class UserListSerializer(serializers.ModelSerializer):
+class UserAdminListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
