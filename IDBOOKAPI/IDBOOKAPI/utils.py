@@ -3,7 +3,21 @@ import random
 import string
 import datetime
 import re
+from django.utils import timezone
+import calendar
 
+def get_current_date():
+    current_date = timezone.now()
+    return current_date
+
+def last_calendar_month_day(date):
+    day = None
+    try:
+        day = calendar.monthrange(date.year, date.month)[1]
+    except Exception as e:
+        print(e)
+    return day
+    
 
 def random_string_generator(size=10, chars=string.ascii_lowercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))

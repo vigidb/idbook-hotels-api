@@ -67,6 +67,11 @@ class HolidayPackageBooking(models.Model):
     enquired_holiday_package = models.CharField(max_length=255, null=True, blank=True)
     confirmed_holiday_package = models.ForeignKey(TourPackage, on_delete=models.DO_NOTHING,
                                                   null=True, blank=True, verbose_name="holiday_package")
+    holidaypack_subtotal = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Holiday Package Price")
+    service_tax =  models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the Holiday package.")
+    
 
 
 class VehicleBooking(models.Model):
@@ -101,6 +106,10 @@ class FlightBooking(models.Model):
     return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
     flying_from = models.CharField(max_length=255, null=True, blank=True)
     flying_to = models.CharField(max_length=255, null=True, blank=True)
+    flight_subtotal = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
+    service_tax =  models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
     flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
     
     def __str__(self):
@@ -117,6 +126,7 @@ class Booking(models.Model):
                              null=True, blank=True,
                              verbose_name="booking_user")
     confirmation_code = models.CharField(max_length=500, null=True, blank=True)
+    invoice_id = models.CharField(max_length=500, null=True, blank=True)
 
     booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
                                     default='HOTEL', help_text="booking type.")

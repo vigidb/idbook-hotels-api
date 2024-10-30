@@ -12,3 +12,9 @@ def get_business_details(business_id):
         return business_details
     except Excpetion as e:
         return None
+
+
+def get_business_by_name(business_name):
+    bdetails = BusinessDetail.objects.filter(
+        business_name=business_name).first()
+    return bdetails

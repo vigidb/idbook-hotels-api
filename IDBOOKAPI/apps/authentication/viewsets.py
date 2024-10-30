@@ -83,6 +83,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             user = serializer.save()
             customer_id = user.id
             Customer.objects.create(user_id=customer_id, active=True)
+            
+            # set groups and roles
+            grp = db_utils.get_group_by_name('B2C-GRP')
+            role = db_utils.get_role_by_name('B2C-CUST')
+
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email
@@ -355,6 +364,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                             new_user = User.objects.create(name=name, email=email,
                                                            mobile_number=mobile_number,
                                                            category=category)
+                        # set groups and roles
+                        grp = db_utils.get_group_by_name('B2C-GRP')
+                        role = db_utils.get_role_by_name('B2C-CUST')
+
+                        if grp:
+                            new_user.groups.add(grp)
+                        if role:
+                            new_user.roles.add(role)
+                            
                         data = self.get_user_with_tokens(new_user)
                         response = self.get_response(data=data, status="success",
                                                      message="Signup successful",
