@@ -2,8 +2,9 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Booking
-from apps.booking.tasks import send_booking_email_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.booking_utils import generate_booking_confirmation_code
+import time
 
 @receiver(post_save, sender=Booking) 
 def check_booking_status(sender, instance:Booking, **kwargs):
@@ -22,6 +23,8 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                                 instance.save()
                         booking_type = 'confirmed-booking'
                         send_booking_email_task.apply_async(args=[booking_id, booking_type])
+                        # time.sleep(3)
+                        create_invoice_task.apply_async(args=[booking_id])
 	
 
 

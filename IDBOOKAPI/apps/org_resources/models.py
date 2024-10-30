@@ -167,7 +167,7 @@ class CompanyDetail(models.Model):
                                               null=True, blank=True, help_text="Email address of the contact person.")
     
     district = models.CharField(max_length=20, null=True, blank=True)
-    state = models.CharField(max_length=30, choices=STATE_CHOICES, default='')
+    state = models.CharField(max_length=30, default='')
     country = models.CharField(max_length=25, default='INDIA')
     pin_code = models.PositiveIntegerField(null=True, blank=True)
 
