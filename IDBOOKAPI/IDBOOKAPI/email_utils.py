@@ -38,12 +38,13 @@ def send_password_forget_email(reset_password_link, to_emails):
     status = send_mail(subject, message, from_email, to_emails)
     print("email status::", status)
 
-def send_signup_link_email(signup_link, to_emails):
+def send_signup_link_email(signup_link, to_emails, html_content):
     subject = 'Idbook SignUp Link'
-    message = "Click the following link to sign up: {signup_link}".format(
-        signup_link=signup_link)
+##    message = "Click the following link to sign up: {signup_link}".format(
+##        signup_link=signup_link)
     from_email = settings.EMAIL_HOST_USER
-    status = send_mail(subject, message, from_email, to_emails)
+    status = send_mail(subject, html_content, from_email, to_emails,
+                       fail_silently=False, html_message=html_content)
     print("email status::", status)
 
 def send_welcome_email(template, to_emails):
