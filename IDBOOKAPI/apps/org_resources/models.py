@@ -449,7 +449,7 @@ class UserNotification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
     send_by = models.ForeignKey(User, on_delete=models.CASCADE,
                                 blank=True, null=True, related_name='sender_notifications')
-    notification_type =  models.CharField(max_length=50, choices=STATE_CHOICES, default='GENERAL')
+    notification_type =  models.CharField(max_length=50, choices=NOTIFICATION_TYPE, default='GENERAL')
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     is_read = models.BooleanField(default=False)
