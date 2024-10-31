@@ -1151,3 +1151,10 @@ CUSTOMER_GROUP = (
     ('ADMIN', 'ADMIN'),
     ('DEFAULT', 'DEFAULT'),
 )
+
+NOTIFICATION_TYPE = (
+    ('GENERAL', 'GENERAL'),
+    ('OFFERS', 'OFFERS'),
+    ('BOOKING', 'BOOKING')
+)
+    
