@@ -8,6 +8,8 @@ from .models import (
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification
 )
+from apps.org_resources import db_utils as org_res_db_utils
+from apps.org_managements import utils as org_mng_utils
 
 
 class CompanyDetailSerializer(serializers.ModelSerializer):
@@ -179,4 +181,30 @@ class UserNotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserNotification
         fields = '__all__'
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        send_user  = instance.send_by
+        sender_profile_pic = ""
+        if send_user:
+            business_id = send_user.business_id
+            company_id = send_user.company_id
+            if company_id:
+                company_details = org_res_db_utils.get_company_details(company_id)
+                if company_details and company_details.company_logo:
+                    sender_profile_pic = company_details.company_logo.url
+            elif business_id:
+                bdetails = org_mng_utils.get_business_details(business_id)
+                if bdetails:
+                    sender_profile_pic = bdetails.business_logo
+
+            if not sender_profile_pic:
+                if send_user.customer_profile:
+                    customer = send_user.customer_profile.last()
+                    if customer and customer.profile_picture:
+                        sender_profile_pic = customer.profile_picture.url
+
+            ret['send_by'] = {'name':send_user.name, 'email':send_user.email,
+                              'profile_pic':sender_profile_pic}
+        return ret
 

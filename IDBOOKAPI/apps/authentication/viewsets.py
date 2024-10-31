@@ -165,7 +165,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         customer_signup_link = f"{settings.FRONTEND_URL}/signup-link/?token={customer_signup_token}&email={email}"
         print(customer_signup_link)
-        customer_signup_link_task.apply_async(args=[customer_signup_link, [email]])
+        customer_signup_link_task.apply_async(args=[customer_signup_link, name, [email]])
 
         response = self.get_response(
             status="success",

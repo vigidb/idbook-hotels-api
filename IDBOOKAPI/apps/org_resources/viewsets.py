@@ -2108,11 +2108,6 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
         #self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-        
-        
-
-    
-    
 
 
 class GetDistrictStateView(APIView):

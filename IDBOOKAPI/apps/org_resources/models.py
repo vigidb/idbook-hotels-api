@@ -16,7 +16,9 @@ from apps.authentication.models import User
 
 from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator, )
 from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
-from IDBOOKAPI.basic_resources import (ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES, COUNTRY_CHOICES)
+from IDBOOKAPI.basic_resources import (
+    ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
+    COUNTRY_CHOICES, NOTIFICATION_TYPE)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -445,9 +447,14 @@ class CountryDetails(models.Model):
 
 class UserNotification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
+    send_by = models.ForeignKey(User, on_delete=models.CASCADE,
+                                blank=True, null=True, related_name='sender_notifications')
+    notification_type =  models.CharField(max_length=50, choices=STATE_CHOICES, default='GENERAL')
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     is_read = models.BooleanField(default=False)
+    redirect_url = models.TextField(blank=True, null=True)
+    image_link = models.TextField(blank=True, null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

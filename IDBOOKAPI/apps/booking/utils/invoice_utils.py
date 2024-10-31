@@ -2,6 +2,7 @@
 import requests
 import json
 
+
 from IDBOOKAPI.utils import (
     get_current_date, last_calendar_month_day)
 
@@ -174,17 +175,8 @@ def create_invoice(payload):
     }
 
     response = requests.request("POST", url, headers=headers, data=payload)
-    print(response.status_code)
-    if response.status_code == 201:
-        data = response.json()
-        invoice_data = data.get('data', '')
-        invoice_id = invoice_data.get('_id', '')
-        print("id::", invoice_id)
-        return invoice_id
-        #print("id::", data.get('_id', ''))
-    else:
-        print(response.json())
-        return None
+    return response
+    
 
 def update_invoice(invoice_id, payload):
     url = "{invoice_url}/api/invoices/{invoice_id}".format(
@@ -197,11 +189,7 @@ def update_invoice(invoice_id, payload):
 
     response = requests.request("PATCH", url, headers=headers, data=payload)
     print("response status code", response.status_code)
-    if response.status_code == 200:
-        data = response.json()
-        print(data)
-    else:
-        print(response.json())
+    return response
     
 
 def mark_invoice_as_paid(invoice_id):

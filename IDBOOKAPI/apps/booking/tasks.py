@@ -12,7 +12,8 @@ from django.template.loader import get_template
 from django.conf import settings
 
 from apps.org_managements.utils import get_business_by_name
-from apps.org_resources.db_utils import get_company_details
+from apps.org_resources.db_utils import get_company_details, create_notification
+from apps.log_management.utils.db_utils import create_booking_invoice_log
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -49,6 +50,26 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                 send_booking_email_with_attachment(subject, file, [user_email], html_content)
             else:
                 send_booking_email(subject, booking, [user_email], html_content)
+
+            try:    
+            # Notification
+                send_by = None
+                title = "{booking_type} Booking Confirmed".format(booking_type=booking.booking_type)
+                description = "We are pleased to confirm your {booking_type} booking. \
+The confirmation code is: {confirmation_code}".format(booking_type=booking.booking_type,
+                                                      confirmation_code=booking.confirmation_code)
+                redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
+                business_name = "Idbook"
+                bus_details = get_business_by_name(business_name)
+                if bus_details:
+                    send_by = bus_details.user
+                notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
+                                     'title':title, 'description':description, 'redirect_url':redirect_url,
+                                     'image_link':''}
+                create_notification(notification_dict)
+            except Exception as e:
+                print('Notification Error', e)
+                  
             
         else:
             subject = "Booking Enquiry"
@@ -66,30 +87,47 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
 def create_invoice_task(self, booking_id):
     company_details = None
     print("Inside Invoice Task")
-    booking = get_booking(booking_id)
+    try:
+        booking = get_booking(booking_id)
 
-    if booking:
-        business_name = "Idbook"
-        bus_details = get_business_by_name(business_name)
+        if booking:
+            business_name = "Idbook"
+            bus_details = get_business_by_name(business_name)
 
-        if booking.user:
-            company_id = booking.user.company_id
-            if company_id:
-                company_details = get_company_details(company_id)
+            if booking.user:
+                company_id = booking.user.company_id
+                if company_id:
+                    company_details = get_company_details(company_id)
 
-        if not booking.invoice_id:
-            invoice_number = get_invoice_number()
-            print(invoice_number)
-            payload = invoice_json_data(booking, bus_details,
-                                        company_details, invoice_number)
-            invoice_id = create_invoice(payload)
-            if invoice_id:
-                booking.invoice_id = invoice_id
-                booking.save()
-        else:
-            payload = invoice_json_data(booking, bus_details, company_details,
-                                        None, invoice_action='update')
-            update_invoice(booking.invoice_id, payload)
+            if not booking.invoice_id:
+                invoice_number = get_invoice_number()
+                print(invoice_number)
+                payload = invoice_json_data(booking, bus_details,
+                                            company_details, invoice_number)
+                response = create_invoice(payload)
+
+                print(response.status_code)
+                if response.status_code == 201:
+                    data = response.json()
+                    invoice_data = data.get('data', '')
+                    invoice_id = invoice_data.get('_id', '')
+                    if invoice_id:
+                        booking.invoice_id = invoice_id
+                        booking.save()
+           
+                invoice_log = {'booking':booking, 'status_code':response.status_code,
+                               'response': response.json()}
+                create_booking_invoice_log(invoice_log)
+                    
+            else:
+                payload = invoice_json_data(booking, bus_details, company_details,
+                                            None, invoice_action='update')
+                response = update_invoice(booking.invoice_id, payload)
+                invoice_log = {'booking':booking, 'status_code':response.status_code,
+                               'response': response.json()}
+                create_booking_invoice_log(invoice_log)
+    except Exception as e:
+        print("Invoice Error", e)
     
         
     
