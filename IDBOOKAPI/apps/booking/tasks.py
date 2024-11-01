@@ -13,7 +13,10 @@ from django.conf import settings
 
 from apps.org_managements.utils import get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
+from apps.org_resources.utils.notification_utils import (
+    wallet_minbalance_notification_template, booking_comfirmed_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
+from apps.customer.utils.db_utils import get_wallet_balance
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -54,32 +57,62 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
             try:    
             # Notification
                 send_by = None
-                title = "{booking_type} Booking Confirmed".format(booking_type=booking.booking_type)
-                description = "We are pleased to confirm your {booking_type} booking. \
-The confirmation code is: {confirmation_code}".format(booking_type=booking.booking_type,
-                                                      confirmation_code=booking.confirmation_code)
-                redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
+##                title = "{booking_type} Booking Confirmed".format(booking_type=booking.booking_type)
+##                description = "We are pleased to confirm your {booking_type} booking. \
+##The confirmation code is: {confirmation_code}".format(booking_type=booking.booking_type,
+##                                                      confirmation_code=booking.confirmation_code)
+##                redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
+                
                 business_name = "Idbook"
                 bus_details = get_business_by_name(business_name)
                 if bus_details:
                     send_by = bus_details.user
+
+                    
                 notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
-                                     'title':title, 'description':description, 'redirect_url':redirect_url,
+                                     'title':'', 'description':'', 'redirect_url':'',
                                      'image_link':''}
+                
+                notification_dict = booking_comfirmed_notification_template(
+                    booking.id, booking.booking_type, booking.confirmation_code,
+                    notification_dict)
                 create_notification(notification_dict)
             except Exception as e:
                 print('Notification Error', e)
                   
             
         else:
-            subject = "Booking Enquiry"
-            email_template = get_template('email_template/booking-search.html')
-            context = generate_htmlcontext_search_booking(booking)
-            html_content = email_template.render(context)
-            # corporates@idbookhotels.com
-            send_email = settings.CORPORATE_EMAIL
-            print(send_email)
-            send_booking_email(subject, booking, [send_email, 'sonu@idbookhotels.com'], html_content)
+            try:
+                subject = "Booking Enquiry"
+                email_template = get_template('email_template/booking-search.html')
+                context = generate_htmlcontext_search_booking(booking)
+                html_content = email_template.render(context)
+                # corporates@idbookhotels.com
+                send_email = settings.CORPORATE_EMAIL
+                print(send_email)
+                send_booking_email(subject, booking, [send_email, 'sonu@idbookhotels.com'], html_content)
+                # check wallet balance
+                # if low, then send a notification
+                if booking.user:
+                    balance = get_wallet_balance(booking.user.id)
+                    if balance < 1000:
+                        send_by = None
+                        business_name = "Idbook"
+                        bus_details = get_business_by_name(business_name)
+                        if bus_details:
+                            send_by = bus_details.user
+                            
+                        notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'GENERAL',
+                                             'title':'', 'description':'', 'redirect_url':'',
+                                             'image_link':''}
+                        notification_dict = wallet_minbalance_notification_template(balance, notification_dict)
+                        create_notification(notification_dict)
+            except Exception as e:
+                print("Error in search booking email task", e)
+                    
+                        
+                    
+                    
     
     #send_otp_email(otp, to_emails)
 

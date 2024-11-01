@@ -75,7 +75,9 @@ class QueryFilterCustomerSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Customer
-        fields = ('company_id', 'user_id', 'offset', 'limit', 'search')
+        fields = ('company_id', 'user_id', 'group_name',
+                  'department', 'privileged', 'active',
+                  'offset', 'limit', 'search')
 
 class WalletSerializer(serializers.ModelSerializer):
     class Meta:
