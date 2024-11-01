@@ -1,5 +1,5 @@
 # Customer Db Utils
-from apps.customer.models import Customer
+from apps.customer.models import Customer, Wallet
 
 def create_customer_signup_entry(user, added_user=None, gender='',
                                  employee_id='',
@@ -18,4 +18,13 @@ def check_customer_exist(user_id):
         customer = None
         print("Customer doesn't exist")
         
-    return customer 
+    return customer
+
+
+def get_wallet_balance(user_id):
+    balance = 0
+    wallet = Wallet.objects.filter(user__id=user_id).first()
+    if wallet:
+        balance = wallet.balance
+    return balance
+    

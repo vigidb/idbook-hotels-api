@@ -31,7 +31,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     permission_classes = [IsAuthenticated]
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'district', 'area_name', 'city_name', 'starting_price', 'rating',]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch','delete']
     # lookup_field = 'custom_id'
 
     def customer_filter_ops(self):
@@ -40,12 +40,25 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         user = self.request.user
         print("user category:: ", user.category)
         # user.category = 'B-ADMIN'
-        if user.category == 'B-ADMIN':
-             company_id = self.request.query_params.get('company_id', None)
-             user_id = self.request.query_params.get('user_id', None)
-        elif user.category == 'CL-ADMIN':
+
+        # fetch filter parameters
+        param_dict= self.request.query_params
+        for key in param_dict:
+            param_value = param_dict[key]
+
+            if key in ('group_name', 'department', 'privileged', 'active'):
+                filter_dict[key] = param_value
+            if key == 'company_id':
+                company_id =  param_value
+            elif key == 'user_id':
+                user_id = param_value
+        
+##        if user.category == 'B-ADMIN':
+##             company_id = self.request.query_params.get('company_id', None)
+##             user_id = self.request.query_params.get('user_id', None)
+        if user.category == 'CL-ADMIN':
             company_id = user.company_id if user.company_id else -1
-            user_id = self.request.query_params.get('user_id', None)
+            # user_id = self.request.query_params.get('user_id', None)
         elif user.category == 'CL-CUST':
             user_id = user.id
         
@@ -55,6 +68,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if user_id:
             filter_dict['user__id'] = user_id
 
+        # filter 
         self.queryset = self.queryset.filter(**filter_dict)
 
         # search 
@@ -63,16 +77,6 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             search_q_filter = Q(employee_id__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
 
-##
-##    def customer_pagination_ops(self):
-##        # offset and pagination
-##        offset = int(self.request.query_params.get('offset', 0))
-##        limit = int(self.request.query_params.get('limit', 10))
-##
-##        count = self.queryset.count()
-##        self.queryset = self.queryset[offset:offset+limit]
-##
-##        return count
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -87,7 +91,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # Create a custom response
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
-                message="Applied Coupon Created",
+                message="Customer Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
 
             )
@@ -105,9 +109,36 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        compony_id = None
+        
+        user = request.user
+        if user.category == 'CL-ADMIN':
+            company_id = user.company_id
+            if not company_id:
+                custom_response = self.get_error_response(
+                    message="No privilege to update. Missing authenticated user's company details",
+                    status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                    status_code=status.HTTP_403_FORBIDDEN)
+                return custom_response
+        else:
+            custom_response = self.get_error_response(
+                message="No privilege to update. The authenticated user is not a company admin",
+                status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                status_code=status.HTTP_403_FORBIDDEN)
+            return custom_response
+            
 
         # Get the object to be updated
         instance = self.get_object()
+
+        if instance:
+            customer_company_id = instance.user.company_id
+            if not company_id == customer_company_id:
+                custom_response = self.get_error_response(
+                    message="No privilege to update. The customer belongs to different company",
+                    status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                    status_code=status.HTTP_403_FORBIDDEN)
+                return custom_response
 
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data)
@@ -119,7 +150,67 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # Create a custom response
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
-                message="Applied Coupon Updated",
+                message="Customer Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful update
+
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        compony_id = None
+        
+        user = request.user
+        if user.category == 'CL-ADMIN':
+            company_id = user.company_id
+            if not company_id:
+                custom_response = self.get_error_response(
+                    message="No privilege to update. Missing authenticated user's company details",
+                    status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                    status_code=status.HTTP_403_FORBIDDEN)
+                return custom_response
+        else:
+            custom_response = self.get_error_response(
+                message="No privilege to update. The authenticated user is not a company admin",
+                status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                status_code=status.HTTP_403_FORBIDDEN)
+            return custom_response
+            
+
+        # Get the object to be updated
+        instance = self.get_object()
+
+        if instance:
+            customer_company_id = instance.user.company_id
+            if not company_id == customer_company_id:
+                custom_response = self.get_error_response(
+                    message="No privilege to update. The customer belongs to different company",
+                    status="error", errors=[],error_code="AUTHORIZATION_ERROR",
+                    status_code=status.HTTP_403_FORBIDDEN)
+                return custom_response
+
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            print("inside validation error", request.data)
+            # If the serializer is valid, perform the default update logic
+            #response = super().partial_update(request, *args, **kwargs)
+            response = self.perform_update(serializer)
+
+            # Create a custom response
+            custom_response = self.get_response(
+                status='success',
+                data=serializer.data,  # Use the data from the default response
+                message="Customer Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
 
             )
@@ -134,6 +225,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+        
 
     @swagger_auto_schema(
         query_serializer=QueryFilterCustomerSerializer, operation_description="List Customer Based on User Roles",
@@ -244,6 +336,27 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
             )
         return custom_response
+
+    @action(detail=True, methods=['DELETE'], url_path='inactive',
+            url_name='inactive-customer', permission_classes=[IsAuthenticated])
+    def make_customer_inactive(self, request, pk=None):
+        print("customer id", pk)
+        instance = self.get_object()
+        if instance:
+            instance.is_active=False
+            instance.save()
+            custom_response = self.get_response(
+                status='success', data=None,
+                message="Customer set to inactive status",
+                status_code=status.HTTP_200_OK,
+                )
+        else:
+                custom_response = self.get_error_response(
+                    message="Customer Not Found", status="error",
+                    errors=[],error_code="CUSTOMER_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND)
+        return custom_response
+        
 
 class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Wallet.objects.all()

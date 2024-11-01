@@ -21,6 +21,8 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification)
+
+from IDBOOKAPI.utils import paginate_queryset
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
 import requests, json
@@ -2038,8 +2040,24 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
     queryset = UserNotification.objects.all()
     serializer_class = UserNotificationSerializer
     permission_classes = [IsAuthenticated]
-    permission_classes = []
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
+    def notification_filter_ops(self):
+        
+        filter_dict = {}
+        user_id = None
+        
+        user_id = self.request.user.id
+        filter_dict['user__id'] = user_id
+        
+        
+        # filter 
+        is_read = self.request.query_params.get('is_read', None)
+        if is_read:
+            filter_dict['is_read'] = is_read
+
+        self.queryset = self.queryset.filter(**filter_dict)
+
 
 
     def partial_update(self, request, *args, **kwargs):
@@ -2079,9 +2097,13 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
     @action(detail=False, methods=['GET'], url_path='user-based/retrieve',
             url_name='user-based-retrieve', permission_classes=[IsAuthenticated])
     def get_user_based_notification(self, request, *args, **kwargs):
-        user = request.user
-        self.queryset = self.queryset.filter(user=user)
-        count = self.queryset.count()
+        #user = request.user
+        #self.queryset = self.queryset.filter(user=user)
+        #count = self.queryset.count()
+
+        # filter
+        self.notification_filter_ops()
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -2094,7 +2116,6 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 message="List Retrieved",
                 count=count,
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
