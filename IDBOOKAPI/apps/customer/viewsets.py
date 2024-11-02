@@ -342,8 +342,9 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def make_customer_inactive(self, request, pk=None):
         print("customer id", pk)
         instance = self.get_object()
+        print(instance)
         if instance:
-            instance.is_active=False
+            instance.active = False
             instance.save()
             custom_response = self.get_response(
                 status='success', data=None,
