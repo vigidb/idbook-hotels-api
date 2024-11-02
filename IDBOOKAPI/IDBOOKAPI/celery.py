@@ -19,7 +19,8 @@ app.conf.task_routes = {
     'apps.authentication.tasks.customer_signup_link_task': {'queue': email_send_queue},
     'apps.authentication.tasks.send_signup_email_task': {'queue': email_send_queue},
     'apps.booking.tasks.send_booking_email_task': {'queue': email_send_queue},
-    'apps.booking.tasks.create_invoice_task': {'queue': email_send_queue}
+    'apps.booking.tasks.create_invoice_task': {'queue': email_send_queue},
+    'apps.booking.tasks.send_cancelled_booking_task':{'queue': email_send_queue}
 }
 
 

@@ -247,8 +247,151 @@ def generate_context_confirmed_booking(booking):
                
 
     return context
+
+def generate_context_cancelled_booking(booking):
+    booking_type = booking.booking_type
+    name = booking.user.name
+    email = booking.user.email
+    mobile_number = booking.user.mobile_number
+    total_payment_made = booking.total_payment_made
+
+    context = {'booking_type': booking_type, 'name':name,
+               'email':email, 'mobile_number':mobile_number,
+               'total_payment_made':total_payment_made }
+
+    if booking_type == "HOTEL":
+        property_name, room_type = '', ''
+        confirmed_checkin_time, confirmed_checkout_time = None, None
         
+        
+        hotel_booking = booking.hotel_booking
+        if hotel_booking:
+            confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+            confirmed_checkout_time = hotel_booking.confirmed_checkout_time
+
+            confirmed_property = hotel_booking.confirmed_property
+            if confirmed_property:
+                property_name = confirmed_property.name
                 
+            confirmed_room = hotel_booking.room
+            if confirmed_room:
+                room_type = confirmed_room.room_type
+        
+
+        context['confirmed_checkin_time'] = confirmed_checkin_time
+        context['confirmed_checkout_time'] = confirmed_checkout_time
+        context['property_name'] = property_name
+        context['room_type'] = room_type
+
+    elif booking_type == "HOLIDAYPACK":
+        holidaypack_booking = booking.holiday_package_booking
+        trip_id, trip_name = "", ""
+        tour_duration, date_of_journey = "", ""
+
+        if holidaypack_booking:
+           confirmed_pack = holidaypack_booking.confirmed_holiday_package
+           if confirmed_pack:
+               trip_id = confirmed_pack.trip_id
+               trip_name = confirmed_pack.trip_name
+               tour_duration = confirmed_pack.tour_duration
+               date_of_journey = confirmed_pack.date_of_journey
+
+        context['trip_id'] = trip_id
+        context['trip_name'] = trip_name
+        context['tour_duration'] = tour_duration
+        context['date_of_journey'] = date_of_journey
+
+    elif booking_type == "VEHICLE":
+        pickup_addr, dropoff_addr = '', ''
+        pickup_time, vehicle_type = '', ''
+        vehicle_no = ''
+        
+        vehicle_booking = booking.vehicle_booking
+        if vehicle_booking:
+            pickup_addr = vehicle_booking.pickup_addr
+            dropoff_addr = vehicle_booking.dropoff_addr
+            pickup_time = vehicle_booking.pickup_time
+
+            confirmed_vehicle = vehicle_booking.confirmed_vehicle
+            if confirmed_vehicle:
+                vehicle_type = confirmed_vehicle.vehicle_type
+                vehicle_no = confirmed_vehicle.vehicle_no
+                 
+            
+        context['pickup_addr'] = pickup_addr
+        context['dropoff_addr'] =  dropoff_addr
+        context['pickup_time'] =  pickup_time
+        context['vehicle_type'] =  vehicle_type
+        context['vehicle_no'] = vehicle_no
+
+    elif booking_type == "FLIGHT":
+        flight_trip, flight_class = '', ''
+        departure_date, return_date = '', ''
+        flying_from, flying_to = '', ''
+        
+        flight_booking = booking.flight_booking
+        if flight_booking:
+            flight_trip = flight_booking.flight_trip
+            flight_class = flight_booking.flight_class
+            departure_date = flight_booking.departure_date
+            return_date = flight_booking.return_date
+            flying_from = flight_booking.flying_from
+            flying_to = flight_booking.flying_to
+
+        context['flight_trip'] = flight_trip
+        context['flight_class'] =  flight_class
+        context['departure_date'] =  departure_date
+        context['return_date'] =  return_date
+        context['flying_from'] = flying_from
+        context['flying_to'] =  flying_to
+        
+        
+    return context
+    
+
+    
+
+def calculate_total_amount(booking):
+    total_booking_amount = 0
+    booking_type = booking.booking_type
+    coupon = booking.coupon
+     
+    if booking_type == "HOTEL":
+        hotel_booking = booking.hotel_booking
+        if hotel_booking: 
+            total_booking_amount = (hotel_booking.room_subtotal
+                                    + hotel_booking.service_tax)
+    
+    elif booking_type == "HOLIDAYPACK":
+        holidaypack_booking = booking.holiday_package_booking
+        if holidaypack_booking:
+            total_booking_amount = (holidaypack_booking.holidaypack_subtotal
+                                    + holidaypack_booking.service_tax)
+                                     
+    elif booking_type == "VEHICLE":
+        vehicle_booking = booking.vehicle_booking
+        if vehicle_booking:
+            total_booking_amount = (vehicle_booking.vehicle_subtotal
+                                    + vehicle_booking.service_tax)
+    elif booking_type == "FLIGHT":
+        flight_booking = booking.flight_booking
+        if flight_booking:
+            total_booking_amount =  (flight_booking.flight_subtotal
+                                     + flight_booking.service_tax)
+
+     # apply coupon (if any) to total amount
+    if coupon and coupon.discount:
+        total_booking_amount = total_booking_amount - coupon.discount
+
+    return total_booking_amount
+    
+
+    
+         
+         
+
+    
+        
             
             
             

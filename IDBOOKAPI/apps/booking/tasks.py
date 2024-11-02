@@ -3,7 +3,8 @@ from IDBOOKAPI.email_utils import send_booking_email, send_booking_email_with_at
 from apps.booking.utils.db_utils import get_booking
 from apps.booking.utils.booking_utils import (
     generate_htmlcontext_search_booking,
-    generate_context_confirmed_booking)
+    generate_context_confirmed_booking,
+    generate_context_cancelled_booking)
 
 from apps.booking.utils.invoice_utils import (
     invoice_json_data, create_invoice, get_invoice_number, update_invoice)
@@ -14,7 +15,8 @@ from django.conf import settings
 from apps.org_managements.utils import get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
 from apps.org_resources.utils.notification_utils import (
-    wallet_minbalance_notification_template, booking_comfirmed_notification_template)
+    wallet_minbalance_notification_template, booking_comfirmed_notification_template,
+    booking_cancelled_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import get_wallet_balance
 
@@ -162,8 +164,39 @@ def create_invoice_task(self, booking_id):
     except Exception as e:
         print("Invoice Error", e)
     
-        
+@celery_idbook.task(bind=True)
+def send_cancelled_booking_task(self, booking_id):
+    """ send email and notification for cancelled booking """
+    print("Inside cancelled booking task")
+    try:
+        booking = get_booking(booking_id)
+        if booking:
+            # send cancellation email
+            subject = "Booking Cancelled"
+            user_email = booking.user.email
+            email_template = get_template('email_template/cancel-confirmation.html')
+            context = generate_context_cancelled_booking(booking)
+            html_content = email_template.render(context)
+            send_booking_email(subject, booking, [user_email], html_content)
+
+            # send notification email
+            business_name = "Idbook"
+            bus_details = get_business_by_name(business_name)
+            if bus_details:
+                send_by = bus_details.user
     
+            notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
+                                 'title':'', 'description':'', 'redirect_url':'',
+                                 'image_link':''}
+            
+            notification_dict = booking_cancelled_notification_template(
+                booking.id, booking.booking_type, 'DUMMY',
+                notification_dict)
+            create_notification(notification_dict)
+            
+    except Exception as e:
+        print('Cancelled Email Task', e)
+        
             
         
 

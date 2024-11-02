@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Cancellation Confirmation - Idbook Hotels</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: rgb(233, 238, 250); /* Lightest blue */
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #1D498D -1.97%, #3C65A4 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+      margin: 0 auto;
+    }
+
+    .content {
+      padding: 20px;
+      text-align: center;
+    }
+
+    .content h1 {
+      font-size: 24px;
+      color: rgb(53, 91, 148);
+      margin-bottom: 20px;
+    }
+
+    .content p {
+      font-size: 16px;
+      color: #666;
+    }
+
+    .booking-details {
+      text-align: left;
+      background-color: rgb(217, 226, 245); /* Lighter blue */
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .booking-details h2 {
+      font-size: 18px;
+      color: rgb(53, 91, 148);
+      margin-bottom: 10px;
+    }
+
+    .booking-details p {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .footer {
+      background-color: rgb(233, 238, 250);
+      text-align: center;
+      padding: 20px;
+      color: rgb(53, 91, 148);
+      font-size: 14px;
+    }
+
+    .footer a {
+      color: rgb(53, 91, 148);
+      text-decoration: none;
+    }
+
+    .cta {
+      margin-top: 30px;
+    }
+
+    .cta a {
+      background-color: rgb(53, 91, 148);
+      color: white;
+      padding: 15px 30px;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section with logo -->
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+    </div>
+
+    <!-- Cancellation Confirmation Content -->
+    <div class="content">
+      <h1>Booking Cancelled</h1>
+      <p>We regret to inform you that your <strong> {{ booking_type }} </strong> booking has been successfully cancelled. If a refund is applicable, the details are mentioned below.</p>
+      <!-- Hotel Cancellation Details -->
+      {% if booking_type == "HOTEL" %}
+	      <div class="booking-details">
+		<h2>Cancellation Details</h2>
+		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Hotel Name:</strong> {{ property_name }}</p>
+		<p><strong>Check-in Date:</strong> {{ confirmed_checkin_time }}</p>
+		<p><strong>Check-out Date:</strong> {{ confirmed_checkout_time }}</p>
+		<p><strong>Room Type:</strong> {{ room_type }}</p>
+	      </div>
+      <!-- Holiday pack Cancellation Details -->
+      {% elif booking_type == "HOLIDAYPACK" %}
+	      <div class="booking-details">
+		<h2>Cancellation Details</h2>
+		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Holiday Package:</strong> {{ trip_name }}</p>
+		<p><strong>Trip Id:</strong> {{ trip_id }}</p>
+		<p><strong>Tour Duration:</strong> {{ tour_duration }}</p>
+		<p><strong>Date of Journey:</strong> {{ date_of_journey }}</p>
+	      </div>
+      {% elif booking_type == "VEHICLE" %}
+	      <div class="booking-details">
+		<h2>Cancellation Details</h2>
+		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Vehicle:</strong> {{ vehicle_type }}</p>
+		<p><strong>Pickup Address:</strong> {{ pickup_addr }}</p>
+		<p><strong>Pickup Time:</strong> {{ pickup_time }}</p>
+		<p><strong>Vehicle Number:</strong> {{ vehicle_no }}</p>
+	      </div>
+      {% elif booking_type == "FLIGHT" %}
+	      <div class="booking-details">
+		<h2>Cancellation Details</h2>
+		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Flying From:</strong> {{ flying_from }}</p>
+		<p><strong>Flying To:</strong> {{ flying_to }}</p>
+		<p><strong>Departure Date:</strong> {{ departure_date }}</p>
+	      </div>
+      {% endif %}
+      
+       <!-- Customer Details -->
+      <div class="booking-details">
+        <h2>Customer Details</h2>
+        <p><strong>Name:</strong> {{ name }}</p>
+        <p><strong>Email:</strong> {{ email }}</p>
+        <p><strong>Phone:</strong> {{ mobile_number }}</p>
+      </div>
+
+      <!-- Refund Details (if applicable) -->
+      <div class="booking-details">
+        <h2>Refund Details</h2>
+        <p>If eligible for a refund, the amount of <strong>[Refund Amount]</strong> will be credited to your account within [Refund Timeframe] days.</p>
+      </div>
+
+      <!-- Call to Action -->
+      <div class="cta">
+        <a href="#">View Cancellation</a> <!-- Replace with actual cancellation link -->
+      </div>
+    </div>
+
+    <!-- Footer Section -->
+    <div class="footer">
+      <p>If you have any questions or need further assistance, feel free to contact us at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>.</p>
+      <p>© 2024 Idbook Hotels. All Rights Reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
