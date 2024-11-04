@@ -16,6 +16,7 @@ from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSer
 from .models import (Booking, AppliedCoupon)
 
 from apps.booking.tasks import send_booking_email_task
+from apps.booking.utils.db_utils import get_user_based_booking
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -53,33 +54,64 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     def booking_filter_ops(self):
         
         filter_dict = {}
+        exclude_dict = {}
         company_id, user_id = None, None
         
         user = self.request.user
+
+        # fetch filter parameters
+        param_dict= self.request.query_params
+        for key in param_dict:
+            param_value = param_dict[key]
+
+            if key in ('status', 'booking_type'):
+                filter_dict[key] = param_value
+            elif key == 'invoice_generated':
+                if param_value in ('True', 'False', True, False):
+                    if param_value == 'True':
+                        param_value = True
+                    elif param_value == 'False':
+                        param_value = False  
+                    exclude_dict['invoice_id__isnull'] = param_value
+                
+            
+            if key == 'company_id':
+                company_id =  param_value
+            elif key == 'user_id':
+                user_id = param_value
+            
+        
         print(user.category)
         #user.category = 'B-ADMIN'
-        if user.category == 'B-ADMIN':
-             company_id = self.request.query_params.get('company_id', None)
-        elif user.category == 'CL-ADMIN':
+##        if user.category == 'B-ADMIN':
+##             company_id = self.request.query_params.get('company_id', None)
+        if user.category == 'CL-ADMIN':
             company_id = user.company_id if user.company_id else -1
-            user_id = self.request.query_params.get('user_id', None)
+            # user_id = self.request.query_params.get('user_id', None)
         elif user.category == 'CL-CUST':
             user_id = user.id
         
         # filter 
-        booking_status = self.request.query_params.get('status', '')
-        if booking_status:
-            filter_dict['status'] = booking_status
-        booking_type = self.request.query_params.get('booking_type', '')
-        if booking_type:
-            filter_dict['booking_type'] = booking_type
+##        booking_status = self.request.query_params.get('status', '')
+##        if booking_status:
+##            filter_dict['status'] = booking_status
+##        booking_type = self.request.query_params.get('booking_type', '')
+##        if booking_type:
+##            filter_dict['booking_type'] = booking_type
             
         if company_id:
             filter_dict['user__company_id'] = company_id
         if user_id:
             filter_dict['user__id'] = user_id
 
-        self.queryset = self.queryset.filter(**filter_dict)
+        # filter and exclude
+        if exclude_dict:
+            print("exclude dict::", exclude_dict)
+            self.queryset = self.queryset.filter(**filter_dict).exclude(
+                **exclude_dict)
+        else:
+            self.queryset = self.queryset.filter(**filter_dict)
+        
 
         # search 
         search = self.request.query_params.get('search', '')
@@ -297,6 +329,28 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             status_code=status.HTTP_200_OK,
             )
         return response
+
+    @action(detail=True, methods=['PATCH'], url_path='cancel',
+            url_name='cancel', permission_classes=[IsAuthenticated])
+    def cancel_booking(self, request, pk=None):
+        """customer can cancel their booking"""
+        user = request.user
+        print("Booking Id::", pk)
+        instance = get_user_based_booking(user.id, pk)
+        if instance:
+            instance.status = 'canceled'
+            instance.save()
+            custom_response = self.get_response(
+                status='success', data=None,
+                message="Booking Cancelled Successfully",
+                status_code=status.HTTP_200_OK,
+                )
+        else:
+                custom_response = self.get_error_response(
+                    message="Booking Not Found for the User", status="error",
+                    errors=[],error_code="BOOKING_ID_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND)
+        return custom_response
     
 
 

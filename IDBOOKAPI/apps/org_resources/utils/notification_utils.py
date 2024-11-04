@@ -51,3 +51,25 @@ is LOW ({wallet_balance} INR)".format(wallet_balance=wallet_balance)
         print('Notification Wallet Balance Template Error', e)
 
     return notification_dict
+
+def wallet_booking_balance_notification_template(booking, wallet_balance, notification_dict):
+    try:
+        booking_type = booking.booking_type
+        booking_amount = booking.final_amount
+        # balance_amount = booking_amount - booking.total_payment_made
+        title = "Low Wallet Balance Notification"
+        description = " A gentle reminder that your Idbook wallet balance \
+is LOW ({wallet_balance} INR) for the {booking_type} booking. \
+Your total booking amount is {booking_amount}. \
+Please recharge your wallet to confirm booking".format(
+    wallet_balance=wallet_balance, booking_type=booking_type, booking_amount=booking_amount)
+        redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
+        
+        notification_dict['title'] = title
+        notification_dict['description'] = description
+        notification_dict['redirect_url'] = redirect_url
+        
+    except Exception as e:
+        print('Notification Wallet Balance Template Error', e)
+
+    return notification_dict

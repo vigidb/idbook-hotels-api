@@ -261,7 +261,7 @@
           </tr>
           <tr>
             <td><strong>Final Total</strong></td>
-            <td><strong>{{ final_total }} INR</strong></td>
+            <td><strong>{{ total_booking_amount }} INR</strong></td>
           </tr>
           <tr>
             <td>Total Payment Made</td>
@@ -289,8 +289,8 @@
 
       <!-- Call-to-Action Buttons -->
       <div class="cta">
-        <a href="#">View Booking</a> <!-- Link to booking details page -->
-        <a href="#" class="download">Download Invoice</a> <!-- Link to invoice download -->
+        <a href="{{ booking_link }}">View Booking</a> <!-- Link to booking details page -->
+        <a href="{{ invoice_link }}" class="download">Download Invoice</a> <!-- Link to invoice download -->
       </div>
 
       <!-- Notice Section -->

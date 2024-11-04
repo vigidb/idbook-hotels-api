@@ -1,5 +1,6 @@
 # booking utils
 from IDBOOKAPI.otp_utils import generate_otp
+from django.conf import settings
 
 def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
@@ -102,6 +103,9 @@ def generate_context_confirmed_booking(booking):
     final_amount = booking.final_amount
     total_balance_due = final_amount - total_payment_made
 
+    invoice_id = booking.invoice_id    
+    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
+    invoice_link = f"{settings.INV_FE_URL}/dashboard/invoice/{invoice_id}/share"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
         occupancy = occupancy + "{child_count} Child".format(
@@ -113,7 +117,9 @@ def generate_context_confirmed_booking(booking):
                'confirmation_code':confirmation_code,
                'occupancy':occupancy,
                'total_balance_due':total_balance_due,
-               'total_booking_amount':final_amount}
+               'total_booking_amount':final_amount,
+               'booking_link':booking_link,
+               'invoice_link':invoice_link}
     
     if booking_type == "HOTEL":
         property_name, property_address = '', ''

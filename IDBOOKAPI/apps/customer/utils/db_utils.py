@@ -1,5 +1,6 @@
 # Customer Db Utils
-from apps.customer.models import Customer, Wallet
+from apps.customer.models import (
+    Customer, Wallet, WalletTransaction)
 
 def create_customer_signup_entry(user, added_user=None, gender='',
                                  employee_id='',
@@ -27,4 +28,17 @@ def get_wallet_balance(user_id):
     if wallet:
         balance = wallet.balance
     return balance
-    
+
+def update_wallet_transaction(wtransact):
+    try:
+        instance = WalletTransaction.objects.create(**wtransact)
+    except Exception as e:
+        print(e)
+
+def deduct_wallet_balance(user_id, deduct_amount):
+    try:
+        wallet = Wallet.objects.get(user__id=user_id)
+        wallet.balance = float(wallet.balance) - float(deduct_amount)
+        wallet.save()
+    except Exception as e:
+        print("Wallet Balance deduct error::", e)
