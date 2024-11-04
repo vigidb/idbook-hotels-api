@@ -161,6 +161,8 @@ def create_invoice_task(self, booking_id):
                 invoice_log = {'booking':booking, 'status_code':response.status_code,
                                'response': response.json()}
                 create_booking_invoice_log(invoice_log)
+
+            send_booking_email_task.apply_async(args=[booking_id, 'confirmed-booking'])
     except Exception as e:
         print("Invoice Error", e)
     
