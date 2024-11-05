@@ -153,10 +153,10 @@ class UserListSerializer(serializers.Serializer):
             business_serializer = BusinessDetailSerializer(business_details)
             business_data = business_serializer.data
 
-        if company_id:
-            company_details = get_company_details(company_id)
-            company_serializer = CompanyDetailSerializer(company_details)
-            company_data = company_serializer.data
+##        if company_id:
+##            company_details = get_company_details(company_id)
+##            company_serializer = CompanyDetailSerializer(company_details)
+##            company_data = company_serializer.data
             
         
         user_roles = [uroles for uroles in user.roles.values('id','name')]
@@ -169,7 +169,8 @@ class UserListSerializer(serializers.Serializer):
         ret['category'] = user_category
         ret['customer_details'] = customer_data
         ret['business_details'] = business_data
-        ret['company_details'] = company_data
+        # ret['company_details'] = company_data
+        ret['company_id'] = company_id
         
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
