@@ -1,15 +1,27 @@
 # booking utils
 from IDBOOKAPI.otp_utils import generate_otp
 from django.conf import settings
+from IDBOOKAPI.utils import get_current_date 
 
 def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
+    cdate = get_current_date()
     
-    confirmation_code = "IDB_{booking_type}_{booking_id}{random_number}".format(
+    confirmation_code = "IDB_{booking_type}_CNF{booking_id}_{month}{year}_{random_number}".format(
         booking_type=booking_type, booking_id=booking_id,
-        random_number=random_number)
+        random_number=random_number, month=cdate.month, year=cdate.year)
 
     return confirmation_code
+
+def generate_booking_reference_code(booking_id, booking_type):
+    random_number = generate_otp(no_digits=4)
+    cdate = get_current_date()
+
+    reference_code = "IDB_{booking_type}_BKG{booking_id}_{month}{year}_{random_number}".format(
+        booking_type=booking_type, booking_id=booking_id,
+        random_number=random_number, month=cdate.month, year=cdate.year)
+
+    return reference_code
     
 
 def generate_htmlcontext_search_booking(booking):
@@ -261,9 +273,13 @@ def generate_context_cancelled_booking(booking):
     mobile_number = booking.user.mobile_number
     total_payment_made = booking.total_payment_made
 
+    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
+
     context = {'booking_type': booking_type, 'name':name,
                'email':email, 'mobile_number':mobile_number,
-               'total_payment_made':total_payment_made }
+               'total_payment_made':total_payment_made,
+               'reference_number':booking.reference_code,
+               'booking_link':booking_link}
 
     if booking_type == "HOTEL":
         property_name, room_type = '', ''

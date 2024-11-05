@@ -115,7 +115,7 @@
       {% if booking_type == "HOTEL" %}
 	      <div class="booking-details">
 		<h2>Cancellation Details</h2>
-		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Booking Reference Number:</strong> {{ reference_number }}</p>
 		<p><strong>Hotel Name:</strong> {{ property_name }}</p>
 		<p><strong>Check-in Date:</strong> {{ confirmed_checkin_time }}</p>
 		<p><strong>Check-out Date:</strong> {{ confirmed_checkout_time }}</p>
@@ -125,7 +125,7 @@
       {% elif booking_type == "HOLIDAYPACK" %}
 	      <div class="booking-details">
 		<h2>Cancellation Details</h2>
-		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Booking Reference Number:</strong> {{ reference_number }}</p>
 		<p><strong>Holiday Package:</strong> {{ trip_name }}</p>
 		<p><strong>Trip Id:</strong> {{ trip_id }}</p>
 		<p><strong>Tour Duration:</strong> {{ tour_duration }}</p>
@@ -134,7 +134,7 @@
       {% elif booking_type == "VEHICLE" %}
 	      <div class="booking-details">
 		<h2>Cancellation Details</h2>
-		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Booking Reference Number:</strong> {{ reference_number }}</p>
 		<p><strong>Vehicle:</strong> {{ vehicle_type }}</p>
 		<p><strong>Pickup Address:</strong> {{ pickup_addr }}</p>
 		<p><strong>Pickup Time:</strong> {{ pickup_time }}</p>
@@ -143,7 +143,7 @@
       {% elif booking_type == "FLIGHT" %}
 	      <div class="booking-details">
 		<h2>Cancellation Details</h2>
-		<p><strong>Cancellation Number:</strong> [Cancellation Number]</p>
+		<p><strong>Booking Reference Number:</strong> {{ reference_number }}</p>
 		<p><strong>Flying From:</strong> {{ flying_from }}</p>
 		<p><strong>Flying To:</strong> {{ flying_to }}</p>
 		<p><strong>Departure Date:</strong> {{ departure_date }}</p>
@@ -159,14 +159,14 @@
       </div>
 
       <!-- Refund Details (if applicable) -->
-      <div class="booking-details">
+     <!-- <div class="booking-details">
         <h2>Refund Details</h2>
         <p>If eligible for a refund, the amount of <strong>[Refund Amount]</strong> will be credited to your account within [Refund Timeframe] days.</p>
-      </div>
+      </div>-->
 
       <!-- Call to Action -->
       <div class="cta">
-        <a href="#">View Cancellation</a> <!-- Replace with actual cancellation link -->
+        <a href="{{ booking_link }}">View Cancellation</a> <!-- Replace with actual cancellation link -->
       </div>
     </div>
 

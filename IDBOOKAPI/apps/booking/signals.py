@@ -6,7 +6,7 @@ from apps.booking.tasks import (
         send_booking_email_task, create_invoice_task,
         send_cancelled_booking_task)
 from apps.booking.utils.booking_utils import (
-        generate_booking_confirmation_code, calculate_total_amount)
+        generate_booking_confirmation_code, calculate_total_amount, generate_booking_reference_code)
 from apps.customer.utils.db_utils import (
         get_wallet_balance, deduct_wallet_balance,
         update_wallet_transaction)
@@ -19,11 +19,13 @@ import time
 
 @receiver(pre_save, sender=Booking)
 def update_total_amount(sender, instance:Booking, **kwargs):
+        """ update total amount, booking reference code, prevent confirm status change if wallet amount is less
+            and low wallet balance notification."""
         total_booking_amount = calculate_total_amount(instance)
         instance.final_amount = total_booking_amount
 
         booking_status = instance.status
-        if booking_status == 'confirmed':
+        if booking_status != instance.cached_status and booking_status == 'confirmed':
                 balance = get_wallet_balance(instance.user.id)
                 if balance < total_booking_amount:
                         instance.status = instance.cached_status
@@ -47,16 +49,21 @@ def check_booking_status(sender, instance:Booking, **kwargs):
 	booking_id = instance.id
 	booking_status = instance.status
 	final_amount = instance.final_amount
+
+	# booking reference code
+	if not instance.reference_code:
+                instance.reference_code = generate_booking_reference_code(
+                        instance.id, instance.booking_type)
+                instance.save()
 	print("Booking Status::", booking_status)
 	print("cached status::", instance.cached_status)
 	if booking_status != instance.cached_status:
-                if booking_status == 'confirmed':
-                        if not instance.confirmation_code:
-                                confirmation_code = generate_booking_confirmation_code(
-                                        booking_id, instance.booking_type)
-                                print("Confirmation Code::", confirmation_code)
-                                instance.confirmation_code = confirmation_code
-                                instance.save()
+                if booking_status == 'confirmed' and not instance.confirmation_code:
+                        confirmation_code = generate_booking_confirmation_code(
+                                booking_id, instance.booking_type)
+                        print("Confirmation Code::", confirmation_code)
+                        instance.confirmation_code = confirmation_code
+                        instance.save()
                         # create invoice 
                         create_invoice_task.apply_async(args=[booking_id])
                         booking_type = 'confirmed-booking'
