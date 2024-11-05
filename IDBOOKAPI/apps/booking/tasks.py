@@ -147,7 +147,7 @@ def create_invoice_task(self, booking_id):
                     invoice_data = data.get('data', '')
                     invoice_id = invoice_data.get('_id', '')
                     if invoice_id:
-                        booking.invoice_id = invoice_id
+                        booking.invoice_id = invoice_number
                         booking.save()
            
                 invoice_log = {'booking':booking, 'status_code':response.status_code,

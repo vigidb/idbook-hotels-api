@@ -125,6 +125,7 @@ class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.DO_NOTHING,
                              null=True, blank=True,
                              verbose_name="booking_user")
+    reference_code = models.CharField(max_length=500, null=True, blank=True)
     confirmation_code = models.CharField(max_length=500, null=True, blank=True)
     invoice_id = models.CharField(max_length=500, null=True, blank=True)
 
