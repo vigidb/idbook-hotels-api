@@ -160,10 +160,12 @@ class UserListSerializer(serializers.Serializer):
             
         
         user_roles = [uroles for uroles in user.roles.values('id','name')]
+        user_groups = [ugroups for ugroups in user.groups.values('id','name')]
         ret['id'] = user.id
         ret['mobile_number'] = user.mobile_number if user.mobile_number else ''
         ret['email'] = user.email if user.email else ''
         ret['name'] = user.get_full_name()
+        ret['groups'] = user_groups
         ret['roles'] = user_roles
         ret['permissions'] = []
         ret['category'] = user_category

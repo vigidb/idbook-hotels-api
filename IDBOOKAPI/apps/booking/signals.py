@@ -6,10 +6,11 @@ from apps.booking.tasks import (
         send_booking_email_task, create_invoice_task,
         send_cancelled_booking_task)
 from apps.booking.utils.booking_utils import (
-        generate_booking_confirmation_code, calculate_total_amount, generate_booking_reference_code)
+        generate_booking_confirmation_code, calculate_total_amount,
+        generate_booking_reference_code, deduct_booking_amount)
 from apps.customer.utils.db_utils import (
         get_wallet_balance, deduct_wallet_balance,
-        update_wallet_transaction)
+        update_wallet_transaction, get_company_wallet_balance)
 from apps.org_resources.db_utils import create_notification
 from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
 
@@ -26,7 +27,12 @@ def update_total_amount(sender, instance:Booking, **kwargs):
 
         booking_status = instance.status
         if booking_status != instance.cached_status and booking_status == 'confirmed':
-                balance = get_wallet_balance(instance.user.id)
+
+                if instance.user.company_id:
+                        balance = get_company_wallet_balance(instance.user.company_id)
+                else:
+                        balance = get_wallet_balance(instance.user.id)
+                        
                 if balance < total_booking_amount:
                         instance.status = instance.cached_status
                         # send wallet balance notification
@@ -66,14 +72,20 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                         instance.save()
                         # create invoice 
                         create_invoice_task.apply_async(args=[booking_id])
-                        booking_type = 'confirmed-booking'
-                        deduct_amount = float(final_amount) - float(instance.total_payment_made)
-                        deduct_wallet_balance(instance.user.id, deduct_amount)
-                        transaction_details = f"Amount debited for {instance.booking_type} \
-booking ({instance.confirmation_code})"
-                        wtransact_dict = {'user':instance.user, 'amount':deduct_amount,
-                                          'transaction_type':'Debit', 'transaction_details':transaction_details}
-                        update_wallet_transaction(wtransact_dict)
+                        company_id = instance.user.company_id
+                        deduct_booking_amount(instance, company_id)
+
+                        
+##                        booking_type = 'confirmed-booking'
+##                        deduct_amount = float(final_amount) - float(instance.total_payment_made)
+##                        deduct_wallet_balance(instance.user.id, deduct_amount)
+##                        transaction_details = f"Amount debited for {instance.booking_type} \
+##booking ({instance.confirmation_code})"
+##                        wtransact_dict = {'user':instance.user, 'amount':deduct_amount,
+##                                          'transaction_type':'Debit', 'transaction_details':transaction_details}
+##                        update_wallet_transaction(wtransact_dict)
+
+                        
                         # send confirmed email
                         # send_booking_email_task.apply_async(args=[booking_id, booking_type])
                         # time.sleep(3)

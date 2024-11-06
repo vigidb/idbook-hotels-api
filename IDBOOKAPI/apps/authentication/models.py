@@ -114,16 +114,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         return False
 
 
-def post_save_user_create_receiver(sender, instance, created, *args, **kwargs):
-
-    if not instance.referral:
-        instance.referral = unique_referral_id_generator(instance)
-
-    if created:
-        Token.objects.get_or_create(user=instance)
-
-
-post_save.connect(post_save_user_create_receiver, sender=User)
+##def post_save_user_create_receiver(sender, instance, created, *args, **kwargs):
+##
+##    if not instance.referral:
+##        instance.referral = unique_referral_id_generator(instance)
+##
+##    if created:
+##        Token.objects.get_or_create(user=instance)
+##
+##
+##post_save.connect(post_save_user_create_receiver, sender=User)
 
 
 # if role created then group with same name will be created

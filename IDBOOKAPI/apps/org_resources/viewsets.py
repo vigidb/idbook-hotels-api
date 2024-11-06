@@ -64,6 +64,9 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             company_detail = serializer.save()
             #response = super().create(request, *args, **kwargs)
 
+            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
+            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
+
             # create or update user based on company email
             user = User.objects.filter(email=company_detail.contact_email_address).first()
             if not user:
@@ -76,9 +79,20 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 user.save()
 
             if user:
+                # add group and roles
+                if grp:
+                    user.groups.add(grp)
+                if role:
+                    user.roles.add(role)
+                    
                 refresh = RefreshToken.for_user(user)
 
+                user_roles = [uroles for uroles in user.roles.values('id','name')]
+                user_groups = [ugroups for ugroups in user.groups.values('id','name')]
+
                 data = {'refreshToken': str(refresh),
+                        'groups': user_groups,
+                        'roles': user_roles,
                         'accessToken': str(refresh.access_token),
                         'expiresIn': 0,
                         'company': serializer.data,

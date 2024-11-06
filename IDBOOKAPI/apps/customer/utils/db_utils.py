@@ -24,10 +24,21 @@ def check_customer_exist(user_id):
 
 def get_wallet_balance(user_id):
     balance = 0
-    wallet = Wallet.objects.filter(user__id=user_id).first()
-    if wallet:
-        balance = wallet.balance
+    wallet = None
+    if user_id:
+        wallet = Wallet.objects.filter(user__id=user_id).first()
+        if wallet:
+            balance = wallet.balance
     return balance
+
+def get_company_wallet_balance(company_id):
+    balance = 0
+    if company_id:
+        wallet = Wallet.objects.filter(company__id=company_id).first()
+        if wallet:
+            balance = wallet.balance
+    return balance
+    
 
 def update_wallet_transaction(wtransact):
     try:
@@ -40,5 +51,32 @@ def deduct_wallet_balance(user_id, deduct_amount):
         wallet = Wallet.objects.get(user__id=user_id)
         wallet.balance = float(wallet.balance) - float(deduct_amount)
         wallet.save()
+        return True
     except Exception as e:
         print("Wallet Balance deduct error::", e)
+        return False
+
+def deduct_company_wallet_balance(company_id, deduct_amount):
+    try:
+        wallet = Wallet.objects.get(company__id=company_id)
+        wallet.balance = float(wallet.balance) - float(deduct_amount)
+        wallet.save()
+        return True
+    except Exception as e:
+        print("Wallet Balance deduct error::", e)
+        return False
+
+def update_wallet_balance(user_id, amount):
+    try:
+        wallet = Wallet.objects.filter(user__id=user_id).first()
+        if wallet:
+            wallet.balance = float(wallet.balance) + float(amount)
+            wallet.save()
+        else:
+            Wallet.objects.create(user__id=user_id, balance=amount)
+    except Exception as e:
+        print("Wallet Balance deduct error::", e)
+        return False
+    return True
+        
+    
