@@ -64,10 +64,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(max_length=30, null=True, blank=True, help_text="Last name of the user.")
 
     referral = models.CharField(max_length=120, blank=True, help_text="Referral code associated with the user.")
+    referred_code = models.CharField(max_length=120, blank=True, help_text="Referred by user code.")
     custom_id = models.CharField(max_length=15, blank=True, db_index=True, help_text="Custom ID for the user.")
     category = models.CharField(max_length=20, blank=True, help_text="Category of the user.")
     business_id = models.BigIntegerField(null=True, blank=True, help_text="Business detail id")
     company_id = models.BigIntegerField(null=True, blank=True, help_text="company detail id")
+    first_booking = models.BooleanField(default=False, help_text="Status for first confirmed booking")
 
     email_verified = models.BooleanField(default=False, help_text="Whether the user's email address is verified.")
     mobile_verified = models.BooleanField(default=False, help_text="Whether the user's mobile number is verified.")

@@ -370,7 +370,14 @@ class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     def user_based_wallet_retrieve(self, request):
         balance = 0
         user_id = request.user.id
-        instance = self.queryset.filter(user_id=user_id).first()
+        instance = None
+        
+        company_id = self.request.query_params.get('company_id', '')
+        if company_id:
+            instance = self.queryset.filter(company_id=company_id).first()
+        else:    
+            instance = self.queryset.filter(user_id=user_id).first()
+            
         if instance:
             balance = instance.balance
         data = {'balance': balance}
@@ -395,6 +402,13 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         transaction_type = self.request.query_params.get('transaction_type', '')
         if transaction_type:
             filter_dict['transaction_type'] = transaction_type
+
+        company_id = self.request.query_params.get('company_id', '') 
+        if company_id:
+            filter_dict['company_id'] = company_id
+        else:
+            user_id = self.request.user.id
+            filter_dict['user_id'] = user_id
         
 
         self.queryset = self.queryset.filter(**filter_dict)
@@ -419,7 +433,7 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
             url_name='retrieve-wallet-balance')
     def user_based_wallet_transaction(self, request):
         user_id = request.user.id
-        self.queryset = self.queryset.filter(user_id=user_id)
+        # self.queryset = self.queryset.filter(user_id=user_id)
         # filter and pagination
         self.wtransaction_filter_ops()
         # count = self.wtransaction_pagination_ops()
