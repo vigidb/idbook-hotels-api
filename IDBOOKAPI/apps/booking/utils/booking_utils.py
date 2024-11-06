@@ -1,7 +1,13 @@
 # booking utils
 from IDBOOKAPI.otp_utils import generate_otp
 from django.conf import settings
-from IDBOOKAPI.utils import get_current_date 
+from IDBOOKAPI.utils import get_current_date
+
+from apps.authentication.utils.db_utils import get_user_by_referralcode
+from apps.customer.utils.db_utils import (
+    update_wallet_balance, update_wallet_transaction,
+    deduct_wallet_balance, deduct_company_wallet_balance)
+
 
 def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
@@ -408,6 +414,31 @@ def calculate_total_amount(booking):
     return total_booking_amount
     
 
+def set_firstbooking_reward(referred_code):
+   user = get_user_by_referralcode(referred_code)
+   if user:
+       reward_amount = 1000
+       status = update_wallet_balance(user.id, reward_amount)
+       if status:
+           pass
+
+def deduct_booking_amount(booking, company_id=None):
+    deduct_amount = float(booking.final_amount) - float(booking.total_payment_made)
+    if company_id:
+        status = deduct_company_wallet_balance(company_id, deduct_amount)
+    else:
+        status = deduct_wallet_balance(booking.user.id, deduct_amount)
+
+    if status:
+        transaction_details = f"Amount debited for {booking.booking_type} \
+booking ({booking.confirmation_code})"
+        wtransact_dict = {'user':booking.user, 'amount':deduct_amount,
+                          'transaction_type':'Debit', 'transaction_details':transaction_details,
+                          'company_id':company_id}
+        update_wallet_transaction(wtransact_dict)
+           
+   
+    
     
          
          

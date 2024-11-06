@@ -1,6 +1,6 @@
 from django.db import models
 from apps.authentication.models import User
-from apps.org_resources.models import Address
+from apps.org_resources.models import Address, CompanyDetail
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES,
     CUSTOMER_GROUP, TXN_TYPE_CHOICES)
@@ -60,6 +60,8 @@ class Customer(models.Model):
 class Wallet(models.Model):
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_user')
+    company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
+                                null=True, related_name='wallet_company')
     balance = models.FloatField(default=0, blank=True, null=True)
 
     active = models.BooleanField(default=True)
@@ -71,6 +73,8 @@ class Wallet(models.Model):
 
 class WalletTransaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_transactions')
+    company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
+                                null=True, related_name='wallet_company_transaction')
     amount = models.FloatField()
     transaction_type = models.CharField(max_length=10, choices=TXN_TYPE_CHOICES,
                                         help_text="Credit / Debit")

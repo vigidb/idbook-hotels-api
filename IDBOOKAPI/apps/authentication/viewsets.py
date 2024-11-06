@@ -749,6 +749,31 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                                      status_code=status.HTTP_200_OK)
         return response
 
+    @action(detail=False, methods=['GET'], url_path='referral',
+            permission_classes=[IsAuthenticated],
+            url_name='referral-link')
+    def get_referral_link(self, request):
+        user = request.user
+        referral_code = user.referral
+
+        if user.category == 'CL-CUST':
+            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+        elif user.category == 'B-CUST':
+            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+        elif user.category == 'CL-ADMIN':
+            signup_link = f"{settings.FRONTEND_URL}/corporate-register/?referral_code={referral_code}"
+        else:
+            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+
+        data = {"signup_link": signup_link}
+
+        response = self.get_response(data=data, status="success",
+                                     message="Referral Link",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+        
+
 
 # class ForgotPasswordView(APIView):
 #     permission_classes = [AllowAny]
