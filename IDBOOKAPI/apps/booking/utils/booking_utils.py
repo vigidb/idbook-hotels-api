@@ -5,8 +5,9 @@ from IDBOOKAPI.utils import get_current_date
 
 from apps.authentication.utils.db_utils import get_user_by_referralcode
 from apps.customer.utils.db_utils import (
-    update_wallet_balance, update_wallet_transaction,
-    deduct_wallet_balance, deduct_company_wallet_balance)
+    add_company_wallet_amount, update_wallet_transaction,
+    deduct_wallet_balance, deduct_company_wallet_balance,
+    add_user_wallet_amount)
 
 
 def generate_booking_confirmation_code(booking_id, booking_type):
@@ -413,14 +414,23 @@ def calculate_total_amount(booking):
 
     return total_booking_amount
     
-
 def set_firstbooking_reward(referred_code):
-   user = get_user_by_referralcode(referred_code)
-   if user:
-       reward_amount = 1000
-       status = update_wallet_balance(user.id, reward_amount)
-       if status:
-           pass
+    user = get_user_by_referralcode(referred_code)
+    if user:
+        reward_amount = 1000
+        company_id = user.company_id
+        if company_id:
+            status = add_company_wallet_amount(company_id, reward_amount)
+        else:
+            status = add_company_wallet_amount(user.id, reward_amount)
+
+        if status:
+            transaction_details = f"Amount credited based on referral code"
+            wtransact_dict = {'user_id':user.id, 'amount':reward_amount,
+                              'transaction_type':'Credit', 'transaction_details':transaction_details,
+                              'company_id':company_id}
+            update_wallet_transaction(wtransact_dict)
+        
 
 def deduct_booking_amount(booking, company_id=None):
     deduct_amount = float(booking.final_amount) - float(booking.total_payment_made)

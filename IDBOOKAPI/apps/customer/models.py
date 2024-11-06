@@ -59,7 +59,7 @@ class Customer(models.Model):
 
 class Wallet(models.Model):
     
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_user')
+    user = models.ForeignKey(User, on_delete=models.DO_NOTHING,null=True, related_name='wallet_user')
     company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
                                 null=True, related_name='wallet_company')
     balance = models.FloatField(default=0, blank=True, null=True)
@@ -68,11 +68,14 @@ class Wallet(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return str(self.user.email)
+##    def __str__(self):
+##        if self.user:
+##            return str(self.user.email)
+##        else:
+##            return None
 
 class WalletTransaction(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wallet_transactions')
+    user = models.ForeignKey(User, on_delete=models.DO_NOTHING, null=True, related_name='wallet_transactions')
     company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
                                 null=True, related_name='wallet_company_transaction')
     amount = models.FloatField()
@@ -83,6 +86,9 @@ class WalletTransaction(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return str(self.user.email)
+##    def __str__(self):
+##        if self.user:
+##            return str(self.user.email)
+##        else:
+##            return None
     

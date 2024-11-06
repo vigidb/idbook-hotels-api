@@ -4,7 +4,8 @@ from apps.booking.utils.db_utils import get_booking
 from apps.booking.utils.booking_utils import (
     generate_htmlcontext_search_booking,
     generate_context_confirmed_booking,
-    generate_context_cancelled_booking)
+    generate_context_cancelled_booking,
+    set_firstbooking_reward)
 
 from apps.booking.utils.invoice_utils import (
     invoice_json_data, create_invoice, get_invoice_number, update_invoice)
@@ -126,6 +127,13 @@ def create_invoice_task(self, booking_id):
         booking = get_booking(booking_id)
 
         if booking:
+            try:
+                if booking.user and booking.user.referred_code:
+                    if not booking.user.first_booking:
+                        set_firstbooking_reward(booking.user.referred_code)
+            except Exception as e:
+                print("Error in setting reward points", e)
+            
             business_name = "Idbook"
             bus_details = get_business_by_name(business_name)
 
