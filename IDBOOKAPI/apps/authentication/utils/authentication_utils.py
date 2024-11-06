@@ -10,12 +10,13 @@ def user_representation(user, refresh_token=None):
         employee_id = customer_profile.employee_id
 
     user_roles = [uroles for uroles in user.roles.values('id','name')]
+    user_groups = [ugrps for ugrps in user.groups.values('id', 'name')]
         
 
     user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
                  'email': user.email if user.email else '', 'name': user.get_full_name(),
-                 'roles': user_roles, 'permissions': [], 'category': user.category,
-                 'profile_picture':profile_picture,
+                 'groups': user_groups, 'roles': user_roles, 'permissions': [],
+                 'category': user.category, 'profile_picture':profile_picture,
                  'business_id': user.business_id if user.business_id else '',
                  'company_id' : user.company_id if user.company_id else '',
                  'is_active': user.is_active}
