@@ -17,3 +17,7 @@ def get_user_by_referralcode(refferal_code):
         return user
     else:
         return None
+
+def update_user_first_booking(user_id):
+    if user_id:
+        User.objects.filter(id=user_id).update(first_booking=True)

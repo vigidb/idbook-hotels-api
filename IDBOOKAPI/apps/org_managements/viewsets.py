@@ -137,4 +137,23 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
             )
              
         return custom_response
+
+    @action(detail=False, methods=['GET'], url_path='active', url_name='active')
+    def active_business(self, request):
+        try:
+            business_detail = BusinessDetail.objects.filter(active=True)
+            serializer = BusinessDetailSerializer(business_detail, many=True)
+            custom_response = self.get_response(
+                status="success",
+                data=serializer.data,
+                status_code=status.HTTP_200_OK)
+        except Exception as e:
+            print(e)
+            # self.log_response(e)
+            custom_response = self.get_response(
+                data={},  
+                status_code=status.HTTP_400_BAD_REQUEST,  
+            )
+             
+        return custom_response
    

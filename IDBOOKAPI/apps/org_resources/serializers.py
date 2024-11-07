@@ -195,8 +195,8 @@ class UserNotificationSerializer(serializers.ModelSerializer):
                     sender_profile_pic = company_details.company_logo.url
             elif business_id:
                 bdetails = org_mng_utils.get_business_details(business_id)
-                if bdetails:
-                    sender_profile_pic = bdetails.business_logo
+                if bdetails and bdetails.business_logo:
+                    sender_profile_pic = bdetails.business_logo.url
 
             if not sender_profile_pic:
                 if send_user.customer_profile:

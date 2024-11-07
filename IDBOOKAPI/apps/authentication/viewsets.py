@@ -317,6 +317,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             name = request.data.get('name', '')
             otp = request.data.get('otp', None)
             business_id, category = "", ""
+            referred_code = request.data.get('referred_code', '')
 
             valid = email_validation(email)
             if not valid:
@@ -358,12 +359,13 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                         if business_id:
                             category = "B-USR"
                             new_user = User.objects.create(name=name, email=email, mobile_number=mobile_number,
-                                                           business_id=business_id, category=category)
+                                                           business_id=business_id, category=category,
+                                                           referred_code=referred_code)
                         else:
                             category = "B-CUST"
                             new_user = User.objects.create(name=name, email=email,
                                                            mobile_number=mobile_number,
-                                                           category=category)
+                                                           category=category, referred_code=referred_code)
                         # set groups and roles
                         grp = db_utils.get_group_by_name('B2C-GRP')
                         role = db_utils.get_role_by_name('B2C-CUST')
