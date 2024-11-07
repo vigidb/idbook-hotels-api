@@ -28,7 +28,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'password', 'email', 'name','mobile_number','roles')
+        fields = ('id', 'password', 'email', 'name','mobile_number','roles', 'referred_code')
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate_roles(self, value):

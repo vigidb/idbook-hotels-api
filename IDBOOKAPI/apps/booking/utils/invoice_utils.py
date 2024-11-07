@@ -97,11 +97,12 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
     total, gst = 0, 0
     
     if bus_details:
-        logo = bus_details.business_logo
+        if bus_details.business_logo:
+            logo = bus_details.business_logo.url
         billed_by =  { "name": bus_details.business_name, "address": bus_details.full_address,
                        "GSTIN": bus_details.gstin_no, "PAN": bus_details.pan_no,
                        "email": bus_details.business_email,
-                       "website": bus_details.website_url}
+                       "website": bus_details.website_url, "hsn_sac_no": bus_details.hsn_sac_no}
     if company_details:
         billed_to = { "name": company_details.company_name, "address": company_details.registered_address,
                       "GSTIN": company_details.gstin_no, "PAN": company_details.pan_no}

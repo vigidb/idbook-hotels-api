@@ -14,7 +14,12 @@ def get_business_details(business_id):
         return None
 
 
-def get_business_by_name(business_name):
-    bdetails = BusinessDetail.objects.filter(
-        business_name=business_name).first()
+##def get_business_by_name(business_name):
+##    bdetails = BusinessDetail.objects.filter(
+##        business_name=business_name).first()
+##    return bdetails
+
+def get_active_business():
+    bdetails = BusinessDetail.objects.filter(active=True).first()
     return bdetails
+    

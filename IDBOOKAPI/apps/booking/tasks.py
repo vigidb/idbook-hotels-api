@@ -13,13 +13,14 @@ from apps.booking.utils.invoice_utils import (
 from django.template.loader import get_template
 from django.conf import settings
 
-from apps.org_managements.utils import get_business_by_name
+from apps.org_managements.utils import get_active_business #get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
 from apps.org_resources.utils.notification_utils import (
     wallet_minbalance_notification_template, booking_comfirmed_notification_template,
     booking_cancelled_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import get_wallet_balance
+from apps.authentication.utils.db_utils import update_user_first_booking
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -66,8 +67,8 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
 ##                                                      confirmation_code=booking.confirmation_code)
 ##                redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
                 
-                business_name = "Idbook"
-                bus_details = get_business_by_name(business_name)
+                #business_name = "Idbook"
+                bus_details = get_active_business() #get_business_by_name(business_name)
                 if bus_details:
                     send_by = bus_details.user
 
@@ -100,8 +101,8 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                     balance = get_wallet_balance(booking.user.id)
                     if balance < 1000:
                         send_by = None
-                        business_name = "Idbook"
-                        bus_details = get_business_by_name(business_name)
+                        # business_name = "Idbook"
+                        bus_details = get_active_business() #get_business_by_name(business_name)
                         if bus_details:
                             send_by = bus_details.user
                             
@@ -131,11 +132,12 @@ def create_invoice_task(self, booking_id):
                 if booking.user and booking.user.referred_code:
                     if not booking.user.first_booking:
                         set_firstbooking_reward(booking.user.referred_code)
+                        update_user_first_booking(booking.user.id)
             except Exception as e:
                 print("Error in setting reward points", e)
             
-            business_name = "Idbook"
-            bus_details = get_business_by_name(business_name)
+            # business_name = "Idbook"
+            bus_details = get_active_business() #get_business_by_name(business_name)
 
             if booking.user:
                 company_id = booking.user.company_id
@@ -155,6 +157,7 @@ def create_invoice_task(self, booking_id):
                     invoice_data = data.get('data', '')
                     invoice_id = invoice_data.get('_id', '')
                     if invoice_id:
+                        booking = get_booking(booking_id)
                         booking.invoice_id = invoice_number
                         booking.save()
            
@@ -190,8 +193,8 @@ def send_cancelled_booking_task(self, booking_id):
             send_booking_email(subject, booking, [user_email], html_content)
 
             # send notification email
-            business_name = "Idbook"
-            bus_details = get_business_by_name(business_name)
+            # business_name = "Idbook"
+            bus_details =  get_active_business() #get_business_by_name(business_name)
             if bus_details:
                 send_by = bus_details.user
     

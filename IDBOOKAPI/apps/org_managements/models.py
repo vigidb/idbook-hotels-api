@@ -7,8 +7,9 @@ from apps.authentication.models import User
 class BusinessDetail(models.Model):
      user = models.ForeignKey(User, on_delete=models.CASCADE,
                               related_name='business_detail')
-     business_name = models.CharField(max_length=50)
-     business_logo = models.URLField(blank=True)
+     business_name = models.CharField(max_length=150)
+     hsn_sac_no = models.CharField(max_length=100, null=True)
+     business_logo = models.FileField(upload_to='business/logo/', blank=True, null=True)
      business_phone = models.CharField(max_length=50, blank=True, null=True)
      business_email = models.CharField(max_length=50, blank=True, null=True)
      domain_name = models.CharField(max_length=50, blank=True, null=True)
@@ -17,6 +18,7 @@ class BusinessDetail(models.Model):
      pan_no = models.CharField(max_length=100, blank=True, null=True)
      website_url = models.URLField(blank=True)
      country = models.CharField(max_length=25, default='INDIA')
+     active = models.BooleanField(default=False, help_text="Whether the business is active.")
      created = models.DateTimeField(auto_now_add=True)
      updated = models.DateTimeField(auto_now=True)
 

@@ -14,7 +14,7 @@ from apps.customer.utils.db_utils import (
 from apps.org_resources.db_utils import create_notification
 from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
 
-from apps.org_managements.utils import get_business_by_name
+from apps.org_managements.utils import get_active_business #get_business_by_name
 
 import time
 
@@ -35,10 +35,11 @@ def update_total_amount(sender, instance:Booking, **kwargs):
                         
                 if balance < total_booking_amount:
                         instance.status = instance.cached_status
+                        print("****Status Change****")
                         # send wallet balance notification
                         send_by = None
-                        business_name = "Idbook"
-                        bus_details = get_business_by_name(business_name)
+                        # business_name = "Idbook"
+                        bus_details = get_active_business() #get_business_by_name(business_name)
                         if bus_details:
                             send_by = bus_details.user
                             
@@ -70,10 +71,10 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                         print("Confirmation Code::", confirmation_code)
                         instance.confirmation_code = confirmation_code
                         instance.save()
-                        # create invoice 
-                        create_invoice_task.apply_async(args=[booking_id])
                         company_id = instance.user.company_id
                         deduct_booking_amount(instance, company_id)
+                         # create invoice 
+                        create_invoice_task.apply_async(args=[booking_id])
 
                         
 ##                        booking_type = 'confirmed-booking'
