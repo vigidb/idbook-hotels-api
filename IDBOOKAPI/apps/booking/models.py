@@ -16,7 +16,7 @@ from apps.vehicle_management.models import VehicleDetail
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
     ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
-    FLIGHT_TRIP, FLIGHT_CLASS)
+    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE)
 
 
 # class BookingManager(models.Manager):
@@ -98,18 +98,24 @@ class VehicleBooking(models.Model):
     
 
 class FlightBooking(models.Model):
+    flight_no = models.CharField(max_length=50, default='', blank=True)
     flight_trip = models.CharField(max_length=25, choices=FLIGHT_TRIP,
                                    default='ROUND', help_text="flight trip (one-way or round).")
     flight_class  = models.CharField(max_length=25, choices=FLIGHT_CLASS,
                                    default='ECONOMY', help_text="flight class")
     departure_date = models.DateTimeField(null=True, blank=True, help_text="Departure Date")
+    arrival_date = models.DateTimeField(null=True, blank=True, help_text="Arrival Date")
     return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
+    return_arrival_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
+    
     flying_from = models.CharField(max_length=255, null=True, blank=True)
     flying_to = models.CharField(max_length=255, null=True, blank=True)
-    flight_subtotal = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
-    service_tax =  models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
+    return_from = models.CharField(max_length=255, null=True, blank=True)
+    return_to = models.CharField(max_length=255, null=True, blank=True)
+##    flight_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
     flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
     
     def __str__(self):
@@ -151,12 +157,24 @@ class Booking(models.Model):
                                null=True, blank=True,
                                verbose_name="booking_coupon")
 
-    deal_price = models.DecimalField(default=0, max_digits=10, decimal_places=2)
-    discount = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
-    final_amount = models.DecimalField(default=0, max_digits=10, decimal_places=2)
+    # deal_price = models.DecimalField(default=0, decimal_places=6)
+    discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+
+    subtotal = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="Price for the booking")
+    gst_percentage = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="GST % for the booking")
+    gst_amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=6, help_text="GST amount for the booking")
+    gst_type = models.CharField(max_length=25, choices=GST_TYPE, default='', blank=True, help_text="GST Type")
+    service_tax =  models.DecimalField(default=0.0, max_digits=15, decimal_places=6,
+                                       help_text="Service tax for the booking")
+    
+    final_amount = models.DecimalField(default=0, max_digits=15, decimal_places=6,
+                                       help_text="Final amount after considering gst, discount")
     total_payment_made = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Total Payment Made")
+        max_digits=15, decimal_places=6, default=0.0, help_text="Total Payment made")
+    
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
+    description = models.TextField(default='', blank=True)
+    additional_notes = models.TextField(default='', blank=True)
 
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)

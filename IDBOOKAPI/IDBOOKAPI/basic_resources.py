@@ -1157,4 +1157,9 @@ NOTIFICATION_TYPE = (
     ('OFFERS', 'OFFERS'),
     ('BOOKING', 'BOOKING')
 )
-    
+
+GST_TYPE = (
+    ('', ''),
+    ('IGST', 'IGST'),
+    ('CGST/SGST', 'CGST/SGST')
+)
