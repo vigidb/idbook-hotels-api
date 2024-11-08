@@ -42,8 +42,9 @@ def invoice_json_hotel_booking(hotel_booking):
 
     room_subtotal = float(hotel_booking.room_subtotal)
     service_tax = hotel_booking.service_tax
+    name = f"{room_type}, {property_name}"
     
-    item = { "name": room_type, "description": property_name, "quantity": 1,
+    item = { "name": name, "description": "", "quantity": 1,
      "price": room_subtotal, "amount": room_subtotal }
     
     return item
@@ -54,7 +55,8 @@ def invoice_json_holidaypack_booking(hpackage):
         confirmed_pack = hpackage.confirmed_holiday_package
         trip_name = confirmed_pack.trip_name
     holidaypack_subtotal = float(hpackage.holidaypack_subtotal)
-    item = { "name": trip_name, "description": trip_name, "quantity": 1,
+    
+    item = { "name": trip_name, "description": "", "quantity": 1,
          "price": holidaypack_subtotal, "amount": holidaypack_subtotal}
     return item
 
@@ -65,23 +67,53 @@ def invoice_json_vehicle_booking(vehicle_booking):
         vehicle_type = confirmed_vehicle.vehicle_type
     vehicle_subtotal = float(vehicle_booking.vehicle_subtotal)
 
-    item = { "name": vehicle_type, "description": vehicle_type, "quantity": 1,
+    item = { "name": vehicle_type, "description": "", "quantity": 1,
          "price": vehicle_subtotal, "amount": vehicle_subtotal}
         
     return item
 
 def invoice_json_flight_booking(flight_booking):
+    flight_no = flight_booking.flight_no
+    flight_trip = flight_booking.flight_trip
+    
     flying_from = flight_booking.flying_from
     flying_to = flight_booking.flying_to
-    flight_subtotal = float(flight_booking.flight_subtotal)
+
+    departure_date = flight_booking.departure_date
+    arrival_date = flight_booking.arrival_date
+    
+    #flight_subtotal = float(flight_booking.flight_subtotal)
+    
     flight_class = flight_booking.flight_class
     flight_trip = flight_booking.flight_trip
 
-    description = "Flight Class: {flight_class}, Flight trip {flight_trip}".format(
-       flight_class=flight_class, flight_trip=flight_trip)
-    name = "{flying_from}--{flying_to}".format(flying_from=flying_from, flying_to=flying_to)
+    if flight_trip == 'ONE-WAY':
+        description = "Flight Class: {flight_class}, Flight trip {flight_trip}, \
+Date- {departure_date}, Flight Destination- {flying_from} to {flying_to} \
+Flight Number- {flight_no} \
+Time - {flying_from} departure {departure_date} and \
+{flying_to} arrival {arrival_date}".format(
+            flight_class=flight_class, flight_trip=flight_trip,
+            departure_date=departure_date, flying_from=flying_from, flying_to=flying_to,
+            flight_no=flight_no, arrival_date=arrival_date)
+    elif flight_trip == 'ROUND':
+        return_date = flight_booking.return_date
+        return_arrival_date = flight_booking.return_arrival_date
+        return_from = flight_booking.return_from
+        return_to = flight_booking.return_to
+        
+        description = f"Flight Class: {flight_class}, Flight trip {flight_trip}, \
+Date- {departure_date}, Flight Destination- {flying_from} to {flying_to} \
+Flight Number- {flight_no} \
+Time - {flying_from} departure {departure_date} and \
+{flying_to} arrival {arrival_date} \
+Return Time - {return_from} departure {return_date} and \
+{return_to} arrival {return_arrival_date}"
+
+    
+    name = "FLIGHT ({flight_no})".format(flight_no=flight_no)
     item = { "name": name, "description": description, "quantity": 1,
-         "price": flight_subtotal, "amount": flight_subtotal}
+         "price": "", "amount": ""}
     return item
 
 def invoice_json_data(booking, bus_details, company_details, invoice_number, invoice_action='create'):
@@ -95,6 +127,8 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
     item = { "name": "", "description": "", "quantity": 0,
              "price": 0, "amount": 0 }
     total, gst = 0, 0
+    subtotal = 0
+    notes = ''
     
     if bus_details:
         if bus_details.business_logo:
@@ -114,24 +148,40 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
         if booking_type == 'HOTEL':
             if booking.hotel_booking:
                 item = invoice_json_hotel_booking(booking.hotel_booking)
-                gst = float(booking.hotel_booking.service_tax)
+                gst = float(booking.gst_percentage)
+                gst_type = booking.gst_type
+                subtotal = float(booking.subtotal)
+                
                 
         elif booking_type == 'HOLIDAYPACK':
             if booking.holiday_package_booking:
                 item = invoice_json_holidaypack_booking(booking.holiday_package_booking)
-                gst = float(booking.holiday_package_booking.service_tax)
+                gst = float(booking.gst_percentage)
+                gst_type = booking.gst_type
+                subtotal = float(booking.subtotal)
             
         elif booking_type == 'VEHICLE':
             if booking.vehicle_booking:
                 item = invoice_json_vehicle_booking(booking.vehicle_booking)
-                gst = float(booking.vehicle_booking.service_tax)
+                gst = float(booking.gst_percentage)
+                gst_type = booking.gst_type
+                subtotal = float(booking.subtotal)
+                
         elif booking_type == 'FLIGHT':
             if booking.flight_booking:
                 item = invoice_json_flight_booking(booking.flight_booking)
-                gst = float(booking.flight_booking.service_tax)
+                gst, gst_type  = "", ""
+                subtotal = float(booking.subtotal)
                 
             
         total = float(booking.final_amount)
+        description = booking.description + item.get('description')
+        
+        item['price'] = subtotal
+        item['amount'] = subtotal
+        item['description'] = description
+        
+        notes = booking.additional_notes
         
 ##        booking.total_payment_made
     if invoice_action == 'create':
@@ -141,25 +191,26 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
             invoice_due_date = invoice_date.replace(day=last_day)
         else:
             invoice_due_date = invoice_date
+        # invoice_due_date.isoformat()
         payload = json.dumps({
-            "logo": logo, "header": "string", "footer": "string",
+            "logo": logo, "header": "", "footer": "",
             "invoiceNumber": invoice_number,
-            "invoiceDate": invoice_date.isoformat(), "dueDate": invoice_due_date.isoformat(),
-            "notes": "string",
+            "invoiceDate": invoice_date.isoformat(), "dueDate": "",
+            "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
             "items": [item],
-            "GST": gst, "GSTType": "string", "total": total, "status": "Pending",
-            "nextScheduleDate": "2024-10-29T03:31:39.493Z",
-            "tags": ["string"] })
+            "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
+            "nextScheduleDate": "",
+            "tags": [""] })
     elif invoice_action == 'update':
         payload = json.dumps({
             "logo": logo, 
-            "notes": "string",
+            "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
             "items": [item],
-            "GST": gst, "GSTType": "string", "total": total, "status": "Pending",
-            "nextScheduleDate": "2024-10-29T03:31:39.493Z",
-            "tags": ["string"] })
+            "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
+            "nextScheduleDate": "",
+            "tags": [""] })
     else:
         payload = {}
     

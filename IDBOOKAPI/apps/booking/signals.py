@@ -22,8 +22,10 @@ import time
 def update_total_amount(sender, instance:Booking, **kwargs):
         """ update total amount, booking reference code, prevent confirm status change if wallet amount is less
             and low wallet balance notification."""
-        total_booking_amount = calculate_total_amount(instance)
+        total_booking_amount, gst_amount, coupon_discount = calculate_total_amount(instance)
         instance.final_amount = total_booking_amount
+        instance.discount = coupon_discount
+        instance.gst_amount = gst_amount
 
         booking_status = instance.status
         if booking_status != instance.cached_status and booking_status == 'confirmed':
@@ -35,7 +37,6 @@ def update_total_amount(sender, instance:Booking, **kwargs):
                         
                 if balance < total_booking_amount:
                         instance.status = instance.cached_status
-                        print("****Status Change****")
                         # send wallet balance notification
                         send_by = None
                         # business_name = "Idbook"
@@ -70,6 +71,7 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                                 booking_id, instance.booking_type)
                         print("Confirmation Code::", confirmation_code)
                         instance.confirmation_code = confirmation_code
+                        instance.total_payment_made = instance.final_amount
                         instance.save()
                         company_id = instance.user.company_id
                         deduct_booking_amount(instance, company_id)

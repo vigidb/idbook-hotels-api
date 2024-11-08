@@ -14,7 +14,7 @@ def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
     cdate = get_current_date()
     
-    confirmation_code = "IDB_{booking_type}_CNF{booking_id}_{month}{year}_{random_number}".format(
+    confirmation_code = "IDB{booking_type}CNF{booking_id}-{month}{year}{random_number}".format(
         booking_type=booking_type, booking_id=booking_id,
         random_number=random_number, month=cdate.month, year=cdate.year)
 
@@ -24,7 +24,7 @@ def generate_booking_reference_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
     cdate = get_current_date()
 
-    reference_code = "IDB_{booking_type}_BKG{booking_id}_{month}{year}_{random_number}".format(
+    reference_code = "IDB{booking_type}BKG{booking_id}-{month}{year}{random_number}".format(
         booking_type=booking_type, booking_id=booking_id,
         random_number=random_number, month=cdate.month, year=cdate.year)
 
@@ -121,10 +121,12 @@ def generate_context_confirmed_booking(booking):
     confirmation_code = booking.confirmation_code
     final_amount = booking.final_amount
     total_balance_due = final_amount - total_payment_made
+    subtotal = booking.subtotal
+    tax = booking.gst_amount
 
     invoice_id = booking.invoice_id    
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
-    invoice_link = f"{settings.INV_FE_URL}/dashboard/invoice/{invoice_id}/share"
+    invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
         occupancy = occupancy + "{child_count} Child".format(
@@ -137,6 +139,7 @@ def generate_context_confirmed_booking(booking):
                'occupancy':occupancy,
                'total_balance_due':total_balance_due,
                'total_booking_amount':final_amount,
+               'subtotal':subtotal, 'tax':tax,
                'booking_link':booking_link,
                'invoice_link':invoice_link}
     
@@ -171,8 +174,8 @@ def generate_context_confirmed_booking(booking):
 
         context['confirmed_checkin_time'] = confirmed_checkin_time
         context['confirmed_checkout_time'] = confirmed_checkout_time
-        context['room_subtotal'] = room_subtotal
-        context['service_tax'] = service_tax
+##        context['room_subtotal'] = room_subtotal
+##        context['service_tax'] = service_tax
 
         context['property_name'] = property_name
         context['property_address'] = property_address
@@ -243,8 +246,8 @@ def generate_context_confirmed_booking(booking):
         context['driver_name'] =  driver_name
         context['contact_email'] =  contact_email
         context['contact_number'] = contact_number
-        context['vehicle_subtotal'] = vehicle_subtotal
-        context['service_tax'] = service_tax
+##        context['vehicle_subtotal'] = vehicle_subtotal
+##        context['service_tax'] = service_tax
         
     elif booking_type == "FLIGHT":
         flight_trip, flight_class = '', ''
@@ -267,8 +270,8 @@ def generate_context_confirmed_booking(booking):
         context['return_date'] =  return_date
         context['flying_from'] = flying_from
         context['flying_to'] =  flying_to
-        context['flight_subtotal'] = flight_subtotal
-        context['service_tax'] = service_tax
+##        context['flight_subtotal'] = flight_subtotal
+##        context['service_tax'] = service_tax
                
 
     return context
@@ -384,35 +387,44 @@ def calculate_total_amount(booking):
     total_booking_amount = 0
     booking_type = booking.booking_type
     coupon = booking.coupon
-     
-    if booking_type == "HOTEL":
-        hotel_booking = booking.hotel_booking
-        if hotel_booking: 
-            total_booking_amount = (hotel_booking.room_subtotal
-                                    + hotel_booking.service_tax)
+    coupon_discount, gst_amount = 0, 0
     
-    elif booking_type == "HOLIDAYPACK":
-        holidaypack_booking = booking.holiday_package_booking
-        if holidaypack_booking:
-            total_booking_amount = (holidaypack_booking.holidaypack_subtotal
-                                    + holidaypack_booking.service_tax)
-                                     
-    elif booking_type == "VEHICLE":
-        vehicle_booking = booking.vehicle_booking
-        if vehicle_booking:
-            total_booking_amount = (vehicle_booking.vehicle_subtotal
-                                    + vehicle_booking.service_tax)
-    elif booking_type == "FLIGHT":
-        flight_booking = booking.flight_booking
-        if flight_booking:
-            total_booking_amount =  (flight_booking.flight_subtotal
-                                     + flight_booking.service_tax)
+    gst_percentage = booking.gst_percentage
+    if gst_percentage:
+        gst_amount = (gst_percentage * booking.subtotal) / 100
+    
+    
+    total_booking_amount = booking.subtotal + gst_amount
+     
+##    if booking_type == "HOTEL":
+##        hotel_booking = booking.hotel_booking
+##        if hotel_booking: 
+##            total_booking_amount = (hotel_booking.room_subtotal
+##                                    + hotel_booking.service_tax)
+##    
+##    elif booking_type == "HOLIDAYPACK":
+##        holidaypack_booking = booking.holiday_package_booking
+##        if holidaypack_booking:
+##            total_booking_amount = (holidaypack_booking.holidaypack_subtotal
+##                                    + holidaypack_booking.service_tax)
+##                                     
+##    elif booking_type == "VEHICLE":
+##        vehicle_booking = booking.vehicle_booking
+##        if vehicle_booking:
+##            total_booking_amount = (vehicle_booking.vehicle_subtotal
+##                                    + vehicle_booking.service_tax)
+##    elif booking_type == "FLIGHT":
+##        flight_booking = booking.flight_booking
+##        if flight_booking:
+##            total_booking_amount =  (flight_booking.flight_subtotal
+##                                     + flight_booking.service_tax)
 
      # apply coupon (if any) to total amount
     if coupon and coupon.discount:
         total_booking_amount = total_booking_amount - coupon.discount
+        coupon_discount = coupon.discount
 
-    return total_booking_amount
+    return total_booking_amount, gst_amount, coupon_discount
     
 def set_firstbooking_reward(referred_code):
     user = get_user_by_referralcode(referred_code)
@@ -433,7 +445,7 @@ def set_firstbooking_reward(referred_code):
         
 
 def deduct_booking_amount(booking, company_id=None):
-    deduct_amount = float(booking.final_amount) - float(booking.total_payment_made)
+    deduct_amount = float(booking.final_amount) # - float(booking.total_payment_made)
     if company_id:
         status = deduct_company_wallet_balance(company_id, deduct_amount)
     else:
