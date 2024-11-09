@@ -1163,3 +1163,8 @@ GST_TYPE = (
     ('IGST', 'IGST'),
     ('CGST/SGST', 'CGST/SGST')
 )
+
+DISCOUNT_TYPE = (
+    ('AMOUNT', 'AMOUNT'),
+    ('PERCENT', 'PERCENT')
+)

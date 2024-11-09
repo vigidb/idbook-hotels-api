@@ -257,6 +257,12 @@ class BookingSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         booking_type = instance.booking_type
         if instance:
+##            discount
+##            subtotal
+##            gst_percentage
+##            gst_amount
+            representation['final_amount'] = instance.final_amount
+            representation['total_payment_made'] = instance.total_payment_made
             if instance.user:
                 representation['user'] = {'name':instance.user.name, 'email':instance.user.email}
             if booking_type == 'HOLIDAYPACK':

@@ -40,6 +40,9 @@ The cancellation code is: {cancellation_code}".format(booking_type=booking_type,
 
 def wallet_minbalance_notification_template(wallet_balance, notification_dict):
     try:
+
+        wallet_balance = float(wallet_balance)
+        
         title = "Low Wallet Balance Notification"
         description = " A gentle reminder that your Idbook wallet balance \
 is LOW ({wallet_balance} INR)".format(wallet_balance=wallet_balance)
@@ -55,7 +58,9 @@ is LOW ({wallet_balance} INR)".format(wallet_balance=wallet_balance)
 def wallet_booking_balance_notification_template(booking, wallet_balance, notification_dict):
     try:
         booking_type = booking.booking_type
-        booking_amount = booking.final_amount
+        wallet_balance = float(wallet_balance)
+        booking_amount = float(booking.final_amount)
+        
         # balance_amount = booking_amount - booking.total_payment_made
         title = "Low Wallet Balance Notification"
         description = " A gentle reminder that your Idbook wallet balance \
