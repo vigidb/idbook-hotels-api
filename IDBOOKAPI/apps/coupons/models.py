@@ -2,14 +2,15 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 import random
 import string
-from IDBOOKAPI.basic_resources import COUPON_TYPES
+from IDBOOKAPI.basic_resources import COUPON_TYPES, DISCOUNT_TYPE
 
 
 class Coupon(models.Model):
     code = models.CharField(max_length=6, unique=True)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
-    discount = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(0)])
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='AMOUNT')
+    discount = models.DecimalField(max_digits=15, decimal_places=4, validators=[MinValueValidator(0)])
     coupon_type = models.CharField(max_length=20, choices=COUPON_TYPES)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)

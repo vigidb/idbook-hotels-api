@@ -55,10 +55,10 @@ class HotelBooking(models.Model):
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
     confirmed_checkout_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-out time for the property.")
-    room_subtotal = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
-    service_tax =  models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the room.")
+##    room_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the room.")
     
 
 class HolidayPackageBooking(models.Model):
@@ -67,10 +67,10 @@ class HolidayPackageBooking(models.Model):
     enquired_holiday_package = models.CharField(max_length=255, null=True, blank=True)
     confirmed_holiday_package = models.ForeignKey(TourPackage, on_delete=models.DO_NOTHING,
                                                   null=True, blank=True, verbose_name="holiday_package")
-    holidaypack_subtotal = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Holiday Package Price")
-    service_tax =  models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the Holiday package.")
+##    holidaypack_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Holiday Package Price")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the Holiday package.")
     
 
 
@@ -84,10 +84,10 @@ class VehicleBooking(models.Model):
     confirmed_vehicle = models.ForeignKey(
         VehicleDetail, on_delete=models.DO_NOTHING,
         null=True, blank=True, verbose_name="confirmed_vehicle_booking")
-    vehicle_subtotal = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Vehicle Rental Price.")
-    service_tax =  models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the vehicle rental.")
+##    vehicle_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Vehicle Rental Price.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the vehicle rental.")
 
 
     def __str__(self):

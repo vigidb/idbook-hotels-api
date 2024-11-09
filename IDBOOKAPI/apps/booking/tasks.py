@@ -19,7 +19,7 @@ from apps.org_resources.utils.notification_utils import (
     wallet_minbalance_notification_template, booking_comfirmed_notification_template,
     booking_cancelled_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
-from apps.customer.utils.db_utils import get_wallet_balance
+from apps.customer.utils.db_utils import get_wallet_balance, get_company_wallet_balance
 from apps.authentication.utils.db_utils import update_user_first_booking
 
 @celery_idbook.task(bind=True)
@@ -61,12 +61,6 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
             try:    
             # Notification
                 send_by = None
-##                title = "{booking_type} Booking Confirmed".format(booking_type=booking.booking_type)
-##                description = "We are pleased to confirm your {booking_type} booking. \
-##The confirmation code is: {confirmation_code}".format(booking_type=booking.booking_type,
-##                                                      confirmation_code=booking.confirmation_code)
-##                redirect_url = "/booking/bookings/{booking_id}/".format(booking_id=booking.id)
-                
                 #business_name = "Idbook"
                 bus_details = get_active_business() #get_business_by_name(business_name)
                 if bus_details:
@@ -97,8 +91,12 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                 send_booking_email(subject, booking, [send_email, 'sonu@idbookhotels.com'], html_content)
                 # check wallet balance
                 # if low, then send a notification
+
                 if booking.user:
-                    balance = get_wallet_balance(booking.user.id)
+                    if booking.user.company_id:
+                        balance = get_company_wallet_balance(booking.user.company_id)
+                    else:
+                        balance = get_wallet_balance(booking.user.id)
                     if balance < 1000:
                         send_by = None
                         # business_name = "Idbook"

@@ -4,6 +4,7 @@ import string
 import datetime
 import re
 from django.utils import timezone
+from decimal import Decimal
 import calendar
 
 def get_current_date():
@@ -186,6 +187,16 @@ def paginate_queryset(request, queryset):
     queryset = queryset[offset:offset+limit]
 
     return count, queryset
+
+##def quantize_decimal_value(value: Decimal):
+##    try:
+##        if value == value.to_integral():
+##            return value.quantize(Decimal(1))
+##        else:
+##            return value.normalize()
+##    except Exception as e:
+##        print("Error in decimal conversion::", e)
+##        return value
 
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA

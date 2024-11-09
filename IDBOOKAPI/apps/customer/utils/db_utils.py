@@ -49,7 +49,7 @@ def update_wallet_transaction(wtransact):
 def deduct_wallet_balance(user_id, deduct_amount):
     try:
         wallet = Wallet.objects.get(user__id=user_id)
-        wallet.balance = float(wallet.balance) - float(deduct_amount)
+        wallet.balance = wallet.balance - deduct_amount
         wallet.save()
         return True
     except Exception as e:
@@ -59,7 +59,7 @@ def deduct_wallet_balance(user_id, deduct_amount):
 def deduct_company_wallet_balance(company_id, deduct_amount):
     try:
         wallet = Wallet.objects.get(company__id=company_id)
-        wallet.balance = float(wallet.balance) - float(deduct_amount)
+        wallet.balance = wallet.balance - deduct_amount
         wallet.save()
         return True
     except Exception as e:
@@ -73,10 +73,10 @@ def add_user_wallet_amount(user_id, amount):
         
         wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
         if wallet:
-            wallet.balance = float(wallet.balance) + float(amount)
+            wallet.balance = wallet.balance + amount
             wallet.save()
         else:
-            Wallet.objects.create(user__id=user_id, balance=amount)
+            Wallet.objects.create(user_id=user_id, balance=amount)
     except Exception as e:
         print("Wallet Balance add error::", e)
         return False
@@ -89,7 +89,7 @@ def add_company_wallet_amount(company_id, amount):
         
         wallet = Wallet.objects.filter(company_id=company_id).first()
         if wallet:
-            wallet.balance = float(wallet.balance) + float(amount)
+            wallet.balance = wallet.balance + amount
             wallet.save()
         else:
             Wallet.objects.create(company_id=company_id, balance=amount)

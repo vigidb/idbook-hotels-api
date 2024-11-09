@@ -40,12 +40,10 @@ def invoice_json_hotel_booking(hotel_booking):
         room = hotel_booking.room
         room_type = room.room_type
 
-    room_subtotal = float(hotel_booking.room_subtotal)
-    service_tax = hotel_booking.service_tax
     name = f"{room_type}, {property_name}"
     
     item = { "name": name, "description": "", "quantity": 1,
-     "price": room_subtotal, "amount": room_subtotal }
+     "price": "", "amount": "" }
     
     return item
 
@@ -54,10 +52,9 @@ def invoice_json_holidaypack_booking(hpackage):
     if hpackage.confirmed_holiday_package:
         confirmed_pack = hpackage.confirmed_holiday_package
         trip_name = confirmed_pack.trip_name
-    holidaypack_subtotal = float(hpackage.holidaypack_subtotal)
     
     item = { "name": trip_name, "description": "", "quantity": 1,
-         "price": holidaypack_subtotal, "amount": holidaypack_subtotal}
+         "price": "", "amount": ""}
     return item
 
 def invoice_json_vehicle_booking(vehicle_booking):
@@ -65,10 +62,9 @@ def invoice_json_vehicle_booking(vehicle_booking):
     if vehicle_booking.confirmed_vehicle:
         confirmed_vehicle = vehicle_booking.confirmed_vehicle
         vehicle_type = confirmed_vehicle.vehicle_type
-    vehicle_subtotal = float(vehicle_booking.vehicle_subtotal)
 
     item = { "name": vehicle_type, "description": "", "quantity": 1,
-         "price": vehicle_subtotal, "amount": vehicle_subtotal}
+         "price": "", "amount": ""}
         
     return item
 
@@ -81,7 +77,8 @@ def invoice_json_flight_booking(flight_booking):
 
     departure_date = flight_booking.departure_date
     arrival_date = flight_booking.arrival_date
-    
+    departure_time = departure_date.strftime('%H:%M %Z%z') if departure_date else ''
+    arrival_time = arrival_date.strftime('%H:%M %Z%z') if arrival_date else ''
     #flight_subtotal = float(flight_booking.flight_subtotal)
     
     flight_class = flight_booking.flight_class
@@ -91,11 +88,11 @@ def invoice_json_flight_booking(flight_booking):
         description = "Flight Class: {flight_class}, Flight trip {flight_trip}, \
 Date- {departure_date}, Flight Destination- {flying_from} to {flying_to} \
 Flight Number- {flight_no} \
-Time - {flying_from} departure {departure_date} and \
-{flying_to} arrival {arrival_date}".format(
+Time - {flying_from} departure {departure_time} and \
+{flying_to} arrival {arrival_time}".format(
             flight_class=flight_class, flight_trip=flight_trip,
             departure_date=departure_date, flying_from=flying_from, flying_to=flying_to,
-            flight_no=flight_no, arrival_date=arrival_date)
+            flight_no=flight_no, departure_time = departure_time, arrival_time=arrival_time)
     elif flight_trip == 'ROUND':
         return_date = flight_booking.return_date
         return_arrival_date = flight_booking.return_arrival_date
