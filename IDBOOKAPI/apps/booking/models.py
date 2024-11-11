@@ -12,6 +12,7 @@ from apps.hotels.models import Property, Room
 from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
 from apps.vehicle_management.models import VehicleDetail
+from apps.org_resources.models import CompanyDetail
 
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
@@ -131,6 +132,8 @@ class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.DO_NOTHING,
                              null=True, blank=True,
                              verbose_name="booking_user")
+    company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
+                                null=True)
     reference_code = models.CharField(max_length=500, null=True, blank=True)
     confirmation_code = models.CharField(max_length=500, null=True, blank=True)
     invoice_id = models.CharField(max_length=500, null=True, blank=True)

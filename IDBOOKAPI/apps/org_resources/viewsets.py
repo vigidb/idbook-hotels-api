@@ -72,9 +72,11 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if not user:
                 user = User.objects.create(name=company_detail.contact_person_name,
                                            email=company_detail.contact_email_address,
-                                           category='CL-ADMIN', company_id=company_detail.id)
+                                           category='CL-ADMIN', company_id=company_detail.id,
+                                           default_group='CORPORATE-GRP')
             else:
                 user.category='CL-ADMIN'
+                user.default_group='CORPORATE-GRP'
                 user.company_id=company_detail.id
                 user.save()
 
@@ -247,10 +249,12 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if not user:
                 user = User.objects.create(name=company_detail.contact_person_name,
                                            email=company_detail.contact_email_address,
-                                           category='CL-ADMIN', company_id=company_detail.id)
+                                           category='CL-ADMIN', company_id=company_detail.id,
+                                           default_group='CORPORATE-GRP')
             else:
                 user.category='CL-ADMIN'
                 user.company_id=company_detail.id
+                user.default_group='CORPORATE-GRP'
                 user.save()
 
             if grp:

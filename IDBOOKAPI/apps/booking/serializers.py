@@ -133,11 +133,13 @@ class BookingSerializer(serializers.ModelSerializer):
         
         hotel_booking, holidaypack_booking = None, None
         vehicle_booking, flight_booking = None, None
+        company = None
         
         booking_type = validated_data.get('booking_type', 'HOTEL')
         adult_count = validated_data.get('adult_count', 1)
         child_count = validated_data.get('child_count', 0)
         infant_count = validated_data.get('infant_count', 0)
+        company = validated_data.get('company', None)
 
         
         if booking_type == 'HOTEL':
@@ -156,7 +158,8 @@ class BookingSerializer(serializers.ModelSerializer):
             user=user, booking_type=booking_type, hotel_booking=hotel_booking,
             holiday_package_booking=holidaypack_booking,
             vehicle_booking =vehicle_booking, flight_booking=flight_booking,
-            adult_count=adult_count, child_count=child_count, infant_count=infant_count)
+            adult_count=adult_count, child_count=child_count,
+            infant_count=infant_count, company=company)
         company_detail.save()
         return company_detail
 

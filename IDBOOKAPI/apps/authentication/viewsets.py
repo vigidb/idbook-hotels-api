@@ -82,6 +82,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if serializer.is_valid():
             user = serializer.save()
             customer_id = user.id
+            # save customer profile with user id
             Customer.objects.create(user_id=customer_id, active=True)
             
             # set groups and roles
@@ -92,6 +93,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 user.groups.add(grp)
             if role:
                 user.roles.add(role)
+            user.default_group = 'B2C-GRP'
+            user.save()
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email
@@ -195,6 +198,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             user.set_password(password)
         user.category = 'CL-CUST'
         user.mobile_number = mobile_number
+        user.default_group = 'CORPORATE-GRP'
         user.save()
 
         grp = db_utils.get_group_by_name('CORPORATE-GRP')
@@ -357,15 +361,16 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                             if bdetails:
                                 business_id = bdetails.id
                         if business_id:
-                            category = "B-USR"
+                            category = "B-CUST"
                             new_user = User.objects.create(name=name, email=email, mobile_number=mobile_number,
                                                            business_id=business_id, category=category,
-                                                           referred_code=referred_code)
+                                                           referred_code=referred_code, default_group='B2C-GRP')
                         else:
                             category = "B-CUST"
                             new_user = User.objects.create(name=name, email=email,
                                                            mobile_number=mobile_number,
-                                                           category=category, referred_code=referred_code)
+                                                           category=category, referred_code=referred_code,
+                                                           default_group='B2C-GRP')
                         # set groups and roles
                         grp = db_utils.get_group_by_name('B2C-GRP')
                         role = db_utils.get_role_by_name('B2C-CUST')
@@ -773,6 +778,53 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                                      message="Referral Link",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    
+    @action(detail=False, methods=['POST'], url_path='default/group',
+            permission_classes=[IsAuthenticated],
+            url_name='default-group')
+    def update_default_group(self, request):
+        instance = self.request.user
+        user_groups = []
+        
+        try:
+            user_groups = [ugroups.get('name', '') for ugroups in instance.groups.values('name')]
+        except Exception as e:
+            print(e)   
+        
+        default_group = request.data.get('default_group', None)
+            
+        if instance:
+            if not default_group:
+                custom_response = self.get_error_response(
+                    message="Missing default group", status="error",
+                    errors=[],error_code="GROUP_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND)
+                return custom_response
+
+            if not default_group in user_groups:
+                custom_response = self.get_error_response(
+                    message="Group Not Mapped", status="error",
+                    errors=[],error_code="GROUP_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND)
+                return custom_response
+            
+            instance.default_group = default_group
+            instance.save()
+            custom_response = self.get_response(
+                status='success',
+                data=[],  # Use the data from the default response
+                message="Default Group Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+                )
+        else:
+            custom_response = self.get_error_response(
+                message="User Not Found", status="error",
+                errors=[],error_code="USER_MISSING",
+                status_code=status.HTTP_404_NOT_FOUND)
+        return custom_response
+        
+        
 
         
 

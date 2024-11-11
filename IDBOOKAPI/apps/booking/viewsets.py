@@ -58,6 +58,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         company_id, user_id = None, None
         
         user = self.request.user
+        default_group = user.default_group
 
         # fetch filter parameters
         param_dict= self.request.query_params
@@ -82,7 +83,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             
         
         print(user.category)
-        #user.category = 'B-ADMIN'
+##        user.category = 'CL-CUST'
 ##        if user.category == 'B-ADMIN':
 ##             company_id = self.request.query_params.get('company_id', None)
         if user.category == 'CL-ADMIN':
@@ -90,7 +91,13 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             # user_id = self.request.query_params.get('user_id', None)
         elif user.category == 'CL-CUST':
             user_id = user.id
+            company_id = user.company_id if user.company_id else -1
         
+        if default_group == 'B2C-GRP':
+           user_id = user.id
+           company_id = None
+           filter_dict['company_id__isnull'] = True
+            
         # filter 
 ##        booking_status = self.request.query_params.get('status', '')
 ##        if booking_status:
