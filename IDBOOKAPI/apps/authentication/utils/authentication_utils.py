@@ -19,6 +19,7 @@ def user_representation(user, refresh_token=None):
                  'category': user.category, 'profile_picture':profile_picture,
                  'business_id': user.business_id if user.business_id else '',
                  'company_id' : user.company_id if user.company_id else '',
+                 'default_group': user.default_group,
                  'is_active': user.is_active}
 
     if refresh_token:

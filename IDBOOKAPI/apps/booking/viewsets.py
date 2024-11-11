@@ -82,7 +82,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             
         
         print(user.category)
-        #user.category = 'B-ADMIN'
+##        user.category = 'CL-ADMIN'
 ##        if user.category == 'B-ADMIN':
 ##             company_id = self.request.query_params.get('company_id', None)
         if user.category == 'CL-ADMIN':

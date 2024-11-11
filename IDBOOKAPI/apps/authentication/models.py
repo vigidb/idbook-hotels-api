@@ -76,6 +76,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     is_active = models.BooleanField(default=True, help_text="Whether the user account is active.")
     is_staff = models.BooleanField(default=False, help_text="Whether the user has staff privileges.")
+    default_group = models.CharField(max_length=30, null=True, help_text="Switched group")
 
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the user account was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the user account was last updated.")
