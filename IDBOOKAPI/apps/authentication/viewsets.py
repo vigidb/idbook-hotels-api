@@ -763,11 +763,11 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         user = request.user
         referral_code = user.referral
 
-        if user.category == 'CL-CUST':
+        if user.default_group == 'B2C-GRP':
             signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
-        elif user.category == 'B-CUST':
+        elif user.default_group == 'BUSINESS-GRP':
             signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
-        elif user.category == 'CL-ADMIN':
+        elif user.default_group == 'CORPORATE-GRP':
             signup_link = f"{settings.FRONTEND_URL}/corporate-register/?referral_code={referral_code}"
         else:
             signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
