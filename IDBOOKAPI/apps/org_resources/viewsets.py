@@ -33,6 +33,7 @@ from django.db.models import Q
 from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
+from apps.customer.models import Customer
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
@@ -62,6 +63,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             company_detail = serializer.save()
+            
             #response = super().create(request, *args, **kwargs)
 
             grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
@@ -74,12 +76,16 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                                            email=company_detail.contact_email_address,
                                            category='CL-ADMIN', company_id=company_detail.id,
                                            default_group='CORPORATE-GRP')
+                Customer.objects.create(user_id=user.id, active=True)
             else:
                 user.category='CL-ADMIN'
                 user.default_group='CORPORATE-GRP'
                 user.company_id=company_detail.id
                 user.save()
-
+                customer = Customer.objects.filter(user_id=user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=user.id, active=True)
+                    
             if user:
                 # add group and roles
                 if grp:
@@ -251,11 +257,16 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                                            email=company_detail.contact_email_address,
                                            category='CL-ADMIN', company_id=company_detail.id,
                                            default_group='CORPORATE-GRP')
+                Customer.objects.create(user_id=user.id, active=True)
             else:
                 user.category='CL-ADMIN'
                 user.company_id=company_detail.id
                 user.default_group='CORPORATE-GRP'
                 user.save()
+
+                customer = Customer.objects.filter(user_id=user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=user.id, active=True)
 
             if grp:
                 user.groups.add(grp)
