@@ -110,6 +110,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         compony_id = None
+        name = request.data.get('name', None)
         
         user = request.user
         if user.category == 'CL-ADMIN':
@@ -167,7 +168,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         compony_id = None
-        
+        name = request.data.get('name', None)
         user = request.user
         if user.category == 'CL-ADMIN':
             company_id = user.company_id
@@ -205,7 +206,9 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # If the serializer is valid, perform the default update logic
             #response = super().partial_update(request, *args, **kwargs)
             response = self.perform_update(serializer)
-
+            if name:
+                instance.user.name = name
+                instance.user.save()
             # Create a custom response
             custom_response = self.get_response(
                 status='success',
@@ -291,6 +294,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_path='user-based/update', url_name='user-based-update')
     def user_based_update(self, request):
         user_id = request.user.id
+        name = request.data.get('name', None)
         instance = self.queryset.filter(user_id=user_id).first()
         if not instance:
             custom_response = self.get_error_response(
@@ -300,6 +304,9 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         if serializer.is_valid():
             response = self.perform_update(serializer)
+            if name:
+                instance.user.name = name
+                instance.user.save()
             custom_response = self.get_response(
                 status='success',
                 data=serializer.data,  # Use the data from the default response
