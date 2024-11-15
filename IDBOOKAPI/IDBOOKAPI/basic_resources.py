@@ -14,9 +14,14 @@ ROOM_CHOICES = (
 )
 
 ROOM_VIEW_CHOICES = (
-    ('SEA VIEW', 'DELUXE'),
-    ('RIVER VIEW', 'CLASSIC'),
-    ('VALLEY VIEW', 'PREMIUM'),
+    ('SEA VIEW', 'SEA VIEW'),
+    ('RIVER VIEW', 'RIVER VIEW'),
+    ('VALLEY VIEW', 'VALLEY VIEW'),
+)
+
+ROOM_MEASUREMENT = (
+    ('square feet', 'square feet'),
+    ('square meter', 'square meter'),
 )
 
 BED_TYPE_CHOICES = (
@@ -1168,3 +1173,6 @@ DISCOUNT_TYPE = (
     ('AMOUNT', 'AMOUNT'),
     ('PERCENT', 'PERCENT')
 )
+
+    
+    

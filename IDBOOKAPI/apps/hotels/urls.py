@@ -11,6 +11,8 @@ router.register(r'rules', RuleViewSet, basename='rules')
 router.register(r'inclusions', InclusionViewSet, basename='inclusions')
 router.register(r'financial-details', FinancialDetailViewSet, basename='financial_details')
 router.register(r'reviews', ReviewViewSet, basename='reviews')
+router.register(r'amenity-category', HotelAmenityCategoryViewSet, basename='amenity-category')
+router.register(r'room-category', RoomAmenityCategoryViewSet, basename='room-category')
 
 urlpatterns = [
 ]

@@ -1,0 +1,69 @@
+Amenity:
+[{"type":"choice", "No":[], "Yes":[["Centralized", "Room Controlled","Window AC"], ["All-Weather(Hot & Cold)"]]}]
+
+
+Update Property Amenity;
+
+{
+
+    "amenity_details":[
+        {
+            "id":1,
+            "title":"Mandatory",
+            "hotel_amenity":[
+                {
+                    "id":1,
+                    "title":"Air Conditioning",
+                    "detail":[
+                        {
+                            "Yes":[
+                                [
+                                    "Centralized"
+                                ],
+                                [
+                                    "All-Weather(Hot & Cold)"
+                                ]
+                            ],
+                            "type":"choice"
+                        }
+                    ]
+                },
+                {
+                    "id":2,
+                    "title":"Laundry",
+                    "detail":[
+                        {
+                            "Yes":[
+                                [
+                                    "Free"
+                                ]
+                            ],
+                            "type":"choice"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id":2,
+            "title":"Basic Facilities",
+            "hotel_amenity":[
+                {
+                    "id":3,
+                    "title":"Elevator/ Lift",
+                    "detail":[
+                        {
+                            "No":[
+                            ],
+                            "type":"choice"
+                        }
+                    ]
+                },
+                {
+                    "title":"Laundry"
+                }
+            ]
+        }
+    ]
+
+}

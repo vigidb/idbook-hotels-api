@@ -78,3 +78,4 @@ admin.site.register(Career)
 admin.site.register(FAQs)
 admin.site.register(CountryDetails)
 admin.site.register(UserNotification)
+
