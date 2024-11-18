@@ -3,12 +3,23 @@ from django.contrib.auth.models import Permission, Group
 from django.contrib.auth import authenticate
 
 from IDBOOKAPI.img_kit import upload_media_to_bucket
-from .models import (Property, Gallery, Room, Review, Rule, Inclusion, FinancialDetail)
+from .models import (Property, Gallery, Room, Review, Rule,
+                     Inclusion, FinancialDetail, HotelAmenityCategory,
+                     HotelAmenity, RoomAmenityCategory, RoomAmenity,
+                     PropertyGallery, RoomGallery)
 from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 
+from django.conf import settings
 
+
+class PropertyGallerySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PropertyGallery
+        fields = '__all__'
+        
 class PropertySerializer(serializers.ModelSerializer):
     custom_id = serializers.ReadOnlyField()
     class Meta:
@@ -17,18 +28,50 @@ class PropertySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = self.context['request'].user
-        amenity = validated_data.pop('amenity')
         property_instance = Property(**validated_data)
-        property_instance.save()
-        initials = ''.join(word[0] for word in property_instance.service_category.split()).replace('&','')
-        property_instance.custom_id = format_custom_id(initials, property_instance.id)
-        property_instance.state = find_state(property_instance.city_name)
         property_instance.added_by = user
         property_instance.save()
-        property_instance.amenity.set(amenity)
         return property_instance
 
+class PropertyListSerializer(serializers.ModelSerializer):
 
+    class Meta:
+        model = Property
+        fields = ('name', 'display_name', 'area_name',
+                  'city_name', 'state', 'country', 'rating')
+        
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            gallery = instance.gallery_property.filter(featured_image=True).first() 
+            if gallery and gallery.media:
+                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+            else:
+                representation['featured_image'] = ""
+
+        return representation
+            
+          
+
+##    def create(self, validated_data):
+##        user = self.context['request'].user
+##        amenity = validated_data.pop('amenity')
+##        property_instance = Property(**validated_data)
+##        property_instance.save()
+##        initials = ''.join(word[0] for word in property_instance.service_category.split()).replace('&','')
+##        property_instance.custom_id = format_custom_id(initials, property_instance.id)
+##        property_instance.state = find_state(property_instance.city_name)
+##        property_instance.added_by = user
+##        property_instance.save()
+##        property_instance.amenity.set(amenity)
+##        return property_instance
+
+
+class RoomGallerySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoomGallery
+        fields = '__all__'
+        
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
@@ -116,3 +159,26 @@ class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = '__all__'
+
+class HotelAmenitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HotelAmenity
+        fields = '__all__'
+
+class HotelAmenityCategorySerializer(serializers.ModelSerializer):
+    hotel_amenity = HotelAmenitySerializer(read_only=True, many=True)
+    class Meta:
+        model = HotelAmenityCategory
+        fields = ('id', 'title', 'active', 'hotel_amenity')
+
+class RoomAmenitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoomAmenity
+        fields = ('id', 'title', 'active', 'detail')
+
+class RoomAmenityCategorySerializer(serializers.ModelSerializer):
+    room_amenity = RoomAmenitySerializer(read_only=True, many=True)
+    class Meta:
+        model = RoomAmenityCategory
+        fields = ('id', 'title', 'active', 'room_amenity')
+

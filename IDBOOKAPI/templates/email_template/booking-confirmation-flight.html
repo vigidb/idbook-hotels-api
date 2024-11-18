@@ -200,9 +200,11 @@
           <div class="flex-item">
             <p><strong>Departure Date & Time:</strong> {{ departure_date }}</p>
           </div>
+          {% if flight_trip == "ROUND" %}
           <div class="flex-item">
             <p><strong>Return Date & Time:</strong> {{ return_date }}</p>
           </div>
+          {% endif %}
         </div>
         
         <div class="flex-container">

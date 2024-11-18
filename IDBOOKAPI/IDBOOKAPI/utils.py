@@ -217,6 +217,12 @@ def find_state(district_name):
             return state_data["state"]
     return None
 
+def default_address_json():
+    address_json = {"building_or_hse_no": "",
+                    "pincode":"", "coordinates":{"lat":"", "lng":""},
+                    "location_url": ""}
+    return address_json
+
 
 # Example usage
 # state_name = "madhya Pradesh"
