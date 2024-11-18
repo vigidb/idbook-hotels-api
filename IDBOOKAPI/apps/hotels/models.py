@@ -261,6 +261,33 @@ class Room(models.Model):
         verbose_name_plural = 'rooms'
         index_together = (('id', 'room_type'),)
 
+class PropertyGallery(models.Model):
+    property = models.ForeignKey(Property, on_delete=models.SET_NULL,
+                                 null=True, related_name='gallery_property')
+    media = models.FileField(upload_to='hotels/property/media/', blank=True, null=True)
+    caption = models.CharField(max_length=200, blank=True, default="")
+    featured_image = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+
+    class Meta:
+        verbose_name_plural = 'PropertyGallery'
+
+class RoomGallery(models.Model):
+    room = models.ForeignKey(Room, on_delete=models.SET_NULL,
+                             null=True, related_name='gallery_room')
+    media = models.FileField(upload_to='hotels/room/media/', null=True)
+    featured_image = models.BooleanField(default=False)
+    caption = models.CharField(max_length=200, default="", blank=True)
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+
+    class Meta:
+        verbose_name_plural = 'RoomGallery'
 
 class Gallery(models.Model):
     added_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True,

@@ -1,0 +1,27 @@
+from apps.hotels.models import (
+    Property, Room, PropertyGallery, RoomGallery)
+
+
+def get_property_by_id(property_id):
+    try:
+        property_detail = Property.objects.get(id=property_id)
+    except Exception as e:
+        property_detail = None
+
+    return property_detail
+
+def get_room_by_id(room_id):
+    try:
+        room_detail = Room.objects.get(id=room_id)
+    except Exception as e:
+        room_detail = None
+    return room_detail
+
+def get_property_gallery(property_id):
+    property_gallery = PropertyGallery.objects.filter(property_id=property_id)
+    return property_gallery
+
+def get_room_gallery(room_id):
+    room_gallery = RoomGallery.objects.filter(room_id=room_id)
+    return room_gallery
+        

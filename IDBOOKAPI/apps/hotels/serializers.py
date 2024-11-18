@@ -5,17 +5,53 @@ from django.contrib.auth import authenticate
 from IDBOOKAPI.img_kit import upload_media_to_bucket
 from .models import (Property, Gallery, Room, Review, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
-                     HotelAmenity, RoomAmenityCategory, RoomAmenity)
+                     HotelAmenity, RoomAmenityCategory, RoomAmenity,
+                     PropertyGallery, RoomGallery)
 from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 
+from django.conf import settings
 
+
+class PropertyGallerySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PropertyGallery
+        fields = '__all__'
+        
 class PropertySerializer(serializers.ModelSerializer):
     custom_id = serializers.ReadOnlyField()
     class Meta:
         model = Property
         fields = '__all__'
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        property_instance = Property(**validated_data)
+        property_instance.added_by = user
+        property_instance.save()
+        return property_instance
+
+class PropertyListSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Property
+        fields = ('name', 'display_name', 'area_name',
+                  'city_name', 'state', 'country', 'rating')
+        
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            gallery = instance.gallery_property.filter(featured_image=True).first() 
+            if gallery and gallery.media:
+                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+            else:
+                representation['featured_image'] = ""
+
+        return representation
+            
+          
 
 ##    def create(self, validated_data):
 ##        user = self.context['request'].user
@@ -31,6 +67,11 @@ class PropertySerializer(serializers.ModelSerializer):
 ##        return property_instance
 
 
+class RoomGallerySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoomGallery
+        fields = '__all__'
+        
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
