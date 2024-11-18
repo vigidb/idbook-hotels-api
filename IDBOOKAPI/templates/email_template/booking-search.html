@@ -292,9 +292,11 @@
 		  <div class="flex-item">
 		    <p><strong>Departure Date:</strong> {{ departure_date }}</p>
 		  </div>
+		  {% if flight_trip == "ROUND" %}
 		  <div class="flex-item">
 		    <p><strong>Return Date:</strong> {{ return_date }}</p>
 		  </div>
+		  {% endif %}
 		</div>
 		<!-- Airport Details -->
 		<div class="flex-container">
