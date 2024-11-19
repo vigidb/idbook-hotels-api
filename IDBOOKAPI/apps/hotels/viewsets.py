@@ -15,7 +15,7 @@ from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
     FinancialDetailSerializer, ReviewSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
-    PropertyListSerializer)
+    PropertyListSerializer, PropertyRetrieveSerializer)
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, Review, HotelAmenityCategory,
                      RoomAmenityCategory)
@@ -23,6 +23,7 @@ from .models import (Property, Gallery, Room, Rule, Inclusion,
 from .models import RoomGallery, PropertyGallery
 
 from apps.hotels.utils import db_utils as hotel_db_utils
+from apps.hotels.utils import hotel_policies_utils 
 
 from rest_framework.decorators import action
 
@@ -30,7 +31,7 @@ from rest_framework.decorators import action
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
-    serializer_action_classes = {'list': PropertyListSerializer,}
+    serializer_action_classes = {'list': PropertyListSerializer, 'retrieve': PropertyRetrieveSerializer}
     # permission_classes = [AnonymousCanViewOnlyPermission,]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['name', 'display_name', 'service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
@@ -271,6 +272,17 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                      status="success", message="List Property Gallery",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=False, methods=['GET'], url_path='policy/structure',
+            url_name='policy-structure', permission_classes=[AllowAny])
+    def get_policy_data_structure(self, request):
+        self.log_request(request)
+        hotel_policies = hotel_policies_utils.default_hotel_policy_json()
+        response = self.get_response(data=hotel_policies, count = 1,
+                                     status="success", message="List Hotel Policies Data Structure",
+                                     status_code=status.HTTP_200_OK)
+        return response
+        
         
 
 
