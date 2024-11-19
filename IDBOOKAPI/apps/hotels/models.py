@@ -127,7 +127,6 @@ class Property(models.Model):
                                    help_text="Select a user as the property manager.")
     added_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='property_added_by')
     service_category = models.CharField(max_length=255, choices=SERVICE_CATEGORY_TYPE_CHOICES, default='', help_text="Select the service category for this property.")
-##    address = models.TextField(blank=True, null=True) 
     custom_id = models.CharField(max_length=15, blank=True, db_index=True, null=True, help_text="Custom ID for the property.")
 
     name = models.CharField(max_length=70, db_index=True, help_text="Name of the property.")
@@ -136,17 +135,13 @@ class Property(models.Model):
 
     checkin_time = models.TimeField(null=True, help_text="Check-in time for the property.")
     checkout_time = models.TimeField(null=True, help_text="Check-out time for the property.")
+    # cancellation_timings = models.PositiveIntegerField(null=True, help_text="Hours before customer can cancel for refund")
 
-##    location = models.CharField(max_length=500, blank=True, default='', help_text="Google map URL for the property location.")
     address = models.JSONField(default=default_address_json) 
     area_name = models.CharField(max_length=60, blank=True, default='', help_text="Area name where the property is located.")
     city_name = models.CharField(max_length=35, blank=True, default='', help_text="City name where the property is located.")
     state = models.CharField(max_length=50, blank=True, default='', help_text="State where the property is located.")
     country = models.CharField(max_length=50, blank=True, default='', help_text="Country where the property is located.")
-    
-##    coordinates = models.JSONField(null=True, default=dict, help_text='{"latitude":20.0456, "longitude": 19.047}')
-##    latitude = models.FloatField(default=0, help_text="Latitude of the property location.")
-##    longitude = models.FloatField(default=0, help_text="Longitude of the property location.")
 
     email = models.EmailField(blank=True, default='', validators=[EmailValidator])
     email_list = models.JSONField(null=True, default=dict, help_text='["email 1", "email 2"]')
@@ -160,11 +155,9 @@ class Property(models.Model):
     starting_price = models.DecimalField(max_digits=15, decimal_places=4, default=0.0)
 
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0, help_text="Rating of the property.")
-    # featured_image = models.URLField(max_length=255, default='', help_text="URL of the featured image for the property.")
     total_rooms = models.PositiveIntegerField(default=1, help_text="Total number of rooms in the property.")
 
     chain_name = models.CharField(max_length=50, blank=True, default='')
-    # build_year = models.CharField(max_length=50, blank=True, null=True)
     build_year = models.PositiveIntegerField(null=True)
     no_of_restaurant = models.PositiveIntegerField(default=0)
 ##    no_of_rooms = models.PositiveIntegerField(default=0)
@@ -173,9 +166,14 @@ class Property(models.Model):
     vcc_currency = models.CharField(max_length=50, blank=True, default='')
     timezone = models.CharField(max_length=50, blank=True, default='')
 
-    checkin_24_hours = models.BooleanField(default=False, help_text="Whether 24 Hrs Check In.")
+    # checkin_24_hours = models.BooleanField(default=False, help_text="Whether 24 Hrs Check In.")
     featured = models.BooleanField(default=False, help_text="Whether the property is featured.")
     franchise = models.BooleanField(default=False)
+    policies =  models.JSONField(default=dict, help_text="check default policy data in utils")
+    property_ownership = models.CharField(max_length=100, blank=True, default='')
+    legal_document = models.FileField(upload_to='hotels/property/legal-document/', null=True)
+
+    
     active = models.BooleanField(default=False, help_text="Whether the property is active.")
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
@@ -195,6 +193,7 @@ class Property(models.Model):
         verbose_name = 'Property'
         verbose_name_plural = 'Properties'
         index_together = (('id', 'slug'),)
+
 
 def default_room_occupancy_json():
     room_occupancy_json = {"base_adults":1, "max_adults":1,

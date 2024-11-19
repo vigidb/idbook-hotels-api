@@ -49,9 +49,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
             else:
                 representation['featured_image'] = ""
 
-        return representation
-            
-          
+        return representation     
 
 ##    def create(self, validated_data):
 ##        user = self.context['request'].user
@@ -76,6 +74,49 @@ class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
         fields = '__all__'
+
+class PropertyRoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ('name', 'room_type', 'room_view', 'no_available_rooms')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            if instance.gallery_room:
+                gallery = instance.gallery_room.filter(featured_image=True).first() 
+                if gallery and gallery.media:
+                    representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+                else:
+                    representation['featured_image'] = ""
+
+        return representation 
+
+class PropertyRetrieveSerializer(serializers.ModelSerializer):
+
+    property_room = PropertyRoomSerializer(many=True)
+
+    class Meta:
+        model = Property
+        exclude = ('legal_document', )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            # property gallery
+            if instance.gallery_property:
+                property_gallery = list(instance.gallery_property.values('media', 'caption'))
+                for gallery in property_gallery:
+                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                representation['property_gallery'] = property_gallery
+            else:
+                representation['property_gallery'] = []
+
+            # legal document
+            if instance.legal_document:
+                representation['legal_document'] = settings.MEDIA_URL + str(instance.legal_document)
+        
+        return representation
 
 
 class GallerySerializer(serializers.ModelSerializer):
