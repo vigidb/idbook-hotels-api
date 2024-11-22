@@ -10,6 +10,7 @@ from .models import (Property, Gallery, Room, Review, Rule,
 from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
+from apps.hotels.utils.db_utils import get_property_featured_image
 
 from django.conf import settings
 
@@ -37,13 +38,17 @@ class PropertyListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = ('name', 'display_name', 'area_name',
+        fields = ('id','name', 'display_name', 'area_name',
                   'city_name', 'state', 'country', 'rating')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
-            gallery = instance.gallery_property.filter(featured_image=True).first() 
+            gallery = None
+            property_id = instance.get('id', None)
+            if property_id:
+                gallery = get_property_featured_image(property_id)
+
             if gallery and gallery.media:
                 representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
             else:

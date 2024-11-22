@@ -27,6 +27,8 @@ from apps.hotels.utils import hotel_policies_utils
 
 from rest_framework.decorators import action
 
+from django.db.models import Q
+
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Property.objects.all()
@@ -54,6 +56,39 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         except KeyError: 
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
+
+
+    def property_filter_ops(self):
+        filter_dict = {}
+        location = self.request.query_params.get('location', '')
+        # user_id = self.request.query_params.get('user_id', None)
+        
+        checkin_date = self.request.query_params.get('checkin', '')
+        checkout_date = self.request.query_params.get('checkout', '')
+
+        param_dict= self.request.query_params
+        for key in param_dict:
+            param_value = param_dict[key]
+
+            if key == 'location':
+                loc_list = param_value.split(',')
+                self.queryset = self.queryset.filter(
+                    Q(country__in=loc_list) | Q(state__in=loc_list)
+                    | Q(city_name__in=loc_list) | Q(area_name__in=loc_list))
+            if key == 'user':
+                filter_dict['added_by'] = param_value
+                
+
+            if key in ('country', 'state', 'city_name', 'area_name'):
+                filter_dict[key] = param_value
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+
+##        if checkin_date and checkout_date:
+##            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
+##            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+            
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -150,26 +185,23 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        # apply property filter
+        self.property_filter_ops()
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
+        self.queryset = self.queryset.values('id','name', 'display_name', 'area_name',
+                                             'city_name', 'state', 'country',
+                                             'rating')
         # Perform the default listing logic
-        response = super().list(request, *args, **kwargs)
+        response = PropertyListSerializer(self.queryset, many=True)
+        # response = super().list(request, *args, **kwargs)
 
-        if response.status_code == status.HTTP_200_OK:
-            # If the response status code is OK (200), it's a successful listing
-            custom_response = self.get_response(
-                count=count,
-                status="success",
-                data=response.data,  # Use the data from the default response
-                message="List Retrieved",
-                status_code=status.HTTP_200_OK,  # 200 for successful listing
-
+        custom_response = self.get_response(
+            count=count, status="success",
+            data=response.data,  # Use the data from the default response
+            message="List Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful listing
             )
-        else:
-            # If the response status code is not OK, it's an error
-            custom_response = self.get_error_response(message="Error Occured", status="error",
-                                                      errors=[],error_code="ERROR",
-                                                      status_code=response.status_code)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response

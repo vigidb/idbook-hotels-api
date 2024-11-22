@@ -1,4 +1,7 @@
 # authentication utils
+from apps.authentication.utils import db_utils
+from apps.authentication.models import User
+from django.conf import settings
 
 def user_representation(user, refresh_token=None):
     
@@ -6,8 +9,9 @@ def user_representation(user, refresh_token=None):
     customer_profile = user.customer_profile.last()
     if customer_profile:
         if customer_profile.profile_picture:
-            profile_picture = customer_profile.profile_picture.url
+            profile_picture = settings.MEDIA_URL + str(customer_profile.profile_picture)
         employee_id = customer_profile.employee_id
+
 
     user_roles = [uroles for uroles in user.roles.values('id','name')]
     user_groups = [ugrps for ugrps in user.groups.values('id', 'name')]
@@ -29,3 +33,41 @@ def user_representation(user, refresh_token=None):
         return data
 
     return user_data
+
+def check_email_exist_for_group(email, group_name):
+    user = User.objects.filter(email=email).first()
+    if user:
+        group_list = list(user.groups.values_list('name', flat=True))
+        if group_name in group_list:
+            return user
+        
+    return None
+
+def add_group_based_on_signup(user, group_name):
+    grp, role = None, None
+    
+    if group_name == 'FRANCHISE-GRP':
+        grp = db_utils.get_group_by_name('FRANCHISE-GRP')
+        role = db_utils.get_role_by_name('FRANCH-ADMIN')
+        user.default_group = 'FRANCHISE-GRP'
+    elif group_name == 'HOTELIER-GRP':
+        grp = db_utils.get_group_by_name('HOTELIER-GRP')
+        role = db_utils.get_role_by_name('HTLR-ADMIN')
+        user.default_group = 'HOTELIER-GRP'
+    else:
+        grp = db_utils.get_group_by_name('B2C-GRP')
+        role = db_utils.get_role_by_name('B2C-CUST')
+        user.default_group = 'B2C-GRP'
+        user.category = 'B-CUST'
+
+    if grp:
+        user.groups.add(grp)
+    if role:
+        user.roles.add(role)
+
+    user.is_active = True
+    user.save()
+
+    return user
+            
+        
