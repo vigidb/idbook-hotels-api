@@ -52,49 +52,74 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     http_method_names = ['get', 'post', 'put', 'patch']
 
     def get_user_with_tokens(self, user):
-##        profile_picture = ''
-##        customer_profile = user.customer_profile
-##        if user.customer_profile:
-##            profile_picture = customer_profile.profile_picture
-##            employee_id = customer_profile.employee_id
-##            
-##
-##        user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
-##                     'email': user.email if user.email else '', 'name': user.get_full_name(),
-##                     'roles': [], 'permissions': [], 'category': user.category,
-##                     'profile_picture':profile_picture,
-##                     'business_id': user.business_id if user.business_id else '',
-##                     'company_id' : user.company_id if user.company_id else ''}
             
         refresh = RefreshToken.for_user(user)
         data = authentication_utils.user_representation(user, refresh_token = refresh)
-
-##        data = {'refreshToken': str(refresh), 'accessToken': str(refresh.access_token),
-##                'expiresIn': 0, 'user': user_data}
 
         return data
 
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        serializer = self.get_serializer(data=request.data)
+
+        email = request.data.get('email', None)
+        group_name = request.data.get('group_name', None)
+        user = None
+
+            
+        if email:
+            user = User.objects.filter(email=email).first()
+
+        # check whether existing group and email exist for the sign up type
+        if user and group_name:
+            grp_user = authentication_utils.check_email_exist_for_group(email, group_name)
+            if grp_user:
+                error_list = [{"field":"email", "message": "Email already exists."}]
+                response = self.get_error_response(message="Signup Failed", status="error",
+                                                    errors=error_list,error_code="VALIDATION_ERROR",
+                                                    status_code=status.HTTP_401_UNAUTHORIZED)
+                self.log_response(response)  # Log the response before returning
+                return response
+
+        # check email exist for missing group name
+        if user and not group_name:
+            error_list = [{"field":"email", "message": "Email already exists."}]
+            response = self.get_error_response(message="Signup Failed", status="error",
+                                                errors=error_list,error_code="VALIDATION_ERROR",
+                                                status_code=status.HTTP_401_UNAUTHORIZED)
+            self.log_response(response)  # Log the response before returning
+            return response
+                
+            
+        if user:
+            serializer = self.get_serializer(user, data=request.data, partial=True)
+        else:
+            serializer = self.get_serializer(data=request.data)
+            
+        #serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
-            user = serializer.save()
-            customer_id = user.id
-            # save customer profile with user id
-            Customer.objects.create(user_id=customer_id, active=True)
+            if not user:
+                user = serializer.save()
+                customer_id = user.id
+                # save customer profile with user id
+                Customer.objects.create(user_id=customer_id, active=True)
+            else:
+                user = serializer.save()
+                
             
-            # set groups and roles
-            grp = db_utils.get_group_by_name('B2C-GRP')
-            role = db_utils.get_role_by_name('B2C-CUST')
+##            # set groups and roles
+##            grp = db_utils.get_group_by_name('B2C-GRP')
+##            role = db_utils.get_role_by_name('B2C-CUST')
+##
+##            if grp:
+##                user.groups.add(grp)
+##            if role:
+##                user.roles.add(role)
+##            user.default_group = 'B2C-GRP'
+##            user.save()
 
-            if grp:
-                user.groups.add(grp)
-            if role:
-                user.roles.add(role)
-            user.default_group = 'B2C-GRP'
-            user.save()
+            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email

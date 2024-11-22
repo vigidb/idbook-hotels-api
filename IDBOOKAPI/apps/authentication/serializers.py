@@ -50,10 +50,10 @@ class UserSignupSerializer(serializers.ModelSerializer):
 ##        return value
             
 
-    def validate_email(self, value):
-        if value and User.objects.filter(email=value).exists():
-            raise serializers.ValidationError('Email already exists.')
-        return value
+##    def validate_email(self, value):
+##        if value and User.objects.filter(email=value).exists():
+##            raise serializers.ValidationError('Email already exists.')
+##        return value
 
     def create(self, validated_data):
         mobile_number = validated_data.get('mobile_number')
@@ -62,18 +62,29 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
         user = User(**validated_data)
         user.set_password(validated_data['password'])
-        user.is_active = True
-        user.category = 'B-CUST'
-##        if roles[0].short_code != 'CUS':
-##            user.is_active = False
-##        if roles[0].short_code == 'HOT':
-##            user.is_active = True
+        # user.is_active = True
+
         # user.custom_id = format_custom_id(roles[0].short_code, mobile_number)
         # user.category = roles[0].name.title()
         user.save()
         #user.roles.set(roles)
 
         return user
+
+    def update(self, instance, validated_data):
+        mobile_number = validated_data.get('mobile_number')
+        name = validated_data.get('name')
+        password = validated_data.get('password')
+        
+        instance.set_password(password)
+        instance.mobile_number = mobile_number
+        instance.name = name
+        instance.save()
+        
+        return instance
+        
+
+    
 
 
 class LoginSerializer(serializers.Serializer):
