@@ -16,8 +16,9 @@ def get_user_based_booking(user_id, booking_id):
 def get_booked_room(check_in, check_out):
     booked_hotel = HotelBooking.objects.filter(
         confirmed_checkin_time__lt=check_out,
-        confirmed_checkout_time__gt=check_in).values(
-            'confirmed_property_id', 'room_id')
+        confirmed_checkout_time__gt=check_in)
+   
+    booked_hotel = booked_hotel.values('confirmed_property_id', 'room_id')
     return booked_hotel
         
   

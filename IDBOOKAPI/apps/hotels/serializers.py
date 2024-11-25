@@ -10,7 +10,8 @@ from .models import (Property, Gallery, Room, Review, Rule,
 from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
-from apps.hotels.utils.db_utils import get_property_featured_image
+from apps.hotels.utils.db_utils import (
+    get_property_featured_image, get_rooms_by_property)
 
 from django.conf import settings
 
@@ -43,6 +44,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+        available_property_dict = self.context.get("available_property_dict", {})
+        #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
             property_id = instance.get('id', None)
@@ -53,6 +56,13 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
             else:
                 representation['featured_image'] = ""
+                
+            avail_prop = available_property_dict.get(property_id, None)
+            if avail_prop:
+                representation['available_room_after_booking'] = avail_prop
+            else:
+                representation['available_room_after_booking'] = {}
+            
 
         return representation     
 
@@ -83,7 +93,7 @@ class RoomSerializer(serializers.ModelSerializer):
 class PropertyRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ('name', 'room_type', 'room_view', 'no_available_rooms')
+        fields = ('id','name', 'room_type', 'room_view', 'no_available_rooms')
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -101,14 +111,27 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
 
     property_room = PropertyRoomSerializer(many=True)
 
+
     class Meta:
         model = Property
         exclude = ('legal_document', )
+
+##    def fetch_rooms(self, property_id):
+##        available_room_after_booking = self.context.get("available_room_after_booking", {}))
+##        rooms = get_rooms_by_property(property_id)
+##        serializer = PropertyRoomSerializer(
+##            rooms, many=True, context={
+##                'available_room_after_booking': available_room_after_booking})
+##        
+##        return serializer.data
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
             # property gallery
+##            room_details = self.fetch_rooms(instance.id)
+##            representation['property_room'] = room_details
+            
             if instance.gallery_property:
                 property_gallery = list(instance.gallery_property.values('media', 'caption'))
                 for gallery in property_gallery:

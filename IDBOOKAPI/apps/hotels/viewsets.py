@@ -23,11 +23,14 @@ from .models import (Property, Gallery, Room, Rule, Inclusion,
 from .models import RoomGallery, PropertyGallery
 
 from apps.hotels.utils import db_utils as hotel_db_utils
-from apps.hotels.utils import hotel_policies_utils 
+from apps.hotels.utils import hotel_policies_utils
+from apps.hotels.utils import hotel_utils
 
 from rest_framework.decorators import action
 
 from django.db.models import Q
+
+from datetime import datetime
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -63,8 +66,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         location = self.request.query_params.get('location', '')
         # user_id = self.request.query_params.get('user_id', None)
         
-        checkin_date = self.request.query_params.get('checkin', '')
-        checkout_date = self.request.query_params.get('checkout', '')
+##        checkin_date = self.request.query_params.get('checkin', '')
+##        checkout_date = self.request.query_params.get('checkout', '')
 
         param_dict= self.request.query_params
         for key in param_dict:
@@ -85,9 +88,28 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
 
-##        if checkin_date and checkout_date:
-##            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
-##            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+        
+
+    def checkin_checkout_based_filter(self):
+        checkin_date = self.request.query_params.get('checkin', '')
+        checkout_date = self.request.query_params.get('checkout', '')
+        available_property_dict = {} 
+
+        if checkin_date and checkout_date:
+            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
+            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+
+            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date)
+            # property details from booking 
+            nonavailable_property_list, available_property_dict = \
+                                        hotel_utils.get_available_property(booked_hotel_dict)
+
+            
+            # exclude non available property list
+            if nonavailable_property_list:
+                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
+
+        return available_property_dict      
             
 
     def create(self, request, *args, **kwargs):
@@ -185,15 +207,21 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        
         # apply property filter
         self.property_filter_ops()
+        # filter for checkin checkout
+        available_property_dict = self.checkin_checkout_based_filter()
+        
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
         self.queryset = self.queryset.values('id','name', 'display_name', 'area_name',
                                              'city_name', 'state', 'country',
                                              'rating')
         # Perform the default listing logic
-        response = PropertyListSerializer(self.queryset, many=True)
+        response = PropertyListSerializer(
+            self.queryset, many=True,
+            context={'available_property_dict': available_property_dict})
         # response = super().list(request, *args, **kwargs)
 
         custom_response = self.get_response(
@@ -208,6 +236,23 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+
+##        print("-----", request.data.get('sample'))
+##        available_rooms = self.request.query_params.get('available_rooms')
+##        print("--- available rooms", type(available_rooms))
+##
+##        available_room_after_booking = {"1": 5, "2": 3}
+##
+##        instance = self.get_object()
+##        response = PropertyRetrieveSerializer(
+##            instance, context={'available_room_after_booking': available_room_after_booking})
+
+##        custom_response = self.get_response(
+##            count=1, status="success",
+##            data=response.data,  # Use the data from the default response
+##            message="List Retrieved",
+##            status_code=status.HTTP_200_OK,  # 200 for successful listing
+##            )
 
         # Perform the default retrieval logic
         response = super().retrieve(request, *args, **kwargs)
