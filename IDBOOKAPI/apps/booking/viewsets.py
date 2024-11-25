@@ -13,7 +13,7 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from IDBOOKAPI.utils import paginate_queryset
 from .serializers import (BookingSerializer, AppliedCouponSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
-from .models import (Booking, AppliedCoupon)
+from .models import (Booking, HotelBooking, AppliedCoupon)
 
 from apps.booking.tasks import send_booking_email_task
 from apps.booking.utils.db_utils import get_user_based_booking
@@ -21,6 +21,10 @@ from apps.booking.utils.db_utils import get_user_based_booking
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
 from IDBOOKAPI.basic_resources import BOOKING_TYPE
+
+from django.db import transaction
+
+from datetime import datetime
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -358,6 +362,86 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     errors=[],error_code="BOOKING_ID_MISSING",
                     status_code=status.HTTP_404_NOT_FOUND)
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='hotel/confirm',
+            url_name='hotel/confirm', permission_classes=[IsAuthenticated])
+    def hotel_confirm_booking(self, request):
+        self.log_request(request)
+
+        user = self.request.user
+        property_id = request.data.get('property', None)
+        company_id = request.data.get('company', None)
+        room_ids = request.data.get('rooms', [])
+        confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
+        confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
+
+        if not confirmed_checkin_time or not confirmed_checkout_time:
+            custom_response = self.get_error_response(
+                message="check in and check out missing", status="error",
+                errors=[],error_code="DATE_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+        
+
+        if not property_id:
+            custom_response = self.get_error_response(
+                message="Property missing", status="error",
+                errors=[],error_code="PROPERTY_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+
+        if not room_ids or not isinstance(room_ids, list):
+            custom_response = self.get_error_response(
+                message="Missing Room list or invalid list format", status="error",
+                errors=[],error_code="ROOM_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+
+        try:
+
+##            checkin_date_time = datetime.strptime(confirmed_checkin_time, '%Y-%m-%d')#.date()
+##            checkout_date_time = datetime.strptime(confirmed_checkout_time, '%Y-%m-%d')#.date()
+##
+##            print("checkin date time::", checkin_date_time)
+        
+
+            with transaction.atomic():
+                hotel_booking = HotelBooking(
+                    confirmed_property_id=property_id, room_id=room_ids[0],
+                    confirmed_checkin_time=confirmed_checkin_time,
+                    confirmed_checkout_time=confirmed_checkout_time)
+                hotel_booking.save()
+                
+                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL')
+                if company_id:
+                    booking.company_id = company_id
+                    
+                booking.save()
+                print(booking)
+                
+        except Exception as e:
+            custom_response = self.get_error_response(
+                message=str(e), status="error",
+                errors=[],error_code="INERNAL_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            self.log_response(custom_response)
+
+            return custom_response
+
+        custom_response = self.get_response(
+            status='success', data=None,
+            message="Booking Confirmed Successfully",
+            status_code=status.HTTP_200_OK,)
+
+        self.log_response(custom_response)
+
+        return custom_response
+        
+        
     
 
 
