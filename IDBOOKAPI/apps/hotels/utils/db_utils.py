@@ -29,4 +29,8 @@ def get_property_featured_image(property_id):
     property_gallery = PropertyGallery.objects.filter(
         property_id=property_id, featured_image=True).first()
     return property_gallery
-        
+
+def get_rooms_by_property(property_id):
+    rooms = Room.objects.filter(property_id=property_id)
+    return rooms
+    
