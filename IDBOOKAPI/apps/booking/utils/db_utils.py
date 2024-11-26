@@ -1,5 +1,6 @@
 # booking
-from apps.booking.models import Booking, HotelBooking
+from apps.booking.models import (
+    Booking, HotelBooking, TaxRule)
 
 def get_booking(booking_id):
     try:
@@ -20,6 +21,13 @@ def get_booked_room(check_in, check_out):
    
     booked_hotel = booked_hotel.values('confirmed_property_id', 'room_id')
     return booked_hotel
+
+def get_booking_based_tax_rule(booking_type):
+    tax_rules = TaxRule.objects.filter(booking_type=booking_type).values(
+        'id', 'math_compare_symbol', 'tax_rate_in_percent',
+        'amount1', 'amount2')
+    return tax_rules
+
         
   
         

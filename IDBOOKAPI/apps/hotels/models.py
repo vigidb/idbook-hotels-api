@@ -377,3 +377,13 @@ class Review(models.Model):
     def __str__(self):
         return 'Review by {} on {}'.format(self.name, self.property.name)
 
+class FavoriteList(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True,
+                             related_name='user_favorites')
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, null=True)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    
+
