@@ -40,7 +40,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Property
         fields = ('id','name', 'display_name', 'area_name',
-                  'city_name', 'state', 'country', 'rating')
+                  'city_name', 'state', 'country', 'rating',
+                  'status')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)

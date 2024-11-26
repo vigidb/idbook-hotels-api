@@ -1180,9 +1180,16 @@ MATH_COMPARE_SYMBOLS = (
     ('LESS-THAN-OR-EQUALS', 'LESS-THAN-OR-EQUALS'),
     ('GREATER-THAN', 'GREATER-THAN'),
     ('GREATER-THAN-OR-EQUALS', 'GREATER-THAN-OR-EQUALS'),
-    ('BETWEEN', 'BETWEEN')
-    
+    ('BETWEEN', 'BETWEEN')  
 )
+
+HOTEL_STATUS = (
+    ('Active', 'Active'),
+    ('In-Active', 'In-Active'),
+    ('In-Progress','In-Progress'),
+    ('Completed','Completed'),
+)
+    
 
     
     
