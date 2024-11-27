@@ -7,6 +7,7 @@ from django.utils import timezone
 from decimal import Decimal
 import calendar
 
+
 def get_current_date():
     current_date = timezone.now()
     return current_date
@@ -187,6 +188,27 @@ def paginate_queryset(request, queryset):
     queryset = queryset[offset:offset+limit]
 
     return count, queryset
+
+def calculate_tax(tax_in_percent, amount):
+    tax_amount = (tax_in_percent * amount) / 100
+    return tax_amount
+
+def get_days_from_string(start_date: str, end_date: str, string_format='%Y-%m-%d'):
+    try:
+        #string_format = "%Y-%m-%dT%H:%M%z"
+        
+        start_date = datetime.datetime.strptime(start_date, string_format).date()
+        end_date = datetime.datetime.strptime(end_date, string_format).date()
+        
+        diff_date = end_date - start_date
+        
+        return diff_date.days
+    except Exception as e:
+        print(e)
+        return None
+    
+    
+    
 
 ##def quantize_decimal_value(value: Decimal):
 ##    try:

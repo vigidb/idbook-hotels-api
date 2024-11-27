@@ -10,13 +10,15 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset
+from IDBOOKAPI.utils import paginate_queryset, calculate_tax, get_days_from_string
 from .serializers import (BookingSerializer, AppliedCouponSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon)
 
 from apps.booking.tasks import send_booking_email_task
-from apps.booking.utils.db_utils import get_user_based_booking
+from apps.booking.utils.db_utils import get_user_based_booking, get_booking_based_tax_rule
+from apps.booking.utils.booking_utils import calculate_room_booking_amount, get_tax_rate
+from apps.hotels.utils.db_utils import get_property_room_for_booking
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -371,7 +373,10 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         user = self.request.user
         property_id = request.data.get('property', None)
         company_id = request.data.get('company', None)
-        room_ids = request.data.get('rooms', [])
+        room_list = request.data.get('room_list', [])
+        confirmed_room_details = []
+
+        
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
         confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
 
@@ -392,7 +397,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             return custom_response
 
-        if not room_ids or not isinstance(room_ids, list):
+        if not room_list or not isinstance(room_list, list):
             custom_response = self.get_error_response(
                 message="Missing Room list or invalid list format", status="error",
                 errors=[],error_code="ROOM_MISSING",
@@ -400,17 +405,102 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             return custom_response
 
-        try:
+        # get no of  days from  checkin and checkout
+        no_of_days = get_days_from_string(
+            confirmed_checkin_time, confirmed_checkout_time,
+            string_format="%Y-%m-%dT%H:%M%z")
 
-##            checkin_date_time = datetime.strptime(confirmed_checkin_time, '%Y-%m-%d')#.date()
-##            checkout_date_time = datetime.strptime(confirmed_checkout_time, '%Y-%m-%d')#.date()
-##
-##            print("checkin date time::", checkin_date_time)
+        if no_of_days is None:
+            custom_response = self.get_error_response(
+                message="Error in date conversion", status="error",
+                errors=[],error_code="DATE_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return custom_response
+
+        if no_of_days == 0:
+            custom_response = self.get_error_response(
+                message="Less than 24 hours slot booking is not allowed", status="error",
+                errors=[],error_code="BOOKING_SLOT_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        tax_rules_dict = get_booking_based_tax_rule('HOTEL')
+        if not tax_rules_dict:
+            custom_response = self.get_error_response(
+                message="Tax Rule Missing", status="error",
+                errors=[],error_code="TAX_RULE_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+
+
+        try:
+            
+            for room in room_list:
+                room_id = room.get('room_id', None)
+                no_of_rooms = room.get('no_of_rooms', None)
+                base_price = 0
+
+                # get room details
+                room_detail = get_property_room_for_booking(property_id, room_id)
+                if not room_detail:
+                    custom_response = self.get_error_response(
+                        message=f"The room: {room_id} is missing for the property", status="error",
+                        errors=[],error_code="ROOM_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+
+                # get room price
+                room_price = room_detail.get('room_price')
+                if not room_price:
+                    custom_response = self.get_error_response(
+                        message=f"The room price details for {room_id} is missing", status="error",
+                        errors=[],error_code="ROOM_PRICE_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+
+                # get 24 hours price
+                base_price = room_price.get('base_rate', None)
+                if not base_price:
+                    custom_response = self.get_error_response(
+                        message=f"The room price details for room id {room_id} is missing", status="error",
+                        errors=[],error_code="ROOM_PRICE_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+                    
+                # get tax percent based on amount
+                tax_in_percent = get_tax_rate(base_price, tax_rules_dict)
+                if not tax_in_percent:
+                    custom_response = self.get_error_response(
+                        message=f"The room price details for room id {room_id} is missing", status="error",
+                        errors=[],error_code="ROOM_PRICE_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+
+                tax_in_percent = float(tax_in_percent)
+                tax_amount = calculate_tax(tax_in_percent, base_price)
+                
+                total_tax_amount =   calculate_room_booking_amount(
+                    tax_amount, no_of_days, no_of_rooms) #(tax_amount * no_of_days) * no_of_rooms
+                total_room_amount = calculate_room_booking_amount(
+                    base_price, no_of_days, no_of_rooms) #(base_price * no_of_days) * no_of_rooms
+                
+                room_total = total_room_amount + total_tax_amount
+
+                
+                confirmed_room = {"room_id": room_id, "price": base_price, "no_of_rooms": no_of_rooms,
+                                  "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
+                                  "total_tax_amount": total_tax_amount,
+                                  "no_of_days": no_of_days, "total_room_amount":total_room_amount,
+                                  "room_total": room_total, "booking_slot":24}
+                
+                confirmed_room_details.append(confirmed_room)         
         
 
             with transaction.atomic():
+                    
                 hotel_booking = HotelBooking(
-                    confirmed_property_id=property_id, room_id=room_ids[0],
+                    confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,
                     confirmed_checkout_time=confirmed_checkout_time)
                 hotel_booking.save()

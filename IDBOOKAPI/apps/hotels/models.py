@@ -10,7 +10,7 @@ from apps.org_resources.models import Address
 from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
-    ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT
+    ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -174,7 +174,9 @@ class Property(models.Model):
     legal_document = models.FileField(upload_to='hotels/property/legal-document/', null=True)
 
     
-    active = models.BooleanField(default=False, help_text="Whether the property is active.")
+    # active = models.BooleanField(default=False, help_text="Whether the property is active.")
+    current_page = models.PositiveIntegerField(default=0, help_text="Pages completed for property in Front End")
+    status = models.CharField(max_length=50, choices=HOTEL_STATUS, default='In-Progress')
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
 
@@ -376,4 +378,14 @@ class Review(models.Model):
 
     def __str__(self):
         return 'Review by {} on {}'.format(self.name, self.property.name)
+
+class FavoriteList(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True,
+                             related_name='user_favorites')
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, null=True)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    
 

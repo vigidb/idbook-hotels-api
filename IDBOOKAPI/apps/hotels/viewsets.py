@@ -82,7 +82,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 filter_dict['added_by'] = param_value
                 
 
-            if key in ('country', 'state', 'city_name', 'area_name'):
+            if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
 
         if filter_dict:
@@ -217,7 +217,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
         self.queryset = self.queryset.values('id','name', 'display_name', 'area_name',
                                              'city_name', 'state', 'country',
-                                             'rating')
+                                             'rating', 'status')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,

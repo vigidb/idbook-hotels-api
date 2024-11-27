@@ -434,6 +434,46 @@ booking ({booking.confirmation_code})"
                           'transaction_type':'Debit', 'transaction_details':transaction_details,
                           'company_id':company_id}
         update_wallet_transaction(wtransact_dict)
+
+def calculate_room_booking_amount(amount, no_of_days, no_of_rooms):
+    total_amount = (amount * no_of_rooms) * no_of_days 
+    return total_amount
+
+def get_tax_rate(amount, tax_rules_dict):
+    tax_rate_in_percent = None
+    for tax_rule in tax_rules_dict:
+        symbol = tax_rule.get('math_compare_symbol','')
+        amount1 = tax_rule.get('amount1', None)
+        tax_rate_in_percent = tax_rule.get('tax_rate_in_percent', None)
+
+        if not amount1 or not symbol or not tax_rate_in_percent:
+            break
+        
+
+        if symbol == 'EQUALS' and amount == amount1:
+            return tax_rate_in_percent
+        elif symbol == 'LESS-THAN' and amount < amount1:
+            return tax_rate_in_percent
+        elif symbol == 'LESS-THAN-OR-EQUALS' and amount <= amount1:
+            return tax_rate_in_percent
+        elif symbol == 'GREATER-THAN' and amount > amount1:
+            return tax_rate_in_percent
+        elif symbol == 'GREATER-THAN-OR-EQUALS' and amount >= amount1:
+            return tax_rate_in_percent
+        elif symbol == 'BETWEEN':
+            amount2 = tax_rule.get('amount2', None)
+            if not amount2:
+                break
+            if amount1 <= amount <= amount2:
+                return tax_rate_in_percent
+        
+    return tax_rate_in_percent
+            
+            
+            
+            
+        
+    
            
    
     

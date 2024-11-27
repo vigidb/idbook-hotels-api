@@ -17,7 +17,7 @@ from apps.org_resources.models import CompanyDetail
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
     ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
-    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE)
+    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS)
 
 
 # class BookingManager(models.Manager):
@@ -33,6 +33,8 @@ from IDBOOKAPI.basic_resources import (
 #         else:
 #             pass
 #         return obj, created
+
+# confirmed_room_details = [{"room_id": 2, "price": 2400, "no_of_rooms": 2, "tax_in_percent": 12, "tax_amount":1200 }] 
 
 class HotelBooking(models.Model):
     enquired_property = models.CharField(max_length=255, null=True, blank=True)
@@ -52,6 +54,8 @@ class HotelBooking(models.Model):
     checkout_time = models.DateTimeField(blank=True, null=True,
                                          help_text="Check-out time for the property.")
     bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
+
+    confirmed_room_details = models.JSONField(null=True, default=list)
     confirmed_checkin_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
     confirmed_checkout_time = models.DateTimeField(
@@ -205,6 +209,20 @@ class AppliedCoupon(models.Model):
 
     def __str__(self):
         return f"{self.coupon.code} applied to {self.booking}"
+
+    
+class TaxRule(models.Model):
+    booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
+                                    default='HOTEL', help_text="booking type.")
+    math_compare_symbol = models.CharField(max_length=50, choices=MATH_COMPARE_SYMBOLS,
+                                    default='EQUALS', help_text="for comparison")
+    tax_rate_in_percent = models.DecimalField(default=0, max_digits=6, decimal_places=2,
+                                       help_text="gst rate in percent")
+    amount1 = models.PositiveIntegerField()
+    amount2 = models.PositiveIntegerField(null=True)
+    created = models.DateTimeField(auto_now_add=True, null=True)
+    updated = models.DateTimeField(auto_now=True, null=True)
+    
 
     # def __str__(self):
     #     if self.full_name:
