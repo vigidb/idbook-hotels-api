@@ -11,13 +11,16 @@ from rest_framework.generics import (
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from IDBOOKAPI.utils import paginate_queryset, calculate_tax, get_days_from_string
-from .serializers import (BookingSerializer, AppliedCouponSerializer)
+from .serializers import (BookingSerializer, AppliedCouponSerializer, PreConfirmHotelBookingSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon)
 
-from apps.booking.tasks import send_booking_email_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.db_utils import get_user_based_booking, get_booking_based_tax_rule
-from apps.booking.utils.booking_utils import calculate_room_booking_amount, get_tax_rate
+from apps.booking.utils.booking_utils import (
+    calculate_room_booking_amount, get_tax_rate,
+    check_wallet_balance_for_booking, deduct_booking_amount,
+    generate_booking_confirmation_code)
 from apps.hotels.utils.db_utils import get_property_room_for_booking
 
 from rest_framework.decorators import action
@@ -365,16 +368,21 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     status_code=status.HTTP_404_NOT_FOUND)
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='hotel/confirm',
-            url_name='hotel/confirm', permission_classes=[IsAuthenticated])
-    def hotel_confirm_booking(self, request):
+    @action(detail=False, methods=['POST'], url_path='hotel/pre-confirm',
+            url_name='hotel-pre-confirm', permission_classes=[IsAuthenticated])
+    def hotel_pre_confirm_booking(self, request):
         self.log_request(request)
 
         user = self.request.user
         property_id = request.data.get('property', None)
         company_id = request.data.get('company', None)
         room_list = request.data.get('room_list', [])
+        
+        coupon_code = request.data.get('coupon_code', None)
+        
         confirmed_room_details = []
+        
+        final_amount, final_tax_amount = 0, 0
 
         
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
@@ -450,7 +458,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
 
-                # get room price
+                # get room details
+                room_type = room_detail.get('room_type')
                 room_price = room_detail.get('room_price')
                 if not room_price:
                     custom_response = self.get_error_response(
@@ -479,22 +488,28 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
                 tax_in_percent = float(tax_in_percent)
                 tax_amount = calculate_tax(tax_in_percent, base_price)
-                
+
+                # calculate total tax amount
                 total_tax_amount =   calculate_room_booking_amount(
                     tax_amount, no_of_days, no_of_rooms) #(tax_amount * no_of_days) * no_of_rooms
+                # calculate total room amount
                 total_room_amount = calculate_room_booking_amount(
                     base_price, no_of_days, no_of_rooms) #(base_price * no_of_days) * no_of_rooms
                 
-                room_total = total_room_amount + total_tax_amount
+                final_room_total = total_room_amount + total_tax_amount
 
                 
-                confirmed_room = {"room_id": room_id, "price": base_price, "no_of_rooms": no_of_rooms,
+                confirmed_room = {"room_id": room_id, "room_type":room_type, "price": base_price,
+                                  "no_of_rooms": no_of_rooms,
                                   "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
                                   "total_tax_amount": total_tax_amount,
                                   "no_of_days": no_of_days, "total_room_amount":total_room_amount,
-                                  "room_total": room_total, "booking_slot":24}
+                                  "final_room_total": final_room_total, "booking_slot":24}
                 
-                confirmed_room_details.append(confirmed_room)         
+                confirmed_room_details.append(confirmed_room)
+                # final amount
+                final_amount = final_amount + final_room_total
+                final_tax_amount = final_tax_amount + total_tax_amount
         
 
             with transaction.atomic():
@@ -505,12 +520,25 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     confirmed_checkout_time=confirmed_checkout_time)
                 hotel_booking.save()
                 
-                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL')
+                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
+                                  final_amount=final_amount, gst_amount=final_tax_amount)
                 if company_id:
                     booking.company_id = company_id
                     
                 booking.save()
-                print(booking)
+
+                # wallet balance check and send notification for low balance
+                check_wallet_balance_for_booking(booking, user, company_id=company_id)
+   
+                serializer = PreConfirmHotelBookingSerializer(booking)
+                
+                custom_response = self.get_response(
+                    status='success', data=serializer.data,
+                    message="Booking Details", status_code=status.HTTP_200_OK,)
+
+                self.log_response(custom_response)
+
+                return custom_response
                 
         except Exception as e:
             custom_response = self.get_error_response(
@@ -522,17 +550,37 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             return custom_response
 
+    @action(detail=True, methods=['PATCH'], url_path='confirm',
+            url_name='confirm', permission_classes=[IsAuthenticated])
+    def confirm_booking(self, request, pk):
+        
+        instance = self.get_object()
+      
+        deduct_status = deduct_booking_amount(instance, instance.company_id)
+        if not deduct_status:
+            custom_response = self.get_error_response(
+                message="Error in wallet deduction", status="error",
+                errors=[], error_code="WALLET_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        booking_id = instance.id
+        booking_type = instance.booking_type
+        
+        confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+        print("Confirmation Code::", confirmation_code)
+        instance.confirmation_code = confirmation_code
+        instance.total_payment_made = instance.final_amount
+        instance.status = 'confirmed'
+        instance.save()
+        
+        create_invoice_task.apply_async(args=[booking_id])
+            
         custom_response = self.get_response(
             status='success', data=None,
-            message="Booking Confirmed Successfully",
-            status_code=status.HTTP_200_OK,)
-
-        self.log_response(custom_response)
+            message="Booking Confirmed", status_code=status.HTTP_200_OK,)
 
         return custom_response
-        
-        
-    
 
 
 class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

@@ -30,22 +30,43 @@ def get_invoice_number():
 def invoice_json_hotel_booking(hotel_booking):
     property_name, room_type = '', ''
     room_subtotal, service_tax = 0.0, 0.0
+    items = []
     
     # property details
     if hotel_booking.confirmed_property:
         confirmed_property = hotel_booking.confirmed_property
         property_name = confirmed_property.name
-    # room details    
-    if hotel_booking.room:
-        room = hotel_booking.room
-        room_type = room.room_type
 
-    name = f"{room_type}, {property_name}"
+    confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+    confirmed_checkout_time = hotel_booking.confirmed_checkout_time
+
+    confirmed_room_details = hotel_booking.confirmed_room_details
+
+    for confirmed_room in confirmed_room_details:
+        room_id = confirmed_room.get('room_id', None)
+        room_type = confirmed_room.get('room_type', '')
+        price = confirmed_room.get('price', None)
+        no_of_rooms = confirmed_room.get('no_of_rooms', 0)
+        tax_in_percent = confirmed_room.get("tax_in_percent", None)
+        total_room_amount = confirmed_room.get("total_room_amount", None)
+        no_of_days = confirmed_room.get("no_of_days", None)
+
+        name = f"{room_type}, {property_name}"
+        description = f" Check In:: {confirmed_checkin_time}, Check Out:: {confirmed_checkout_time}, \
+No of Days:: {no_of_days} "
     
-    item = { "name": name, "description": "", "quantity": 1,
-     "price": "", "amount": "" }
+        item = { "name": name, "description": description, "quantity": no_of_rooms,
+                 "price": price, "amount": total_room_amount, "gst":tax_in_percent}
+        items.append(item)
+        
+
     
-    return item
+##    # room details    
+##    if hotel_booking.room:
+##        room = hotel_booking.room
+##        room_type = room.room_type
+    
+    return items
 
 def invoice_json_holidaypack_booking(hpackage):
     trip_name = ""
@@ -113,7 +134,8 @@ Return Time - {return_from} departure {return_date} and \
          "price": "", "amount": ""}
     return item
 
-def invoice_json_data(booking, bus_details, company_details, invoice_number, invoice_action='create'):
+def invoice_json_data(booking, bus_details, company_details, customer_details,
+                      invoice_number, invoice_action='create'):
     logo = ""
     billed_by =  { "name": "", "address": "",
                    "GSTIN": "", "PAN": "",
@@ -139,20 +161,28 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
                       "GSTIN": company_details.gstin_no, "PAN": company_details.pan_no}
         supply_details = { "countryOfSupply": company_details.country,
                            "placeOfSupply": company_details.state}
+    elif customer_details:
+        billed_to = { "name": customer_details.user.name, "address": customer_details.address,
+                      "GSTIN": "NA", "PAN": customer_details.pan_card_number}
+        supply_details = { "countryOfSupply": customer_details.country,
+                           "placeOfSupply": customer_details.state}
+        
 
     if booking:
         booking_type = booking.booking_type
         if booking_type == 'HOTEL':
             if booking.hotel_booking:
                 item = invoice_json_hotel_booking(booking.hotel_booking)
-                gst = float(booking.gst_percentage)
-                gst_type = booking.gst_type
-                subtotal = float(booking.subtotal)
+                # below code need to change
+                gst =  18 #float(booking.gst_percentage)
+                gst_type = "CGST/SGST"
+                # subtotal = float(booking.subtotal)
                 
                 
         elif booking_type == 'HOLIDAYPACK':
             if booking.holiday_package_booking:
                 item = invoice_json_holidaypack_booking(booking.holiday_package_booking)
+                item = [item] # temp need to change
                 gst = float(booking.gst_percentage)
                 gst_type = booking.gst_type
                 subtotal = float(booking.subtotal)
@@ -160,6 +190,8 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
         elif booking_type == 'VEHICLE':
             if booking.vehicle_booking:
                 item = invoice_json_vehicle_booking(booking.vehicle_booking)
+                item = [item] # temp need to change
+                
                 gst = float(booking.gst_percentage)
                 gst_type = booking.gst_type
                 subtotal = float(booking.subtotal)
@@ -167,16 +199,17 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
         elif booking_type == 'FLIGHT':
             if booking.flight_booking:
                 item = invoice_json_flight_booking(booking.flight_booking)
+                item = [item] # temp need to change
                 gst, gst_type  = "", ""
                 subtotal = float(booking.subtotal)
                 
             
         total = float(booking.final_amount)
-        description = booking.description + item.get('description')
-        
-        item['price'] = subtotal
-        item['amount'] = subtotal
-        item['description'] = description
+##        description = booking.description + item.get('description')
+##        
+##        item['price'] = subtotal
+##        item['amount'] = subtotal
+##        item['description'] = description
         
         notes = booking.additional_notes
         
@@ -195,7 +228,7 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
             "invoiceDate": invoice_date.isoformat(), "dueDate": "",
             "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
-            "items": [item],
+            "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
             "nextScheduleDate": "",
             "tags": [""] })
@@ -204,7 +237,7 @@ def invoice_json_data(booking, bus_details, company_details, invoice_number, inv
             "logo": logo, 
             "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
-            "items": [item],
+            "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
             "nextScheduleDate": "",
             "tags": [""] })

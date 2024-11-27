@@ -9,6 +9,8 @@ from apps.customer.utils.db_utils import (
     deduct_wallet_balance, deduct_company_wallet_balance,
     add_user_wallet_amount)
 
+from apps.org_managements.utils import get_active_business
+
 
 def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
@@ -435,6 +437,8 @@ booking ({booking.confirmation_code})"
                           'company_id':company_id}
         update_wallet_transaction(wtransact_dict)
 
+    return status
+
 def calculate_room_booking_amount(amount, no_of_days, no_of_rooms):
     total_amount = (amount * no_of_rooms) * no_of_days 
     return total_amount
@@ -468,6 +472,39 @@ def get_tax_rate(amount, tax_rules_dict):
                 return tax_rate_in_percent
         
     return tax_rate_in_percent
+
+
+from apps.customer.utils.db_utils import (
+        get_wallet_balance, deduct_wallet_balance,
+        update_wallet_transaction, get_company_wallet_balance)
+from apps.org_resources.db_utils import create_notification
+from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
+
+
+def check_wallet_balance_for_booking(booking, user, company_id=None):
+    try:
+        if company_id:
+                balance = get_company_wallet_balance(company_id)
+        else:
+                balance = get_wallet_balance(user.id)
+             
+        if balance < booking.final_amount:
+            
+            # send wallet balance notification
+            send_by = None
+            bus_details = get_active_business() 
+            if bus_details:
+                send_by = bus_details.user
+                
+            notification_dict = {'user':user, 'send_by':send_by, 'notification_type':'GENERAL',
+                                 'title':'', 'description':'', 'redirect_url':'',
+                                 'image_link':''}
+            notification_dict = wallet_booking_balance_notification_template(
+                    booking, balance, notification_dict)
+            create_notification(notification_dict)
+    except Exception as e:
+        print(e)
+    
             
             
             

@@ -293,6 +293,19 @@ class BookingSerializer(serializers.ModelSerializer):
 
         return representation
 
+class HotelBookingSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = HotelBooking
+        fields = ('confirmed_room_details', 'confirmed_checkin_time', 'confirmed_checkout_time')
+
+class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
+    hotel_booking = HotelBookingSerializer()
+    class Meta:
+        model = Booking
+        fields = ('id', 'booking_type', 'hotel_booking', 'final_amount', 'gst_amount')
+    
+
 class QueryFilterBookingSerializer(serializers.ModelSerializer):
     company_id = serializers.IntegerField(required=False)
     user_id = serializers.IntegerField(required=False)
