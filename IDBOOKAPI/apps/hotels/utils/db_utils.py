@@ -36,7 +36,8 @@ def get_rooms_by_property(property_id):
 
 def get_property_room_for_booking(property_id:int, room_id:int):
     room_detail = Room.objects.filter(
-        id=room_id, property_id=property_id).values('id', 'room_price').first()
+        id=room_id, property_id=property_id).values(
+            'id', 'room_type', 'room_price').first()
     return room_detail
     
     

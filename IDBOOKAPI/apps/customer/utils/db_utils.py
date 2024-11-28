@@ -12,6 +12,14 @@ def create_customer_signup_entry(user, added_user=None, gender='',
         department=department)
     return customer
 
+def get_user_based_customer(user_id):
+    try:
+        customer = Customer.objects.get(user=user_id)
+        return customer
+    except Exception as e:
+        print(e)
+        return None
+
 def check_customer_exist(user_id):
     try:
         customer = Customer.objects.get(user=user_id)

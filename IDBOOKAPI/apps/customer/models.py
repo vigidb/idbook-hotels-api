@@ -51,6 +51,8 @@ class Customer(models.Model):
 
     privileged = models.BooleanField(default=False, help_text="Whether the customer is privileged.")
     active = models.BooleanField(default=False, help_text="Whether the customer is active.")
+    state = models.CharField(max_length=50, blank=True, default='')
+    country = models.CharField(max_length=50, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

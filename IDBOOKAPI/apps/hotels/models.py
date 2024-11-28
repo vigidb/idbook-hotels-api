@@ -10,7 +10,8 @@ from apps.org_resources.models import Address
 from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
-    ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS
+    ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS,
+    PROPERTY_TYPE, RENTAL_FORM
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -132,6 +133,8 @@ class Property(models.Model):
     name = models.CharField(max_length=70, db_index=True, help_text="Name of the property.")
     display_name = models.CharField(max_length=70, blank=True, null=True, help_text="Display ame of the property.")
     slug = models.SlugField(max_length=200, db_index=True, blank=True, null=True, help_text="Slug for the property URL.")
+    property_type = models.CharField(max_length=50, choices=PROPERTY_TYPE, default='Hotel')
+    rental_form = models.CharField(max_length=50, choices=RENTAL_FORM, default='Private room')
 
     checkin_time = models.TimeField(null=True, help_text="Check-in time for the property.")
     checkout_time = models.TimeField(null=True, help_text="Check-out time for the property.")
@@ -234,6 +237,7 @@ class Room(models.Model):
 ##    child_capacity = models.PositiveSmallIntegerField(default=0, help_text="Maximum number of children the room can accommodate.")
 
     room_price = models.JSONField(default=default_room_price_json)
+    is_slot_price_enabled = models.BooleanField(default=False)
 
 ##    price_per_night = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price per night for the room.")
 ##    price_for_4_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price for a 4-hour stay in the room.")

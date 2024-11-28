@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Booking Confirmation - Hotel 100 Petals</title>
+  {% load dictionary_filter %} 
   <style>
     /* General Styles */
     body {
@@ -199,6 +200,13 @@
             <p><strong>Check-out:</strong> {{ confirmed_checkout_time }}</p>
           </div>
         </div>
+        
+        <div class="flex-container">
+          <!-- Check-in and Check-out -->
+          <div class="flex-item">
+            <p><strong>Occupancy:</strong> {{ occupancy }} </p>
+          </div>
+        </div>
 
         <div class="flex-container">
           <!-- Confirmation Code and Booking Amount -->
@@ -235,15 +243,17 @@
           <tr>
             <th>Room Type</th>
             <th>Rate Plan</th>
-            <th>Occupancy</th>
+            <th>No of Rooms</th>
           </tr>
         </thead>
         <tbody>
+          {% for confirmed_room in confirmed_rooms  %} 
           <tr>
-            <td>{{ room_type }}</td>
+            <td>{{ confirmed_room|get_key_based_value:"room_type" }}</td>
             <td>MAP</td>
-            <td>{{ occupancy }}</td>
+            <td>{{ confirmed_room|get_key_based_value:"no_of_rooms" }}</td>
           </tr>
+          {% endfor %}
         </tbody>
       </table>
 

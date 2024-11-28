@@ -19,7 +19,8 @@ from apps.org_resources.utils.notification_utils import (
     wallet_minbalance_notification_template, booking_comfirmed_notification_template,
     booking_cancelled_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
-from apps.customer.utils.db_utils import get_wallet_balance, get_company_wallet_balance
+from apps.customer.utils.db_utils import (
+    get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
 from apps.authentication.utils.db_utils import update_user_first_booking
 
 @celery_idbook.task(bind=True)
@@ -121,6 +122,7 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
 @celery_idbook.task(bind=True)
 def create_invoice_task(self, booking_id):
     company_details = None
+    customer_details = None
     print("Inside Invoice Task")
     try:
         booking = get_booking(booking_id)
@@ -138,15 +140,17 @@ def create_invoice_task(self, booking_id):
             bus_details = get_active_business() #get_business_by_name(business_name)
 
             if booking.user:
-                company_id = booking.user.company_id
+                company_id = booking.company_id
                 if company_id:
                     company_details = get_company_details(company_id)
+                else:
+                    customer_details = get_user_based_customer(booking.user.id)
 
             if not booking.invoice_id:
                 invoice_number = get_invoice_number()
                 print(invoice_number)
                 payload = invoice_json_data(booking, bus_details,
-                                            company_details, invoice_number)
+                                            company_details, customer_details, invoice_number)
                 response = create_invoice(payload)
 
                 print(response.status_code)
@@ -165,7 +169,7 @@ def create_invoice_task(self, booking_id):
                     
             else:
                 payload = invoice_json_data(booking, bus_details, company_details,
-                                            None, invoice_action='update')
+                                            customer_details, None, invoice_action='update')
                 response = update_invoice(booking.invoice_id, payload)
                 invoice_log = {'booking':booking, 'status_code':response.status_code,
                                'response': response.json()}

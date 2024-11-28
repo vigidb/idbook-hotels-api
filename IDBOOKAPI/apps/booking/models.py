@@ -34,7 +34,16 @@ from IDBOOKAPI.basic_resources import (
 #             pass
 #         return obj, created
 
-# confirmed_room_details = [{"room_id": 2, "price": 2400, "no_of_rooms": 2, "tax_in_percent": 12, "tax_amount":1200 }] 
+# confirmed_room_details = [{"room_id": 2, "price": 2400, "no_of_rooms": 2, "tax_in_percent": 12, "tax_amount":1200 }]
+
+
+def default_confirmed_room_json():
+    confirmed_room_json = [{"room_id": 0, "room_type":"", "price": "", "no_of_rooms": 0,
+                      "tax_in_percent": 0, "tax_amount": 0, "total_tax_amount": 0,
+                      "no_of_days": 0, "total_room_amount":0, "final_room_total": 0,
+                      "booking_slot":0}]
+    return confirmed_room_json
+
 
 class HotelBooking(models.Model):
     enquired_property = models.CharField(max_length=255, null=True, blank=True)
@@ -55,7 +64,7 @@ class HotelBooking(models.Model):
                                          help_text="Check-out time for the property.")
     bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
 
-    confirmed_room_details = models.JSONField(null=True, default=list)
+    confirmed_room_details = models.JSONField(null=True, default=default_confirmed_room_json)
     confirmed_checkin_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
     confirmed_checkout_time = models.DateTimeField(
