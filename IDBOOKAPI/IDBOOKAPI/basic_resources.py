@@ -7,6 +7,23 @@ IMAGE_TYPE_CHOICES = (
     ('SURROUNDING', 'SURROUNDING'),
 )
 
+PROPERTY_TYPE = (
+    ('Hotel', 'Hotel'),
+    ('Cottage', 'Cottage'),
+    ('Villa', 'Villa'),
+    ('Cabin', 'Cabin'),
+    ('Farmstay', 'Farmstay'),
+    ('Houseboat', 'Houseboat'),
+    ('Lighthouse', 'Lighthouse'),
+)
+
+RENTAL_FORM = (
+    ('entire place', 'entire place'),
+    ('private room', 'private room'),
+    ('share room', 'share room'),
+)
+    
+
 ROOM_CHOICES = (
     ('DELUXE', 'DELUXE'),
     ('CLASSIC', 'CLASSIC'),

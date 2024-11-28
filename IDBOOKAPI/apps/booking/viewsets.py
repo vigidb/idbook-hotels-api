@@ -377,6 +377,11 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         property_id = request.data.get('property', None)
         company_id = request.data.get('company', None)
         room_list = request.data.get('room_list', [])
+
+        adult_count = request.data.get('adult_count', 1)
+        child_count = request.data.get('child_count', 0)
+        infant_count = request.data.get('infant_count', 0)
+        
         
         coupon_code = request.data.get('coupon_code', None)
         
@@ -522,7 +527,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 hotel_booking.save()
                 
                 booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
-                                  subtotal=subtotal, final_amount=final_amount, gst_amount=final_tax_amount)
+                                  subtotal=subtotal, final_amount=final_amount, gst_amount=final_tax_amount,
+                                  adult_count=adult_count, child_count=child_count, infant_count=infant_count)
                 if company_id:
                     booking.company_id = company_id
                     
