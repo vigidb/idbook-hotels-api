@@ -382,7 +382,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         
         confirmed_room_details = []
         
-        final_amount, final_tax_amount = 0, 0
+        final_amount, final_tax_amount, subtotal = 0, 0, 0
 
         
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
@@ -510,6 +510,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 # final amount
                 final_amount = final_amount + final_room_total
                 final_tax_amount = final_tax_amount + total_tax_amount
+                subtotal = subtotal + total_room_amount
         
 
             with transaction.atomic():
@@ -521,7 +522,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 hotel_booking.save()
                 
                 booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
-                                  final_amount=final_amount, gst_amount=final_tax_amount)
+                                  subtotal=subtotal, final_amount=final_amount, gst_amount=final_tax_amount)
                 if company_id:
                     booking.company_id = company_id
                     

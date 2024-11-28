@@ -60,7 +60,7 @@ INSTALLED_APPS = [
     'apps.hotels',
     'apps.holiday_package',
     'apps.vehicle_management',
-    'apps.log_management',
+    'apps.log_management'
 ]
 
 MIDDLEWARE = [
@@ -88,6 +88,9 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
+        'libraries':{
+                'dictionary_filter': 'templatetags.dictionary_filter',
+            }
         },
     },
 ]

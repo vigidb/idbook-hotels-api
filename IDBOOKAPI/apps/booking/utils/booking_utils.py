@@ -4,10 +4,16 @@ from django.conf import settings
 from IDBOOKAPI.utils import get_current_date
 
 from apps.authentication.utils.db_utils import get_user_by_referralcode
+
 from apps.customer.utils.db_utils import (
     add_company_wallet_amount, update_wallet_transaction,
     deduct_wallet_balance, deduct_company_wallet_balance,
     add_user_wallet_amount)
+from apps.customer.utils.db_utils import (
+        get_wallet_balance,  get_company_wallet_balance)
+
+from apps.org_resources.db_utils import create_notification
+from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
 
 from apps.org_managements.utils import get_active_business
 
@@ -149,6 +155,7 @@ def generate_context_confirmed_booking(booking):
         property_name, property_address = '', ''
         property_email, property_phone_no = '', ''
         room_type = ''
+        area_name, city_name, state, country = '', '', '', ''
         
         confirmed_checkin_time, confirmed_checkout_time = None, None
         room_subtotal, service_tax = None, None
@@ -165,22 +172,40 @@ def generate_context_confirmed_booking(booking):
                 property_address = confirmed_property.address
                 property_email = confirmed_property.email
                 property_phone_no = confirmed_property.phone_no
+                area_name = confirmed_property.area_name
+                city_name = confirmed_property.city_name
+                state = confirmed_property.state
+                country = confirmed_property.country
                 
-            confirmed_room = hotel_booking.room
-            if confirmed_room:
-                room_type = confirmed_room.room_type
-                price_for_24_hours = confirmed_room.price_for_24_hours
+            confirmed_rooms = hotel_booking.confirmed_room_details
+            if not confirmed_rooms:
+                context['confirmed_rooms'] = []
+            else:
+                context['confirmed_rooms'] = confirmed_rooms
+                
+##                room_type = confirmed_room.room_type
+##                price_for_24_hours = confirmed_room.price_for_24_hours
+
         
 
         context['confirmed_checkin_time'] = confirmed_checkin_time
         context['confirmed_checkout_time'] = confirmed_checkout_time
 
         context['property_name'] = property_name
-        context['property_address'] = property_address
+
+        {"pincode": "", "coordinates": {"lat": "", "lng": ""}, "location_url": "", "building_or_hse_no": ""}
+        if property_address:
+            pincode = property_address.get('pincode', '')
+            building_no = property_address.get('building_or_hse_no', '')
+            final_address = f"{building_no}, {area_name}, {city_name}, {state} - {pincode}, {country}"
+        else:
+            final_address = f" {area_name}, {city_name}, {state}, {country}"
+            
+        context['property_address'] = final_address
         context['property_email'] = property_email
         context['property_phone_no'] = property_phone_no
 
-        context['room_type'] = room_type
+        # context['room_type'] = room_type
         
     elif booking_type == "HOLIDAYPACK":
         holidaypack_booking = booking.holiday_package_booking
@@ -472,13 +497,6 @@ def get_tax_rate(amount, tax_rules_dict):
                 return tax_rate_in_percent
         
     return tax_rate_in_percent
-
-
-from apps.customer.utils.db_utils import (
-        get_wallet_balance, deduct_wallet_balance,
-        update_wallet_transaction, get_company_wallet_balance)
-from apps.org_resources.db_utils import create_notification
-from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
 
 
 def check_wallet_balance_for_booking(booking, user, company_id=None):
