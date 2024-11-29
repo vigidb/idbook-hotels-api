@@ -11,7 +11,7 @@ from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
     ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS,
-    PROPERTY_TYPE, RENTAL_FORM
+    PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -155,6 +155,7 @@ class Property(models.Model):
     description = models.TextField(blank=True, default='')
     website_list = models.JSONField(null=True, default=dict, help_text='["website link 1", "website link 2"]')
     customer_care_no = models.CharField(max_length=15, blank=True, default='')
+    # need to remove
     starting_price = models.DecimalField(max_digits=15, decimal_places=4, default=0.0)
 
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0, help_text="Rating of the property.")
@@ -226,9 +227,10 @@ class Room(models.Model):
     room_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
     room_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
     no_available_rooms = models.PositiveSmallIntegerField(default=0)
-    meal_options = models.CharField(max_length=100, default='')
+    meal_options = models.CharField(max_length=100, choices=MEAL_OPTIONS, blank=True, default='')
     is_smoking_allowed = models.BooleanField(default=False)
-    extra_bed_type = models.CharField(max_length=30, blank=True, default='')
+    extra_bed_type = models.CharField(max_length=30, choices=EXTRA_BED_TYPE, blank=True, default='')
+    is_extra_bed_available = models.BooleanField(default=False)
 
     room_occupancy = models.JSONField(default=default_room_occupancy_json)
     

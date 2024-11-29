@@ -566,8 +566,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         deduct_status = deduct_booking_amount(instance, instance.company_id)
         if not deduct_status:
             custom_response = self.get_error_response(
-                message="Error in wallet deduction", status="error",
-                errors=[], error_code="WALLET_ERROR",
+                message="Error in wallet deduction; Please make sure wallet has sufficient fund",
+                status="error", errors=[], error_code="WALLET_ERROR",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
 

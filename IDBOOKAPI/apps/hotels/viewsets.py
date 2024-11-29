@@ -18,7 +18,7 @@ from .serializers import (
     PropertyListSerializer, PropertyRetrieveSerializer)
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, Review, HotelAmenityCategory,
-                     RoomAmenityCategory)
+                     RoomAmenityCategory, FavoriteList)
 
 from .models import RoomGallery, PropertyGallery
 
@@ -38,8 +38,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     serializer_class = PropertySerializer
     serializer_action_classes = {'list': PropertyListSerializer, 'retrieve': PropertyRetrieveSerializer}
     # permission_classes = [AnonymousCanViewOnlyPermission,]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['name', 'display_name', 'service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
+##    filter_backends = [DjangoFilterBackend]
+##    filterset_fields = ['name', 'display_name', 'service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
     http_method_names = ['get', 'post', 'put', 'patch']
     #lookup_field = 'custom_id'
 
@@ -80,10 +80,22 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                     | Q(city_name__in=loc_list) | Q(area_name__in=loc_list))
             if key == 'user':
                 filter_dict['added_by'] = param_value
+
+            if key == 'rating':
+                rating_list = param_value.split(',')
+                filter_dict['rating__in'] = rating_list
                 
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
+
+        # filter based on price range
+        start_price = self.request.query_params.get('start_price', None)
+        end_price = self.request.query_params.get('end_price', None)
+        if start_price is not None and end_price is not None:
+            property_list = hotel_db_utils.get_property_from_price_range(int(start_price), int(end_price))
+            print("property list", property_list)
+            self.queryset = self.queryset.filter(id__in=property_list)
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
@@ -207,11 +219,16 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        favorite_list = []
         
         # apply property filter
         self.property_filter_ops()
         # filter for checkin checkout
         available_property_dict = self.checkin_checkout_based_filter()
+
+        if request.user:
+            favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
+
         
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
@@ -221,7 +238,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
-            context={'available_property_dict': available_property_dict})
+            context={'available_property_dict': available_property_dict,
+                     'favorite_list':favorite_list})
         # response = super().list(request, *args, **kwargs)
 
         custom_response = self.get_response(
@@ -349,6 +367,75 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                      status="success", message="List Property Gallery",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=False, methods=['GET'], url_path='favorite/list',
+            url_name='favorite', permission_classes=[IsAuthenticated])
+    def get_favorite_property(self, request):
+        user = self.request.user
+        
+        queryset = FavoriteList.objects.filter(user_id=user.id, property__isnull=False)
+        count, queryset = paginate_queryset(self.request, queryset)
+
+        favorite_list = list(queryset.values_list('property_id', flat=True))
+        print("favorite list::", favorite_list)
+        
+        self.queryset = self.queryset.filter(id__in = favorite_list).values(
+            'id','name', 'display_name', 'area_name', 'city_name',
+            'state', 'country','rating', 'status')
+
+        response = PropertyListSerializer(
+            self.queryset, many=True)
+        # response = super().list(request, *args, **kwargs)
+
+        custom_response = self.get_response(
+            count=count, status="success",
+            data=response.data,  # Use the data from the default response
+            message="Favorite Property List Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='favorite',
+            url_name='add-favorite', permission_classes=[IsAuthenticated])
+    def add_favorite_property(self, request):
+        user = request.user
+        property_id = request.data.get('property', None)
+
+        if not property_id:
+            response = self.get_error_response(message="Property missing",
+                                               status="error",
+                                               errors=[],error_code="PROPERTY_MISSING",
+                                               status_code=status.HTTP_400_BAD_REQUEST)
+            self.log_response(response)
+            return response
+        try:
+            favorite_list = FavoriteList.objects.filter(user=user, property_id=property_id)
+            if favorite_list:
+                favorite_list.delete()
+                response = self.get_response(data=None, count=1,
+                                             status="success", message="Property removed from favorite list",
+                                             status_code=status.HTTP_200_OK)
+                return response
+                
+            else:
+                FavoriteList.objects.create(user=user, property_id=property_id)
+                response = self.get_response(data=None, count=1,
+                                             status="success", message="Property added to favorite list",
+                                             status_code=status.HTTP_200_OK)
+                return response
+        except Exception as e:
+            response = self.get_error_response(message=str(e),
+                                               status="error",
+                                               errors=[],error_code="ERROR",
+                                               status_code=status.HTTP_400_BAD_REQUEST)
+            self.log_response(response)
+            return response
+            
+            
+        
+        
 
     @action(detail=False, methods=['GET'], url_path='policy/structure',
             url_name='policy-structure', permission_classes=[AllowAny])

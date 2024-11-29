@@ -11,7 +11,7 @@ from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 from apps.hotels.utils.db_utils import (
-    get_property_featured_image, get_rooms_by_property)
+    get_property_featured_image, get_rooms_by_property, get_starting_room_price)
 
 from django.conf import settings
 
@@ -46,6 +46,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         available_property_dict = self.context.get("available_property_dict", {})
+        favorite_list = self.context.get("favorite_list", [])
         #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
@@ -63,7 +64,15 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 representation['available_room_after_booking'] = avail_prop
             else:
                 representation['available_room_after_booking'] = {}
-            
+
+            if property_id in favorite_list:
+                representation['favorite'] = True
+            else:
+                representation['favorite'] = False
+
+            if property_id:
+                starting_room_price = get_starting_room_price(property_id)
+                representation['starting_room_price'] = starting_room_price
 
         return representation     
 
@@ -251,4 +260,5 @@ class RoomAmenityCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomAmenityCategory
         fields = ('id', 'title', 'active', 'room_amenity')
+
 

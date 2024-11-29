@@ -1206,6 +1206,22 @@ HOTEL_STATUS = (
     ('In-Progress','In-Progress'),
     ('Completed','Completed'),
 )
+
+MEAL_OPTIONS = (
+    ('Accomodation only', 'Accomodation only'),
+    ('Free Breakfast','Free Breakfast'),
+    ('Free Breakfast and Lunch', 'Free Breakfast and Lunch'),
+    ('Free Breakfast and Dinner', 'Free Breakfast and Dinner'),
+    ('Free Breakfast, Lunch and Dinner', 'Free Breakfast, Lunch and Dinner'),
+    ('Free Breakfast, Lunch, Dinner and Custom Inclusions', 'Free Breakfast, Lunch, Dinner and Custom Inclusions'),
+)
+
+EXTRA_BED_TYPE = (
+    ('Mattress', 'Mattress'),
+    ('Cot', 'Cot'),
+    ('Sofa cum bed', 'Sofa cum bed'),
+)
+    
     
 
     
