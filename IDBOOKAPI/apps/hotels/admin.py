@@ -6,7 +6,7 @@ from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 # from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from .models import (
-    Property, Room, Gallery, Review, FinancialDetail,
+    Property, Room, Gallery, FinancialDetail,
     HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
     RoomGallery, PropertyGallery
 )
@@ -29,7 +29,7 @@ class RoomAdmin(admin.ModelAdmin):
 admin.site.register(Room, RoomAdmin)
 
 admin.site.register(Gallery)
-admin.site.register(Review)
+# admin.site.register(Review)
 admin.site.register(FinancialDetail)
 admin.site.register(HotelAmenity)
 admin.site.register(HotelAmenityCategory)

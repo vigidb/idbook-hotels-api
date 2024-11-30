@@ -7,6 +7,7 @@ from imagekit.processors import ResizeToFit
 from apps.org_resources.models import UploadedMedia #, Amenity
 from apps.authentication.models import User
 from apps.org_resources.models import Address
+
 from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
@@ -361,29 +362,48 @@ class FinancialDetail(models.Model):
         return str(self.property)
 
 
-class Review(models.Model):
-    property = models.ForeignKey(Property, on_delete=models.CASCADE, blank=True, null=True, related_name='property_review', help_text="Select the property for which this review is submitted.")
-    name = models.CharField(max_length=80, help_text="Name of the person submitting the review.")
-    email = models.EmailField(help_text="Email of the person submitting the review.")
-    body = models.TextField(help_text="Body of the review text.")
+def default_property_review_json():
+    property_review_json = {"check_in_rating":0, "food_rating":0, "cleanliness_rating":0,
+                            "comfort_rating":0, "hotel_staff_rating":0 ,
+                            "facilities_rating":0, "body":""}
+    return property_review_json
 
-    check_in_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for check-in experience.")
-    breakfast = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for breakfast quality.")
-    cleanliness = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for cleanliness.")
-    comfort = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for comfort.")
-    hotel_staff = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for hotel staff service.")
-    facilities = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for facilities provided.")
-    over_all = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the property.")
+def default_agency_review_json():
+    agency_review_json = {"booking_experience_rating":0, "cancellation_experience_rating": 0,
+                          "search_property_experience_rating":0, "body":""}
 
-    created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the review was created.")
-    updated = models.DateTimeField(auto_now=True, help_text="Date and time when the review was last updated.")
-    active = models.BooleanField(default=True, help_text="Whether the review is active.")
-
-    class Meta:
-        ordering = ('created',)
-
-    def __str__(self):
-        return 'Review by {} on {}'.format(self.name, self.property.name)
+##class Review(models.Model):
+##    property = models.ForeignKey(Property, on_delete=models.CASCADE, null=True,
+##                                 related_name='property_review',
+##                                 help_text="Select the property for which this review is submitted.")
+##    booking =models.ForeignKey(Booking, on_delete=models.CASCADE, null=True, related_name='booking_review')
+##    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name='user_review')
+####    name = models.CharField(max_length=80, help_text="Name of the person submitting the review.")
+####    email = models.EmailField(help_text="Email of the person submitting the review.")
+##    
+####    body = models.TextField(help_text="Body of the review text.")
+##
+####    check_in_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for check-in experience.")
+####    breakfast = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for breakfast quality.")
+####    cleanliness = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for cleanliness.")
+####    comfort = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for comfort.")
+####    hotel_staff = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for hotel staff service.")
+####    facilities = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for facilities provided.")
+##    property_review = models.JSONField(default=default_property_review_json)
+##    overall_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the booked service.")
+##
+##    agency_review = models.JSONField(default=agency_review_json)
+##    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the agency.")
+##
+##    created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the review was created.")
+##    updated = models.DateTimeField(auto_now=True, help_text="Date and time when the review was last updated.")
+##    active = models.BooleanField(default=True, help_text="Whether the review is active.")
+##
+##    class Meta:
+##        ordering = ('created',)
+##
+##    def __str__(self):
+##        return 'Review by {} on {}'.format(self.name, self.property.name)
 
 class FavoriteList(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True,
