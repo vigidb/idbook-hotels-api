@@ -1,5 +1,9 @@
 from apps.hotels.models import (
-    Property, Room, PropertyGallery, RoomGallery)
+    Property, Room, PropertyGallery,
+    RoomGallery, FavoriteList)
+
+from django.db.models.fields.json import KT
+from django.db.models import Min, Max
 
 
 def get_property_by_id(property_id):
@@ -39,5 +43,34 @@ def get_property_room_for_booking(property_id:int, room_id:int):
         id=room_id, property_id=property_id).values(
             'id', 'room_type', 'room_price').first()
     return room_detail
-    
+
+def get_favorite_property(user_id):
+    favorite_list = FavoriteList.objects.filter(
+        user_id=user_id, property__isnull=False).values_list('property_id', flat=True)
+    return list(favorite_list)
+
+def get_starting_room_price(property_id):
+    try:
+        starting_price = Room.objects.annotate(val=KT('room_price__base_rate')).filter(
+            property_id=property_id).aggregate(min=Min('val'))
+        sprice = starting_price.get('min', 0)
+        if sprice:
+            return int(sprice)
+        else:
+            return 0
+    except Exception as e:
+        print(e)
+        return 0
+
+def get_property_from_price_range(start_price, end_price):
+    property_list = Room.objects.filter(
+        room_price__base_rate__gte=start_price,
+        room_price__base_rate__lte=end_price).values_list('property_id', flat=True)
+    return list(property_list)
+
+def get_price_range():
+    min_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(min=Min('val')) 
+    max_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(max=Max('val'))
+        
+    return min_price, max_price
     
