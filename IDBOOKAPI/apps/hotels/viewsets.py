@@ -432,9 +432,32 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                                status_code=status.HTTP_400_BAD_REQUEST)
             self.log_response(response)
             return response
+
+    @action(detail=False, methods=['GET'], url_path='price-range',
+            url_name='price-range', permission_classes=[AllowAny])
+    def get_price_range(self, request):
+        try:
+            min_price, max_price = hotel_db_utils.get_price_range()
+            if min_price:
+                min_price = int(min_price.get('min', 0))
+            else:
+                min_price = 0
+
+            if max_price:
+                max_price = int(max_price.get('max', 0))
+            else:
+                max_price = 0
+                
+            price_range = {"min_price":min_price, "max_price":max_price}
+            response = self.get_response(data=price_range, count=1,
+                                         status="success", message="Price range",
+                                         status_code=status.HTTP_200_OK)
+        except Exception as e:
+            response = self.get_error_response(message=str(e), status="error",
+                                               errors=[],error_code="PRICE_ERROR",
+                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            
-        
+        return response     
         
 
     @action(detail=False, methods=['GET'], url_path='policy/structure',

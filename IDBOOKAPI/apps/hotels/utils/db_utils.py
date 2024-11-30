@@ -67,3 +67,10 @@ def get_property_from_price_range(start_price, end_price):
         room_price__base_rate__gte=start_price,
         room_price__base_rate__lte=end_price).values_list('property_id', flat=True)
     return list(property_list)
+
+def get_price_range():
+    min_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(min=Min('val')) 
+    max_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(max=Max('val'))
+        
+    return min_price, max_price
+    
