@@ -7,7 +7,8 @@ from rest_framework.permissions import BasePermission
 # from apps.authentication.models import *
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
-    VehicleBooking, FlightBooking, AppliedCoupon)
+    VehicleBooking, FlightBooking, AppliedCoupon,
+    Review)
 
 
 # from booking.models import *
@@ -336,6 +337,18 @@ class QueryFilterUserBookingSerializer(serializers.ModelSerializer):
 ##            }
 ##        }
 
+
+class ReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Review
+        fields = '__all__'
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        review_instance = Review(**validated_data)
+        review_instance.user = user
+        review_instance.save()
+        return review_instance
 
 class AppliedCouponSerializer(serializers.ModelSerializer):
     class Meta:
