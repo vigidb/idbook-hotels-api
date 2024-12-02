@@ -3,7 +3,7 @@ from django.contrib.auth.models import Permission, Group
 from django.contrib.auth import authenticate
 
 from IDBOOKAPI.img_kit import upload_media_to_bucket
-from .models import (Property, Gallery, Room, Review, Rule,
+from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery)
@@ -234,10 +234,10 @@ class FinancialDetailSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class ReviewSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Review
-        fields = '__all__'
+##class ReviewSerializer(serializers.ModelSerializer):
+##    class Meta:
+##        model = Review
+##        fields = '__all__'
 
 class HotelAmenitySerializer(serializers.ModelSerializer):
     class Meta:
