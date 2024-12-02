@@ -362,16 +362,6 @@ class FinancialDetail(models.Model):
         return str(self.property)
 
 
-def default_property_review_json():
-    property_review_json = {"check_in_rating":0, "food_rating":0, "cleanliness_rating":0,
-                            "comfort_rating":0, "hotel_staff_rating":0 ,
-                            "facilities_rating":0, "body":""}
-    return property_review_json
-
-def default_agency_review_json():
-    agency_review_json = {"booking_experience_rating":0, "cancellation_experience_rating": 0,
-                          "search_property_experience_rating":0, "body":""}
-
 ##class Review(models.Model):
 ##    property = models.ForeignKey(Property, on_delete=models.CASCADE, null=True,
 ##                                 related_name='property_review',
