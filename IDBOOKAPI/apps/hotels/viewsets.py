@@ -234,7 +234,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
         self.queryset = self.queryset.values('id','name', 'display_name', 'area_name',
                                              'city_name', 'state', 'country',
-                                             'rating', 'status')
+                                             'rating', 'status', 'current_page')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
