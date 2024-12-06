@@ -41,7 +41,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
         model = Property
         fields = ('id','name', 'display_name', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status')
+                  'status', 'current_page')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
