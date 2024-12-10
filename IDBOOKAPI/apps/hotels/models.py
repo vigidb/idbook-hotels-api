@@ -402,6 +402,19 @@ class FavoriteList(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE, blank=True, null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+class PropertyBankDetails(models.Model):
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='property_bank')
+    account_number = models.CharField(max_length=35)
+    ifsc = models.CharField(max_length=25)
+    bank_name = models.CharField(max_length=35)
+    gstin = models.CharField(max_length=25, blank=True, default='')
+    pan = models.CharField(max_length=25, blank=True, default='')
+    tan = models.CharField(max_length=25, blank=True, default='')
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
     
     
 

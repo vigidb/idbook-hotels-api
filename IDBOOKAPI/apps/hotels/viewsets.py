@@ -15,10 +15,10 @@ from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
     FinancialDetailSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
-    PropertyListSerializer, PropertyRetrieveSerializer)
+    PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer)
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, HotelAmenityCategory,
-                     RoomAmenityCategory, FavoriteList)
+                     RoomAmenityCategory, FavoriteList, PropertyBankDetails)
 
 from .models import RoomGallery, PropertyGallery
 
@@ -469,7 +469,75 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                      status="success", message="List Hotel Policies Data Structure",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=False, methods=['GET'], url_path='location/autosuggest',
+            url_name='location-autosuggest', permission_classes=[AllowAny])
+    def get_location_suggestion(self, request):
+        location = self.request.query_params.get('location', '')
+        autosuggest_list = []
         
+        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
+        if area_queryset.count():
+            obj_list = area_queryset.values('area_name', 'city_name', 'state', 'country').distinct(
+                'area_name', 'city_name', 'state', 'country').order_by('area_name', 'city_name')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('area_name', '')}, {obj_dict.get('city_name', '')}, \
+{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+            
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+
+        # city highlighted queryset
+        city_queryset = self.queryset.filter(city_name__icontains=location).exclude(state='', country='')
+        if city_queryset.count():
+            obj_list = city_queryset.values('city_name', 'state', 'country').distinct(
+                'city_name', 'state', 'country').order_by('city_name')
+            
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+            
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+
+        state_queryset = self.queryset.filter(state__icontains=location).exclude(country='')
+        if state_queryset.count():
+            obj_list = state_queryset.values('state', 'country').distinct(
+                'state', 'country').order_by('state')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response      
+            
+
+        country_queryset = self.queryset.filter(country__icontains=location)
+        if country_queryset.count():
+            obj_list = country_queryset.values('country').distinct('country').order_by('country')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+            
+        
+        response = self.get_response(data=[], count=0, status="success", message="Location Autosuggest",
+                                     status_code=status.HTTP_200_OK)
+        return response
         
 
 
@@ -1379,6 +1447,104 @@ class RoomAmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 status_code=response.status_code,  # Use the status code from the default response
                 is_error=True
             )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+class PropertyBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = PropertyBankDetails.objects.all()
+    serializer_class = PropertyBankDetailsSerializer
+    permission_classes = [IsAuthenticated,]
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Create an instance of your serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            response = super().create(request, *args, **kwargs)
+
+            # If the response status code is OK (200), it's a successful retrieval
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response,
+                count=1,
+                status="success",
+                message="Bank Detail Created",
+                status_code=status.HTTP_201_CREATED,  
+
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_error_response(message="Error Occured", status="error",
+                                                      errors=[],error_code="ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Get the object to be updated
+        instance = self.get_object()
+
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default update logic
+            # response = super().update(request, *args, **kwargs)
+            response = self.perform_update(serializer)
+
+            # Create a custom response
+            custom_response = self.get_response(
+                data=serializer.data,  # Use the data from the default response,
+                count=1,
+                status="success",
+                message="Bank Detail Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            custom_response = self.get_error_response(message="Error Occured", status="error",
+                                                      errors=[],error_code="ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        property_id = request.query_params.get('property', '')
+
+        if not property_id:
+            custom_response = self.get_error_response(message="Missing Property", status="error",
+                                                      errors=[],error_code="MISSING_PROPERTY",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+        self.queryset = self.queryset.filter(property=property_id)
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                message="List Retrieved",
+                status="success",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_error_response(message="Error", status="error",
+                                                      errors=[],error_code="ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response

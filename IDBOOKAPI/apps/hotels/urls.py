@@ -13,6 +13,7 @@ router.register(r'financial-details', FinancialDetailViewSet, basename='financia
 #router.register(r'reviews', ReviewViewSet, basename='reviews')
 router.register(r'amenity-category', HotelAmenityCategoryViewSet, basename='amenity-category')
 router.register(r'room-category', RoomAmenityCategoryViewSet, basename='room-category')
+router.register(r'property-bank', PropertyBankDetailViewSet, basename='property-bank')
 
 urlpatterns = [
 ]
