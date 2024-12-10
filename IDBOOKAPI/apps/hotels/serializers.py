@@ -6,7 +6,7 @@ from IDBOOKAPI.img_kit import upload_media_to_bucket
 from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
-                     PropertyGallery, RoomGallery)
+                     PropertyGallery, RoomGallery, PropertyBankDetails)
 from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
@@ -275,5 +275,10 @@ class RoomAmenityCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomAmenityCategory
         fields = ('id', 'title', 'active', 'room_amenity')
+
+class PropertyBankDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertyBankDetails
+        fields = '__all__'
 
 
