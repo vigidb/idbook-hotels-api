@@ -100,6 +100,21 @@ class RoomSerializer(serializers.ModelSerializer):
         model = Room
         fields = '__all__'
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        
+        if instance and instance.gallery_room:
+            room_gallery = list(instance.gallery_room.values('media', 'caption'))
+            for gallery in room_gallery:
+                gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+            representation['room_gallery'] = room_gallery
+        else:
+            representation['room_gallery'] = []
+            
+        return representation 
+            
+            
+
 class PropertyRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room

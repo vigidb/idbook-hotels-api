@@ -469,7 +469,75 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                      status="success", message="List Hotel Policies Data Structure",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=False, methods=['GET'], url_path='location/autosuggest',
+            url_name='location-autosuggest', permission_classes=[AllowAny])
+    def get_location_suggestion(self, request):
+        location = self.request.query_params.get('location', '')
+        autosuggest_list = []
         
+        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
+        if area_queryset.count():
+            obj_list = area_queryset.values('area_name', 'city_name', 'state', 'country').distinct(
+                'area_name', 'city_name', 'state', 'country').order_by('area_name', 'city_name')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('area_name', '')}, {obj_dict.get('city_name', '')}, \
+{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+            
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+
+        # city highlighted queryset
+        city_queryset = self.queryset.filter(city_name__icontains=location).exclude(state='', country='')
+        if city_queryset.count():
+            obj_list = city_queryset.values('city_name', 'state', 'country').distinct(
+                'city_name', 'state', 'country').order_by('city_name')
+            
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+            
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+
+        state_queryset = self.queryset.filter(state__icontains=location).exclude(country='')
+        if state_queryset.count():
+            obj_list = state_queryset.values('state', 'country').distinct(
+                'state', 'country').order_by('state')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response      
+            
+
+        country_queryset = self.queryset.filter(country__icontains=location)
+        if country_queryset.count():
+            obj_list = country_queryset.values('country').distinct('country').order_by('country')
+
+            for obj_dict in obj_list:
+                autosuggest_data = f"{obj_dict.get('country', '')}"
+                autosuggest_list.append(autosuggest_data)
+
+            response = self.get_response(
+                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+            return response
+            
+        
+        response = self.get_response(data=[], count=0, status="success", message="Location Autosuggest",
+                                     status_code=status.HTTP_200_OK)
+        return response
         
 
 

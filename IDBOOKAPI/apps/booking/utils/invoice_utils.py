@@ -148,6 +148,9 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
     total, gst = 0, 0
     subtotal = 0
     notes = ''
+    is_same_state = False
+    business_state = None
+
     
     if bus_details:
         if bus_details.business_logo:
@@ -156,16 +159,32 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
                        "GSTIN": bus_details.gstin_no, "PAN": bus_details.pan_no,
                        "email": bus_details.business_email,
                        "website": bus_details.website_url, "hsn_sac_no": bus_details.hsn_sac_no}
+        
+        business_state = bus_details.state
+        if business_state:
+            business_state = business_state.lower()
+            
     if company_details:
         billed_to = { "name": company_details.company_name, "address": company_details.registered_address,
                       "GSTIN": company_details.gstin_no, "PAN": company_details.pan_no}
         supply_details = { "countryOfSupply": company_details.country,
                            "placeOfSupply": company_details.state}
+
+        # for gst type
+        if company_details.state:
+            if business_state == company_details.state.lower():
+                is_same_state = True
+            
+        
     elif customer_details:
         billed_to = { "name": customer_details.user.name, "address": customer_details.address,
                       "GSTIN": "NA", "PAN": customer_details.pan_card_number}
         supply_details = { "countryOfSupply": customer_details.country,
                            "placeOfSupply": customer_details.state}
+
+        if customer_details.state:
+            if business_state == customer_details.state.lower():
+                is_same_state = True
         
 
     if booking:
@@ -175,7 +194,11 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
                 item = invoice_json_hotel_booking(booking.hotel_booking)
                 # below code need to change
                 gst =  18 #float(booking.gst_percentage)
-                gst_type = "CGST/SGST"
+                # set gst type
+                if is_same_state:
+                    gst_type = "CGST/SGST"
+                else:
+                    gst_type = "IGST"
                 # subtotal = float(booking.subtotal)
                 
                 

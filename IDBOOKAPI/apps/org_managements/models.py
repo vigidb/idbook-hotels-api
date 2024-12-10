@@ -17,6 +17,7 @@ class BusinessDetail(models.Model):
      gstin_no = models.CharField(max_length=100, blank=True, null=True)
      pan_no = models.CharField(max_length=100, blank=True, null=True)
      website_url = models.URLField(blank=True)
+     state = models.CharField(max_length=50, blank=True, default='')
      country = models.CharField(max_length=25, default='INDIA')
      active = models.BooleanField(default=False, help_text="Whether the business is active.")
      created = models.DateTimeField(auto_now_add=True)
