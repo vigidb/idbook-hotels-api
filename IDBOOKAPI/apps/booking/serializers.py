@@ -304,7 +304,9 @@ class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
     hotel_booking = HotelBookingSerializer()
     class Meta:
         model = Booking
-        fields = ('id', 'booking_type', 'hotel_booking', 'final_amount', 'gst_amount')
+        fields = ('id', 'booking_type', 'hotel_booking',
+                  'final_amount', 'gst_amount', 'discount',
+                  'subtotal')
     
 
 class QueryFilterBookingSerializer(serializers.ModelSerializer):
