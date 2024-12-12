@@ -174,6 +174,7 @@ class Booking(models.Model):
                                verbose_name="booking_coupon")
 
     # deal_price = models.DecimalField(default=0, decimal_places=6)
+    coupon_code = models.CharField(max_length=20, blank=True, default='')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
 
     subtotal = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="Price for the booking")

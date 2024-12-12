@@ -24,6 +24,8 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code)
 from apps.hotels.utils.db_utils import get_property_room_for_booking
+from apps.coupons.utils.db_utils import get_coupon_from_code
+from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -35,6 +37,8 @@ from datetime import datetime
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+
+import traceback
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -386,6 +390,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         
         
         coupon_code = request.data.get('coupon_code', None)
+        coupon = None
         
         confirmed_room_details = []
         
@@ -448,8 +453,16 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             return custom_response
             
 
-
         try:
+            # get coupon details
+            if coupon_code:
+                coupon = get_coupon_from_code(coupon_code)
+                if not coupon:
+                    custom_response = self.get_error_response(
+                        message="Invalid coupon", status="error",
+                        errors=[],error_code="COUPON_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
             
             for room in room_list:
                 room_id = room.get('room_id', None)
@@ -515,12 +528,24 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 
                 confirmed_room_details.append(confirmed_room)
                 # final amount
-                final_amount = final_amount + final_room_total
+                # final_amount = final_amount + final_room_total
                 final_tax_amount = final_tax_amount + total_tax_amount
-                subtotal = subtotal + total_room_amount
+                subtotal = subtotal + total_room_amount # total room amount without tax and services
         
 
             with transaction.atomic():
+
+                # apply coupon discount
+                if coupon:
+                    coupon_discount_type = coupon.discount_type
+                    coupon_discount = coupon.discount
+                    discount, subtotal_after_discount = apply_coupon_based_discount(
+                        coupon_discount, coupon_discount_type, subtotal)
+
+                    final_amount = float(subtotal_after_discount) + final_tax_amount
+                else:
+                    discount = 0
+                    final_amount = subtotal + final_tax_amount
                     
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
@@ -528,9 +553,13 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     confirmed_checkout_time=confirmed_checkout_time)
                 hotel_booking.save()
                 
-                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
-                                  subtotal=subtotal, final_amount=final_amount, gst_amount=final_tax_amount,
+                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL', subtotal=subtotal,
+                                  discount=discount, final_amount=final_amount, gst_amount=final_tax_amount,
                                   adult_count=adult_count, child_count=child_count, infant_count=infant_count)
+
+                if coupon:
+                    booking.coupon_code = coupon_code
+                    
                 if company_id:
                     booking.company_id = company_id
                     
@@ -550,6 +579,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 return custom_response
                 
         except Exception as e:
+            print(traceback.format_exc())
             custom_response = self.get_error_response(
                 message=str(e), status="error",
                 errors=[],error_code="INERNAL_ERROR",
@@ -558,6 +588,60 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             self.log_response(custom_response)
 
             return custom_response
+
+
+    @action(detail=True, methods=['PATCH'], url_path='apply-coupon',
+            url_name='apply-coupon', permission_classes=[IsAuthenticated])
+    def apply_coupon_pre_booking(self, request, pk):
+        coupon_code = request.data.get('coupon_code', None)
+        coupon = None
+        
+        instance = self.get_object()
+
+        if not coupon_code:
+            custom_response = self.get_error_response( message="Invalid coupon", status="error",
+                                                       errors=[],error_code="COUPON_ERROR",
+                                                       status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+            
+        coupon = get_coupon_from_code(coupon_code)
+        if not coupon:
+            custom_response = self.get_error_response(
+                message="Invalid coupon", status="error",
+                errors=[],error_code="COUPON_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        subtotal = instance.subtotal
+        # final_amount = instance.final_amount
+        tax_amount = instance.gst_amount
+        
+        coupon_discount_type = coupon.discount_type
+        coupon_discount = coupon.discount
+        discount, subtotal_after_discount = apply_coupon_based_discount(
+            coupon_discount, coupon_discount_type, subtotal)
+
+        final_amount = subtotal_after_discount + tax_amount
+
+        # save the deduction details based on discount
+        instance.final_amount = final_amount
+        instance.discount = discount
+        instance.coupon_code = coupon_code
+        instance.save()
+
+        serializer = PreConfirmHotelBookingSerializer(instance)
+                
+        custom_response = self.get_response(
+            status='success', data=serializer.data,
+            message="Booking Details", status_code=status.HTTP_200_OK,)
+
+        self.log_response(custom_response)
+
+        return custom_response
+        
+        
+        
 
     @action(detail=True, methods=['PATCH'], url_path='confirm',
             url_name='confirm', permission_classes=[IsAuthenticated])
