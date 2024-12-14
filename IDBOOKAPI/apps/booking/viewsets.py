@@ -12,13 +12,16 @@ from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from IDBOOKAPI.utils import paginate_queryset, calculate_tax, get_days_from_string
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
-                          PreConfirmHotelBookingSerializer, ReviewSerializer)
+                          PreConfirmHotelBookingSerializer, ReviewSerializer,
+                          BookingPaymentDetailSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
-from .models import (Booking, HotelBooking, AppliedCoupon, Review)
+from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
 from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.db_utils import (
-    get_user_based_booking, get_booking_based_tax_rule, check_review_exist_for_booking)
+    get_user_based_booking, get_booking_based_tax_rule,
+    check_review_exist_for_booking, create_booking_payment_details,
+    update_booking_payment_details)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -39,6 +42,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 import traceback
+import base64, json
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -565,13 +569,21 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     
                 booking.save()
 
+                # create and save merchant transaction id for payment reference
+                append_id = "%s" % (user.id)
+                booking_payment_detail = create_booking_payment_details(booking.id, append_id)
+                merchant_transaction_id = booking_payment_detail.merchant_transaction_id
+
                 # wallet balance check and send notification for low balance
                 check_wallet_balance_for_booking(booking, user, company_id=company_id)
    
                 serializer = PreConfirmHotelBookingSerializer(booking)
                 
+                booking_dict = {'merchant_transaction_id': merchant_transaction_id}
+                booking_dict.update(serializer.data)
+                
                 custom_response = self.get_response(
-                    status='success', data=serializer.data,
+                    status='success', count=1, data=booking_dict,
                     message="Booking Details", status_code=status.HTTP_200_OK,)
 
                 self.log_response(custom_response)
@@ -915,3 +927,57 @@ class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = BookingPaymentDetail.objects.all()
+    serializer_class = BookingPaymentDetailSerializer
+    permission_classes = []
+
+    
+
+    @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
+            url_name='phone-pay-callbackurl', permission_classes=[])
+    def phone_pay_callbackurl(self, request):
+        self.log_request(request)
+        x_verify = request.META.get('HTTP_X_VERIFY', None)
+        print("X verify", x_verify)
+
+        response = request.data.get('response', None)
+        
+        data = base64.b64decode(response)
+        decoded_data =  data.decode('utf-8')
+        json_data = json.loads(decoded_data)
+        
+        code = json_data.get('code', '')
+        message = json_data.get('message', '')
+
+        
+            
+        
+        sub_json_data = json_data.get('data', {})
+        amount = sub_json_data.get('amount', None)
+        merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
+        transaction_id = sub_json_data.get('transactionId', '')        
+        print(json_data)
+
+        booking_payment_details = {
+            "transaction_id": transaction_id, "code": code,
+            "message":message, "payment_type": "PAYMENT GATEWAY",
+            "payment_medium": "PHONE PAY", "amount": amount, "transaction_details": sub_json_data}
+
+        if code == "PAYMENT_SUCCESS":
+            booking_payment_details["is_transaction_success"] = True
+
+        update_booking_payment_details(merchant_transaction_id, booking_payment_details)
+
+        custom_response = self.get_response(
+            status="success",
+            data=booking_payment_details,  # Use the data from the default response
+            message="Item Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            )
+        return custom_response
+            
+
+    
+    

@@ -7,10 +7,18 @@ from django.utils import timezone
 from decimal import Decimal
 import calendar
 
+import time
+
 
 def get_current_date():
     current_date = timezone.now()
     return current_date
+
+def get_unique_id_from_time(append_id):
+    epoch = time.time()
+    unique_id = "%s%d" % (append_id, epoch)
+    return unique_id
+    
 
 def last_calendar_month_day(date):
     day = None

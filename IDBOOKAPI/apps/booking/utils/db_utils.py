@@ -1,6 +1,9 @@
 # booking
 from apps.booking.models import (
-    Booking, HotelBooking, TaxRule, Review)
+    Booking, HotelBooking, TaxRule,
+    Review, BookingPaymentDetail)
+
+from IDBOOKAPI.utils import get_unique_id_from_time
 
 def get_booking(booking_id):
     try:
@@ -43,7 +46,34 @@ def check_user_used_coupon(coupon_code, user_id):
         user__id=user_id, coupon_code=coupon_code,
         status='confirmed').exists()
     return coupon_used
+
+
+def is_merchant_transactionid_exist(merchant_transaction_id):
+    is_exist = BookingPaymentDetail.objects.filter(
+        merchant_transaction_id=merchant_transaction_id).exists()
+    return is_exist
+
+def create_booking_payment_details(booking_id, append_id):
+    merchant_transaction_id = None
     
+    while True:
+        merchant_transaction_id = get_unique_id_from_time(append_id)
+        if not is_merchant_transactionid_exist(
+            merchant_transaction_id):
+            break
+        merchant_transaction_id = None
+            
+    booking_payment_detail = BookingPaymentDetail.objects.create(
+        booking_id=booking_id, merchant_transaction_id=merchant_transaction_id)
+    return booking_payment_detail
+    
+
+def update_booking_payment_details(
+    merchant_transaction_id, booking_payment_details:dict):
+    
+    BookingPaymentDetail.objects.filter(
+        merchant_transaction_id=merchant_transaction_id).update(
+            **booking_payment_details)
 
         
   
