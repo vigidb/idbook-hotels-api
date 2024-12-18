@@ -166,6 +166,18 @@ COUPON_TYPES = (
         ('bulk', 'Bulk Booking Discount'),
         # Add more types as needed
 )
+
+PAYMENT_TYPE = (
+    ('PAYMENT GATEWAY', 'PAYMENT GATEWAY'),
+    ('WALLET', 'WALLET'),
+    ('NBFC', 'NBFC'),
+)
+
+PAYMENT_MEDIUM = (
+    ('PHONE PAY', 'PHONE PAY'),
+    ('Idbook', 'Idbook'),
+)
+
 PAYMENT_STATUS_CHOICES = (
     ("Pending", "Pending"),
     ("On Process", "On Process"),

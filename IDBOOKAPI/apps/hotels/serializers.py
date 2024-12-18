@@ -11,7 +11,8 @@ from IDBOOKAPI.utils import format_custom_id, find_state
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 from apps.hotels.utils.db_utils import (
-    get_property_featured_image, get_rooms_by_property, get_starting_room_price)
+    get_property_featured_image, get_rooms_by_property, get_starting_room_price,
+    get_property_gallery)
 
 from django.conf import settings
 
@@ -39,7 +40,9 @@ class PropertyListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = ('id','name', 'display_name', 'area_name',
+        fields = ('id','name', 'title', 'property_type',
+                  'rental_form', 'review_star', 'review_count',
+                  'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
                   'status', 'current_page')
         
@@ -52,12 +55,22 @@ class PropertyListSerializer(serializers.ModelSerializer):
             gallery = None
             property_id = instance.get('id', None)
             if property_id:
-                gallery = get_property_featured_image(property_id)
+                
+##                gallery = get_property_featured_image(property_id)
+##            if gallery and gallery.media:
+##                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+##            else:
+##                representation['featured_image'] = ""
 
-            if gallery and gallery.media:
-                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
-            else:
-                representation['featured_image'] = ""
+                gallery_property = get_property_gallery(property_id)
+
+                if gallery_property:
+                    property_gallery = list(gallery_property.values('media', 'caption', 'featured_image'))
+                    for gallery in property_gallery:
+                        gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    representation['property_gallery'] = property_gallery
+                else:
+                    representation['property_gallery'] = []
                 
             avail_prop = available_property_dict.get(property_id, None)
             if avail_prop:
@@ -104,7 +117,7 @@ class RoomSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         
         if instance and instance.gallery_room:
-            room_gallery = list(instance.gallery_room.values('media', 'caption'))
+            room_gallery = list(instance.gallery_room.filter(active=True).values('media', 'caption', 'featured_image'))
             for gallery in room_gallery:
                 gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
             representation['room_gallery'] = room_gallery
@@ -124,11 +137,17 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         if instance:
             if instance.gallery_room:
-                gallery = instance.gallery_room.filter(featured_image=True).first() 
-                if gallery and gallery.media:
-                    representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
-                else:
-                    representation['featured_image'] = ""
+##                gallery = instance.gallery_room.filter(featured_image=True).first() 
+##                if gallery and gallery.media:
+##                    representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+##                else:
+##                    representation['featured_image'] = ""
+                room_gallery = list(instance.gallery_room.filter(active=True).values('media', 'caption', 'featured_image'))
+                for gallery in room_gallery:
+                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                representation['room_gallery'] = room_gallery
+            else:
+                representation['room_gallery'] = []
 
         return representation 
 
@@ -158,7 +177,7 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
 ##            representation['property_room'] = room_details
             
             if instance.gallery_property:
-                property_gallery = list(instance.gallery_property.values('media', 'caption'))
+                property_gallery = list(instance.gallery_property.values('media', 'caption', 'featured_image'))
                 for gallery in property_gallery:
                     gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                 representation['property_gallery'] = property_gallery

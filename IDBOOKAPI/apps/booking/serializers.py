@@ -8,7 +8,7 @@ from rest_framework.permissions import BasePermission
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, AppliedCoupon,
-    Review)
+    Review, BookingPaymentDetail)
 
 
 # from booking.models import *
@@ -355,4 +355,9 @@ class ReviewSerializer(serializers.ModelSerializer):
 class AppliedCouponSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppliedCoupon
+        fields = '__all__'
+
+class BookingPaymentDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookingPaymentDetail
         fields = '__all__'

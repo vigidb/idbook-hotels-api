@@ -19,6 +19,9 @@ from IDBOOKAPI.basic_resources import (
     ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
     FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS)
 
+from IDBOOKAPI.basic_resources import(
+    PAYMENT_TYPE, PAYMENT_MEDIUM)
+
 
 # class BookingManager(models.Manager):
 #     def new_or_get(self, request):
@@ -212,6 +215,21 @@ class HolidayPackageHotelDetail(models.Model):
                                  verbose_name="holiday_package_booking")
 
 
+class BookingPaymentDetail(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_payment')
+    merchant_transaction_id = models.CharField(max_length=150, unique=True)
+    transaction_id = models.CharField(max_length=150, blank=True, default='')
+    code = models.CharField(max_length=50, blank=True, default='')
+    message = models.CharField(max_length=150, blank=True, default='')
+    payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, null=True)
+    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, null=True)
+    amount = models.DecimalField(null=True, max_digits=15, decimal_places=6)
+    is_transaction_success = models.BooleanField(default=False)
+    transaction_details = models.JSONField(null=True, default=dict)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+
 class AppliedCoupon(models.Model):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='coupon_applied')
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_applied_coupon')
@@ -275,6 +293,7 @@ class Review(models.Model):
 
     def __str__(self):
         return 'Review by {} on {}'.format(self.name, self.property.name)
+
     
 
     # def __str__(self):

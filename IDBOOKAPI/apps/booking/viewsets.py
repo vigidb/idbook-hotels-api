@@ -12,13 +12,17 @@ from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from IDBOOKAPI.utils import paginate_queryset, calculate_tax, get_days_from_string
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
-                          PreConfirmHotelBookingSerializer, ReviewSerializer)
+                          PreConfirmHotelBookingSerializer, ReviewSerializer,
+                          BookingPaymentDetailSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
-from .models import (Booking, HotelBooking, AppliedCoupon, Review)
+from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
 from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.db_utils import (
-    get_user_based_booking, get_booking_based_tax_rule, check_review_exist_for_booking)
+    get_user_based_booking, get_booking_based_tax_rule,
+    check_review_exist_for_booking, create_booking_payment_details,
+    update_booking_payment_details, check_booking_and_transaction,
+    get_booking_from_payment)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -26,6 +30,8 @@ from apps.booking.utils.booking_utils import (
 from apps.hotels.utils.db_utils import get_property_room_for_booking
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
+from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.log_management.utils.db_utils import create_booking_payment_log 
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -39,6 +45,9 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 import traceback
+import base64, json
+
+from django.conf import settings
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -565,13 +574,21 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     
                 booking.save()
 
+                # create and save merchant transaction id for payment reference
+                append_id = "%s" % (user.id)
+                booking_payment_detail = create_booking_payment_details(booking.id, append_id)
+                merchant_transaction_id = booking_payment_detail.merchant_transaction_id
+
                 # wallet balance check and send notification for low balance
                 check_wallet_balance_for_booking(booking, user, company_id=company_id)
    
                 serializer = PreConfirmHotelBookingSerializer(booking)
                 
+                booking_dict = {'merchant_transaction_id': merchant_transaction_id}
+                booking_dict.update(serializer.data)
+                
                 custom_response = self.get_response(
-                    status='success', data=serializer.data,
+                    status='success', count=1, data=booking_dict,
                     message="Booking Details", status_code=status.HTTP_200_OK,)
 
                 self.log_response(custom_response)
@@ -915,3 +932,188 @@ class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, PhonePayMixin):
+    queryset = BookingPaymentDetail.objects.all()
+    serializer_class = BookingPaymentDetailSerializer
+    permission_classes = []
+
+
+    @action(detail=False, methods=['POST'], url_path='initiate',
+            url_name='initiate', permission_classes=[IsAuthenticated,])
+    def phone_pay_call_initiate(self, request):
+
+        try:
+            booking_payment_log = {}
+            
+            user_id = self.request.user.id
+            
+            booking_id = request.data.get('booking', None)
+            booking_payment_log['booking_id'] = booking_id
+            merchant_transaction_id = request.data.get('merchant_transaction_id', None)
+            booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
+            
+            redirect_url = request.data.get('redirect_url', '')
+            payment_channel = request.data.get('payment_channel')
+
+            is_exist = check_booking_and_transaction(booking_id, merchant_transaction_id)
+            if not is_exist:
+                message = "Booking or merchant transaction id not registered with booking payment system"
+                custom_response = self.get_error_response(message=message, status="error",
+                                                          errors=[],error_code="VALIDATION_ERROR",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                
+            amount = request.data.get('amount', None)
+            if not amount:
+                custom_response = self.get_error_response(message="Amount mismatch", status="error",
+                                                          errors=[],error_code="VALIDATION_ERROR",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+
+            #https://mercury-uat.phonepe.com/transact/simulator?token=87tM6GJCcJ142nCtz6gGhFHm9DCL3H4LepDHs5
+                
+            # payment_channel = 'PHONE PAY'
+            if payment_channel == 'PHONE PAY':
+                merchant_id = settings.MERCHANT_ID
+                callback_url = settings.CALLBACK_URL + "/api/v1/booking/payment/phone-pay/callbackurl/"
+                
+                payload = {
+                    "merchantId": merchant_id,
+                    "merchantTransactionId": merchant_transaction_id,
+                    "merchantUserId": user_id,
+                    "amount": amount * 100,
+                    "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
+                    "redirectMode": "REDIRECT",
+                    "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
+                    "paymentInstrument":{ "type": "PAY_PAGE"}
+                    }
+
+                booking_payment_log['request'] = payload
+
+                req, auth_header = self.get_encrypted_header_and_payload(payload)
+                response = self.post_pay_page(req, auth_header)
+
+                if response.status_code == 200:
+                    data_json = response.json()
+                    booking_payment_log['response'] = data_json
+                    instrument_response = data_json.get('data').get('instrumentResponse',{})
+                    data_json.pop('data')
+                    data_json['instrumentResponse'] = instrument_response
+                    custom_response = self.get_response(
+                        status="success",
+                        count=1,
+                        data=data_json,  # Use the data from the default response
+                        message="Payment Initiate Url",
+                        status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+                        )
+                    create_booking_payment_log(booking_payment_log)
+                    return custom_response
+                else:
+                    
+                    booking_payment_log['response'] = {'message': response.text}
+                    custom_response = self.get_error_response(message=response.text, status="error",
+                                                              errors=[],error_code="PAYMENT_ERROR",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+                    create_booking_payment_log(booking_payment_log)
+                    return custom_response
+
+
+            custom_response = self.get_error_response(message="Invalid option", status="error",
+                                                      errors=[],error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        except Exception as e:
+            booking_payment_log['response'] = {'message': str(e)}
+            custom_response = self.get_error_response(message=str(e), status="error",
+                                                      errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                                      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            create_booking_payment_log(booking_payment_log)
+            return custom_response
+
+    def set_booking_as_confirmed(self, booking_id, amount):
+        booking = Booking.objects.get(id=booking_id)
+        if booking:
+            booking_id = booking.id
+            booking_type = booking.booking_type
+        
+            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+            print("Confirmation Code::", confirmation_code)
+            booking.confirmation_code = confirmation_code
+            booking.total_payment_made = amount
+            booking.status = 'confirmed'
+            booking.save()
+        
+            create_invoice_task.apply_async(args=[booking_id])
+            
+    
+    @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
+            url_name='phone-pay-callbackurl', permission_classes=[])
+    def phone_pay_callbackurl(self, request):
+        try:
+            self.log_request(request)
+            booking_payment_log = {}
+            x_verify = request.META.get('HTTP_X_VERIFY', None)
+            booking_payment_log['x_verify'] = x_verify
+            response = request.data.get('response', None)
+
+            if not response:
+                custom_response = self.get_error_response(
+                    message="Error in Response", status="error",
+                    errors=[],error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                booking_payment_log['request'] = {"message":"empty request"}
+                create_booking_payment_log(booking_payment_log)
+                return custom_response
+            booking_payment_log['request'] = {"response": response}
+            data = base64.b64decode(response)
+            decoded_data =  data.decode('utf-8')
+            json_data = json.loads(decoded_data)
+            booking_payment_log['request'] = json_data
+            
+            code = json_data.get('code', '')
+            message = json_data.get('message', '')
+
+            
+            
+            sub_json_data = json_data.get('data', {})
+            amount = sub_json_data.get('amount', None)
+            merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
+            booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
+            transaction_id = sub_json_data.get('transactionId', '')        
+            print(json_data)
+
+            booking_payment_details = {
+                "transaction_id": transaction_id, "code": code,
+                "message":message, "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "PHONE PAY", "amount": amount, "transaction_details": sub_json_data}
+
+            if code == "PAYMENT_SUCCESS":
+                booking_payment_details["is_transaction_success"] = True
+
+            update_booking_payment_details(merchant_transaction_id, booking_payment_details)
+            booking_id = get_booking_from_payment(merchant_transaction_id)
+            booking_payment_log['booking_id'] = booking_id
+            self.set_booking_as_confirmed(booking_id, amount)
+
+            custom_response = self.get_response(
+                status="success",
+                data=booking_payment_details,  # Use the data from the default response
+                message="Booking Confirmed",
+                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+                )
+            booking_payment_log['response'] = booking_payment_details
+            create_booking_payment_log(booking_payment_log)
+            return custom_response
+        except Exception as e:
+            custom_response = self.get_error_response(message=str(e), status="error",
+                                                      errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                                      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            booking_payment_log['response'] = {'message': str(e)}
+            create_booking_payment_log(booking_payment_log)
+            return custom_response
+            
+            
+
+    
+    
