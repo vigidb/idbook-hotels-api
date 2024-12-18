@@ -121,8 +121,12 @@ class RoomAmenity(models.Model):
     class Meta:
         verbose_name_plural = 'RoomAmenities'
 
+def default_property_additional_fields_json():
+    additional_fields_json = {"comment_count":0, "view_count":0}
+    return additional_fields_json
+
 class Property(models.Model):
-    # amenity = models.ManyToManyField(Amenity, related_name='property_amenities', blank=True, help_text="Select amenities for this property.")
+    
     amenity_details =  models.JSONField(null=True, default=dict)
     
     managed_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='property_manager',
@@ -132,14 +136,13 @@ class Property(models.Model):
     custom_id = models.CharField(max_length=15, blank=True, db_index=True, null=True, help_text="Custom ID for the property.")
 
     name = models.CharField(max_length=70, db_index=True, help_text="Name of the property.")
-    display_name = models.CharField(max_length=70, blank=True, null=True, help_text="Display ame of the property.")
+    title = models.CharField(max_length=200, blank=True, default='', help_text="Display name of the property.")
     slug = models.SlugField(max_length=200, db_index=True, blank=True, null=True, help_text="Slug for the property URL.")
     property_type = models.CharField(max_length=50, choices=PROPERTY_TYPE, default='Hotel')
     rental_form = models.CharField(max_length=50, choices=RENTAL_FORM, default='Private room')
 
     checkin_time = models.TimeField(null=True, help_text="Check-in time for the property.")
     checkout_time = models.TimeField(null=True, help_text="Check-out time for the property.")
-    # cancellation_timings = models.PositiveIntegerField(null=True, help_text="Hours before customer can cancel for refund")
 
     address = models.JSONField(default=default_address_json) 
     area_name = models.CharField(max_length=60, blank=True, default='', help_text="Area name where the property is located.")
@@ -165,23 +168,24 @@ class Property(models.Model):
     chain_name = models.CharField(max_length=50, blank=True, default='')
     build_year = models.PositiveIntegerField(null=True)
     no_of_restaurant = models.PositiveIntegerField(default=0)
-##    no_of_rooms = models.PositiveIntegerField(default=0)
-##    no_of_floors = models.PositiveIntegerField(default=0)
+
     currency = models.CharField(max_length=50, blank=True, default='')
     vcc_currency = models.CharField(max_length=50, blank=True, default='')
     timezone = models.CharField(max_length=50, blank=True, default='')
 
-    # checkin_24_hours = models.BooleanField(default=False, help_text="Whether 24 Hrs Check In.")
     featured = models.BooleanField(default=False, help_text="Whether the property is featured.")
     franchise = models.BooleanField(default=False)
     policies =  models.JSONField(default=dict, help_text="check default policy data in utils")
     property_ownership = models.CharField(max_length=100, blank=True, default='')
     legal_document = models.FileField(upload_to='hotels/property/legal-document/', null=True)
 
-    
-    # active = models.BooleanField(default=False, help_text="Whether the property is active.")
     current_page = models.PositiveIntegerField(default=0, help_text="Pages completed for property in Front End")
+    review_star = models.DecimalField(max_digits=3, decimal_places=2, default=0.0, help_text="Review Rating of the property.")
+    review_count = models.PositiveIntegerField(default=0, help_text="Total Reviews")
+    additional_fields = models.JSONField(null=True, default=default_property_additional_fields_json,
+                                         help_text='Additional Fields related to the property')
     status = models.CharField(max_length=50, choices=HOTEL_STATUS, default='In-Progress')
+                                         
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
 

@@ -22,16 +22,16 @@ def get_room_by_id(room_id):
     return room_detail
 
 def get_property_gallery(property_id):
-    property_gallery = PropertyGallery.objects.filter(property_id=property_id)
+    property_gallery = PropertyGallery.objects.filter(property_id=property_id, active=True)
     return property_gallery
 
 def get_room_gallery(room_id):
-    room_gallery = RoomGallery.objects.filter(room_id=room_id)
+    room_gallery = RoomGallery.objects.filter(room_id=room_id, active=True)
     return room_gallery
 
 def get_property_featured_image(property_id):
     property_gallery = PropertyGallery.objects.filter(
-        property_id=property_id, featured_image=True).first()
+        property_id=property_id, featured_image=True, active=True).first()
     return property_gallery
 
 def get_rooms_by_property(property_id):
