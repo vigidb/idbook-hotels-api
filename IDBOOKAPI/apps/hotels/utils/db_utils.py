@@ -21,6 +21,12 @@ def get_room_by_id(room_id):
         room_detail = None
     return room_detail
 
+def get_total_rooms(room_id):
+    room_detail = Room.objects.get(id=room_id)
+    if room_detail:
+        return room_detail.no_available_rooms
+    return 0
+
 def get_property_gallery(property_id):
     property_gallery = PropertyGallery.objects.filter(property_id=property_id, active=True)
     return property_gallery

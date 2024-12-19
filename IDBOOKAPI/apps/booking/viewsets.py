@@ -22,12 +22,15 @@ from apps.booking.utils.db_utils import (
     get_user_based_booking, get_booking_based_tax_rule,
     check_review_exist_for_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment)
+    get_booking_from_payment, check_room_booked_details)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate,
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code)
+
 from apps.hotels.utils.db_utils import get_property_room_for_booking
+from apps.hotels.utils.hotel_utils import check_room_count, total_room_count
+
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
@@ -48,6 +51,8 @@ import traceback
 import base64, json
 
 from django.conf import settings
+
+from datetime import datetime
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -665,6 +670,36 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     def confirm_booking(self, request, pk):
         
         instance = self.get_object()
+
+        if not instance.hotel_booking:
+            custom_response = self.get_error_response(
+                message="Error in data; Please check the details",
+                status="error", errors=[], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        property_id = instance.hotel_booking.confirmed_property_id
+        room_details = instance.hotel_booking.confirmed_room_details
+        checkin_time = instance.hotel_booking.confirmed_checkin_time
+        checkout_time = instance.hotel_booking.confirmed_checkout_time
+
+        checkin_date = checkin_time.date()
+        checkout_date = checkout_time.date()
+
+        room_confirmed_dict = total_room_count(room_details)
+        print(room_confirmed_dict)
+
+        booked_rooms = check_room_booked_details(checkin_date, checkout_date, property_id)
+        print("booked rooms::", booked_rooms)
+        room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
+
+        if room_rejected_list:
+            custom_response = self.get_error_response(
+                message="Some of the selected rooms are allready booked, please refresh your list",
+                status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
       
         deduct_status = deduct_booking_amount(instance, instance.company_id)
         if not deduct_status:

@@ -19,11 +19,32 @@ def get_user_based_booking(user_id, booking_id):
     return booking
 
 def get_booked_room(check_in, check_out):
-    booked_hotel = HotelBooking.objects.filter(
-        confirmed_checkin_time__lt=check_out,
-        confirmed_checkout_time__gt=check_in)
+    booked_hotel = Booking.objects.filter(
+        status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+        hotel_booking__confirmed_checkout_time__date__gt=check_in)
+    
+##    booked_hotel = HotelBooking.objects.filter(
+##        confirmed_checkin_time__date__lt=check_out,
+##        confirmed_checkout_time__date__gt=check_in)
    
-    booked_hotel = booked_hotel.values('confirmed_property_id', 'room_id')
+    booked_hotel = booked_hotel.values(
+        'hotel_booking__confirmed_property_id', 'hotel_booking__room_id', 'hotel_booking__confirmed_room_details')
+    return booked_hotel
+
+def check_room_booked_details(check_in, check_out, property_id):
+
+    booked_hotel = Booking.objects.filter(
+        status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+        hotel_booking__confirmed_checkout_time__date__gt=check_in,
+        hotel_booking__confirmed_property_id=property_id)
+    
+##    booked_hotel = HotelBooking.objects.filter(
+##        confirmed_checkin_time__date__lt=check_out,
+##        confirmed_checkout_time__date__gt=check_in,
+##        confirmed_property_id=property_id)
+   
+    booked_hotel = booked_hotel.values(
+        'id', 'hotel_booking__confirmed_property_id', 'hotel_booking__confirmed_room_details')
     return booked_hotel
 
 def get_booking_based_tax_rule(booking_type):

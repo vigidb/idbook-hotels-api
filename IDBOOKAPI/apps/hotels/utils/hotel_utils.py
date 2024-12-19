@@ -1,32 +1,81 @@
 from apps.booking.utils.db_utils import get_booked_room
-from apps.hotels.utils.db_utils import get_room_by_id
+from apps.hotels.utils.db_utils import (
+    get_room_by_id, get_total_rooms)
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
+
+def total_room_count(confirmed_room_details):
+    room_dict = {}
+    for croom_details in confirmed_room_details:
+        room_id = croom_details.get('room_id', 0)
+        no_of_rooms = croom_details.get('no_of_rooms', 0)
+
+        if room_id and no_of_rooms:
+            if room_dict.get(room_id, None):
+                booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                room_dict[room_id] = booked_room_count
+            else:
+                # if room not exist, add the room id and no of rooms
+                room_dict[room_id] = no_of_rooms
+    return room_dict
+
+def get_aggregate_confirmed_room(booked_rooms):
+    room_dict = {}
+    for brooms in booked_rooms:
+        confirmed_room_details = brooms.get('hotel_booking__confirmed_room_details', '')
+        
+        for croom_details in confirmed_room_details:
+            room_id = croom_details.get('room_id', 0)
+            no_of_rooms = croom_details.get('no_of_rooms', 0)
+
+            if room_id and no_of_rooms:
+                if room_dict.get(room_id, None):
+                    booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                    room_dict[room_id] = booked_room_count
+                else:
+                    # if room not exist, add the room id and no of rooms
+                    room_dict[room_id] = no_of_rooms
+    print("room dict::", room_dict)
+    return room_dict 
+        
+            
 
 def get_booked_property(check_in, check_out):
     booked_hotel_dict = {}
     # get booked room details
     booked_hotel = get_booked_room(check_in, check_out)
-    print(booked_hotel)
+    # print(booked_hotel)
     for hotel_details in booked_hotel:
-        property_id = hotel_details.get('confirmed_property_id')
-        room_id = hotel_details.get('room_id')
-        
-        if property_id and room_id:
-            if booked_hotel_dict.get(property_id, None):
-                room_dict = booked_hotel_dict.get(property_id)
-                if room_dict.get(room_id, None):
-                    booked_room_count =  room_dict.get(room_id) + 1
-                    room_dict[room_id] = booked_room_count
-                else:
-                    room_dict[room_id] = 1
-                
-                booked_hotel_dict[property_id] = room_dict
-            else:
-                booked_hotel_dict[property_id] = {room_id:1}
+        property_id = hotel_details.get('hotel_booking__confirmed_property_id')
+        room_id = hotel_details.get('hotel_booking__room_id')
 
-    print("booked hotel dict::", booked_hotel_dict)
+        confirmed_room_details = hotel_details.get('hotel_booking__confirmed_room_details')
+        
+        if property_id:
+            for croom_details in confirmed_room_details:
+                room_id = croom_details.get('room_id', 0)
+                no_of_rooms = croom_details.get('no_of_rooms', 0)
+
+                if room_id and no_of_rooms:
+                    # check property already exist
+                    if booked_hotel_dict.get(property_id, None):
+                        room_dict = booked_hotel_dict.get(property_id)
+                        # check room exist
+                        if room_dict.get(room_id, None):
+                            booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                            room_dict[room_id] = booked_room_count
+                        else:
+                            # if room not exist, add the room id and no of rooms
+                            room_dict[room_id] = no_of_rooms
+                        
+                        booked_hotel_dict[property_id] = room_dict
+                    else:
+                        # if property not added, add the property with
+                        # room and no of rooms
+                        booked_hotel_dict[property_id] = {room_id:no_of_rooms}
+
+    # print("booked hotel dict::", booked_hotel_dict)
                 
     return booked_hotel_dict
 
@@ -72,7 +121,26 @@ def get_available_property(booked_hotel:dict):
 
     return nonavailable_property_list, available_property_dict
                 
+
+def check_room_count(booked_rooms, room_confirmed_dict):
+    room_rejected_list = []
+    # get_total_rooms(property_id, room_id)
+    print("booked rooms", booked_rooms)
+    room_dict = get_aggregate_confirmed_room(booked_rooms)
+    for room_confirmed in room_confirmed_dict:
+        confirmed_room_count = room_confirmed_dict.get(room_confirmed)
+        booked_room_count = room_dict.get(room_confirmed, 0)
+        available_rooms = get_total_rooms(room_confirmed)
+
+        if confirmed_room_count > (available_rooms - booked_room_count):
+            room_rejected_list.append(room_confirmed)
+
+        print("confirmed room count", confirmed_room_count)
+        print("booked_room_count", booked_room_count)
+        print("available rooms", available_rooms)
+    return room_rejected_list
         
+    
         
  # checkin, checkout, property, room_id, booked_room_count, available_room_count       
         
