@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     # 'rest_framework_tracking',
     'django_filters',
+    'storages',
     'corsheaders',
     'drf_yasg',
     'imagekit',
@@ -55,8 +56,11 @@ INSTALLED_APPS = [
     'apps.coupons',
     'apps.customer',
     'apps.org_resources',
+    'apps.org_managements',
     'apps.hotels',
     'apps.holiday_package',
+    'apps.vehicle_management',
+    'apps.log_management'
 ]
 
 MIDDLEWARE = [
@@ -75,7 +79,7 @@ ROOT_URLCONF = 'IDBOOKAPI.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -84,6 +88,9 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
+        'libraries':{
+                'dictionary_filter': 'templatetags.dictionary_filter',
+            }
         },
     },
 ]
@@ -189,8 +196,12 @@ REST_FRAMEWORK = {
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+##MEDIA_URL = '/media/'
+##MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+
+PUBLIC_MEDIA_LOCATION = 'media'
+MEDIA_URL = f'https://idbookhotels.s3.eu-north-1.amazonaws.com/{PUBLIC_MEDIA_LOCATION}/'
+DEFAULT_FILE_STORAGE = 'IDBOOKAPI.storage_backend.PublicMediaStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
@@ -214,8 +225,14 @@ LOGOUT_REDIRECT_URL = 'login'
 
 
 FRONTEND_URL = env('FRONTEND_URL')
+INV_FE_URL = env('INV_FE_URL')
 # celery and redis server url
 CELERY_BROKER_URL = env('CELERY_BROKER_URL')
+CELERY_RESULT_BACKEND = env('CELERY_BROKER_URL')
+CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # email configuration
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST")
@@ -224,6 +241,27 @@ EMAIL_USE_TLS = env("EMAIL_USE_TLS")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EMAIL_HOST_USER = env("NOREPLY_EMAIL")
 EMAIL_HOST_PASSWORD = env("NOREPLY_PAASWORD")
+CORPORATE_EMAIL = env("CORPORATE_EMAIL")
+
+OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
+
+
+
+AWS_S3_URL = env("AWS_S3_URL")
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
+AWS_QUERYSTRING_AUTH = False
+
+COUNTRY_API_KEY = env("COUNTRY_API_KEY")
+CALLBACK_URL = env("CALLBACK_URL")
+
+# PHONE PAY
+MERCHANT_ID = env("MERCHANT_ID")
+SALT_KEY = env("SALT_KEY")
+SALT_INDEX = env("SALT_INDEX")
+PHONEPAY_URL = env("PHONEPAY_URL")
 
 # PAGINATION_PAGE_SIZE = env_config("PAGINATION_PAGE_SIZE")
 # NDR_EMAIL_HOST_USER = env_config("NDR_EMAIL_HOST_USER")
@@ -237,7 +275,7 @@ LOGGING = LOGGER_DICT
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
-    "ROTATE_REFRESH_TOKENS": False,
+    "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": False,
     "ALGORITHM": "HS256",

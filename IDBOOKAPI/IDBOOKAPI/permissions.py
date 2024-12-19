@@ -42,7 +42,7 @@ class HasRoleModelPermission(BasePermission):
             filtered_codenames = []
 
         user_roles = user.roles.all()
-        if user_roles and user_roles[0].permissions.filter(codename__in=filtered_codenames):
+        if user_roles and user_roles.filter(permissions__codename__in=filtered_codenames):
             return True
 
         return False
@@ -67,7 +67,7 @@ class AnonymousCanViewOnlyPermission(BasePermission):
                 filtered_codenames = []
 
             user_roles = user.roles.all()
-            if user_roles and user_roles[0].permissions.filter(codename__in=filtered_codenames):
+            if user_roles and user_roles.filter(permissions__codename__in=filtered_codenames):
                 return True
 
         return False

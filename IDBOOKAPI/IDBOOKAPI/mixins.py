@@ -3,21 +3,45 @@ from rest_framework import status
 import logging
 
 
-def generate_response(data=None, message="", status_code='', is_error=False):
+
+def generate_response(data=None, message="", status_code='', is_error=False, status='', count=0):
     if data is None:
         data = []
     response = {
-        'is_error': is_error,
-        'code': status_code,
+        'status': status,
+        # 'code': status_code,
         'message': message,
+        'count': count,
         'data': data
     }
     return Response(response, status=status_code)
 
+def generate_error_response(errors, message, error_code, status, status_code):
+    response = {
+        'status': status,
+        'message': message,
+        'errors': errors,
+        'errorCode':error_code
+    }
+    return Response(response, status=status_code)
+
+
 
 class StandardResponseMixin:
-    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False):
-        return generate_response(data, message, status_code, is_error)
+    def custom_serializer_error(self, serializer_errors):
+        error_list = []
+        for field_name, field_errors in serializer_errors.items():
+            for ferror in field_errors:
+                error_list.append({"field":field_name, "message": ferror})
+        return error_list
+
+    
+    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status='', count=0):
+        return generate_response(data, message, status_code, is_error, status, count)
+
+    def get_error_response(self, message="", status='', errors=[],
+                           error_code="", status_code=status.HTTP_401_UNAUTHORIZED):
+        return generate_error_response(errors, message, error_code, status, status_code)
 
 
 class LoggingMixin:

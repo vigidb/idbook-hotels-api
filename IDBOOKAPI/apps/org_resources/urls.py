@@ -19,6 +19,8 @@ router.register(r'terms-and-conditions', TermsAndConditionsViewSet, basename='te
 router.register(r'legality', LegalityViewSet, basename='legality')
 router.register(r'career', CareerViewSet, basename='career')
 router.register(r'faqs', FAQsViewSet, basename='faqs')
+router.register(r'country-details', CountryDetailsViewSet, basename='country_details')
+router.register(r'notification', UserNotificationViewSet, basename='user_notifications')
 
 urlpatterns = [
     path('get-state-and-district/<str:query>/', GetDistrictStateView.as_view(), name='district-state'),

@@ -20,6 +20,17 @@ from IDBOOKAPI.utils import format_custom_id
 
 
 class CouponSerializer(serializers.ModelSerializer):
+    code = serializers.CharField(required=False, allow_null=True)
+  
     class Meta:
         model = Coupon
-        fields = '__all__'
+        fields = "__all__"
+
+    def create(self, validated_data):
+        coupon = Coupon(**validated_data)
+        coupon.code = coupon.generate_unique_code()
+        coupon.save()
+
+        return coupon
+
+    

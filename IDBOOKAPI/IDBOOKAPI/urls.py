@@ -11,11 +11,14 @@ from IDBOOKAPI.img_kit import ImagekitioService
 from apps.authentication.viewsets import homepage
 from apps.administrator.urls import router as administrator_router
 from apps.org_resources.urls import router as org_resources_router
+from apps.org_managements.urls import router as org_managements_router
 from apps.holiday_package.urls import router as holiday_package_router
 from apps.customer.urls import router as customer_router
 from apps.coupons.urls import router as coupons_router
 from apps.booking.urls import router as booking_router
 from apps.hotels.urls import router as hotels_router
+from apps.vehicle_management.urls import router as vehicle_router
+from apps.log_management.urls import router as log_router
 
 
 schema_view = get_schema_view(
@@ -48,16 +51,22 @@ urlpatterns = [
     # include routers
     re_path('api/v1/administrator/', include(administrator_router.urls)),
     re_path('api/v1/org-resources/', include(org_resources_router.urls)),
+    re_path('api/v1/org-managements/', include(org_managements_router.urls)),
     re_path('api/v1/holiday-package/', include(holiday_package_router.urls)),
     re_path('api/v1/customer/', include(customer_router.urls)),
     re_path('api/v1/coupons/', include(coupons_router.urls)),
     re_path('api/v1/booking/', include(booking_router.urls)),
     re_path('api/v1/hotels/', include(hotels_router.urls)),
+    re_path('api/v1/vehcile-management/', include(vehicle_router.urls)),
+    re_path('api/v1/log-management/', include(log_router.urls)),
 
     # JWT token authentication
-    re_path('api/v1/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # order is important
     re_path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     re_path('api/v1/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    re_path('api/v1/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # re_path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # re_path('api/v1/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
 
     # API documents
     re_path(r'^api/v1/docs2/(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
