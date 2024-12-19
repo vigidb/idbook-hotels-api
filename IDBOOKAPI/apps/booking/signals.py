@@ -1,7 +1,9 @@
 # code
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from .models import Booking
+
+from .models import Booking, Review
+
 from apps.booking.tasks import (
         send_booking_email_task, create_invoice_task,
         send_cancelled_booking_task)
@@ -16,7 +18,26 @@ from apps.org_resources.utils.notification_utils import  wallet_booking_balance_
 
 from apps.org_managements.utils import get_active_business #get_business_by_name
 
+from apps.booking.utils.db_utils import(
+        get_property_based_review_count, get_property_rating_average)
+from apps.hotels.utils.db_utils import update_property_review_details
+
 import time
+import traceback
+
+@receiver(post_save, sender=Review)
+def update_review_in_property(sender, instance:Review, **kwargs):
+        try:
+                property_id = instance.property_id
+                total_review_count = get_property_based_review_count(property_id)
+                rating_average = get_property_rating_average(property_id)
+                update_property_review_details(property_id, rating_average, total_review_count)
+        except Exception as e:
+                print(traceback.format_exc())
+                print(e)
+                
+        
+        
 
 ##@receiver(pre_save, sender=Booking)
 ##def update_total_amount(sender, instance:Booking, **kwargs):
