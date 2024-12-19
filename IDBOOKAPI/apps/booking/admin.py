@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, TaxRule,
-    BookingPaymentDetail)
+    BookingPaymentDetail, Review)
 
 # Register your models here.
 
@@ -18,3 +18,4 @@ admin.site.register(VehicleBooking)
 admin.site.register(FlightBooking)
 admin.site.register(TaxRule)
 admin.site.register(BookingPaymentDetail)
+admin.site.register(Review)

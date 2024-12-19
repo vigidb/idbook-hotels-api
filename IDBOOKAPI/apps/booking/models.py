@@ -291,8 +291,8 @@ class Review(models.Model):
     class Meta:
         ordering = ('created',)
 
-    def __str__(self):
-        return 'Review by {} on {}'.format(self.name, self.property.name)
+##    def __str__(self):
+##        return 'Review by {} on {}'.format(self.name, self.property.name)
 
     
 

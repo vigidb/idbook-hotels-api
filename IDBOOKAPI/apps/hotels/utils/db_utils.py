@@ -73,4 +73,10 @@ def get_price_range():
     max_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(max=Max('val'))
         
     return min_price, max_price
+
+def update_property_review_details(property_id, review_star, review_count):
+    Property.objects.filter(id=property_id).update(
+        review_star=review_star, review_count=review_count)
+    
+    
     

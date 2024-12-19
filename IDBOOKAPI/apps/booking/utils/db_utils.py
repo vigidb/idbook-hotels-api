@@ -1,9 +1,10 @@
 # booking
 from apps.booking.models import (
     Booking, HotelBooking, TaxRule,
-    Review, BookingPaymentDetail)
+    Review, BookingPaymentDetail, Review)
 
 from IDBOOKAPI.utils import get_unique_id_from_time
+from django.db.models import Avg
 
 def get_booking(booking_id):
     try:
@@ -85,6 +86,20 @@ def update_booking_payment_details(
 
         
   
-        
+def get_property_based_review_count(property_id):
+    total_review_count = Review.objects.filter(
+        property_id=property_id,
+        overall_rating__isnull=False).count()
+    return total_review_count
+
+def get_property_rating_average(property_id):
+    rating_average_dict = Review.objects.filter(
+        property_id=property_id,
+        overall_rating__isnull=False).aggregate(Avg('overall_rating'))
+    if rating_average_dict:
+        rating_average = rating_average_dict.get('overall_rating__avg', 0)
+        return rating_average
+    else:
+        return 0
     
     
