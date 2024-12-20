@@ -18,10 +18,16 @@ def get_user_based_booking(user_id, booking_id):
         id=booking_id,user__id=user_id).first()
     return booking
 
-def get_booked_room(check_in, check_out):
-    booked_hotel = Booking.objects.filter(
-        status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
-        hotel_booking__confirmed_checkout_time__date__gt=check_in)
+def get_booked_room(check_in, check_out, is_slot_price_enabled=False):
+
+    if is_slot_price_enabled:
+        booked_hotel = Booking.objects.filter(
+            status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+            hotel_booking__confirmed_checkout_time__gt=check_in)
+    else:
+        booked_hotel = Booking.objects.filter(
+            status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+            hotel_booking__confirmed_checkout_time__date__gt=check_in)
     
 ##    booked_hotel = HotelBooking.objects.filter(
 ##        confirmed_checkin_time__date__lt=check_out,
@@ -31,17 +37,18 @@ def get_booked_room(check_in, check_out):
         'hotel_booking__confirmed_property_id', 'hotel_booking__room_id', 'hotel_booking__confirmed_room_details')
     return booked_hotel
 
-def check_room_booked_details(check_in, check_out, property_id):
+def check_room_booked_details(check_in, check_out, property_id, is_slot_price_enabled=False):
+    if is_slot_price_enabled:
+        booked_hotel = Booking.objects.filter(
+            status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+            hotel_booking__confirmed_checkout_time__gt=check_in,
+            hotel_booking__confirmed_property_id=property_id)
 
-    booked_hotel = Booking.objects.filter(
-        status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
-        hotel_booking__confirmed_checkout_time__date__gt=check_in,
-        hotel_booking__confirmed_property_id=property_id)
-    
-##    booked_hotel = HotelBooking.objects.filter(
-##        confirmed_checkin_time__date__lt=check_out,
-##        confirmed_checkout_time__date__gt=check_in,
-##        confirmed_property_id=property_id)
+    else:
+        booked_hotel = Booking.objects.filter(
+            status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+            hotel_booking__confirmed_checkout_time__date__gt=check_in,
+            hotel_booking__confirmed_property_id=property_id)
    
     booked_hotel = booked_hotel.values(
         'id', 'hotel_booking__confirmed_property_id', 'hotel_booking__confirmed_room_details')

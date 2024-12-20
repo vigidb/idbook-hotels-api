@@ -105,13 +105,26 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def checkin_checkout_based_filter(self):
         checkin_date = self.request.query_params.get('checkin', '')
         checkout_date = self.request.query_params.get('checkout', '')
+        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
+        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
+        
+        print("checkin_date::", checkin_date)
+        
         available_property_dict = {} 
 
         if checkin_date and checkout_date:
-            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
-            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+            
+            if not is_slot_price_enabled:
+                checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
+                checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+            else:
+                checkin_date = checkin_date.replace(' ', '+')
+                checkout_date = checkout_date.replace(' ', '+')
+                checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
+                checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
+            
 
-            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date)
+            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, is_slot_price_enabled)
             # print("booked hotel dict::", booked_hotel_dict)
             # property details from booking 
             nonavailable_property_list, available_property_dict = \
@@ -239,7 +252,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                              'rental_form', 'review_star', 'review_count',
                                              'additional_fields', 'area_name',
                                              'city_name', 'state', 'country',
-                                             'rating', 'status', 'current_page')
+                                             'rating', 'status', 'current_page', 'address')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,

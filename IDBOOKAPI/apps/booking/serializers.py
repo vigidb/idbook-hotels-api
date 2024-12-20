@@ -224,12 +224,16 @@ class BookingSerializer(serializers.ModelSerializer):
 ##                         'bed_type':bed_type}
 
         room_json  = hotel_booking.confirmed_room_details
+        confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+        confirmed_checkout_time = hotel_booking.confirmed_checkout_time
         
         hotel_json = {
             'enquired_property':enquired_property, 'booking_slot':booking_slot,
             'room_type':room_type, 'checkin_time': checkin_time,
             'checkout_time':checkout_time, 'bed_count':bed_count,
-            'confirmed_property':confirmed_property_json,'room':room_json}
+            'confirmed_property':confirmed_property_json,'room':room_json,
+            'confirmed_checkin_time':confirmed_checkin_time,
+            'confirmed_checkout_time':confirmed_checkout_time}
          
         return hotel_json
 
