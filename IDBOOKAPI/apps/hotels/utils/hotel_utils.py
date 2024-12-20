@@ -41,10 +41,10 @@ def get_aggregate_confirmed_room(booked_rooms):
         
             
 
-def get_booked_property(check_in, check_out):
+def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
     booked_hotel_dict = {}
     # get booked room details
-    booked_hotel = get_booked_room(check_in, check_out)
+    booked_hotel = get_booked_room(check_in, check_out, is_slot_price_enabled)
     # print(booked_hotel)
     for hotel_details in booked_hotel:
         property_id = hotel_details.get('hotel_booking__confirmed_property_id')
@@ -102,18 +102,21 @@ def get_available_property(booked_hotel:dict):
         
                 if available_rooms > 0:
                     property_availability_status = True
-                    print("---", available_property_dict)
-                    property_dict = available_property_dict.get(property_id, None)
-                    if property_dict:
-                        # property_dict[room_id] = available_rooms
-                        property_dict.append({'room_id': room_id, 'available_rooms': available_rooms})
-  
-                    else:
-                        # available_property_dict = {property_id:{room_id: available_rooms}}
-                        available_property_dict[property_id] = [{'room_id': room_id, 'available_rooms': available_rooms}]
+                    
+                print("---", available_property_dict)
+                property_dict = available_property_dict.get(property_id, None)
+                if property_dict:
+                    # property_dict[room_id] = available_rooms
+                    property_dict.append({'room_id': room_id, 'available_rooms': available_rooms})
+
+                else:
+                    # available_property_dict = {property_id:{room_id: available_rooms}}
+                    available_property_dict[property_id] = [{'room_id': room_id, 'available_rooms': available_rooms}]
                         
         if not property_availability_status:
             nonavailable_property_list.append(property_id)
+            available_property_dict.pop(property_id)
+           
             
                     
 ##    print("non availability property", nonavailable_property_list)

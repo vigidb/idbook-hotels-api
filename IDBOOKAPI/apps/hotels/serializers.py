@@ -44,7 +44,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'rental_form', 'review_star', 'review_count',
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page')
+                  'status', 'current_page', 'address')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)

@@ -401,6 +401,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         adult_count = request.data.get('adult_count', 1)
         child_count = request.data.get('child_count', 0)
         infant_count = request.data.get('infant_count', 0)
+        booking_slot = request.data.get('booking_slot', 24)
         
         
         coupon_code = request.data.get('coupon_code', None)
@@ -564,7 +565,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,
-                    confirmed_checkout_time=confirmed_checkout_time)
+                    confirmed_checkout_time=confirmed_checkout_time,
+                    booking_slot=booking_slot)
                 hotel_booking.save()
                 
                 booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL', subtotal=subtotal,
@@ -682,14 +684,26 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         room_details = instance.hotel_booking.confirmed_room_details
         checkin_time = instance.hotel_booking.confirmed_checkin_time
         checkout_time = instance.hotel_booking.confirmed_checkout_time
-
-        checkin_date = checkin_time.date()
-        checkout_date = checkout_time.date()
+        booking_slot = instance.hotel_booking.booking_slot
+        
+##        import pytz
+##        tm ='Asia/Kolkata'
+##        local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
+        
+        if booking_slot == 24:
+            is_slot_price_enabled = False
+            checkin_date = checkin_time.date()
+            checkout_date = checkout_time.date()
+        else:
+            is_slot_price_enabled = True
+            checkin_date = checkin_time
+            checkout_date = checkout_time
 
         room_confirmed_dict = total_room_count(room_details)
         print(room_confirmed_dict)
 
-        booked_rooms = check_room_booked_details(checkin_date, checkout_date, property_id)
+        booked_rooms = check_room_booked_details(checkin_date, checkout_date,
+                                                 property_id, is_slot_price_enabled)
         print("booked rooms::", booked_rooms)
         room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
 
