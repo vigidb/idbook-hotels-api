@@ -690,7 +690,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##        tm ='Asia/Kolkata'
 ##        local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
         
-        if booking_slot == 24:
+        if booking_slot == "24 HOURS":
             is_slot_price_enabled = False
             checkin_date = checkin_time.date()
             checkout_date = checkout_time.date()
