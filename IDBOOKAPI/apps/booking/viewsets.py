@@ -1112,7 +1112,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             
             
             sub_json_data = json_data.get('data', {})
-            amount = sub_json_data.get('amount', None)
+            amount = sub_json_data.get('amount', 0)/100
             merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
             booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             transaction_id = sub_json_data.get('transactionId', '')        

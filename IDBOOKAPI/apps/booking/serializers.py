@@ -207,21 +207,23 @@ class BookingSerializer(serializers.ModelSerializer):
             service_category = confirmed_property.service_category
             address = confirmed_property.address
             name = confirmed_property.name
-            display_name = confirmed_property.display_name
+            title = confirmed_property.title
             confirmed_property_json = {
                 "id":confirmed_property.id,
                 "service_category":service_category,
                 "name":name,
-                "display_name":display_name
+                "title":title
             }
             
-        room = hotel_booking.room
-        if room:
-            room_type = room.room_type
-            room_view = room.room_view
-            bed_type = room.bed_type
-            room_json = {'id':room.id, 'room_type':room_type, 'room_view':room_view,
-                         'bed_type':bed_type}
+##        room = hotel_booking.room
+##        if room:
+##            room_type = room.room_type
+##            room_view = room.room_view
+##            bed_type = room.bed_type
+##            room_json = {'id':room.id, 'room_type':room_type, 'room_view':room_view,
+##                         'bed_type':bed_type}
+
+        room_json  = hotel_booking.confirmed_room_details
         
         hotel_json = {
             'enquired_property':enquired_property, 'booking_slot':booking_slot,
