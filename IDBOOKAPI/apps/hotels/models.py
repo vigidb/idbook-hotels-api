@@ -212,7 +212,7 @@ def default_room_occupancy_json():
     return room_occupancy_json
 
 def default_room_price_json():
-    room_price_json = {"base_rate":0, "price_4hrs":0, "price_8hrs":0, "price_12_hrs":0}
+    room_price_json = {"base_rate":0, "price_4hrs":0, "price_8hrs":0, "price_12hrs":0}
     return room_price_json
 
 class Room(models.Model):

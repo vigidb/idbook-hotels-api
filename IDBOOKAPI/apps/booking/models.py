@@ -57,7 +57,7 @@ class HotelBooking(models.Model):
                              null=True, blank=True,
                              verbose_name="booking_room")
     booking_slot = models.CharField(max_length=25, choices=TIME_SLOTS,
-                                    default='24 HOURS', help_text="booking type.")
+                                    default='24 Hrs', help_text="booking type.")
     
     room_type = models.CharField(max_length=25, choices=ROOM_CHOICES,
                                  default='DELUXE', help_text="booked room type.")
