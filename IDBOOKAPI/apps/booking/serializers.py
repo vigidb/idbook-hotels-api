@@ -266,11 +266,11 @@ class BookingSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         booking_type = instance.booking_type
+        
         if instance:
-##            discount
-##            subtotal
-##            gst_percentage
-##            gst_amount
+            booking_payment = list(instance.booking_payment.values_list('merchant_transaction_id', flat=True))
+            representation['merchant_transaction_ids'] = booking_payment
+            
             representation['final_amount'] = instance.final_amount
             representation['total_payment_made'] = instance.total_payment_made
             if instance.user:

@@ -97,6 +97,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             print("property list", property_list)
             self.queryset = self.queryset.filter(id__in=property_list)
 
+        # filter based on slot based property
+        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
+        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
+        
+        if is_slot_price_enabled:
+            property_slot_list = hotel_db_utils.get_slot_price_enabled_property()
+            self.queryset = self.queryset.filter(id__in=property_slot_list)
+
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
 

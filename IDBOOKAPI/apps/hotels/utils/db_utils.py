@@ -83,6 +83,10 @@ def get_price_range():
 def update_property_review_details(property_id, review_star, review_count):
     Property.objects.filter(id=property_id).update(
         review_star=review_star, review_count=review_count)
+
+def get_slot_price_enabled_property():
+    property_list = Room.objects.filter(is_slot_price_enabled=True).values_list('property_id', flat=True)
+    return list(property_list)
     
     
     
