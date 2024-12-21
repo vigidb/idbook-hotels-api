@@ -22,7 +22,7 @@ from apps.booking.utils.db_utils import (
     get_user_based_booking, get_booking_based_tax_rule,
     check_review_exist_for_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment, check_room_booked_details)
+    get_booking_from_payment, check_room_booked_details, get_booking)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -523,6 +523,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     slot_price = room_price.get('price_4hrs', None)
                     booking_room_price = slot_price
                 else:
+                    slot_price = None
                     booking_room_price = base_price
                     
                 if not slot_price and not booking_slot == '24 Hrs':
@@ -1019,6 +1020,41 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
     serializer_class = BookingPaymentDetailSerializer
     permission_classes = []
 
+    def cross_check_booking_availability(self, instance):
+        property_id = instance.hotel_booking.confirmed_property_id
+        room_details = instance.hotel_booking.confirmed_room_details
+        checkin_time = instance.hotel_booking.confirmed_checkin_time
+        checkout_time = instance.hotel_booking.confirmed_checkout_time
+        booking_slot = instance.hotel_booking.booking_slot
+        
+##        import pytz
+##        tm ='Asia/Kolkata'
+##        local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
+        
+        if booking_slot == "24 Hrs":
+            is_slot_price_enabled = False
+            checkin_date = checkin_time.date()
+            checkout_date = checkout_time.date()
+        else:
+            is_slot_price_enabled = True
+            checkin_date = checkin_time
+            checkout_date = checkout_time
+
+        room_confirmed_dict = total_room_count(room_details)
+        print(room_confirmed_dict)
+
+        booked_rooms = check_room_booked_details(checkin_date, checkout_date,
+                                                 property_id, is_slot_price_enabled)
+        room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
+        return room_rejected_list
+
+        if room_rejected_list:
+            custom_response = self.get_error_response(
+                message="Some of the selected rooms are allready booked, please refresh your list",
+                status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
 
     @action(detail=False, methods=['POST'], url_path='initiate',
             url_name='initiate', permission_classes=[IsAuthenticated,])
@@ -1037,6 +1073,14 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             redirect_url = request.data.get('redirect_url', '')
             payment_channel = request.data.get('payment_channel')
 
+            booking = get_booking(booking_id)
+            if not booking:
+                custom_response = self.get_error_response(message="Booking not exist", status="error",
+                                                          errors=[],error_code="VALIDATION_ERROR",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                
+
             is_exist = check_booking_and_transaction(booking_id, merchant_transaction_id)
             if not is_exist:
                 message = "Booking or merchant transaction id not registered with booking payment system"
@@ -1053,6 +1097,15 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 return custom_response
 
             #https://mercury-uat.phonepe.com/transact/simulator?token=87tM6GJCcJ142nCtz6gGhFHm9DCL3H4LepDHs5
+
+            room_rejected_list = self.cross_check_booking_availability(booking)
+            if room_rejected_list:
+                custom_response = self.get_error_response(
+                    message="Some of the selected rooms are allready booked, please refresh your list",
+                    status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+            
                 
             # payment_channel = 'PHONE PAY'
             if payment_channel == 'PHONE PAY':
