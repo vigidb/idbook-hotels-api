@@ -731,14 +731,18 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         checkout_time = instance.hotel_booking.confirmed_checkout_time
         booking_slot = instance.hotel_booking.booking_slot
         
-        if booking_slot == "24 Hrs":
-            is_slot_price_enabled = False
-            checkin_date = checkin_time.date()
-            checkout_date = checkout_time.date()
-        else:
-            is_slot_price_enabled = True
-            checkin_date = checkin_time
-            checkout_date = checkout_time
+##        if booking_slot == "24 Hrs":
+##            is_slot_price_enabled = False
+##            checkin_date = checkin_time.date()
+##            checkout_date = checkout_time.date()
+##        else:
+##            is_slot_price_enabled = True
+##            checkin_date = checkin_time
+##            checkout_date = checkout_time
+
+        is_slot_price_enabled = True
+        checkin_date = checkin_time
+        checkout_date = checkout_time
 
         room_confirmed_dict = total_room_count(room_details)
         print(room_confirmed_dict)
@@ -1058,14 +1062,18 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 ##        tm ='Asia/Kolkata'
 ##        local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
         
-        if booking_slot == "24 Hrs":
-            is_slot_price_enabled = False
-            checkin_date = checkin_time.date()
-            checkout_date = checkout_time.date()
-        else:
-            is_slot_price_enabled = True
-            checkin_date = checkin_time
-            checkout_date = checkout_time
+##        if booking_slot == "24 Hrs":
+##            is_slot_price_enabled = False
+##            checkin_date = checkin_time.date()
+##            checkout_date = checkout_time.date()
+##        else:
+##            is_slot_price_enabled = True
+##            checkin_date = checkin_time
+##            checkout_date = checkout_time
+
+        is_slot_price_enabled = True
+        checkin_date = checkin_time
+        checkout_date = checkout_time
 
         room_confirmed_dict = total_room_count(room_details)
         print(room_confirmed_dict)
