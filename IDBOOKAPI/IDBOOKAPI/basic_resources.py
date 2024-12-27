@@ -102,6 +102,7 @@ BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
         ('canceled', 'Canceled'),
         ('completed', 'Completed'),
         ('no_show', 'No Show'),
+        ('on_hold', 'On Hold')
     )
 ##TOUR_DURATION_CHOICES = (
 ##    ("1N/2D", '1N/2D'),

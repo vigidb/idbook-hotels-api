@@ -193,6 +193,8 @@ class Booking(models.Model):
         max_digits=15, decimal_places=6, default=0.0, help_text="Total Payment made")
     
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
+    on_hold_end_time = models.DateTimeField(null=True)
+    
     description = models.TextField(default='', blank=True)
     additional_notes = models.TextField(default='', blank=True)
 

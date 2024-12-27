@@ -5,6 +5,10 @@ from apps.booking.models import (
 
 from IDBOOKAPI.utils import get_unique_id_from_time
 from django.db.models import Avg
+from datetime import datetime
+from pytz import timezone
+
+from django.db.models import Q
 
 def get_booking(booking_id):
     try:
@@ -19,36 +23,84 @@ def get_user_based_booking(user_id, booking_id):
     return booking
 
 def get_booked_room(check_in, check_out, is_slot_price_enabled=False):
+    on_hold_end_time = datetime.now(timezone('UTC'))
+    # status_list = ['confirmed', 'on_hold']
 
     if is_slot_price_enabled:
+
         booked_hotel = Booking.objects.filter(
-            status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
-            hotel_booking__confirmed_checkout_time__gt=check_in)
+            Q(status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+              hotel_booking__confirmed_checkout_time__gt=check_in) | Q(
+                  status='on_hold', hotel_booking__confirmed_checkin_time__lt=check_out,
+                  hotel_booking__confirmed_checkout_time__gt=check_in,
+                  on_hold_end_time__gte=on_hold_end_time))
+
+        
+##        booked_hotel = Booking.objects.filter(
+##            status__in=status_list, hotel_booking__confirmed_checkin_time__lt=check_out,
+##            hotel_booking__confirmed_checkout_time__gt=check_in,
+##            on_hold_end_time__gte=on_hold_end_time)
     else:
         booked_hotel = Booking.objects.filter(
-            status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
-            hotel_booking__confirmed_checkout_time__date__gt=check_in)
+            Q(status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+              hotel_booking__confirmed_checkout_time__date__gt=check_in) | Q(
+                  status='on_hold', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+                  hotel_booking__confirmed_checkout_time__date__gt=check_in,
+                  on_hold_end_time__gte=on_hold_end_time))
+##        booked_hotel = Booking.objects.filter(
+##            status__in=status_list, hotel_booking__confirmed_checkin_time__date__lt=check_out,
+##            hotel_booking__confirmed_checkout_time__date__gt=check_in,
+##            on_hold_end_time__gte=on_hold_end_time)
     
 ##    booked_hotel = HotelBooking.objects.filter(
 ##        confirmed_checkin_time__date__lt=check_out,
 ##        confirmed_checkout_time__date__gt=check_in)
+
+##    print("booked hotel query---------", booked_hotel.query)
    
     booked_hotel = booked_hotel.values(
         'hotel_booking__confirmed_property_id', 'hotel_booking__room_id', 'hotel_booking__confirmed_room_details')
     return booked_hotel
 
-def check_room_booked_details(check_in, check_out, property_id, is_slot_price_enabled=False):
+def check_room_booked_details(check_in, check_out, property_id,
+                              is_slot_price_enabled=False, booking_id=None):
+    on_hold_end_time = datetime.now(timezone('UTC'))
     if is_slot_price_enabled:
         booked_hotel = Booking.objects.filter(
-            status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
-            hotel_booking__confirmed_checkout_time__gt=check_in,
-            hotel_booking__confirmed_property_id=property_id)
+            Q(status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+              hotel_booking__confirmed_checkout_time__gt=check_in,
+              hotel_booking__confirmed_property_id=property_id) | Q(
+                  status='on_hold', hotel_booking__confirmed_checkin_time__lt=check_out,
+                  hotel_booking__confirmed_checkout_time__gt=check_in,
+                  hotel_booking__confirmed_property_id=property_id,
+                  on_hold_end_time__gte=on_hold_end_time))
+        
+##        booked_hotel = Booking.objects.filter(
+##            status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+##            hotel_booking__confirmed_checkout_time__gt=check_in,
+##            hotel_booking__confirmed_property_id=property_id)
+
+        if booking_id:
+            booked_hotel = booked_hotel.exclude(Q(status='on_hold', id=booking_id))
 
     else:
         booked_hotel = Booking.objects.filter(
-            status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+            Q(status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
             hotel_booking__confirmed_checkout_time__date__gt=check_in,
-            hotel_booking__confirmed_property_id=property_id)
+            hotel_booking__confirmed_property_id=property_id) | Q(
+                status='on_hold', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+                hotel_booking__confirmed_checkout_time__date__gt=check_in,
+                hotel_booking__confirmed_property_id=property_id,
+                on_hold_end_time__gte=on_hold_end_time))
+        
+##        booked_hotel = Booking.objects.filter(
+##            status='confirmed', hotel_booking__confirmed_checkin_time__date__lt=check_out,
+##            hotel_booking__confirmed_checkout_time__date__gt=check_in,
+##            hotel_booking__confirmed_property_id=property_id)
+
+        if booking_id:
+            booked_hotel = booked_hotel.exclude(Q(status='on_hold', id=booking_id))
+
    
     booked_hotel = booked_hotel.values(
         'id', 'hotel_booking__confirmed_property_id', 'hotel_booking__confirmed_room_details')
