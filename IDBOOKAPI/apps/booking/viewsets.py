@@ -55,7 +55,8 @@ import base64, json
 
 from django.conf import settings
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from pytz import timezone
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -401,9 +402,11 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         property_id = request.data.get('property', None)
         company_id = request.data.get('company', None)
         room_list = request.data.get('room_list', [])
+        requested_room_no = request.data.get('requested_room_no', 1)
 
         adult_count = request.data.get('adult_count', 1)
         child_count = request.data.get('child_count', 0)
+        child_age_list = request.data.get('child_age_list', [])
         infant_count = request.data.get('infant_count', 0)
         booking_slot = request.data.get('booking_slot', '24 Hrs')
         
@@ -440,6 +443,14 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             custom_response = self.get_error_response(
                 message="Missing Room list or invalid list format", status="error",
                 errors=[],error_code="ROOM_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+
+        if not isinstance(child_age_list, list):
+            custom_response = self.get_error_response(
+                message="invalid child age list format", status="error",
+                errors=[],error_code="CHILD_AGE_ERROR",
                 status_code=status.HTTP_400_BAD_REQUEST)
 
             return custom_response
@@ -598,23 +609,41 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 else:
                     discount = 0
                     final_amount = subtotal + final_tax_amount
+
+##                tm ='Asia/Kolkata'
+##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
+
+
+                # check the room availability before locking
+                room_confirmed_dict = total_room_count(confirmed_room_details)
+                booked_rooms = check_room_booked_details(
+                    confirmed_checkin_time, confirmed_checkout_time,
+                    property_id, is_slot_price_enabled=True, booking_id=None)
+                room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
                     
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,
                     confirmed_checkout_time=confirmed_checkout_time,
-                    booking_slot=booking_slot)
+                    booking_slot=booking_slot, requested_room_no=requested_room_no)
                 hotel_booking.save()
                 
-                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL', subtotal=subtotal,
-                                  discount=discount, final_amount=final_amount, gst_amount=final_tax_amount,
-                                  adult_count=adult_count, child_count=child_count, infant_count=infant_count)
+                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
+                                  subtotal=subtotal, discount=discount, final_amount=final_amount,
+                                  gst_amount=final_tax_amount, adult_count=adult_count,
+                                  child_count=child_count, infant_count=infant_count,
+                                  child_age_list=child_age_list)
 
                 if coupon:
                     booking.coupon_code = coupon_code
                     
                 if company_id:
                     booking.company_id = company_id
+
+                if not room_rejected_list:
+                    on_hold_end_time = datetime.now(timezone('UTC')) + timedelta(minutes=5)
+                    booking.status = 'on_hold'
+                    booking.on_hold_end_time = on_hold_end_time
                     
                 booking.save()
 
@@ -748,7 +777,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         print(room_confirmed_dict)
 
         booked_rooms = check_room_booked_details(checkin_date, checkout_date,
-                                                 property_id, is_slot_price_enabled)
+                                                 property_id, is_slot_price_enabled,
+                                                 booking_id = instance.id)
         print("booked rooms::", booked_rooms)
         room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
 
@@ -1078,8 +1108,9 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
         room_confirmed_dict = total_room_count(room_details)
         print(room_confirmed_dict)
 
-        booked_rooms = check_room_booked_details(checkin_date, checkout_date,
-                                                 property_id, is_slot_price_enabled)
+        booked_rooms = check_room_booked_details(
+            checkin_date, checkout_date, property_id,
+            is_slot_price_enabled, booking_id=instance.id)
         room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
         return room_rejected_list
 
