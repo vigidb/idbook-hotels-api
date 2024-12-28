@@ -25,6 +25,7 @@ from .models import RoomGallery, PropertyGallery
 from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
+from apps.booking.utils.db_utils import change_onhold_status
 
 from rest_framework.decorators import action
 
@@ -272,6 +273,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         favorite_list = []
+
+        # update the on hold status to pending 
+        change_onhold_status()
         
         # apply property filter
         self.property_filter_ops()

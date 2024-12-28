@@ -181,5 +181,13 @@ def get_property_rating_average(property_id):
         return rating_average
     else:
         return 0
+
+def change_onhold_status():
+    try:
+        on_hold_end_time = datetime.now(timezone('UTC'))
+        result = Booking.objects.filter(
+            status='on_hold', on_hold_end_time__lt=on_hold_end_time).update(status='pending')
+    except Exception as e:
+        print("change on hold status::", e)
     
     

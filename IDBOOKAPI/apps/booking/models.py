@@ -67,6 +67,7 @@ class HotelBooking(models.Model):
                                          help_text="Check-out time for the property.")
     bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
 
+    requested_room_no = models.PositiveIntegerField(default=1, help_text="Requested room count")
     confirmed_room_details = models.JSONField(null=True, default=default_confirmed_room_json)
     confirmed_checkin_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
@@ -170,6 +171,7 @@ class Booking(models.Model):
 
     adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
     child_count = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    child_age_list = models.JSONField(null=True, default=list)
     infant_count = models.PositiveSmallIntegerField(default=0, help_text="infant count")
 
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL,
