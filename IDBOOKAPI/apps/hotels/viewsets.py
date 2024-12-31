@@ -63,6 +63,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
+    def property_json_filter_ops(self):
+        property_amenity = self.request.query_params.get('property_amenity', '')
+        room_amenity = self.request.query_params.get('room_amenity', '')
+
+        if property_amenity:
+            query_prop_amenity = Q()
+
+            property_amenity_list = property_amenity.split(',')
+
+            for prop_amenity in property_amenity_list:
+                query_prop_amenity &= Q(
+                    amenity_details__contains=[{'hotel_amenity':[
+                        {'title': prop_amenity.strip(), 'detail':[{'Yes': []}] }] }])
+
+            self.queryset = self.queryset.filter(query_prop_amenity)
+##        self.queryset = self.queryset.filter(
+##            Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Laundry', 'detail':[{'Yes': []}] }] }])
+##            & Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Air Conditioning', 'detail':[{'Yes': []}] }] }]))
+
+        if room_amenity:
+            property_list = hotel_db_utils.filter_property_by_room_amenity(room_amenity)
+            self.queryset = self.queryset.filter(id__in=property_list)
+            
+
 
     def property_filter_ops(self):
         filter_dict = {}
@@ -279,6 +303,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
         # apply property filter
         self.property_filter_ops()
+        self.property_json_filter_ops()
         # filter for checkin checkout
         available_property_dict = self.checkin_checkout_based_filter()
 
