@@ -177,10 +177,15 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             
         
     elif customer_details:
-        billed_to = { "name": customer_details.user.name, "address": customer_details.address,
+        address = customer_details.address if customer_details.address else 'NA'
+        country = customer_details.country if customer_details.country else 'NA'
+        state = customer_details.state if customer_details.state else 'NA'
+        pan = customer_details.pan_card_number if customer_details.pan_card_number else 'NA'
+        
+        billed_to = { "name": customer_details.user.name, "address": address,
                       "GSTIN": "NA", "PAN": customer_details.pan_card_number}
-        supply_details = { "countryOfSupply": customer_details.country,
-                           "placeOfSupply": customer_details.state}
+        supply_details = { "countryOfSupply": country,
+                           "placeOfSupply": state}
 
         if customer_details.state:
             if business_state == customer_details.state.lower():
