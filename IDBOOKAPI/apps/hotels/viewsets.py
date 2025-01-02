@@ -26,6 +26,7 @@ from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status
+from apps.analytics.utils.db_utils import create_or_update_property_count
 
 from rest_framework.decorators import action
 
@@ -337,6 +338,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        user_id = request.user.id
 
 ##        print("-----", request.data.get('sample'))
 ##        available_rooms = self.request.query_params.get('available_rooms')
@@ -368,6 +370,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
 
             )
+            property_id = response.data.get('id', None)
+            if user_id and property_id:
+                create_or_update_property_count(property_id, user_id)
         else:
             # If the response status code is not OK, it's an error
             custom_response = self.get_error_response(message="Error Occured", status="error",
