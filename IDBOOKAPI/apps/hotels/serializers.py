@@ -12,7 +12,7 @@ from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
-    get_property_gallery)
+    get_slot_based_starting_room_price, get_property_gallery)
 
 from django.conf import settings
 
@@ -44,12 +44,14 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'rental_form', 'review_star', 'review_count',
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page', 'address')
+                  'status', 'current_page', 'address',
+                  'policies', 'amenity_details')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         available_property_dict = self.context.get("available_property_dict", {})
         favorite_list = self.context.get("favorite_list", [])
+        nonavailable_property_list = self.context.get("nonavailable_property_list", [])
         #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
@@ -86,6 +88,13 @@ class PropertyListSerializer(serializers.ModelSerializer):
             if property_id:
                 starting_room_price = get_starting_room_price(property_id)
                 representation['starting_room_price'] = starting_room_price
+                starting_price_list = get_slot_based_starting_room_price(property_id)
+                representation['starting_price_list'] = starting_price_list
+
+            if property_id in nonavailable_property_list:
+                representation['available'] = False
+            else:
+                representation['available'] = True
 
         return representation     
 
