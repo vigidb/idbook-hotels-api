@@ -196,10 +196,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
             # exclude non available property list
-            if nonavailable_property_list:
-                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
+##            if nonavailable_property_list:
+##                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
 
-        return available_property_dict      
+        return available_property_dict, nonavailable_property_list      
             
 
     def create(self, request, *args, **kwargs):
@@ -306,7 +306,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         self.property_filter_ops()
         self.property_json_filter_ops()
         # filter for checkin checkout
-        available_property_dict = self.checkin_checkout_based_filter()
+        available_property_dict, nonavailable_property_list = self.checkin_checkout_based_filter()
 
         if request.user:
             favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
@@ -318,11 +318,13 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                              'rental_form', 'review_star', 'review_count',
                                              'additional_fields', 'area_name',
                                              'city_name', 'state', 'country',
-                                             'rating', 'status', 'current_page', 'address')
+                                             'rating', 'status', 'current_page',
+                                             'address', 'policies', 'amenity_details')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
             context={'available_property_dict': available_property_dict,
+                     'nonavailable_property_list': nonavailable_property_list,
                      'favorite_list':favorite_list})
         # response = super().list(request, *args, **kwargs)
 

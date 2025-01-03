@@ -4,6 +4,8 @@ from apps.hotels.models import (
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
+from django.db.models import IntegerField
+from django.db.models.functions import Cast
 from django.db.models import Q
 
 
@@ -69,6 +71,28 @@ def get_starting_room_price(property_id):
         print(e)
         return 0
 
+def get_slot_based_starting_room_price(property_id):
+    try:
+        starting_price_list = Room.objects.annotate(
+            hrs4=Cast(KT('room_price__price_4hrs'), IntegerField()),
+            hrs8=Cast(KT('room_price__price_8hrs'), IntegerField()),
+            hrs12=Cast(KT('room_price__price_12hrs'), IntegerField()),
+            base_price=Cast(KT('room_price__base_rate'), IntegerField())).filter(
+                property_id=property_id).aggregate(
+                    starting_4hr_price=Min('hrs4'),
+                    starting_8hr_price=Min('hrs8'),
+                    starting_12hr_price=Min('hrs12'),
+                    starting_base_price=Min('base_price'))
+        
+        return starting_price_list
+    except Exception as e:
+        print(e)
+        starting_price_list = {'starting_4hr_price': 0, 'starting_8hr_price': 0,
+                               'starting_12hr_price': 0, 'starting_base_price': 0}
+        return starting_price_list
+        
+        
+    
 def get_property_from_price_range(start_price, end_price):
     property_list = Room.objects.filter(
         room_price__base_rate__gte=start_price,
