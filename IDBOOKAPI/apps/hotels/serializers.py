@@ -44,14 +44,13 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'rental_form', 'review_star', 'review_count',
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page', 'address',
-                  'policies', 'amenity_details')
+                  'status', 'current_page', 'address')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         available_property_dict = self.context.get("available_property_dict", {})
         favorite_list = self.context.get("favorite_list", [])
-        nonavailable_property_list = self.context.get("nonavailable_property_list", [])
+        # nonavailable_property_list = self.context.get("nonavailable_property_list", [])
         #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
@@ -91,10 +90,10 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 # starting_price_list = get_slot_based_starting_room_price(property_id)
                 # representation['starting_price_list'] = starting_price_list
 
-            if property_id in nonavailable_property_list:
-                representation['available'] = False
-            else:
-                representation['available'] = True
+##            if property_id in nonavailable_property_list:
+##                representation['available'] = False
+##            else:
+##                representation['available'] = True
 
         return representation     
 
