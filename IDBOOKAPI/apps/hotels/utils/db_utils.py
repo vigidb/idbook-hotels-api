@@ -4,6 +4,7 @@ from apps.hotels.models import (
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
+from django.db.models import Q
 
 
 def get_property_by_id(property_id):
@@ -87,6 +88,20 @@ def update_property_review_details(property_id, review_star, review_count):
 def get_slot_price_enabled_property():
     property_list = Room.objects.filter(is_slot_price_enabled=True).values_list('property_id', flat=True)
     return list(property_list)
-    
+
+
+def filter_property_by_room_amenity(room_amenity):
+    property_list = []
+    if room_amenity:
+        query_room_amenity = Q()
+        room_amenity_list = room_amenity.split(',')
+
+        for ramenity in room_amenity_list:
+            query_room_amenity &= Q(
+                amenity_details__contains=[{'room_amenity':[
+                    {'title': ramenity.strip(), 'detail':[{'Yes': []}] }] }])
+
+        property_list = Room.objects.filter(query_room_amenity).values_list('property_id', flat=True)
+    return list(property_list)
     
     

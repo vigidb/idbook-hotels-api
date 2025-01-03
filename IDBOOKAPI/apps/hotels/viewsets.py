@@ -26,6 +26,7 @@ from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status
+from apps.analytics.utils.db_utils import create_or_update_property_count
 
 from rest_framework.decorators import action
 
@@ -62,6 +63,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         except KeyError: 
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
+
+    def property_json_filter_ops(self):
+        property_amenity = self.request.query_params.get('property_amenity', '')
+        room_amenity = self.request.query_params.get('room_amenity', '')
+
+        if property_amenity:
+            query_prop_amenity = Q()
+
+            property_amenity_list = property_amenity.split(',')
+
+            for prop_amenity in property_amenity_list:
+                query_prop_amenity &= Q(
+                    amenity_details__contains=[{'hotel_amenity':[
+                        {'title': prop_amenity.strip(), 'detail':[{'Yes': []}] }] }])
+
+            self.queryset = self.queryset.filter(query_prop_amenity)
+##        self.queryset = self.queryset.filter(
+##            Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Laundry', 'detail':[{'Yes': []}] }] }])
+##            & Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Air Conditioning', 'detail':[{'Yes': []}] }] }]))
+
+        if room_amenity:
+            property_list = hotel_db_utils.filter_property_by_room_amenity(room_amenity)
+            self.queryset = self.queryset.filter(id__in=property_list)
+            
 
 
     def property_filter_ops(self):
@@ -279,6 +304,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
         # apply property filter
         self.property_filter_ops()
+        self.property_json_filter_ops()
         # filter for checkin checkout
         available_property_dict = self.checkin_checkout_based_filter()
 
@@ -312,6 +338,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        user_id = request.user.id
 
 ##        print("-----", request.data.get('sample'))
 ##        available_rooms = self.request.query_params.get('available_rooms')
@@ -343,6 +370,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
 
             )
+            property_id = response.data.get('id', None)
+            if user_id and property_id:
+                create_or_update_property_count(property_id, user_id)
         else:
             # If the response status code is not OK, it's an error
             custom_response = self.get_error_response(message="Error Occured", status="error",

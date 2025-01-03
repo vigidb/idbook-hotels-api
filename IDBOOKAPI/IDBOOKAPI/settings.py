@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     # third party apps
     'rest_framework',
     'rest_framework.authtoken',
@@ -60,7 +61,8 @@ INSTALLED_APPS = [
     'apps.hotels',
     'apps.holiday_package',
     'apps.vehicle_management',
-    'apps.log_management'
+    'apps.log_management',
+    'apps.analytics'
 ]
 
 MIDDLEWARE = [

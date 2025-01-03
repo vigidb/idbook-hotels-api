@@ -15,12 +15,12 @@ from .serializers import (
     AmenityCategorySerializer, AmenitySerializer, EnquirySerializer, RoomTypeSerializer, OccupancySerializer,
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
-    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer
+    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
-    Career, FAQs, UploadedMedia, CountryDetails, UserNotification)
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber)
 
 from IDBOOKAPI.utils import paginate_queryset
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
@@ -34,6 +34,8 @@ from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
 from apps.customer.models import Customer
+
+from apps.org_resources.tasks import send_enquiry_email_task
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
@@ -675,7 +677,7 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Enquiry.objects.all()
     serializer_class = EnquirySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
+    permission_classes = []
     http_method_names = ['get', 'post', 'put', 'patch']
 
     def create(self, request, *args, **kwargs):
@@ -687,7 +689,9 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
-
+            enquiry_id = response.data.get('id')
+            print("enquiry id", enquiry_id)
+            send_enquiry_email_task.apply_async(args=[enquiry_id])
             # Create a custom response
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
@@ -696,13 +700,10 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             )
         else:
-            # If the serializer is not valid, create a custom response with error details
-            custom_response = self.get_response(
-                data=serializer.errors,  # Use the serializer's error details
-                message="Validation Error",
-                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
-            )
+            serializer_errors = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                      errors=serializer_errors,error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -791,6 +792,50 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+class SubscriberViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = Subscriber.objects.all()
+    serializer_class = SubscriberSerializer
+    permission_classes = []
+    http_method_names = ['get', 'post', 'put', 'patch']
+
+    def create(self, request, *args, **kwargs):
+
+        email = self.request.data.get('email', None)
+        if not email:
+            custom_response = self.get_error_response(message="Missing email", status="error",
+                                                      errors=[],error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        subscriber_obj = Subscriber.objects.filter(email=email)
+        if subscriber_obj.exists():
+            custom_response = self.get_error_response(message="Email already subscribed", status="error",
+                                                      errors=[],error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            response = super().create(request, *args, **kwargs)
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                count=1,
+                status="success",
+                message="Subscribed Successfully",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+            return custom_response
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+
+    
 
 class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = RoomType.objects.all()
