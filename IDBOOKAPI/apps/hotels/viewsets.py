@@ -319,7 +319,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                              'additional_fields', 'area_name',
                                              'city_name', 'state', 'country',
                                              'rating', 'status', 'current_page',
-                                             'address')
+                                             'address', 'created')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
