@@ -19,6 +19,8 @@ from .models import available_permission_ids, available_permission_queryset
 # from payment_gateways.models import *
 from IDBOOKAPI.utils import format_custom_id
 
+from apps.customer.serializers import CustomerProfileSerializer
+
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -95,6 +97,32 @@ class UserSerializer(serializers.ModelSerializer):
             instance.is_staff = False
         instance.save()
         return instance
+
+class UserAdminListSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = User
+        fields = ('id', 'email', 'mobile_number', 'name', 'company_id',
+                  'category', 'is_active', 'groups', 'roles')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        user = instance
+        customer_data = {}
+        if instance:
+            customer = user.customer_profile.all().first()
+            if customer:
+                customer_serializer = CustomerProfileSerializer(customer)
+                customer_data = customer_serializer.data
+                
+        representation['customer_details'] = customer_data
+
+        user_roles = [uroles for uroles in user.roles.values('id','name')]
+        representation['roles'] = user_roles
+        user_groups = [ugroups for ugroups in user.groups.values('id','name')]
+        representation['groups'] = user_groups
+        # representation['company_user'] = company_details
+        return representation
 
 
 class RoleSerializer(serializers.ModelSerializer):

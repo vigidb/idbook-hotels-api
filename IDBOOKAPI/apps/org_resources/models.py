@@ -16,7 +16,11 @@ from apps.authentication.models import User
 
 from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator, )
 from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
-from IDBOOKAPI.basic_resources import (ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES, COUNTRY_CHOICES)
+from IDBOOKAPI.basic_resources import (
+    ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
+    COUNTRY_CHOICES, NOTIFICATION_TYPE)
+
+from django.core.validators import (EmailValidator, RegexValidator)
 
 
 class AmenityCategory(models.Model):
@@ -136,22 +140,45 @@ class BankDetail(models.Model):
 
 
 class CompanyDetail(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
+    #user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
+    added_user = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   related_name='company_list', null=True, blank=True)
+    business_rep = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   related_name='business_representative', null=True, blank=True)
 
     company_name = models.CharField(max_length=50)
-    company_logo = models.URLField(blank=True)
-    company_phone = models.CharField(max_length=50)
-    company_email = models.CharField(max_length=50)
+    brand_name = models.CharField(max_length=100, null=True, blank=True)
+    company_logo = models.FileField(upload_to='company/logo/', blank=True, null=True)
+    company_phone = models.CharField(max_length=50, null=True, blank=True,
+                                     validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                                message='Enter a valid phone number')])
+    company_email = models.EmailField(validators=[EmailValidator],
+                              null=True, blank=True, help_text="Email address of the company.")
+    domain_name = models.CharField(max_length=50, blank=True, null=True)
+    company_website = models.URLField(null=True, blank=True)
+    gstin_no = models.CharField(max_length=100, null=True)
+    pan_no = models.CharField(max_length=100, blank=True)
+    registered_address = models.TextField(blank=True, null=True)
 
-    full_address = models.CharField(max_length=100)
-    district = models.CharField(max_length=20)
-    state = models.CharField(max_length=30, choices=STATE_CHOICES, default='')
+    contact_person_name = models.CharField(max_length=50, null=True, blank=True)
+    contact_number = models.CharField(max_length=10, null=True, blank=True,
+                                      validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                                message='Enter a valid phone number')])
+    designation = models.CharField(max_length=50, null=True, blank=True)
+    contact_email_address = models.EmailField(validators=[EmailValidator],
+                                              null=True, blank=True, help_text="Email address of the contact person.")
+    
+    district = models.CharField(max_length=20, null=True, blank=True)
+    state = models.CharField(max_length=30, default='')
     country = models.CharField(max_length=25, default='INDIA')
-    pin_code = models.PositiveIntegerField()
+    pin_code = models.PositiveIntegerField(null=True, blank=True)
 
-    location = models.CharField(max_length=255, help_text="Google map URL")
+    location = models.CharField(max_length=255, null=True, blank=True,
+                                help_text="Google map URL")
     latitude = models.FloatField(default=0, help_text="Latitude")
     longitude = models.FloatField(default=0, help_text="Longitude")
+    approved = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, help_text="Whether the company is active.")
 
 
 class UploadedMedia(models.Model):
@@ -300,8 +327,15 @@ class UploadedMedia(models.Model):
 
 
 class Enquiry(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_enquiry')
-    replied_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='user_reply')
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name='user_enquiry')
+    name = models.CharField(max_length=100, blank=True, default='')
+    phone_no = models.CharField(max_length=10, blank=True, null=True,
+                                validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                           message='Enter a valid phone number')])
+    email = models.EmailField(validators=[EmailValidator],
+                              null=True, blank=True, help_text="Email address of the user.")
+    
+    replied_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name='user_reply')
     subject = models.CharField(max_length=150, choices=ENQUIRY_CHOICES, default='Other')
     enquiry_msg = models.TextField(blank=True, null=True)
     enquiry_reply = models.TextField(blank=True, null=True)
@@ -313,9 +347,19 @@ class Enquiry(models.Model):
 
     class Meta:
         ordering = ('created',)
+##
+##    def __str__(self):
+##        return 'Reply by {} on {}'.format(self.replied_by, self.user)
+
+class Subscriber(models.Model):
+    email = models.EmailField(validators=[EmailValidator])
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return 'Reply by {} on {}'.format(self.replied_by, self.user)
+        return self.email
+    
 
 
 class AboutUs(models.Model):
@@ -407,3 +451,34 @@ class FAQs(models.Model):
 
     def __str__(self):
         return self.title
+
+class CountryDetails(models.Model):
+    country_name = models.CharField(max_length=150, blank=True, null=True)
+    country_short_name = models.CharField(max_length=20, blank=True, null=True)
+    country_phone_code = models.CharField(max_length=10, blank=True, null=True)
+    country_details = models.JSONField(blank=True, null=True)
+
+    def __str__(self):
+        return self.country_name
+
+
+class UserNotification(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
+    send_by = models.ForeignKey(User, on_delete=models.CASCADE,
+                                blank=True, null=True, related_name='sender_notifications')
+    notification_type =  models.CharField(max_length=50, choices=NOTIFICATION_TYPE, default='GENERAL')
+    title = models.CharField(max_length=150, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    is_read = models.BooleanField(default=False)
+    redirect_url = models.TextField(blank=True, null=True)
+    image_link = models.TextField(blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created"]
+
+    def __str__(self):
+        return self.user.email
+
+    

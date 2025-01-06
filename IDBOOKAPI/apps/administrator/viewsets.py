@@ -26,15 +26,29 @@ from apps.authentication.models import User, Role
 # from payment_gateways.models import *
 
 from .models import available_permission_queryset
-from .serializers import UserSerializer, RoleSerializer, PermissionSerializer
+from .serializers import UserSerializer, RoleSerializer, PermissionSerializer, UserAdminListSerializer
 
 
 class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [HasRoleModelPermission]
+    # permission_classes = [HasRoleModelPermission]
+    permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'put', 'patch']
     lookup_field = 'mobile_number'
+
+    action_serializers = {
+        'retrieve': UserSerializer,
+        'list': UserAdminListSerializer,
+        'create': UserSerializer,
+        'update': UserSerializer
+    }
+
+    def get_serializer_class(self):
+        if hasattr(self, 'action_serializers'):
+            return self.action_serializers.get(self.action, self.serializer_class)
+
+        return super(UserViewSet, self).get_serializer_class()
 
     def get_object(self):
         queryset = self.get_queryset()
@@ -111,6 +125,14 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        user = request.user
+        company_id = user.company_id
+        category = request.GET.get('category', '')
+        if category:
+            if category == 'CL-CUST' and company_id:
+                self.queryset = self.queryset.filter(category=category, company_id=company_id)
+            else:
+                self.queryset = self.queryset.filter(category=category)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -160,6 +182,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
 
 
 class RoleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

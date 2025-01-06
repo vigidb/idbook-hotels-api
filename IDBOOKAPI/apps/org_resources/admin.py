@@ -8,7 +8,8 @@ from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, RoomType, Occupancy, Enquiry, BankDetail,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
-    TermsAndConditions, Legality, Career, FAQs
+    TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
+    Subscriber
 )
 
 
@@ -22,7 +23,8 @@ admin.site.register(RoomType, RoomTypeAdmin)
 
 
 class CompanyDetailAdmin(admin.ModelAdmin):
-    list_display = ('company_name', 'company_phone', 'company_email', 'district', 'state', 'country', 'pin_code')
+    list_display = ('company_name', 'company_phone', 'company_email', 'district', 'state',
+                    'country', 'pin_code', 'contact_email_address')
     search_fields = ('company_name', 'company_phone', 'company_email', 'district', 'state', 'country', 'pin_code')
     list_filter = ('state', 'country')
 
@@ -67,6 +69,8 @@ class BankDetailAdmin(admin.ModelAdmin):
 admin.site.register(BankDetail, BankDetailAdmin)
 
 admin.site.register(Enquiry)
+admin.site.register(Subscriber)
+admin.site.register(Address)
 admin.site.register(AboutUs)
 admin.site.register(PrivacyPolicy)
 admin.site.register(RefundAndCancellationPolicy)
@@ -74,3 +78,6 @@ admin.site.register(TermsAndConditions)
 admin.site.register(Legality)
 admin.site.register(Career)
 admin.site.register(FAQs)
+admin.site.register(CountryDetails)
+admin.site.register(UserNotification)
+

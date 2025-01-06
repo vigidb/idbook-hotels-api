@@ -6,7 +6,9 @@ from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 # from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from .models import (
-    Property, Room, Gallery, Review, FinancialDetail
+    Property, Room, Gallery, FinancialDetail,
+    HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
+    RoomGallery, PropertyGallery
 )
 
 
@@ -19,13 +21,19 @@ admin.site.register(Property, PropertyAdmin)
 
 
 class RoomAdmin(admin.ModelAdmin):
-    list_display = ('custom_id', 'room_type', 'price_for_4_hours', 'availability')
-    list_filter = ('room_type', 'availability')
-    search_fields = ('property__name', 'room_type__name', 'price_for_4_hours')
+    list_display = ('custom_id', 'room_type')
+    list_filter = ('room_type',)
+    # search_fields = ('property__name', 'room_type__name')
 
 
 admin.site.register(Room, RoomAdmin)
 
 admin.site.register(Gallery)
-admin.site.register(Review)
+# admin.site.register(Review)
 admin.site.register(FinancialDetail)
+admin.site.register(HotelAmenity)
+admin.site.register(HotelAmenityCategory)
+admin.site.register(RoomAmenity)
+admin.site.register(RoomAmenityCategory)
+admin.site.register(RoomGallery)
+admin.site.register(PropertyGallery)

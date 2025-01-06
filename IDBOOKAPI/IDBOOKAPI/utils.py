@@ -3,7 +3,31 @@ import random
 import string
 import datetime
 import re
+from django.utils import timezone
+from decimal import Decimal
+import calendar
 
+import time
+
+
+def get_current_date():
+    current_date = timezone.now()
+    return current_date
+
+def get_unique_id_from_time(append_id):
+    epoch = time.time()
+    unique_id = "%s%d" % (append_id, epoch)
+    return unique_id
+    
+
+def last_calendar_month_day(date):
+    day = None
+    try:
+        day = calendar.monthrange(date.year, date.month)[1]
+    except Exception as e:
+        print(e)
+    return day
+    
 
 def random_string_generator(size=10, chars=string.ascii_lowercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
@@ -164,6 +188,46 @@ def format_tour_duration(input_str):
 
     return None
 
+def paginate_queryset(request, queryset):
+    offset = int(request.query_params.get('offset', 0))
+    limit = int(request.query_params.get('limit', 10))
+
+    count = queryset.count()
+    queryset = queryset[offset:offset+limit]
+
+    return count, queryset
+
+def calculate_tax(tax_in_percent, amount):
+    tax_amount = (tax_in_percent * amount) / 100
+    return tax_amount
+
+def get_days_from_string(start_date: str, end_date: str, string_format='%Y-%m-%d'):
+    try:
+        #string_format = "%Y-%m-%dT%H:%M%z"
+        
+        start_date = datetime.datetime.strptime(start_date, string_format).date()
+        end_date = datetime.datetime.strptime(end_date, string_format).date()
+        
+        diff_date = end_date - start_date
+        
+        return diff_date.days
+    except Exception as e:
+        print(e)
+        return None
+    
+    
+    
+
+##def quantize_decimal_value(value: Decimal):
+##    try:
+##        if value == value.to_integral():
+##            return value.quantize(Decimal(1))
+##        else:
+##            return value.normalize()
+##    except Exception as e:
+##        print("Error in decimal conversion::", e)
+##        return value
+
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 
@@ -182,6 +246,12 @@ def find_state(district_name):
         if district_name.title() in state_data["districts"]:
             return state_data["state"]
     return None
+
+def default_address_json():
+    address_json = {"building_or_hse_no": "",
+                    "pincode":"", "coordinates":{"lat":"", "lng":""},
+                    "location_url": ""}
+    return address_json
 
 
 # Example usage

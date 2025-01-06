@@ -5,11 +5,22 @@ from django.db import models
 from decimal import Decimal
 from django.urls import reverse
 from django.db.models.signals import post_save, pre_save
+
 from apps.coupons.models import Coupon
 from apps.authentication.models import User
 from apps.hotels.models import Property, Room
 from apps.customer.models import Customer
-from IDBOOKAPI.basic_resources import BOOKING_STATUS_CHOICES, TIME_SLOTS, ROOM_CHOICES
+from apps.holiday_package.models import TourPackage
+from apps.vehicle_management.models import VehicleDetail
+from apps.org_resources.models import CompanyDetail
+
+from IDBOOKAPI.basic_resources import (
+    BOOKING_STATUS_CHOICES, TIME_SLOTS,
+    ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
+    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS)
+
+from IDBOOKAPI.basic_resources import(
+    PAYMENT_TYPE, PAYMENT_MEDIUM)
 
 
 # class BookingManager(models.Manager):
@@ -26,25 +37,168 @@ from IDBOOKAPI.basic_resources import BOOKING_STATUS_CHOICES, TIME_SLOTS, ROOM_C
 #             pass
 #         return obj, created
 
+# confirmed_room_details = [{"room_id": 2, "price": 2400, "no_of_rooms": 2, "tax_in_percent": 12, "tax_amount":1200 }]
+
+
+def default_confirmed_room_json():
+    confirmed_room_json = [{"room_id": 0, "room_type":"", "price": "", "no_of_rooms": 0,
+                      "tax_in_percent": 0, "tax_amount": 0, "total_tax_amount": 0,
+                      "no_of_days": 0, "total_room_amount":0, "final_room_total": 0,
+                      "booking_slot":0}]
+    return confirmed_room_json
+
+
+class HotelBooking(models.Model):
+    enquired_property = models.CharField(max_length=255, null=True, blank=True)
+    confirmed_property = models.ForeignKey(Property, on_delete=models.DO_NOTHING,
+                                           null=True, blank=True,
+                                           verbose_name="booking_property")
+    room = models.ForeignKey(Room, on_delete=models.DO_NOTHING,
+                             null=True, blank=True,
+                             verbose_name="booking_room")
+    booking_slot = models.CharField(max_length=25, choices=TIME_SLOTS,
+                                    default='24 Hrs', help_text="booking type.")
+    
+    room_type = models.CharField(max_length=25, choices=ROOM_CHOICES,
+                                 default='DELUXE', help_text="booked room type.")
+    checkin_time = models.DateTimeField(blank=True, null=True,
+                                        help_text="Check-in time for the property.")
+    checkout_time = models.DateTimeField(blank=True, null=True,
+                                         help_text="Check-out time for the property.")
+    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
+
+    requested_room_no = models.PositiveIntegerField(default=1, help_text="Requested room count")
+    confirmed_room_details = models.JSONField(null=True, default=default_confirmed_room_json)
+    confirmed_checkin_time = models.DateTimeField(
+        blank=True, null=True, help_text="Confirmed Check-in time for the property.")
+    confirmed_checkout_time = models.DateTimeField(
+        blank=True, null=True, help_text="Confirmed Check-out time for the property.")
+##    room_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the room.")
+    
+
+class HolidayPackageBooking(models.Model):
+    no_days = models.PositiveIntegerField(default=0, help_text="planned days")
+    available_start_date = models.DateTimeField(null=True, blank=True) 
+    enquired_holiday_package = models.CharField(max_length=255, null=True, blank=True)
+    confirmed_holiday_package = models.ForeignKey(TourPackage, on_delete=models.DO_NOTHING,
+                                                  null=True, blank=True, verbose_name="holiday_package")
+##    holidaypack_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Holiday Package Price")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the Holiday package.")
+    
+
+
+class VehicleBooking(models.Model):
+    pickup_addr = models.CharField(max_length=255, null=True, blank=True)
+    dropoff_addr = models.CharField(max_length=255, null=True, blank=True)
+    pickup_time = models.DateTimeField(blank=True, null=True, help_text="Pickup date and time")
+    vehicle_type = models.CharField(max_length=25, choices=VEHICLE_TYPE,
+                                    default='CAR', help_text="vehicle type.")
+    
+    confirmed_vehicle = models.ForeignKey(
+        VehicleDetail, on_delete=models.DO_NOTHING,
+        null=True, blank=True, verbose_name="confirmed_vehicle_booking")
+##    vehicle_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Vehicle Rental Price.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for the vehicle rental.")
+
+
+    def __str__(self):
+        return str(self.id)
+
+    class Meta:
+        verbose_name_plural = 'VehicleBookings'
+    
+
+class FlightBooking(models.Model):
+    flight_no = models.CharField(max_length=50, default='', blank=True)
+    flight_trip = models.CharField(max_length=25, choices=FLIGHT_TRIP,
+                                   default='ROUND', help_text="flight trip (one-way or round).")
+    flight_class  = models.CharField(max_length=25, choices=FLIGHT_CLASS,
+                                   default='ECONOMY', help_text="flight class")
+    departure_date = models.DateTimeField(null=True, blank=True, help_text="Departure Date")
+    arrival_date = models.DateTimeField(null=True, blank=True, help_text="Arrival Date")
+    return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
+    return_arrival_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
+    
+    flying_from = models.CharField(max_length=255, null=True, blank=True)
+    flying_to = models.CharField(max_length=255, null=True, blank=True)
+    return_from = models.CharField(max_length=255, null=True, blank=True)
+    return_to = models.CharField(max_length=255, null=True, blank=True)
+##    flight_subtotal = models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
+##    service_tax =  models.DecimalField(
+##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
+    flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
+    
+    def __str__(self):
+        return str(self.id)
+
+    class Meta:
+        verbose_name_plural = 'FlightBookings'
+    
+
 
 class Booking(models.Model):
-    property = models.ForeignKey(Property, on_delete=models.DO_NOTHING, verbose_name="booking_property")
-    room = models.ForeignKey(Room, on_delete=models.DO_NOTHING, verbose_name="booking_room")
-    user = models.ForeignKey(User, on_delete=models.DO_NOTHING, verbose_name="booking_user")
-    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, verbose_name="booking_coupon")
 
-    booking_type = models.CharField(max_length=25, choices=TIME_SLOTS, default='24 HOURS', help_text="booking type.")
-    room_type = models.CharField(max_length=25, choices=ROOM_CHOICES, default='DELUXE', help_text="booked room type.")
-    checkin_time = models.DateField(auto_now=False, auto_now_add=False, help_text="Check-in time for the property.")
-    checkout_time = models.DateField(auto_now=False, auto_now_add=False, help_text="Check-out time for the property.")
-    bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
-    person_capacity = models.PositiveSmallIntegerField(default=1, help_text="adults count")
-    child_capacity = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    user = models.ForeignKey(User, on_delete=models.DO_NOTHING,
+                             null=True, blank=True,
+                             verbose_name="booking_user")
+    company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING,
+                                null=True)
+    reference_code = models.CharField(max_length=500, null=True, blank=True)
+    confirmation_code = models.CharField(max_length=500, null=True, blank=True)
+    invoice_id = models.CharField(max_length=500, null=True, blank=True)
 
-    deal_price = models.DecimalField(max_digits=10, decimal_places=2)
-    discount = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
-    final_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
+                                    default='HOTEL', help_text="booking type.")
+    hotel_booking = models.ForeignKey(HotelBooking, on_delete=models.DO_NOTHING,
+                                      null=True, blank=True,
+                                      verbose_name="hotel_booking")
+    holiday_package_booking = models.ForeignKey(HolidayPackageBooking, on_delete=models.DO_NOTHING,
+                                                null=True, blank=True,
+                                                verbose_name="hotel_package_booking")
+    vehicle_booking = models.ForeignKey(VehicleBooking, on_delete=models.DO_NOTHING,
+                                        null=True, blank=True, verbose_name="vehicle_booking")
+    flight_booking = models.ForeignKey(FlightBooking, on_delete=models.DO_NOTHING,
+                                        null=True, blank=True, verbose_name="flight_booking")
+    
+
+    adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
+    child_count = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    child_age_list = models.JSONField(null=True, default=list)
+    infant_count = models.PositiveSmallIntegerField(default=0, help_text="infant count")
+
+    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL,
+                               null=True, blank=True,
+                               verbose_name="booking_coupon")
+
+    # deal_price = models.DecimalField(default=0, decimal_places=6)
+    coupon_code = models.CharField(max_length=20, blank=True, default='')
+    discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+
+    subtotal = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="Price for the booking")
+    gst_percentage = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="GST % for the booking")
+    gst_amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=6, help_text="GST amount for the booking")
+    gst_type = models.CharField(max_length=25, choices=GST_TYPE, default='', blank=True, help_text="GST Type")
+    service_tax =  models.DecimalField(default=0.0, max_digits=15, decimal_places=6,
+                                       help_text="Service tax for the booking")
+    
+    final_amount = models.DecimalField(default=0, max_digits=15, decimal_places=6,
+                                       help_text="Final amount after considering gst, discount")
+    total_payment_made = models.DecimalField(
+        max_digits=15, decimal_places=6, default=0.0, help_text="Total Payment made")
+    
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
+    on_hold_end_time = models.DateTimeField(null=True)
+    
+    description = models.TextField(default='', blank=True)
+    additional_notes = models.TextField(default='', blank=True)
 
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
@@ -52,6 +206,33 @@ class Booking(models.Model):
 
     # objects = BookingManager()
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.cached_status = self.status
+
+class HolidayPackageHotelDetail(models.Model):
+    hotel_booking = models.ForeignKey(HotelBooking, on_delete=models.DO_NOTHING,
+                                 null=True, blank=True,
+                                 verbose_name="hotel_booking")
+    holiday_package_booking = models.ForeignKey(HolidayPackageBooking, on_delete=models.DO_NOTHING,
+                                 null=True, blank=True,
+                                 verbose_name="holiday_package_booking")
+
+
+class BookingPaymentDetail(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_payment')
+    merchant_transaction_id = models.CharField(max_length=150, unique=True)
+    transaction_id = models.CharField(max_length=150, blank=True, default='')
+    code = models.CharField(max_length=50, blank=True, default='')
+    message = models.CharField(max_length=150, blank=True, default='')
+    payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, null=True)
+    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, null=True)
+    amount = models.DecimalField(null=True, max_digits=15, decimal_places=6)
+    is_transaction_success = models.BooleanField(default=False)
+    transaction_details = models.JSONField(null=True, default=dict)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
 
 class AppliedCoupon(models.Model):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='coupon_applied')
@@ -60,6 +241,64 @@ class AppliedCoupon(models.Model):
 
     def __str__(self):
         return f"{self.coupon.code} applied to {self.booking}"
+
+    
+class TaxRule(models.Model):
+    booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
+                                    default='HOTEL', help_text="booking type.")
+    math_compare_symbol = models.CharField(max_length=50, choices=MATH_COMPARE_SYMBOLS,
+                                    default='EQUALS', help_text="for comparison")
+    tax_rate_in_percent = models.DecimalField(default=0, max_digits=6, decimal_places=2,
+                                       help_text="gst rate in percent")
+    amount1 = models.PositiveIntegerField()
+    amount2 = models.PositiveIntegerField(null=True)
+    created = models.DateTimeField(auto_now_add=True, null=True)
+    updated = models.DateTimeField(auto_now=True, null=True)
+
+def default_property_review_json():
+    property_review_json = {"check_in_rating":0, "food_rating":0, "cleanliness_rating":0,
+                            "comfort_rating":0, "hotel_staff_rating":0 ,
+                            "facilities_rating":0, "body":""}
+    return property_review_json
+
+def default_agency_review_json():
+    agency_review_json = {"booking_experience_rating":0, "cancellation_experience_rating": 0,
+                          "search_property_experience_rating":0, "body":""}
+
+class Review(models.Model):
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, null=True,
+                                 related_name='property_review',
+                                 help_text="Select the property for which this review is submitted.")
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, null=True, related_name='booking_review')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name='user_review')
+##    name = models.CharField(max_length=80, help_text="Name of the person submitting the review.")
+##    email = models.EmailField(help_text="Email of the person submitting the review.")
+    
+##    body = models.TextField(help_text="Body of the review text.")
+
+##    check_in_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for check-in experience.")
+##    breakfast = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for breakfast quality.")
+##    cleanliness = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for cleanliness.")
+##    comfort = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for comfort.")
+##    hotel_staff = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for hotel staff service.")
+##    facilities = models.DecimalField(max_digits=3, decimal_places=2, help_text="Rating for facilities provided.")
+    property_review = models.JSONField(default=default_property_review_json)
+    overall_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the booked service.")
+
+    agency_review = models.JSONField(default=default_agency_review_json)
+    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the agency.")
+
+    created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the review was created.")
+    updated = models.DateTimeField(auto_now=True, help_text="Date and time when the review was last updated.")
+    active = models.BooleanField(default=True, help_text="Whether the review is active.")
+
+    class Meta:
+        ordering = ('created',)
+
+##    def __str__(self):
+##        return 'Review by {} on {}'.format(self.name, self.property.name)
+
+    
 
     # def __str__(self):
     #     if self.full_name:

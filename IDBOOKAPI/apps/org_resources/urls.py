@@ -9,6 +9,7 @@ router.register(r'upload-media', UploadedMediaViewSet, basename='upload_media')
 router.register(r'amenity-categories', AmenityCategoryViewSet, basename='amenity_category')
 router.register(r'amenities', AmenityViewSet, basename='amenity')
 router.register(r'enquiries', EnquiryViewSet, basename='enquiry')
+router.register(r'subscriber', SubscriberViewset, basename='subscriber')
 router.register(r'room-types', RoomTypeViewSet, basename='room_types')
 router.register(r'occupancies', OccupancyViewSet, basename='occupancies')
 router.register(r'addresses', AddressViewSet, basename='addresses')
@@ -19,6 +20,8 @@ router.register(r'terms-and-conditions', TermsAndConditionsViewSet, basename='te
 router.register(r'legality', LegalityViewSet, basename='legality')
 router.register(r'career', CareerViewSet, basename='career')
 router.register(r'faqs', FAQsViewSet, basename='faqs')
+router.register(r'country-details', CountryDetailsViewSet, basename='country_details')
+router.register(r'notification', UserNotificationViewSet, basename='user_notifications')
 
 urlpatterns = [
     path('get-state-and-district/<str:query>/', GetDistrictStateView.as_view(), name='district-state'),

@@ -7,6 +7,23 @@ IMAGE_TYPE_CHOICES = (
     ('SURROUNDING', 'SURROUNDING'),
 )
 
+PROPERTY_TYPE = (
+    ('Hotel', 'Hotel'),
+    ('Cottage', 'Cottage'),
+    ('Villa', 'Villa'),
+    ('Cabin', 'Cabin'),
+    ('Farmstay', 'Farmstay'),
+    ('Houseboat', 'Houseboat'),
+    ('Lighthouse', 'Lighthouse'),
+)
+
+RENTAL_FORM = (
+    ('entire place', 'entire place'),
+    ('private room', 'private room'),
+    ('share room', 'share room'),
+)
+    
+
 ROOM_CHOICES = (
     ('DELUXE', 'DELUXE'),
     ('CLASSIC', 'CLASSIC'),
@@ -14,9 +31,14 @@ ROOM_CHOICES = (
 )
 
 ROOM_VIEW_CHOICES = (
-    ('SEA VIEW', 'DELUXE'),
-    ('RIVER VIEW', 'CLASSIC'),
-    ('VALLEY VIEW', 'PREMIUM'),
+    ('SEA VIEW', 'SEA VIEW'),
+    ('RIVER VIEW', 'RIVER VIEW'),
+    ('VALLEY VIEW', 'VALLEY VIEW'),
+)
+
+ROOM_MEASUREMENT = (
+    ('square feet', 'square feet'),
+    ('square meter', 'square meter'),
 )
 
 BED_TYPE_CHOICES = (
@@ -25,11 +47,35 @@ BED_TYPE_CHOICES = (
     ('SINGLE', 'SINGLE'),
 )
 
+BOOKING_TYPE = (
+    ('HOLIDAYPACK', 'HOLIDAYPACK'),
+    ('HOTEL', 'HOTEL'),
+    ('VEHICLE', 'VEHICLE'),
+    ('FLIGHT', 'FLIGHT'),
+)
+
+VEHICLE_TYPE = (
+    ('CAR', 'CAR'),
+    ('TRAVELLER', 'TRAVELLER'),
+    ('BUS', 'BUS')
+)
+
+FLIGHT_TRIP = (
+    ('ONE-WAY', 'ONE-WAY'),
+    ('ROUND', 'ROUND'),
+)
+
+FLIGHT_CLASS = (
+    ('ECONOMY', 'ECONOMY'),
+    ('BUSINESS', 'BUSINESS'),
+    ('FIRST', 'FIRST'),
+) 
+
 TIME_SLOTS = (
-    ('4 HOURS', 4),
-    ('8 HOURS', 8),
-    ('12 HOURS', 12),
-    ('24 HOURS', 24),
+    ('4 Hrs', '4 Hrs'),
+    ('8 Hrs', '8 Hrs'),
+    ('12 Hrs', '12 Hrs'),
+    ('24 Hrs', '24 Hrs'),
     # ('NIGHTLY', 0),
 )
 
@@ -56,25 +102,46 @@ BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
         ('canceled', 'Canceled'),
         ('completed', 'Completed'),
         ('no_show', 'No Show'),
+        ('on_hold', 'On Hold')
     )
+##TOUR_DURATION_CHOICES = (
+##    ("1N/2D", '1N/2D'),
+##    (2, "2N/3D"),
+##    (3, "3N/4D"),
+##    (4, "4N/5D"),
+##    (5, "5N/6D"),
+##    (6, "6N/7D"),
+##    (7, "7N/8D"),
+##    (8, "8N/9D"),
+##    (9, "9N/10D"),
+##    (10, "10N/11D"),
+##    (11, "11N/12D"),
+##    (12, "12N/13D"),
+##    (13, "13N/14D"),
+##    (14, "14N/15D"),
+##    (15, "15N/16D"),
+##    (16, "16N/17D"),
+##    (17, "17N/18D"),
+##)
+
 TOUR_DURATION_CHOICES = (
-    (1, "1N/2D"),
-    (2, "2N/3D"),
-    (3, "3N/4D"),
-    (4, "4N/5D"),
-    (5, "5N/6D"),
-    (6, "6N/7D"),
-    (7, "7N/8D"),
-    (8, "8N/9D"),
-    (9, "9N/10D"),
-    (10, "10N/11D"),
-    (11, "11N/12D"),
-    (12, "12N/13D"),
-    (13, "13N/14D"),
-    (14, "14N/15D"),
-    (15, "15N/16D"),
-    (16, "16N/17D"),
-    (17, "17N/18D"),
+    ("1N/2D", '1N/2D'),
+    ("2N/3D", "2N/3D"),
+    ("3N/4D", "3N/4D"),
+    ("4N/5D", "4N/5D"),
+    ("5N/6D", "5N/6D"),
+    ("6N/7D", "6N/7D"),
+    ("7N/8D", "7N/8D"),
+    ("8N/9D", "8N/9D"),
+    ("9N/10D", "9N/10D"),
+    ("10N/11D", "10N/11D"),
+    ("11N/12D", "11N/12D"),
+    ("12N/13D", "12N/13D"),
+    ("13N/13D", "13N/14D"),
+    ("14N/13D", "14N/15D"),
+    ("15N/13D", "15N/16D"),
+    ("16N/13D", "16N/17D"),
+    ("17N/13D", "17N/18D"),
 )
 
 INCLUSION_EXCLUSION_CHOICES = (
@@ -100,6 +167,18 @@ COUPON_TYPES = (
         ('bulk', 'Bulk Booking Discount'),
         # Add more types as needed
 )
+
+PAYMENT_TYPE = (
+    ('PAYMENT GATEWAY', 'PAYMENT GATEWAY'),
+    ('WALLET', 'WALLET'),
+    ('NBFC', 'NBFC'),
+)
+
+PAYMENT_MEDIUM = (
+    ('PHONE PAY', 'PHONE PAY'),
+    ('Idbook', 'Idbook'),
+)
+
 PAYMENT_STATUS_CHOICES = (
     ("Pending", "Pending"),
     ("On Process", "On Process"),
@@ -1097,3 +1176,66 @@ COUNTRY_CHOICES = (
    ("INDIA", "INDIA"), ("NEPAL", "NEPAL"), ("BHUTAN", "BHUTAN"), ("CHINA", "CHINA"), ("UAE", "UAE"),
    ("MALDIVES", "MALDIVES"),
 )
+OTP_TYPE_CHOICES = (
+    ('MOBILE', 'MOBILE'),
+    ('EMAIL', 'EMAIL'),
+)
+
+CUSTOMER_GROUP = (
+    ('ORG', 'ORG'),
+    ('ADMIN', 'ADMIN'),
+    ('DEFAULT', 'DEFAULT'),
+)
+
+NOTIFICATION_TYPE = (
+    ('GENERAL', 'GENERAL'),
+    ('OFFERS', 'OFFERS'),
+    ('BOOKING', 'BOOKING')
+)
+
+GST_TYPE = (
+    ('', ''),
+    ('IGST', 'IGST'),
+    ('CGST/SGST', 'CGST/SGST')
+)
+
+DISCOUNT_TYPE = (
+    ('AMOUNT', 'AMOUNT'),
+    ('PERCENT', 'PERCENT')
+)
+
+MATH_COMPARE_SYMBOLS = (
+    ('EQUALS', 'EQUALS'),
+    ('LESS-THAN', 'LESS-THAN'),
+    ('LESS-THAN-OR-EQUALS', 'LESS-THAN-OR-EQUALS'),
+    ('GREATER-THAN', 'GREATER-THAN'),
+    ('GREATER-THAN-OR-EQUALS', 'GREATER-THAN-OR-EQUALS'),
+    ('BETWEEN', 'BETWEEN')  
+)
+
+HOTEL_STATUS = (
+    ('Active', 'Active'),
+    ('In-Active', 'In-Active'),
+    ('In-Progress','In-Progress'),
+    ('Completed','Completed'),
+)
+
+MEAL_OPTIONS = (
+    ('Accomodation only', 'Accomodation only'),
+    ('Free Breakfast','Free Breakfast'),
+    ('Free Breakfast and Lunch', 'Free Breakfast and Lunch'),
+    ('Free Breakfast and Dinner', 'Free Breakfast and Dinner'),
+    ('Free Breakfast, Lunch and Dinner', 'Free Breakfast, Lunch and Dinner'),
+    ('Free Breakfast, Lunch, Dinner and Custom Inclusions', 'Free Breakfast, Lunch, Dinner and Custom Inclusions'),
+)
+
+EXTRA_BED_TYPE = (
+    ('Mattress', 'Mattress'),
+    ('Cot', 'Cot'),
+    ('Sofa cum bed', 'Sofa cum bed'),
+)
+    
+    
+
+    
+    
