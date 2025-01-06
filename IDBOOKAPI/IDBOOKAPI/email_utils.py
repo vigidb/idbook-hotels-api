@@ -72,3 +72,7 @@ def send_booking_email_with_attachment(subject, file, to_emails, html_content):
     msg.content_subtype = 'html'
     status = msg.send()
     print(status)
+
+def send_email(subject, message, to_emails:list, from_email):
+    status = send_mail(subject, message, from_email, to_emails)
+    print("email status::", status)

@@ -25,12 +25,16 @@ from .models import RoomGallery, PropertyGallery
 from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
+from apps.booking.utils.db_utils import change_onhold_status
+from apps.analytics.utils.db_utils import create_or_update_property_count
 
 from rest_framework.decorators import action
 
 from django.db.models import Q
 
 from datetime import datetime
+
+from functools import reduce
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -60,6 +64,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
+    def property_json_filter_ops(self):
+        property_amenity = self.request.query_params.get('property_amenity', '')
+        room_amenity = self.request.query_params.get('room_amenity', '')
+
+        if property_amenity:
+            query_prop_amenity = Q()
+
+            property_amenity_list = property_amenity.split(',')
+
+            for prop_amenity in property_amenity_list:
+                query_prop_amenity &= Q(
+                    amenity_details__contains=[{'hotel_amenity':[
+                        {'title': prop_amenity.strip(), 'detail':[{'Yes': []}] }] }])
+
+            self.queryset = self.queryset.filter(query_prop_amenity)
+##        self.queryset = self.queryset.filter(
+##            Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Laundry', 'detail':[{'Yes': []}] }] }])
+##            & Q(amenity_details__contains=[{'hotel_amenity':[{'title':'Air Conditioning', 'detail':[{'Yes': []}] }] }]))
+
+        if room_amenity:
+            property_list = hotel_db_utils.filter_property_by_room_amenity(room_amenity)
+            self.queryset = self.queryset.filter(id__in=property_list)
+            
+
 
     def property_filter_ops(self):
         filter_dict = {}
@@ -75,9 +103,31 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             if key == 'location':
                 loc_list = param_value.split(',')
-                self.queryset = self.queryset.filter(
-                    Q(country__in=loc_list) | Q(state__in=loc_list)
-                    | Q(city_name__in=loc_list) | Q(area_name__in=loc_list))
+                    
+##                self.queryset = self.queryset.filter(
+##                    Q(country__in=loc_list) | Q(state__in=loc_list)
+##                    | Q(city_name__in=loc_list) | Q(area_name__in=loc_list))
+
+##                query = reduce(lambda a, b: a | b,
+##                               (Q(country=loc.strip()) | Q(state=loc.strip())
+##                                | Q(city_name=loc.strip())
+##                                | Q(area_name__icontains=loc.strip()) for loc in loc_list),)
+
+                query = reduce(lambda a, b: a | b,
+                               (Q(area_name__icontains=loc.strip())
+                                | Q(city_name=loc.strip())
+                                | Q(state=loc.strip())
+                                | Q(country=loc.strip())  for loc in loc_list),)
+
+##                query = reduce(lambda a, b: a | b,
+##                               (Q(city_name=loc) for loc in loc_list),)
+##                print("query::", query)
+                self.queryset = self.queryset.filter(query)
+                
+##                self.queryset = self.queryset.filter(
+##                    Q(country__icontains=param_value) | Q(state__icontains=param_value)
+##                    | Q(city_name__icontains=param_value) | Q(area_name__icontains=param_value))
+                print("queryset::", self.queryset.query)
             if key == 'user':
                 filter_dict['added_by'] = param_value
 
@@ -97,6 +147,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             print("property list", property_list)
             self.queryset = self.queryset.filter(id__in=property_list)
 
+        # filter based on slot based property
+        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
+        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
+        
+        if is_slot_price_enabled:
+            property_slot_list = hotel_db_utils.get_slot_price_enabled_property()
+            self.queryset = self.queryset.filter(id__in=property_slot_list)
+
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
 
@@ -105,16 +163,36 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def checkin_checkout_based_filter(self):
         checkin_date = self.request.query_params.get('checkin', '')
         checkout_date = self.request.query_params.get('checkout', '')
+##        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
+##        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
+        
+        print("checkin_date::", checkin_date)
+        
         available_property_dict = {} 
 
         if checkin_date and checkout_date:
-            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
-            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
-
-            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date)
+            
+##            if not is_slot_price_enabled:
+##                checkin_date = datetime.strptime(checkin_date, '%Y-%m-%d').date()
+##                checkout_date = datetime.strptime(checkout_date, '%Y-%m-%d').date()
+##            else:
+##                checkin_date = checkin_date.replace(' ', '+')
+##                checkout_date = checkout_date.replace(' ', '+')
+##                checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
+##                checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
+            
+            checkin_date = checkin_date.replace(' ', '+')
+            checkout_date = checkout_date.replace(' ', '+')
+            checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
+            checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
+            
+            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
+            # print("booked hotel dict::", booked_hotel_dict)
             # property details from booking 
             nonavailable_property_list, available_property_dict = \
                                         hotel_utils.get_available_property(booked_hotel_dict)
+##            print("Non available property list::", nonavailable_property_list)
+##            print("available property list::", available_property_dict)
 
             
             # exclude non available property list
@@ -220,9 +298,13 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         favorite_list = []
+
+        # update the on hold status to pending 
+        change_onhold_status()
         
         # apply property filter
         self.property_filter_ops()
+        self.property_json_filter_ops()
         # filter for checkin checkout
         available_property_dict = self.checkin_checkout_based_filter()
 
@@ -236,7 +318,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                              'rental_form', 'review_star', 'review_count',
                                              'additional_fields', 'area_name',
                                              'city_name', 'state', 'country',
-                                             'rating', 'status', 'current_page')
+                                             'rating', 'status', 'current_page',
+                                             'address')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
@@ -256,6 +339,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        user_id = request.user.id
 
 ##        print("-----", request.data.get('sample'))
 ##        available_rooms = self.request.query_params.get('available_rooms')
@@ -287,6 +371,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
 
             )
+            property_id = response.data.get('id', None)
+            if user_id and property_id:
+                create_or_update_property_count(property_id, user_id)
         else:
             # If the response status code is not OK, it's an error
             custom_response = self.get_error_response(message="Error Occured", status="error",
@@ -477,66 +564,118 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def get_location_suggestion(self, request):
         location = self.request.query_params.get('location', '')
         autosuggest_list = []
-        
-        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
-        if area_queryset.count():
-            obj_list = area_queryset.values('area_name', 'city_name', 'state', 'country').distinct(
-                'area_name', 'city_name', 'state', 'country').order_by('area_name', 'city_name')
+        autosuggest_dict = {}
 
-            for obj_dict in obj_list:
-                autosuggest_data = f"{obj_dict.get('area_name', '')}, {obj_dict.get('city_name', '')}, \
-{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
-                autosuggest_list.append(autosuggest_data)
-            
-            response = self.get_response(
-                data=autosuggest_list, count=len(autosuggest_list), status="success",
-                message="Location Autosuggest", status_code=status.HTTP_200_OK)
-            return response
+
 
         # city highlighted queryset
-        city_queryset = self.queryset.filter(city_name__icontains=location).exclude(state='', country='')
-        if city_queryset.count():
-            obj_list = city_queryset.values('city_name', 'state', 'country').distinct(
+        location_queryset = self.queryset.filter(Q(city_name__icontains=location)
+                                                 | Q(state__icontains=location)
+                                                 | Q(country__icontains=location)).exclude(state='', country='')
+        if location_queryset.count():
+            obj_list = location_queryset.values('city_name', 'state', 'country').distinct(
                 'city_name', 'state', 'country').order_by('city_name')
             
             for obj_dict in obj_list:
-                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
-                autosuggest_list.append(autosuggest_data)
+                    
+                country = obj_dict.get('country', '')
+                state = obj_dict.get('state', '')
+                city_name = obj_dict.get('city_name', '')
+                
+                if autosuggest_dict.get(country, {}):
+                    country_dict = autosuggest_dict.get(country, {})
+                    if country_dict.get(state, {}):
+                        country_dict[state].append(city_name)
+                    else:
+                        country_dict[state] = [city_name]
+                else:
+                    autosuggest_dict = {country: {state:[city_name]}}
+
+
+                
+##                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+##                autosuggest_list.append(autosuggest_data)
             
             response = self.get_response(
-                data=autosuggest_list, count=len(autosuggest_list), status="success",
+                data=autosuggest_dict, count=1, status="success",
                 message="Location Autosuggest", status_code=status.HTTP_200_OK)
             return response
-
-        state_queryset = self.queryset.filter(state__icontains=location).exclude(country='')
-        if state_queryset.count():
-            obj_list = state_queryset.values('state', 'country').distinct(
-                'state', 'country').order_by('state')
-
-            for obj_dict in obj_list:
-                autosuggest_data = f"{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
-                autosuggest_list.append(autosuggest_data)
-
-            response = self.get_response(
-                data=autosuggest_list, count=len(autosuggest_list), status="success",
-                message="Location Autosuggest", status_code=status.HTTP_200_OK)
-            return response      
-            
-
-        country_queryset = self.queryset.filter(country__icontains=location)
-        if country_queryset.count():
-            obj_list = country_queryset.values('country').distinct('country').order_by('country')
-
-            for obj_dict in obj_list:
-                autosuggest_data = f"{obj_dict.get('country', '')}"
-                autosuggest_list.append(autosuggest_data)
-
-            response = self.get_response(
-                data=autosuggest_list, count=len(autosuggest_list), status="success",
-                message="Location Autosuggest", status_code=status.HTTP_200_OK)
-            return response
-            
         
+##        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
+##        if area_queryset.count():
+##            obj_list = area_queryset.values('area_name', 'city_name', 'state', 'country').distinct(
+##                'area_name', 'city_name', 'state', 'country').order_by('area_name', 'city_name')
+##            
+##            for obj_dict in obj_list:
+##                autosuggest_data = f"{obj_dict.get('area_name', '')}, {obj_dict.get('city_name', '')}, \
+##{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+##                autosuggest_list.append(autosuggest_data)
+##            
+##            response = self.get_response(
+##                data=autosuggest_list, count=len(autosuggest_list), status="success",
+##                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+##            return response
+##
+##        # city highlighted queryset
+##        city_queryset = self.queryset.filter(city_name__icontains=location).exclude(state='', country='')
+##        if city_queryset.count():
+##            obj_list = city_queryset.values('city_name', 'state', 'country').distinct(
+##                'city_name', 'state', 'country').order_by('city_name')
+##            
+##            for obj_dict in obj_list:
+##                    
+##                country = obj_dict.get('country', '')
+##                state = obj_dict.get('state', '')
+##                city_name = obj_dict.get('city_name', '')
+##                
+##                if autosuggest_dict.get(country, {}):
+##                    country_dict = autosuggest_dict.get(country, {})
+##                    if country_dict.get(state, {}):
+##                        country_dict[state].append(city_name)
+##                    else:
+##                        country_dict[state] = [city_name]
+##                else:
+##                    autosuggest_dict = {country: {state:[city_name]}}
+##
+##
+##                
+##                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+##                autosuggest_list.append(autosuggest_data)
+##            
+##            response = self.get_response(
+##                data=autosuggest_dict, count=len(autosuggest_list), status="success",
+##                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+##            return response
+##
+##        state_queryset = self.queryset.filter(state__icontains=location).exclude(country='')
+##        if state_queryset.count():
+##            obj_list = state_queryset.values('state', 'country').distinct(
+##                'state', 'country').order_by('state')
+##
+##            for obj_dict in obj_list:
+##                autosuggest_data = f"{obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
+##                autosuggest_list.append(autosuggest_data)
+##
+##            response = self.get_response(
+##                data=autosuggest_list, count=len(autosuggest_list), status="success",
+##                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+##            return response      
+##            
+##
+##        country_queryset = self.queryset.filter(country__icontains=location)
+##        if country_queryset.count():
+##            obj_list = country_queryset.values('country').distinct('country').order_by('country')
+##
+##            for obj_dict in obj_list:
+##                autosuggest_data = f"{obj_dict.get('country', '')}"
+##                autosuggest_list.append(autosuggest_data)
+##
+##            response = self.get_response(
+##                data=autosuggest_list, count=len(autosuggest_list), status="success",
+##                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+##            return response
+##            
+##        
         response = self.get_response(data=[], count=0, status="success", message="Location Autosuggest",
                                      status_code=status.HTTP_200_OK)
         return response

@@ -57,7 +57,7 @@ class HotelBooking(models.Model):
                              null=True, blank=True,
                              verbose_name="booking_room")
     booking_slot = models.CharField(max_length=25, choices=TIME_SLOTS,
-                                    default='24 HOURS', help_text="booking type.")
+                                    default='24 Hrs', help_text="booking type.")
     
     room_type = models.CharField(max_length=25, choices=ROOM_CHOICES,
                                  default='DELUXE', help_text="booked room type.")
@@ -67,6 +67,7 @@ class HotelBooking(models.Model):
                                          help_text="Check-out time for the property.")
     bed_count = models.PositiveIntegerField(default=1, help_text="bed count")
 
+    requested_room_no = models.PositiveIntegerField(default=1, help_text="Requested room count")
     confirmed_room_details = models.JSONField(null=True, default=default_confirmed_room_json)
     confirmed_checkin_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
@@ -170,6 +171,7 @@ class Booking(models.Model):
 
     adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
     child_count = models.PositiveSmallIntegerField(default=0, help_text="children count")
+    child_age_list = models.JSONField(null=True, default=list)
     infant_count = models.PositiveSmallIntegerField(default=0, help_text="infant count")
 
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL,
@@ -193,6 +195,8 @@ class Booking(models.Model):
         max_digits=15, decimal_places=6, default=0.0, help_text="Total Payment made")
     
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
+    on_hold_end_time = models.DateTimeField(null=True)
+    
     description = models.TextField(default='', blank=True)
     additional_notes = models.TextField(default='', blank=True)
 

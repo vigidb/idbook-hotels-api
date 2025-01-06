@@ -1,6 +1,7 @@
 from django.contrib.auth.models import Group
 from apps.authentication.models import Role
 from apps.authentication.models import User
+from apps.customer.models import Customer
 
 def get_group_by_name(name):
     #CORPORATE-GRP
@@ -21,3 +22,12 @@ def get_user_by_referralcode(refferal_code):
 def update_user_first_booking(user_id):
     if user_id:
         User.objects.filter(id=user_id).update(first_booking=True)
+
+def get_user_from_email(email):
+    user = User.objects.filter(email=email).first()
+    return user
+
+def create_user(user_details):
+    user = User.objects.create(**user_details)
+    Customer.objects.create(user=user, active=True)
+    return user

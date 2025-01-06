@@ -54,13 +54,14 @@ class BookingSerializer(serializers.ModelSerializer):
         
         enquired_property = data.get('enquired_property', '')
         booking_slot = data.get('booking_slot', '24 HOURS')
+        requested_room_no = data.get('requested_room_no', 1)
 
         try:
             hotel_booking = HotelBooking.objects.create(
                 room_type=room_type, checkin_time=checkin_time,
                 checkout_time=checkout_time, bed_count=bed_count,
                 enquired_property=enquired_property,
-                booking_slot=booking_slot
+                booking_slot=booking_slot, requested_room_no=requested_room_no
                 )
         except Exception as e:
             print(e)
@@ -141,6 +142,10 @@ class BookingSerializer(serializers.ModelSerializer):
         child_count = validated_data.get('child_count', 0)
         infant_count = validated_data.get('infant_count', 0)
         company = validated_data.get('company', None)
+        child_age_list = validated_data.get('child_age_list', [])
+
+        if not isinstance(child_age_list, list):
+            child_age_list = []
 
         
         if booking_type == 'HOTEL':
@@ -160,7 +165,7 @@ class BookingSerializer(serializers.ModelSerializer):
             holiday_package_booking=holidaypack_booking,
             vehicle_booking =vehicle_booking, flight_booking=flight_booking,
             adult_count=adult_count, child_count=child_count,
-            infant_count=infant_count, company=company)
+            infant_count=infant_count, company=company, child_age_list=child_age_list)
         company_detail.save()
         return company_detail
 
@@ -201,33 +206,41 @@ class BookingSerializer(serializers.ModelSerializer):
         checkin_time = hotel_booking.checkin_time
         checkout_time = hotel_booking.checkout_time
         bed_count = hotel_booking.bed_count
+        requested_room_no = hotel_booking.requested_room_no
         
         confirmed_property = hotel_booking.confirmed_property
         if confirmed_property:
             service_category = confirmed_property.service_category
             address = confirmed_property.address
             name = confirmed_property.name
-            display_name = confirmed_property.display_name
+            title = confirmed_property.title
             confirmed_property_json = {
                 "id":confirmed_property.id,
                 "service_category":service_category,
                 "name":name,
-                "display_name":display_name
+                "title":title
             }
             
-        room = hotel_booking.room
-        if room:
-            room_type = room.room_type
-            room_view = room.room_view
-            bed_type = room.bed_type
-            room_json = {'id':room.id, 'room_type':room_type, 'room_view':room_view,
-                         'bed_type':bed_type}
+##        room = hotel_booking.room
+##        if room:
+##            room_type = room.room_type
+##            room_view = room.room_view
+##            bed_type = room.bed_type
+##            room_json = {'id':room.id, 'room_type':room_type, 'room_view':room_view,
+##                         'bed_type':bed_type}
+
+        room_json  = hotel_booking.confirmed_room_details
+        confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+        confirmed_checkout_time = hotel_booking.confirmed_checkout_time
         
         hotel_json = {
             'enquired_property':enquired_property, 'booking_slot':booking_slot,
             'room_type':room_type, 'checkin_time': checkin_time,
             'checkout_time':checkout_time, 'bed_count':bed_count,
-            'confirmed_property':confirmed_property_json,'room':room_json}
+            'confirmed_property':confirmed_property_json,'room':room_json,
+            'confirmed_checkin_time':confirmed_checkin_time,
+            'confirmed_checkout_time':confirmed_checkout_time,
+            'requested_room_no':requested_room_no}
          
         return hotel_json
 
@@ -260,11 +273,11 @@ class BookingSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         booking_type = instance.booking_type
+        
         if instance:
-##            discount
-##            subtotal
-##            gst_percentage
-##            gst_amount
+            booking_payment = list(instance.booking_payment.values_list('merchant_transaction_id', flat=True))
+            representation['merchant_transaction_ids'] = booking_payment
+            
             representation['final_amount'] = instance.final_amount
             representation['total_payment_made'] = instance.total_payment_made
             if instance.user:
@@ -306,7 +319,7 @@ class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
         model = Booking
         fields = ('id', 'booking_type', 'hotel_booking',
                   'final_amount', 'gst_amount', 'discount',
-                  'subtotal')
+                  'subtotal', 'status')
     
 
 class QueryFilterBookingSerializer(serializers.ModelSerializer):

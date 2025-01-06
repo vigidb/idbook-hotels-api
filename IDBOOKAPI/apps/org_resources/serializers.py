@@ -6,7 +6,7 @@ from apps.authentication.models import User
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
-    Career, FAQs, UploadedMedia, CountryDetails, UserNotification
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber
 )
 from apps.org_resources import db_utils as org_res_db_utils
 from apps.org_managements import utils as org_mng_utils
@@ -128,6 +128,11 @@ class AddressSerializer(serializers.ModelSerializer):
 class EnquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = Enquiry
+        fields = '__all__'
+
+class SubscriberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subscriber
         fields = '__all__'
 
 

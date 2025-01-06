@@ -22,16 +22,22 @@ from apps.booking.utils.db_utils import (
     get_user_based_booking, get_booking_based_tax_rule,
     check_review_exist_for_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment)
+    get_booking_from_payment, check_room_booked_details, get_booking)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate,
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code)
+
 from apps.hotels.utils.db_utils import get_property_room_for_booking
+from apps.hotels.utils.hotel_utils import check_room_count, total_room_count
+
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
-from apps.log_management.utils.db_utils import create_booking_payment_log 
+from apps.log_management.utils.db_utils import create_booking_payment_log
+
+from apps.authentication.utils.db_utils import get_user_from_email, create_user
+from apps.authentication.utils.authentication_utils import add_group_based_on_signup
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -48,6 +54,9 @@ import traceback
 import base64, json
 
 from django.conf import settings
+
+from datetime import datetime, timedelta
+from pytz import timezone
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -384,18 +393,22 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         return custom_response
 
     @action(detail=False, methods=['POST'], url_path='hotel/pre-confirm',
-            url_name='hotel-pre-confirm', permission_classes=[IsAuthenticated])
+            url_name='hotel-pre-confirm', permission_classes=[])
     def hotel_pre_confirm_booking(self, request):
         self.log_request(request)
 
         user = self.request.user
+        
         property_id = request.data.get('property', None)
         company_id = request.data.get('company', None)
         room_list = request.data.get('room_list', [])
+        requested_room_no = request.data.get('requested_room_no', 1)
 
         adult_count = request.data.get('adult_count', 1)
         child_count = request.data.get('child_count', 0)
+        child_age_list = request.data.get('child_age_list', [])
         infant_count = request.data.get('infant_count', 0)
+        booking_slot = request.data.get('booking_slot', '24 Hrs')
         
         
         coupon_code = request.data.get('coupon_code', None)
@@ -434,6 +447,14 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             return custom_response
 
+        if not isinstance(child_age_list, list):
+            custom_response = self.get_error_response(
+                message="invalid child age list format", status="error",
+                errors=[],error_code="CHILD_AGE_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+
         # get no of  days from  checkin and checkout
         no_of_days = get_days_from_string(
             confirmed_checkin_time, confirmed_checkout_time,
@@ -447,11 +468,12 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             return custom_response
 
         if no_of_days == 0:
-            custom_response = self.get_error_response(
-                message="Less than 24 hours slot booking is not allowed", status="error",
-                errors=[],error_code="BOOKING_SLOT_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
-            return custom_response
+            no_of_days = 1
+##            custom_response = self.get_error_response(
+##                message="Less than 24 hours slot booking is not allowed", status="error",
+##                errors=[],error_code="BOOKING_SLOT_ERROR",
+##                status_code=status.HTTP_400_BAD_REQUEST)
+##            return custom_response
 
         tax_rules_dict = get_booking_based_tax_rule('HOTEL')
         if not tax_rules_dict:
@@ -505,6 +527,27 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                         errors=[],error_code="ROOM_PRICE_MISSING",
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
+
+                if booking_slot == '12 Hrs':
+                    slot_price = room_price.get('price_12hrs', None)
+                    booking_room_price = slot_price
+                elif booking_slot == '8 Hrs':
+                    slot_price = room_price.get('price_8hrs', None)
+                    booking_room_price = slot_price
+                elif booking_slot == '4 Hrs':
+                    slot_price = room_price.get('price_4hrs', None)
+                    booking_room_price = slot_price
+                else:
+                    slot_price = None
+                    booking_room_price = base_price
+                    
+                if not slot_price and not booking_slot == '24 Hrs':
+                    custom_response = self.get_error_response(
+                        message=f"The {booking_slot} hrs room price for room id {room_id} is missing", status="error",
+                        errors=[],error_code="ROOM_PRICE_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+                        
                     
                 # get tax percent based on amount
                 tax_in_percent = get_tax_rate(base_price, tax_rules_dict)
@@ -515,25 +558,36 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
 
+                # tax percentage based on base price
                 tax_in_percent = float(tax_in_percent)
-                tax_amount = calculate_tax(tax_in_percent, base_price)
+                # tax calculation based on booked 
+                if booking_slot == '24 Hrs':
+                    tax_amount = calculate_tax(tax_in_percent, base_price)
+                else:
+                    tax_amount = calculate_tax(tax_in_percent, slot_price)
 
                 # calculate total tax amount
                 total_tax_amount =   calculate_room_booking_amount(
-                    tax_amount, no_of_days, no_of_rooms) #(tax_amount * no_of_days) * no_of_rooms
+                    tax_amount, no_of_days, no_of_rooms)
+                
                 # calculate total room amount
-                total_room_amount = calculate_room_booking_amount(
-                    base_price, no_of_days, no_of_rooms) #(base_price * no_of_days) * no_of_rooms
+                if booking_slot == '24 Hrs':
+                    total_room_amount = calculate_room_booking_amount(
+                        base_price, no_of_days, no_of_rooms)
+                else:
+                    total_room_amount = calculate_room_booking_amount(
+                        slot_price, no_of_days, no_of_rooms)
                 
                 final_room_total = total_room_amount + total_tax_amount
 
                 
-                confirmed_room = {"room_id": room_id, "room_type":room_type, "price": base_price,
+                confirmed_room = {"room_id": room_id, "room_type":room_type, "base_price":base_price,
+                                  "price": booking_room_price,
                                   "no_of_rooms": no_of_rooms,
                                   "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
                                   "total_tax_amount": total_tax_amount,
                                   "no_of_days": no_of_days, "total_room_amount":total_room_amount,
-                                  "final_room_total": final_room_total, "booking_slot":24}
+                                  "final_room_total": final_room_total, "booking_slot":booking_slot}
                 
                 confirmed_room_details.append(confirmed_room)
                 # final amount
@@ -555,36 +609,56 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 else:
                     discount = 0
                     final_amount = subtotal + final_tax_amount
+
+##                tm ='Asia/Kolkata'
+##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
+
+
+                # check the room availability before locking
+                room_confirmed_dict = total_room_count(confirmed_room_details)
+                booked_rooms = check_room_booked_details(
+                    confirmed_checkin_time, confirmed_checkout_time,
+                    property_id, is_slot_price_enabled=True, booking_id=None)
+                room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
                     
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,
-                    confirmed_checkout_time=confirmed_checkout_time)
+                    confirmed_checkout_time=confirmed_checkout_time,
+                    booking_slot=booking_slot, requested_room_no=requested_room_no)
                 hotel_booking.save()
                 
-                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL', subtotal=subtotal,
-                                  discount=discount, final_amount=final_amount, gst_amount=final_tax_amount,
-                                  adult_count=adult_count, child_count=child_count, infant_count=infant_count)
+                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
+                                  subtotal=subtotal, discount=discount, final_amount=final_amount,
+                                  gst_amount=final_tax_amount, adult_count=adult_count,
+                                  child_count=child_count, infant_count=infant_count,
+                                  child_age_list=child_age_list)
 
                 if coupon:
                     booking.coupon_code = coupon_code
                     
                 if company_id:
                     booking.company_id = company_id
+
+                if not room_rejected_list:
+                    on_hold_end_time = datetime.now(timezone('UTC')) + timedelta(minutes=5)
+                    booking.status = 'on_hold'
+                    booking.on_hold_end_time = on_hold_end_time
                     
                 booking.save()
 
                 # create and save merchant transaction id for payment reference
-                append_id = "%s" % (user.id)
-                booking_payment_detail = create_booking_payment_details(booking.id, append_id)
-                merchant_transaction_id = booking_payment_detail.merchant_transaction_id
+##                append_id = "%s" % (user.id)
+##                booking_payment_detail = create_booking_payment_details(booking.id, append_id)
+##                merchant_transaction_id = booking_payment_detail.merchant_transaction_id
 
                 # wallet balance check and send notification for low balance
-                check_wallet_balance_for_booking(booking, user, company_id=company_id)
+                if user.id:
+                    check_wallet_balance_for_booking(booking, user, company_id=company_id)
    
                 serializer = PreConfirmHotelBookingSerializer(booking)
                 
-                booking_dict = {'merchant_transaction_id': merchant_transaction_id}
+                booking_dict = {'merchant_transaction_id': ''}
                 booking_dict.update(serializer.data)
                 
                 custom_response = self.get_response(
@@ -663,11 +737,72 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     @action(detail=True, methods=['PATCH'], url_path='confirm',
             url_name='confirm', permission_classes=[IsAuthenticated])
     def confirm_booking(self, request, pk):
-        
         instance = self.get_object()
+        user = self.request.user
+        
+        if not instance.hotel_booking:
+            custom_response = self.get_error_response(
+                message="Error in data; Please check the details",
+                status="error", errors=[], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        if not instance.user:
+            custom_response = self.get_error_response(
+                message="The booking is not associated with any user",
+                status="error", errors=[], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        property_id = instance.hotel_booking.confirmed_property_id
+        room_details = instance.hotel_booking.confirmed_room_details
+        checkin_time = instance.hotel_booking.confirmed_checkin_time
+        checkout_time = instance.hotel_booking.confirmed_checkout_time
+        booking_slot = instance.hotel_booking.booking_slot
+        
+##        if booking_slot == "24 Hrs":
+##            is_slot_price_enabled = False
+##            checkin_date = checkin_time.date()
+##            checkout_date = checkout_time.date()
+##        else:
+##            is_slot_price_enabled = True
+##            checkin_date = checkin_time
+##            checkout_date = checkout_time
+
+        is_slot_price_enabled = True
+        checkin_date = checkin_time
+        checkout_date = checkout_time
+
+        room_confirmed_dict = total_room_count(room_details)
+        print(room_confirmed_dict)
+
+        booked_rooms = check_room_booked_details(checkin_date, checkout_date,
+                                                 property_id, is_slot_price_enabled,
+                                                 booking_id = instance.id)
+        print("booked rooms::", booked_rooms)
+        room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
+
+        if room_rejected_list:
+            custom_response = self.get_error_response(
+                message="Some of the selected rooms are allready booked, please refresh your list",
+                status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        # generate merchant transaction id
+        append_id = "%s" % (user.id)
+        booking_payment_detail = create_booking_payment_details(instance.id, append_id)
+        # merchant_transaction_id = booking_payment_detail.merchant_transaction_id
       
         deduct_status = deduct_booking_amount(instance, instance.company_id)
         if not deduct_status:
+            booking_payment_detail.code = "PAYMENT_ERROR"
+            booking_payment_detail.message = "Insufficient fund in wallet balance"
+            booking_payment_detail.payment_type = "WALLET"
+            booking_payment_detail.payment_medium = "Idbook"
+            booking_payment_detail.is_transaction_success = False
+            booking_payment_detail.save()
+            
             custom_response = self.get_error_response(
                 message="Error in wallet deduction; Please make sure wallet has sufficient fund",
                 status="error", errors=[], error_code="WALLET_ERROR",
@@ -681,8 +816,16 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         print("Confirmation Code::", confirmation_code)
         instance.confirmation_code = confirmation_code
         instance.total_payment_made = instance.final_amount
-        instance.status = 'confirmed'
+        instance.status = 'confirmed'      
         instance.save()
+
+        booking_payment_detail.code = "PAYMENT_SUCCESS"
+        booking_payment_detail.message = "Your payment is successful."
+        booking_payment_detail.payment_type = "WALLET"
+        booking_payment_detail.payment_medium = "Idbook"
+        booking_payment_detail.amount = instance.final_amount
+        booking_payment_detail.is_transaction_success = True
+        booking_payment_detail.save()
         
         create_invoice_task.apply_async(args=[booking_id])
             
@@ -938,31 +1081,80 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
     serializer_class = BookingPaymentDetailSerializer
     permission_classes = []
 
+    def cross_check_booking_availability(self, instance):
+        property_id = instance.hotel_booking.confirmed_property_id
+        room_details = instance.hotel_booking.confirmed_room_details
+        checkin_time = instance.hotel_booking.confirmed_checkin_time
+        checkout_time = instance.hotel_booking.confirmed_checkout_time
+        booking_slot = instance.hotel_booking.booking_slot
+        
+##        import pytz
+##        tm ='Asia/Kolkata'
+##        local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
+        
+##        if booking_slot == "24 Hrs":
+##            is_slot_price_enabled = False
+##            checkin_date = checkin_time.date()
+##            checkout_date = checkout_time.date()
+##        else:
+##            is_slot_price_enabled = True
+##            checkin_date = checkin_time
+##            checkout_date = checkout_time
+
+        is_slot_price_enabled = True
+        checkin_date = checkin_time
+        checkout_date = checkout_time
+
+        room_confirmed_dict = total_room_count(room_details)
+        print(room_confirmed_dict)
+
+        booked_rooms = check_room_booked_details(
+            checkin_date, checkout_date, property_id,
+            is_slot_price_enabled, booking_id=instance.id)
+        room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
+        return room_rejected_list
+
+        if room_rejected_list:
+            custom_response = self.get_error_response(
+                message="Some of the selected rooms are allready booked, please refresh your list",
+                status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
 
     @action(detail=False, methods=['POST'], url_path='initiate',
-            url_name='initiate', permission_classes=[IsAuthenticated,])
+            url_name='initiate', permission_classes=[])
     def phone_pay_call_initiate(self, request):
 
         try:
+            user = request.user
             booking_payment_log = {}
             
             user_id = self.request.user.id
             
             booking_id = request.data.get('booking', None)
             booking_payment_log['booking_id'] = booking_id
-            merchant_transaction_id = request.data.get('merchant_transaction_id', None)
-            booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
+##            merchant_transaction_id = request.data.get('merchant_transaction_id', None)
+##            booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             
             redirect_url = request.data.get('redirect_url', '')
             payment_channel = request.data.get('payment_channel')
 
-            is_exist = check_booking_and_transaction(booking_id, merchant_transaction_id)
-            if not is_exist:
-                message = "Booking or merchant transaction id not registered with booking payment system"
-                custom_response = self.get_error_response(message=message, status="error",
+            booking = get_booking(booking_id)
+            if not booking:
+                custom_response = self.get_error_response(message="Booking not exist", status="error",
                                                           errors=[],error_code="VALIDATION_ERROR",
                                                           status_code=status.HTTP_400_BAD_REQUEST)
                 return custom_response
+                
+
+##            is_exist = check_booking_and_transaction(booking_id, merchant_transaction_id)
+##            if not is_exist:
+##                message = "Booking or merchant transaction id not registered with booking payment system"
+##                custom_response = self.get_error_response(message=message, status="error",
+##                                                          errors=[],error_code="VALIDATION_ERROR",
+##                                                          status_code=status.HTTP_400_BAD_REQUEST)
+##                return custom_response
                 
             amount = request.data.get('amount', None)
             if not amount:
@@ -972,6 +1164,47 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 return custom_response
 
             #https://mercury-uat.phonepe.com/transact/simulator?token=87tM6GJCcJ142nCtz6gGhFHm9DCL3H4LepDHs5
+
+            room_rejected_list = self.cross_check_booking_availability(booking)
+            if room_rejected_list:
+                custom_response = self.get_error_response(
+                    message="Some of the selected rooms are allready booked, please refresh your list",
+                    status="error", errors=room_rejected_list, error_code="BOOKING_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+
+
+            if not user.id:
+                user_details =  self.request.data.get('user_details', {})
+                name = user_details.get('name', '')
+                email = user_details.get('email', '')
+                mobile_number = user_details.get('mobile_number', '')
+                
+                if not email:
+                    custom_response = self.get_error_response(
+                        message="Missing user email",
+                        status="error", errors=[], error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+                   
+
+                user = get_user_from_email(email)
+                if not user:
+                    user = create_user(user_details)
+                    add_group_based_on_signup(user, '')
+                else:
+                    user.name = name
+                    user.mobile_number = mobile_number
+                    user.save()
+
+            # generate merchant transaction id
+            append_id = "%s" % (user.id)
+            booking_payment_detail = create_booking_payment_details(booking.id, append_id)
+            merchant_transaction_id = booking_payment_detail.merchant_transaction_id
+
+            if not booking.user:
+                booking.user_id = user.id
+                booking.save()
                 
             # payment_channel = 'PHONE PAY'
             if payment_channel == 'PHONE PAY':
@@ -1024,6 +1257,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                                                       status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
         except Exception as e:
+            print(traceback.format_exc())
             booking_payment_log['response'] = {'message': str(e)}
             custom_response = self.get_error_response(message=str(e), status="error",
                                                       errors=[],error_code="INTERNAL_SERVER_ERROR",
@@ -1077,7 +1311,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             
             
             sub_json_data = json_data.get('data', {})
-            amount = sub_json_data.get('amount', None)
+            amount = sub_json_data.get('amount', 0)/100
             merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
             booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             transaction_id = sub_json_data.get('transactionId', '')        

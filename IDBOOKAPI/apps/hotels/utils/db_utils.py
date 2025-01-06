@@ -4,6 +4,9 @@ from apps.hotels.models import (
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
+from django.db.models import IntegerField
+from django.db.models.functions import Cast
+from django.db.models import Q
 
 
 def get_property_by_id(property_id):
@@ -20,6 +23,12 @@ def get_room_by_id(room_id):
     except Exception as e:
         room_detail = None
     return room_detail
+
+def get_total_rooms(room_id):
+    room_detail = Room.objects.get(id=room_id)
+    if room_detail:
+        return room_detail.no_available_rooms
+    return 0
 
 def get_property_gallery(property_id):
     property_gallery = PropertyGallery.objects.filter(property_id=property_id, active=True)
@@ -62,6 +71,28 @@ def get_starting_room_price(property_id):
         print(e)
         return 0
 
+def get_slot_based_starting_room_price(property_id):
+    try:
+        starting_price_list = Room.objects.annotate(
+            hrs4=Cast(KT('room_price__price_4hrs'), IntegerField()),
+            hrs8=Cast(KT('room_price__price_8hrs'), IntegerField()),
+            hrs12=Cast(KT('room_price__price_12hrs'), IntegerField()),
+            base_price=Cast(KT('room_price__base_rate'), IntegerField())).filter(
+                property_id=property_id).aggregate(
+                    starting_4hr_price=Min('hrs4'),
+                    starting_8hr_price=Min('hrs8'),
+                    starting_12hr_price=Min('hrs12'),
+                    starting_base_price=Min('base_price'))
+        
+        return starting_price_list
+    except Exception as e:
+        print(e)
+        starting_price_list = {'starting_4hr_price': 0, 'starting_8hr_price': 0,
+                               'starting_12hr_price': 0, 'starting_base_price': 0}
+        return starting_price_list
+        
+        
+    
 def get_property_from_price_range(start_price, end_price):
     property_list = Room.objects.filter(
         room_price__base_rate__gte=start_price,
@@ -77,6 +108,24 @@ def get_price_range():
 def update_property_review_details(property_id, review_star, review_count):
     Property.objects.filter(id=property_id).update(
         review_star=review_star, review_count=review_count)
-    
+
+def get_slot_price_enabled_property():
+    property_list = Room.objects.filter(is_slot_price_enabled=True).values_list('property_id', flat=True)
+    return list(property_list)
+
+
+def filter_property_by_room_amenity(room_amenity):
+    property_list = []
+    if room_amenity:
+        query_room_amenity = Q()
+        room_amenity_list = room_amenity.split(',')
+
+        for ramenity in room_amenity_list:
+            query_room_amenity &= Q(
+                amenity_details__contains=[{'room_amenity':[
+                    {'title': ramenity.strip(), 'detail':[{'Yes': []}] }] }])
+
+        property_list = Room.objects.filter(query_room_amenity).values_list('property_id', flat=True)
+    return list(property_list)
     
     

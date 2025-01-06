@@ -327,8 +327,15 @@ class UploadedMedia(models.Model):
 
 
 class Enquiry(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_enquiry')
-    replied_by = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True, related_name='user_reply')
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name='user_enquiry')
+    name = models.CharField(max_length=100, blank=True, default='')
+    phone_no = models.CharField(max_length=10, blank=True, null=True,
+                                validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
+                                                           message='Enter a valid phone number')])
+    email = models.EmailField(validators=[EmailValidator],
+                              null=True, blank=True, help_text="Email address of the user.")
+    
+    replied_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name='user_reply')
     subject = models.CharField(max_length=150, choices=ENQUIRY_CHOICES, default='Other')
     enquiry_msg = models.TextField(blank=True, null=True)
     enquiry_reply = models.TextField(blank=True, null=True)
@@ -340,9 +347,19 @@ class Enquiry(models.Model):
 
     class Meta:
         ordering = ('created',)
+##
+##    def __str__(self):
+##        return 'Reply by {} on {}'.format(self.replied_by, self.user)
+
+class Subscriber(models.Model):
+    email = models.EmailField(validators=[EmailValidator])
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return 'Reply by {} on {}'.format(self.replied_by, self.user)
+        return self.email
+    
 
 
 class AboutUs(models.Model):
@@ -463,4 +480,5 @@ class UserNotification(models.Model):
 
     def __str__(self):
         return self.user.email
+
     

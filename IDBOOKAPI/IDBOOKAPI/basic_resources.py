@@ -72,10 +72,10 @@ FLIGHT_CLASS = (
 ) 
 
 TIME_SLOTS = (
-    ('4 HOURS', 4),
-    ('8 HOURS', 8),
-    ('12 HOURS', 12),
-    ('24 HOURS', 24),
+    ('4 Hrs', '4 Hrs'),
+    ('8 Hrs', '8 Hrs'),
+    ('12 Hrs', '12 Hrs'),
+    ('24 Hrs', '24 Hrs'),
     # ('NIGHTLY', 0),
 )
 
@@ -102,6 +102,7 @@ BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
         ('canceled', 'Canceled'),
         ('completed', 'Completed'),
         ('no_show', 'No Show'),
+        ('on_hold', 'On Hold')
     )
 ##TOUR_DURATION_CHOICES = (
 ##    ("1N/2D", '1N/2D'),
