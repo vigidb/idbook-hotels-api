@@ -64,16 +64,17 @@ class PropertyListSerializer(serializers.ModelSerializer):
 ##            else:
 ##                representation['featured_image'] = ""
 
-                gallery_property = get_property_gallery(property_id)
+##                gallery_property = get_property_gallery(property_id)
+##
+##                if gallery_property:
+##                    property_gallery = list(gallery_property.values('media', 'caption', 'featured_image'))
+##                    for gallery in property_gallery:
+##                        gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+##                    representation['property_gallery'] = property_gallery
+##                else:
+##                    representation['property_gallery'] = []
 
-                if gallery_property:
-                    property_gallery = list(gallery_property.values('media', 'caption', 'featured_image'))
-                    for gallery in property_gallery:
-                        gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
-                    representation['property_gallery'] = property_gallery
-                else:
-                    representation['property_gallery'] = []
-                
+                representation['property_gallery'] = []
             avail_prop = available_property_dict.get(property_id, None)
             if avail_prop:
                 representation['available_room_after_booking'] = avail_prop
