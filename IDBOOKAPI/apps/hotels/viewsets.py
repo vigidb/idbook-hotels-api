@@ -305,7 +305,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # apply property filter
         self.property_filter_ops()
         self.property_json_filter_ops()
-        # filter for checkin checkout
+        # filter for checkin checkout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
         available_property_dict = self.checkin_checkout_based_filter()
 
         if request.user:
@@ -314,12 +314,12 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
-        self.queryset = self.queryset.values('id','name', 'title', 'property_type',
-                                             'rental_form', 'review_star', 'review_count',
-                                             'additional_fields', 'area_name',
-                                             'city_name', 'state', 'country',
-                                             'rating', 'status', 'current_page',
-                                             'address')
+##        self.queryset = self.queryset.values('id','name', 'title', 'property_type',
+##                                             'rental_form', 'review_star', 'review_count',
+##                                             'additional_fields', 'area_name',
+##                                             'city_name', 'state', 'country',
+##                                             'rating', 'status', 'current_page',
+##                                             'address')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
@@ -815,7 +815,7 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     http_method_names = ['get', 'post', 'put', 'patch']
     # lookup_field = 'custom_id'
 
-    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated], 'partial_update':[IsAuthenticated],
                                     'destroy': [IsAuthenticated], 'list':[AllowAny], 'retrieve':[AllowAny]}
 
     def get_permissions(self):
@@ -829,6 +829,9 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        property_id = request.data.get('property', None)
+        room_price = request.data.get('room_price', {})
+        
 
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
@@ -836,6 +839,12 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
+
+            # update the starting price of the property
+            if room_price and property_id:
+                starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
+                hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                
 
             # Create a custom response
             custom_response = self.get_response(
@@ -891,6 +900,8 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        room_price = request.data.get('room_price', {})
+
         # Get the object to be updated
         instance = self.get_object()
 
@@ -901,6 +912,13 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             # If the serializer is valid, perform the default update logic
             # response = super().update(request, *args, **kwargs)
             response = self.perform_update(serializer)
+
+            # update the starting price of the property
+            property_id = instance.property_id
+            if property_id and room_price:
+                starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
+                hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                
 
             # Create a custom response
             custom_response = self.get_response(
