@@ -90,6 +90,12 @@ def get_slot_based_starting_room_price(property_id):
         starting_price_list = {'starting_4hr_price': 0, 'starting_8hr_price': 0,
                                'starting_12hr_price': 0, 'starting_base_price': 0}
         return starting_price_list
+
+def update_property_with_starting_price(property_id, starting_price_details):
+    try:
+        Property.objects.filter(id=property_id).update(starting_price_details=starting_price_details)
+    except Exception as e:
+        print(e)
         
         
     

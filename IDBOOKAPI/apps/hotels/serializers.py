@@ -44,7 +44,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'rental_form', 'review_star', 'review_count',
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page', 'address')
+                  'status', 'current_page', 'address', 'starting_price_details')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -54,7 +54,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
         #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
-            property_id = instance.get('id', None)
+##            property_id = instance.get('id', None)
+            property_id = instance.id
             if property_id:
                 
 ##                gallery = get_property_featured_image(property_id)
@@ -72,7 +73,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
                     representation['property_gallery'] = property_gallery
                 else:
                     representation['property_gallery'] = []
-                
+
             avail_prop = available_property_dict.get(property_id, None)
             if avail_prop:
                 representation['available_room_after_booking'] = avail_prop
