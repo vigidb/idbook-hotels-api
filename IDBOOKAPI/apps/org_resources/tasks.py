@@ -19,7 +19,7 @@ def send_enquiry_email_task(self, enquiry_id):
 Message: {enquiry_message}"
             from_email = settings.EMAIL_HOST_USER
             subject = "Enquiry"
-            to_emails = [from_email, 'sonu@idbookhotels.com']
+            to_emails = ['support@idbookhotels.com', 'sonu@idbookhotels.com']
             send_email(subject, message, to_emails, from_email)
         else:
             print("Missing enquiry id", enquiry_id)
