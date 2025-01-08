@@ -168,7 +168,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
         print("checkin_date::", checkin_date)
         
-        available_property_dict = {} 
+        available_property_dict = {}
+        nonavailable_property_list = []
 
         if checkin_date and checkout_date:
             
@@ -196,10 +197,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
             # exclude non available property list
-            if nonavailable_property_list:
-                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
+##            if nonavailable_property_list:
+##                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
 
-        return available_property_dict      
+        return available_property_dict, nonavailable_property_list      
             
 
     def create(self, request, *args, **kwargs):
@@ -305,8 +306,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # apply property filter
         self.property_filter_ops()
         self.property_json_filter_ops()
-        # filter for checkin checkout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
-        available_property_dict = self.checkin_checkout_based_filter()
+        # filter for checkin checkout
+        available_property_dict, nonavailable_property_list = self.checkin_checkout_based_filter()
 
         if request.user:
             favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
@@ -324,7 +325,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         response = PropertyListSerializer(
             self.queryset, many=True,
             context={'available_property_dict': available_property_dict,
-                     'favorite_list':favorite_list})
+                     'favorite_list':favorite_list,
+                     'nonavailable_property_list': nonavailable_property_list})
         # response = super().list(request, *args, **kwargs)
 
         custom_response = self.get_response(
