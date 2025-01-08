@@ -125,6 +125,11 @@ def default_property_additional_fields_json():
     additional_fields_json = {"comment_count":0, "view_count":0}
     return additional_fields_json
 
+def default_starting_price_json():
+    starting_price_json = {'starting_4hr_price': 0, 'starting_8hr_price': 0,
+                           'starting_12hr_price': 0, 'starting_base_price': 0}
+    return starting_price_json
+
 class Property(models.Model):
     
     amenity_details =  models.JSONField(null=True, default=dict)
@@ -161,6 +166,7 @@ class Property(models.Model):
     customer_care_no = models.CharField(max_length=15, blank=True, default='')
     # need to remove
     starting_price = models.DecimalField(max_digits=15, decimal_places=4, default=0.0)
+    starting_price_details = models.JSONField(null=True, default=default_starting_price_json)
 
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0, help_text="Rating of the property.")
     total_rooms = models.PositiveIntegerField(default=1, help_text="Total number of rooms in the property.")

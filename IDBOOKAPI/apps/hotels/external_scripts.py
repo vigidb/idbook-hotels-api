@@ -1,4 +1,7 @@
-from apps.hotels.models import Room
+from apps.hotels.models import Room, Property
+from apps.hotels.utils.db_utils import (
+    get_slot_based_starting_room_price,
+    update_property_with_starting_price)
 
 
 def change_json_12hr_price():
@@ -12,3 +15,12 @@ def change_json_12hr_price():
             print(room.id)
         except Exception as e:
             print(e)
+
+
+def update_property_starting_price():
+    property_list = list(Property.objects.values_list('id', flat=True))
+    for property_id in property_list:
+        starting_price_details = get_slot_based_starting_room_price(property_id)
+        update_property_with_starting_price(
+            property_id, starting_price_details)
+        
