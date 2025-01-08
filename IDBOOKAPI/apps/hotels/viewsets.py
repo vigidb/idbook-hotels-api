@@ -67,6 +67,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def property_json_filter_ops(self):
         property_amenity = self.request.query_params.get('property_amenity', '')
         room_amenity = self.request.query_params.get('room_amenity', '')
+        policies = self.request.query_params.get('policies', '')
 
         if property_amenity:
             query_prop_amenity = Q()
@@ -86,6 +87,23 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if room_amenity:
             property_list = hotel_db_utils.filter_property_by_room_amenity(room_amenity)
             self.queryset = self.queryset.filter(id__in=property_list)
+
+        if policies:
+            # policies_filter_dict = {"policies__property_rules__guest_profile__is_allowed_unmarried_couples__contains": "Yes"}
+            # policies_filter_dict = {"policies__property_rules__property_restrictions__is_smoking_allowed__contains": "No"}
+
+            policies_list = policies.split(',')
+            query_prop_policies = Q()
+            
+            for policy in policies_list:
+                altered_policies = "policies__" + policy.strip() + "__contains"
+                policies_filter_dict = {altered_policies: "Yes"}
+                query_prop_policies &= Q(**policies_filter_dict)
+
+            self.queryset = self.queryset.filter(query_prop_policies)
+
+##            property.filter(Q(policies__property_rules__guest_profile__is_allowed_unmarried_couples__contains='No')
+##                            & Q(policies__property_rules__property_restrictions__is_smoking_allowed__contains='No'))
             
 
 
