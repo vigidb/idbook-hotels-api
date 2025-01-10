@@ -100,6 +100,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             if key in ('status', 'booking_type'):
                 filter_dict[key] = param_value
+            elif key == 'confirmed_property':
+                filter_dict['hotel_booking__confirmed_property'] = param_value
             elif key == 'invoice_generated':
                 if param_value in ('True', 'False', True, False):
                     if param_value == 'True':
@@ -131,14 +133,6 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
            company_id = None
            filter_dict['company_id__isnull'] = True
             
-        # filter 
-##        booking_status = self.request.query_params.get('status', '')
-##        if booking_status:
-##            filter_dict['status'] = booking_status
-##        booking_type = self.request.query_params.get('booking_type', '')
-##        if booking_type:
-##            filter_dict['booking_type'] = booking_type
-            
         if company_id:
             filter_dict['user__company_id'] = company_id
         if user_id:
@@ -151,7 +145,32 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 **exclude_dict)
         else:
             self.queryset = self.queryset.filter(**filter_dict)
-        
+
+        # filter to get booked property based on date
+        property_booked_date =  self.request.query_params.get('property_booked_date', None)
+        if property_booked_date:
+            property_booked_date = datetime.strptime(
+                property_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+
+            booked_date_query = Q(hotel_booking__confirmed_checkin_time__date=property_booked_date)
+            booked_date_query |= Q(hotel_booking__confirmed_checkout_time__date=property_booked_date)
+            self.queryset = self.queryset.filter(booked_date_query)
+   
+        # filter to get booked property based on date range
+        start_booked_date = self.request.query_params.get('start_booked_date', None)
+        end_booked_date = self.request.query_params.get('end_booked_date', None)
+        if start_booked_date and end_booked_date:
+            start_booked_date = datetime.strptime(
+                start_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+            end_booked_date = datetime.strptime(
+                end_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+
+            booked_drange_query = Q(hotel_booking__confirmed_checkin_time__date__lte=end_booked_date,
+                                  hotel_booking__confirmed_checkin_time__date__gte=start_booked_date)
+
+            booked_drange_query |= Q(hotel_booking__confirmed_checkout_time__date__lte=end_booked_date,
+                                  hotel_booking__confirmed_checkout_time__date__gte=start_booked_date)
+            self.queryset = self.queryset.filter(booked_drange_query) 
 
         # search 
         search = self.request.query_params.get('search', '')
