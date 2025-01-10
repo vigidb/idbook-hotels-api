@@ -191,6 +191,7 @@ class Property(models.Model):
     additional_fields = models.JSONField(null=True, default=default_property_additional_fields_json,
                                          help_text='Additional Fields related to the property')
     status = models.CharField(max_length=50, choices=HOTEL_STATUS, default='In-Progress')
+    is_slot_price_enabled = models.BooleanField(default=False)
                                          
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")

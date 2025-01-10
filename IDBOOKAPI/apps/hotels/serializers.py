@@ -45,7 +45,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
                   'status', 'current_page', 'address', 'starting_price_details',
-                  'amenity_details', 'policies')
+                  'amenity_details', 'policies', 'is_slot_price_enabled')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)

@@ -338,7 +338,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                                             'additional_fields', 'area_name',
 ##                                             'city_name', 'state', 'country',
 ##                                             'rating', 'status', 'current_page',
-##                                             'address')
+##                    is_slot_price_enabled                         'address')
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
@@ -863,7 +863,9 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             # update the starting price of the property
             if room_price and property_id:
                 starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
-                hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                # hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(property_id)
+                hotel_db_utils.room_based_property_update(property_id, starting_price_details, is_slot_price_enabled)
                 
 
             # Create a custom response
@@ -921,6 +923,7 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         self.log_request(request)  # Log the incoming request
 
         room_price = request.data.get('room_price', {})
+        slot_price_enabled = request.data.get('is_slot_price_enabled', None)
 
         # Get the object to be updated
         instance = self.get_object()
@@ -935,9 +938,11 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
             # update the starting price of the property
             property_id = instance.property_id
-            if property_id and room_price:
+            if room_price or slot_price_enabled is not None:
                 starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
-                hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                # hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(property_id)
+                hotel_db_utils.room_based_property_update(property_id, starting_price_details, is_slot_price_enabled)
                 
 
             # Create a custom response
