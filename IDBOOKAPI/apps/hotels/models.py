@@ -192,6 +192,8 @@ class Property(models.Model):
                                          help_text='Additional Fields related to the property')
     status = models.CharField(max_length=50, choices=HOTEL_STATUS, default='In-Progress')
     is_slot_price_enabled = models.BooleanField(default=False)
+    property_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
+    property_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
                                          
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")

@@ -45,7 +45,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
                   'status', 'current_page', 'address', 'starting_price_details',
-                  'amenity_details', 'policies', 'is_slot_price_enabled')
+                  'amenity_details', 'policies', 'is_slot_price_enabled',
+                  'property_size', 'property_measurement_type')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -144,7 +145,8 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         model = Room
         fields = ('id','name', 'room_type', 'room_view',
                   'no_available_rooms', 'room_price',
-                  'room_occupancy', 'is_slot_price_enabled')
+                  'room_occupancy', 'is_slot_price_enabled',
+                  'room_size', 'room_measurement_type')
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
