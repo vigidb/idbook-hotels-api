@@ -5,7 +5,7 @@ from apps.hotels.models import (
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
 from django.db.models import IntegerField
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.db.models import Q
 
 
@@ -71,18 +71,28 @@ def get_starting_room_price(property_id):
         print(e)
         return 0
 
+def check_slot_price_enabled(property_id):
+    room_obj = Room.objects.filter(is_slot_price_enabled=True, property=property_id)
+    return room_obj.exists()
+
 def get_slot_based_starting_room_price(property_id):
     try:
-        starting_price_list = Room.objects.annotate(
+##        is_exists = check_slot_price_enabled(property_id)
+        room_obj = Room.objects.filter(property=property_id)
+
+        starting_price_slot_list = room_obj.filter(is_slot_price_enabled=True).annotate(
             hrs4=Cast(KT('room_price__price_4hrs'), IntegerField()),
             hrs8=Cast(KT('room_price__price_8hrs'), IntegerField()),
-            hrs12=Cast(KT('room_price__price_12hrs'), IntegerField()),
-            base_price=Cast(KT('room_price__base_rate'), IntegerField())).filter(
-                property_id=property_id).aggregate(
-                    starting_4hr_price=Min('hrs4'),
-                    starting_8hr_price=Min('hrs8'),
-                    starting_12hr_price=Min('hrs12'),
-                    starting_base_price=Min('base_price'))
+            hrs12=Cast(KT('room_price__price_12hrs'), IntegerField())).aggregate(
+                    starting_4hr_price=Coalesce(Min('hrs4'), 0),
+                    starting_8hr_price=Coalesce(Min('hrs8'), 0),
+                    starting_12hr_price=Coalesce(Min('hrs12'), 0))
+
+        starting_price_list = room_obj.annotate(
+            base_price=Cast(KT('room_price__base_rate'), IntegerField())).aggregate(
+                    starting_base_price=Coalesce(Min('base_price'), 0))
+
+        starting_price_list.update(starting_price_slot_list)
         
         return starting_price_list
     except Exception as e:
@@ -90,6 +100,13 @@ def get_slot_based_starting_room_price(property_id):
         starting_price_list = {'starting_4hr_price': 0, 'starting_8hr_price': 0,
                                'starting_12hr_price': 0, 'starting_base_price': 0}
         return starting_price_list
+
+def room_based_property_update(property_id, starting_price_details, is_slot_price_enabled):
+    try:
+        Property.objects.filter(id=property_id).update(
+            starting_price_details=starting_price_details, is_slot_price_enabled=is_slot_price_enabled)
+    except Exception as e:
+        print(e)
 
 def update_property_with_starting_price(property_id, starting_price_details):
     try:
