@@ -296,6 +296,24 @@ class PropertyGallery(models.Model):
     class Meta:
         verbose_name_plural = 'PropertyGallery'
 
+class BlockedProperty(models.Model):
+    blocked_property = models.ForeignKey(Property, on_delete=models.CASCADE,
+                                         related_name='blocked_property')
+    blocked_room =  models.ForeignKey(Room, on_delete=models.CASCADE,
+                                 null=True, related_name='blocked_room')
+    no_of_blocked_rooms = models.PositiveSmallIntegerField(default=0)
+    is_entire_property = models.BooleanField(default=False)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'BlockedProperty'
+    
+    
+
 class RoomGallery(models.Model):
     room = models.ForeignKey(Room, on_delete=models.SET_NULL,
                              null=True, related_name='gallery_room')

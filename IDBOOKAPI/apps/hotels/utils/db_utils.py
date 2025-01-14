@@ -1,6 +1,6 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
-    RoomGallery, FavoriteList)
+    RoomGallery, FavoriteList, BlockedProperty)
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -150,5 +150,15 @@ def filter_property_by_room_amenity(room_amenity):
 
         property_list = Room.objects.filter(query_room_amenity).values_list('property_id', flat=True)
     return list(property_list)
+
+def check_room_blocked(room_id, start_date, end_date, instance_id=None):
+    blocked_property_obj = BlockedProperty.objects.filter(
+        blocked_room=room_id, start_date__lt=end_date, end_date__gt=start_date, active=True)
+    # for update 
+    if instance_id:
+        blocked_property_obj = blocked_property_obj.exclude(id=instance_id)
+        
+    return blocked_property_obj.exists()
+    
     
     
