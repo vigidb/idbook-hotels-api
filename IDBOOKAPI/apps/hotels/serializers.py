@@ -171,7 +171,9 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         fields = ('id','name', 'room_type', 'room_view',
                   'no_available_rooms', 'room_price',
                   'room_occupancy', 'is_slot_price_enabled',
-                  'room_size', 'room_measurement_type')
+                  'room_size', 'room_measurement_type',
+                  'meal_options', 'is_smoking_allowed',
+                  'extra_bed_type', 'is_extra_bed_available')
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
