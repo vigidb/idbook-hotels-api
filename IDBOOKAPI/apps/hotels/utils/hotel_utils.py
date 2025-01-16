@@ -1,4 +1,4 @@
-from apps.booking.utils.db_utils import get_booked_room
+from apps.booking.utils.db_utils import get_booked_room, check_room_booked_details
 from apps.hotels.utils.db_utils import (
     get_room_by_id, get_total_rooms)
 
@@ -128,7 +128,7 @@ def get_available_property(booked_hotel:dict):
 def check_room_count(booked_rooms, room_confirmed_dict):
     room_rejected_list = []
     # get_total_rooms(property_id, room_id)
-    print("booked rooms", booked_rooms)
+##    print("booked rooms", booked_rooms)
     room_dict = get_aggregate_confirmed_room(booked_rooms)
     for room_confirmed in room_confirmed_dict:
         confirmed_room_count = room_confirmed_dict.get(room_confirmed)
@@ -145,5 +145,12 @@ def check_room_count(booked_rooms, room_confirmed_dict):
         
     
         
- # checkin, checkout, property, room_id, booked_room_count, available_room_count       
+def check_room_availability_for_blocking(start_date, end_date, blocked_property, room_dict):
+    
+    booked_rooms = check_room_booked_details(start_date, end_date, blocked_property,
+                                             is_slot_price_enabled=True, booking_id=None)
+    room_rejected_list = check_room_count(booked_rooms, room_dict)
+    print(room_rejected_list)
+    return room_rejected_list
+    
         

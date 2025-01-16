@@ -3,13 +3,17 @@ from django.contrib.auth.models import Permission, Group
 from django.contrib.auth import authenticate
 
 from IDBOOKAPI.img_kit import upload_media_to_bucket
+from IDBOOKAPI.utils import format_custom_id, find_state
+
 from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery, PropertyBankDetails)
-from IDBOOKAPI.utils import format_custom_id, find_state
+from .models import BlockedProperty
+
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
+
 from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
     get_slot_based_starting_room_price, get_property_gallery)
@@ -22,6 +26,12 @@ class PropertyGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyGallery
         fields = '__all__'
+
+
+class PropertyNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Property
+        fields = ('id', 'name', 'title')
         
 class PropertySerializer(serializers.ModelSerializer):
     custom_id = serializers.ReadOnlyField()
@@ -118,6 +128,11 @@ class RoomGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomGallery
         fields = '__all__'
+
+class RoomNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ('id', 'name', 'room_type')
         
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
@@ -314,6 +329,13 @@ class RoomAmenityCategorySerializer(serializers.ModelSerializer):
 class PropertyBankDetailsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyBankDetails
+        fields = '__all__'
+
+class BlockedPropertySerializer(serializers.ModelSerializer):
+    blocked_property = PropertyNameSerializer(read_only=True)
+    blocked_room = RoomNameSerializer(read_only=True)
+    class Meta:
+        model = BlockedProperty
         fields = '__all__'
 
 

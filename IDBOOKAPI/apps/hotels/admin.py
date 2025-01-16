@@ -8,7 +8,7 @@ from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from .models import (
     Property, Room, Gallery, FinancialDetail,
     HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
-    RoomGallery, PropertyGallery
+    RoomGallery, PropertyGallery, BlockedProperty
 )
 
 
@@ -37,3 +37,4 @@ admin.site.register(RoomAmenity)
 admin.site.register(RoomAmenityCategory)
 admin.site.register(RoomGallery)
 admin.site.register(PropertyGallery)
+admin.site.register(BlockedProperty)
