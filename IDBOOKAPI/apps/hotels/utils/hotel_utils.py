@@ -81,6 +81,17 @@ def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
 
 
 
+def get_blocked_property(blocked_property_room):
+    blocked_room_dict = {}
+    for blocked_dict in blocked_property_room:
+        blocked_room = blocked_dict.get('blocked_room', None)
+        total_blocked_rooms = blocked_dict.get('total_blocked_rooms', None)
+        if blocked_room and total_blocked_rooms:
+            blocked_room_dict[blocked_room] = total_blocked_rooms
+
+    return blocked_room_dict
+            
+            
 def get_available_property(booked_hotel:dict):
     total_rooms = 0
     available_rooms = 0

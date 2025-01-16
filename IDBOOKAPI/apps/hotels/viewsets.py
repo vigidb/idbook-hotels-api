@@ -17,7 +17,7 @@ from .serializers import (
     FinancialDetailSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
     PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer)
-from .serializers import BlockedPropertySerializer
+from .serializers import BlockedPropertySerializer, RoomNameSerializer
 
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, HotelAmenityCategory,
@@ -1255,29 +1255,6 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                                      status_code=status.HTTP_200_OK)
         return response
 
-    @action(detail=True, methods=['PATCH'], url_path='active',
-            url_name='active', permission_classes=[])
-    def make_active_or_inactive(self, request, pk):
-        
-        active = request.data.get('active', None)
-        if active is None:
-            response = self.get_error_response(
-                message="missing active field", status="error",
-                errors=[], error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
-            return response
-
-        # update active status
-        instance = self.get_object()
-        instance.active = active
-        #print("start date::", str(instance.start_date))  #.strftime('%Y-%m-%dT%H:%M%z'))
-        instance.save()
-        
-        serializer = BlockedPropertySerializer(instance)
-        response = self.get_response(data=serializer.data, count=1,
-                                     status="success", message="Property Update Success",
-                                     status_code=status.HTTP_200_OK)
-        return response
 
     def list(self, request, *args, **kwargs):
 
@@ -1320,6 +1297,65 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='room-list',
+            url_name='room-list', permission_classes=[])
+    def retrieve_available_room(self, request):
+        error_list = []
+        
+        blocked_property = self.request.data.get('blocked_property', None)
+        print("blocked property", blocked_property)
+        start_date = self.request.data.get('start_date', None)
+        end_date = self.request.data.get('end_date', None)
+
+        is_start_date_valid = validate_date(start_date)
+        if not is_start_date_valid:
+            error_list.append({"field":"start_date", "message": "Wrong date format",
+                               "error_code":"FORMAT_ERROR"})
+
+        is_end_date_valid = validate_date(end_date)
+        if not is_end_date_valid:
+            error_list.append({"field":"end_date", "message": "Wrong date format",
+                               "error_code":"FORMAT_ERROR"})
+
+        blocked_room_list = hotel_db_utils.get_blocked_room_list(blocked_property, start_date, end_date)
+
+        rooms = hotel_db_utils.get_rooms_by_property(blocked_property)
+        serializer = RoomNameSerializer(rooms, many=True)
+        custom_response = self.get_response(
+            data=serializer.data,
+            count=1, status="success",
+            message="Propery room list success",
+            status_code=status.HTTP_200_OK,
+            )
+        return custom_response
+        
+
+    @action(detail=True, methods=['PATCH'], url_path='active',
+            url_name='active', permission_classes=[])
+    def make_active_or_inactive(self, request, pk):
+        
+        active = request.data.get('active', None)
+        if active is None:
+            response = self.get_error_response(
+                message="missing active field", status="error",
+                errors=[], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
+        # update active status
+        instance = self.get_object()
+        instance.active = active
+        #print("start date::", str(instance.start_date))  #.strftime('%Y-%m-%dT%H:%M%z'))
+        instance.save()
+        
+        serializer = BlockedPropertySerializer(instance)
+        response = self.get_response(data=serializer.data, count=1,
+                                     status="success", message="Property Update Success",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+    
 
     
 

@@ -4,6 +4,7 @@ from apps.hotels.models import (
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
+from django.db.models import Count, Sum
 from django.db.models import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from django.db.models import Q
@@ -159,6 +160,56 @@ def check_room_blocked(room_id, start_date, end_date, instance_id=None):
         blocked_property_obj = blocked_property_obj.exclude(id=instance_id)
         
     return blocked_property_obj.exists()
+
+
+def get_blocked_room_list(property_id, start_date, end_date):
+    blocked_room_list = BlockedProperty.objects.filter(
+        start_date__lt=end_date, end_date__gt=start_date,
+        is_entire_property=False, active=True).values_list('blocked_room', flat=True)
+
+    return blocked_room_list
+
+##def get_available_room_count(start_date, end_date, property_id=None, room_list=[]):
+##
+##    room_objs = Room.objects.all()
+##    if property_id:
+##        room_objs = room_objs.filter(property=property_id)
+##    if room_list:
+##        room_objs = room_objs.filter(id__in=room_list)
+
+    
+    
+
+
+##def get_blocked_based_room_availability(start_date, end_date, property_id=None):
+##    blocked_room_objs = BlockedProperty.objects.filter(
+##        start_date__lt=end_date, end_date__gt=start_date,
+##        active=True)
+##
+##    .values(
+##            'blocked_room_id', 'no_of_blocked_rooms', 'is_entire_property')
+##
+##    if property_id:
+##        blocked_room_objs = blocked_room_objs.filter(blocked_property=property_id)
+##
+    
+    
+
+def get_blocked_property(start_date, end_date):
+    blocked_property = BlockedProperty.objects.filter(
+        active=True, start_date__lt=end_date, end_date__gt=start_date)
+
+    # blocked_property = BlockedProperty.objects.filter(active=True)
+
+##    blocked_entire_property = blocked_property.filter(
+##        is_entire_property=True).values('blocked_property').values_aslist()
+
+    blocked_property_room = blocked_property.filter(
+        is_entire_property=False).values('blocked_room').annotate(
+        total_blocked_rooms=Sum('no_of_blocked_rooms'))
+
+    return blocked_property_room
+            
     
     
     

@@ -133,6 +133,16 @@ class RoomNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
         fields = ('id', 'name', 'room_type')
+
+class RoomBlockSelectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ('id', 'name', 'room_type')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        room_blocked_status = self.context.get("room_blocked_status", {})
+        return representation
         
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
