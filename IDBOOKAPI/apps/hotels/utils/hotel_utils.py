@@ -1,6 +1,8 @@
-from apps.booking.utils.db_utils import get_booked_room, check_room_booked_details
+from apps.booking.utils.db_utils import (
+    get_booked_room, check_room_booked_details,
+    get_booked_hotel_booking)
 from apps.hotels.utils.db_utils import (
-    get_room_by_id, get_total_rooms)
+    get_room_by_id, get_total_rooms, get_room_availability)
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -163,5 +165,23 @@ def check_room_availability_for_blocking(start_date, end_date, blocked_property,
     room_rejected_list = check_room_count(booked_rooms, room_dict)
     print(room_rejected_list)
     return room_rejected_list
+
+def get_available_room(start_date, end_date, property_id):
+    """ Get available room based on date range
+        considering existing booking and blocked rooms"""
+    room_list = []
+    
+    hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    print("hotel boooking ids::", hotel_booking_ids)
+
+    room_raw_obj = get_room_availability(start_date, end_date, property_id, list(hotel_booking_ids))
+    for room_detail in room_raw_obj:
+        room_dict = {"id":room_detail.id, "type":room_detail.room_type, "no_available_rooms":room_detail.no_available_rooms,
+                     "no_booked_room":room_detail.no_booked_room, "no_of_blocked_rooms":room_detail.no_of_blocked_rooms,
+                     "current_available_room":room_detail.current_available_room}
+        room_list.append(room_dict)
+    return room_list
+    
+    
     
         

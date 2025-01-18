@@ -1318,12 +1318,24 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
             error_list.append({"field":"end_date", "message": "Wrong date format",
                                "error_code":"FORMAT_ERROR"})
 
-        blocked_room_list = hotel_db_utils.get_blocked_room_list(blocked_property, start_date, end_date)
+##        blocked_room_list = hotel_db_utils.get_blocked_room_list(blocked_property, start_date, end_date)
 
-        rooms = hotel_db_utils.get_rooms_by_property(blocked_property)
-        serializer = RoomNameSerializer(rooms, many=True)
+##        rooms = hotel_db_utils.get_rooms_by_property(blocked_property)
+##        serializer = RoomNameSerializer(rooms, many=True)
+
+        room_list = []
+
+        room_list = hotel_utils.get_available_room(start_date, end_date, blocked_property)
+
+##        room_raw_obj = hotel_db_utils.get_room_availability(start_date, end_date)
+##        for room_detail in room_raw_obj:
+##            room_dict = {"id":room_detail.id, "no_available_rooms":room_detail.no_available_rooms,
+##                         "no_booked_room":room_detail.no_booked_room, "no_of_blocked_rooms":room_detail.no_of_blocked_rooms,
+##                         "current_available_room":room_detail.current_available_room}
+##            room_list.append(room_dict)
+##        print(room_list)
         custom_response = self.get_response(
-            data=serializer.data,
+            data=room_list,
             count=1, status="success",
             message="Propery room list success",
             status_code=status.HTTP_200_OK,

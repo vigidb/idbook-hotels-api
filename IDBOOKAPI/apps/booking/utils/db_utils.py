@@ -106,6 +106,21 @@ def check_room_booked_details(check_in, check_out, property_id,
         'id', 'hotel_booking__confirmed_property_id', 'hotel_booking__confirmed_room_details')
     return booked_hotel
 
+def get_booked_hotel_booking(check_in, check_out, property_id):
+    on_hold_end_time = datetime.now(timezone('UTC'))
+   
+    booked_hotel = Booking.objects.filter(
+        Q(status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+          hotel_booking__confirmed_checkout_time__gt=check_in,
+          hotel_booking__confirmed_property_id=property_id) | Q(
+              status='on_hold', hotel_booking__confirmed_checkin_time__lt=check_out,
+              hotel_booking__confirmed_checkout_time__gt=check_in,
+              hotel_booking__confirmed_property_id=property_id,
+              on_hold_end_time__gte=on_hold_end_time))
+   
+    hotel_booking_ids = booked_hotel.values_list('hotel_booking__id', flat=True)
+    return hotel_booking_ids
+
 def get_booking_based_tax_rule(booking_type):
     tax_rules = TaxRule.objects.filter(booking_type=booking_type).values(
         'id', 'math_compare_symbol', 'tax_rate_in_percent',
