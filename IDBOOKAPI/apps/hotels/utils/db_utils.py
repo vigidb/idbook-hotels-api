@@ -273,6 +273,9 @@ def get_property_availability(property_ids, hotel_booking_ids, blocked_ids):
     if blocked_ids:
         blocked_ids.append(-1)
         blocked_ids = tuple(blocked_ids)
+    else:
+        blocked_ids = (-1, -2)
+        
         
 
     if property_ids:
