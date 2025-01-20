@@ -209,11 +209,16 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
             checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
             
-            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
+##            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
+            
+            nonavailable_property_list, available_property_dict = hotel_utils.get_filled_property_list(checkin_date, checkout_date)
             # print("booked hotel dict::", booked_hotel_dict)
-            # property details from booking 
-            nonavailable_property_list, available_property_dict = \
-                                        hotel_utils.get_available_property(booked_hotel_dict)
+            # property details from booking
+            
+##            nonavailable_property_list, available_property_dict = \
+##                                        hotel_utils.get_available_property(booked_hotel_dict)
+
+            
 ##            print("Non available property list::", nonavailable_property_list)
 ##            print("available property list::", available_property_dict)
 

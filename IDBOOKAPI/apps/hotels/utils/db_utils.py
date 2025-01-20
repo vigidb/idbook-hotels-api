@@ -210,39 +210,108 @@ def get_blocked_property(start_date, end_date):
 
     return blocked_property_room
 
-def get_room_availability(start_date, end_date, property_id, hotel_booking_ids):
+def get_blocked_property_ids(start_date, end_date, property_id):
+    blocked_property = BlockedProperty.objects.filter(
+        active=True, start_date__lt=end_date, end_date__gt=start_date)
+    
+    if property_id:
+        blocked_property = blocked_property.filter(blocked_property_id=property_id)
+        blocked_ids = blocked_property.values_list('id', flat=True)
+        return list(blocked_ids)
+    else:
+        blocked_ids = blocked_property.values_list('id', flat=True)
+        property_ids = blocked_property.values_list(
+            'blocked_property_id', flat=True).distinct()
+        return list(blocked_ids), list(property_ids)
+    
 
-    # for single value list throws error during tuple conversion in sql
+##def get_room_availability(start_date, end_date, property_id, hotel_booking_ids):
+##    """
+##    get room details based on single property
+##    """
+##
+##    # for single value list throws error during tuple conversion in sql
+##    if hotel_booking_ids:
+##        hotel_booking_ids.append(-1)
+##        hotel_booking_ids = tuple(hotel_booking_ids)
+##    else:
+##        hotel_booking_ids = (-1,-2)
+##    
+##
+##
+##    LEFT_JOIN_BLOCKED_PROPERTY = f'''(select blocked_room_id, SUM(no_of_blocked_rooms) as no_of_blocked_rooms
+##from hotels_blockedproperty where hotels_blockedproperty.blocked_property_id={property_id} GROUP BY blocked_room_id)
+##hotels_blockedproperty ON hotels_blockedproperty.blocked_room_id = hotels_room.id'''
+##
+##    LEFT_JOIN_BOOKED_PROPERTY = f'''(SELECT (hb.room_id)::int, SUM((hb.no_of_rooms)::int) as no_booked_room
+##FROM(SELECT jsonb_path_query(confirmed_room_details, '$.room_id') AS room_id,
+##jsonb_path_query(confirmed_room_details, '$.no_of_rooms') AS no_of_rooms
+##FROM booking_hotelbooking where confirmed_property_id={property_id} and id IN {hotel_booking_ids})
+##hb GROUP BY hb.room_id) hb ON hb.room_id = hotels_room.id'''
+##
+##
+##    raw_sql_query= f'''
+##select hotels_room.id, hotels_room.room_type, hotels_room.no_available_rooms, coalesce(hb.no_booked_room,0) as no_booked_room,
+##coalesce(hotels_blockedproperty.no_of_blocked_rooms,0) as no_of_blocked_rooms,
+##(hotels_room.no_available_rooms - (coalesce(hotels_blockedproperty.no_of_blocked_rooms,0) + coalesce(hb.no_booked_room,0))) AS current_available_room
+##from hotels_room LEFT JOIN {LEFT_JOIN_BLOCKED_PROPERTY} LEFT JOIN {LEFT_JOIN_BOOKED_PROPERTY}
+##where hotels_room.property_id=%s '''
+##
+##    room_raw_obj = Room.objects.raw(raw_sql_query, [property_id])
+##    #room_raw_obj = Room.objects.raw(raw_sql_query)
+##    print(room_raw_obj.query)
+##    return room_raw_obj
+
+def get_property_availability(property_ids, hotel_booking_ids, blocked_ids):
+    
     if hotel_booking_ids:
         hotel_booking_ids.append(-1)
         hotel_booking_ids = tuple(hotel_booking_ids)
     else:
         hotel_booking_ids = (-1,-2)
-    
 
+    if blocked_ids:
+        blocked_ids.append(-1)
+        blocked_ids = tuple(blocked_ids)
+        
+
+    if property_ids:
+        property_ids.append(-1)
+        property_ids = tuple(property_ids)
+    else:
+        property_ids = (-1, -2)
 
     LEFT_JOIN_BLOCKED_PROPERTY = f'''(select blocked_room_id, SUM(no_of_blocked_rooms) as no_of_blocked_rooms
-from hotels_blockedproperty where hotels_blockedproperty.blocked_property_id={property_id} GROUP BY blocked_room_id)
+from hotels_blockedproperty where hotels_blockedproperty.id IN {blocked_ids} GROUP BY blocked_room_id)
 hotels_blockedproperty ON hotels_blockedproperty.blocked_room_id = hotels_room.id'''
 
     LEFT_JOIN_BOOKED_PROPERTY = f'''(SELECT (hb.room_id)::int, SUM((hb.no_of_rooms)::int) as no_booked_room
 FROM(SELECT jsonb_path_query(confirmed_room_details, '$.room_id') AS room_id,
 jsonb_path_query(confirmed_room_details, '$.no_of_rooms') AS no_of_rooms
-FROM booking_hotelbooking where confirmed_property_id={property_id} and id IN {hotel_booking_ids})
+FROM booking_hotelbooking where id IN {hotel_booking_ids})
 hb GROUP BY hb.room_id) hb ON hb.room_id = hotels_room.id'''
 
 
     raw_sql_query= f'''
-select hotels_room.id, hotels_room.room_type, hotels_room.no_available_rooms, coalesce(hb.no_booked_room,0) as no_booked_room,
+select hotels_room.id, hotels_room.property_id, hotels_room.room_type, hotels_room.no_available_rooms, coalesce(hb.no_booked_room,0) as no_booked_room,
 coalesce(hotels_blockedproperty.no_of_blocked_rooms,0) as no_of_blocked_rooms,
 (hotels_room.no_available_rooms - (coalesce(hotels_blockedproperty.no_of_blocked_rooms,0) + coalesce(hb.no_booked_room,0))) AS current_available_room
 from hotels_room LEFT JOIN {LEFT_JOIN_BLOCKED_PROPERTY} LEFT JOIN {LEFT_JOIN_BOOKED_PROPERTY}
-where hotels_room.property_id=%s '''
+where hotels_room.property_id IN %s order by hotels_room.property_id'''
 
-    room_raw_obj = Room.objects.raw(raw_sql_query, [property_id])
+    room_raw_obj = Room.objects.raw(raw_sql_query, [property_ids])
     #room_raw_obj = Room.objects.raw(raw_sql_query)
-    #print(room_raw_obj.query)
+##    print(room_raw_obj.query)
     return room_raw_obj
+
+    
+
+    
+
+    
+
+
+
             
     
     
