@@ -156,10 +156,40 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             if key == 'rating':
                 rating_list = param_value.split(',')
                 filter_dict['rating__in'] = rating_list
-                
+
+            if key == 'property_type':
+                property_type_list = param_value.split(',')
+                filter_dict['property_type__in'] = property_type_list
+
+            if key == 'room_type':
+                room_type_list = param_value.split(',')
+                filter_dict['property_room__room_type__in'] = room_type_list
+
+            if key == 'room_view':
+                room_view_list = param_value.split(',')
+                filter_dict['property_room__room_view__in'] = room_view_list
+
+            if key == 'start_review_star':
+               start_review_star = param_value
+               filter_dict['review_star__gte'] = start_review_star
+            if key == 'end_review_star':
+               end_review_star = param_value
+               filter_dict['review_star__lt'] = end_review_star
+               
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
+
+            if key.startswith('policies__'):
+                policies_value_list = param_value.split(',')
+                query_policy = Q()
+                for policies_value in policies_value_list:
+                    policies_contains = key + "__contains"
+                    policies_filter_dict = {policies_contains: policies_value}
+                    query_policy|= Q(**policies_filter_dict)
+
+                self.queryset = self.queryset.filter(query_policy) 
+                
 
         # filter based on price range
         start_price = self.request.query_params.get('start_price', None)
@@ -179,6 +209,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
+
+
+    def property_order_ops(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
+            # print(self.queryset.query)
 
         
 
@@ -339,7 +377,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if request.user:
             favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
 
-        
+        # self.queryset = self.queryset.distinct('id')
+        # ordering
+        self.property_order_ops()
+        self.queryset = self.queryset.distinct()
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 ##        self.queryset = self.queryset.values('id','name', 'title', 'property_type',
