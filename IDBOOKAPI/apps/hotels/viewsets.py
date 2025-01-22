@@ -17,7 +17,7 @@ from .serializers import (
     FinancialDetailSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
     PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer)
-from .serializers import BlockedPropertySerializer
+from .serializers import BlockedPropertySerializer, RoomNameSerializer
 
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, HotelAmenityCategory,
@@ -156,10 +156,40 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             if key == 'rating':
                 rating_list = param_value.split(',')
                 filter_dict['rating__in'] = rating_list
-                
+
+            if key == 'property_type':
+                property_type_list = param_value.split(',')
+                filter_dict['property_type__in'] = property_type_list
+
+            if key == 'room_type':
+                room_type_list = param_value.split(',')
+                filter_dict['property_room__room_type__in'] = room_type_list
+
+            if key == 'room_view':
+                room_view_list = param_value.split(',')
+                filter_dict['property_room__room_view__in'] = room_view_list
+
+            if key == 'start_review_star':
+               start_review_star = param_value
+               filter_dict['review_star__gte'] = start_review_star
+            if key == 'end_review_star':
+               end_review_star = param_value
+               filter_dict['review_star__lt'] = end_review_star
+               
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
+
+            if key.startswith('policies__'):
+                policies_value_list = param_value.split(',')
+                query_policy = Q()
+                for policies_value in policies_value_list:
+                    policies_contains = key + "__contains"
+                    policies_filter_dict = {policies_contains: policies_value}
+                    query_policy|= Q(**policies_filter_dict)
+
+                self.queryset = self.queryset.filter(query_policy) 
+                
 
         # filter based on price range
         start_price = self.request.query_params.get('start_price', None)
@@ -179,6 +209,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
+
+
+    def property_order_ops(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
+            # print(self.queryset.query)
 
         
 
@@ -209,11 +247,16 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
             checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
             
-            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
+##            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
+            
+            nonavailable_property_list, available_property_dict = hotel_utils.get_filled_property_list(checkin_date, checkout_date)
             # print("booked hotel dict::", booked_hotel_dict)
-            # property details from booking 
-            nonavailable_property_list, available_property_dict = \
-                                        hotel_utils.get_available_property(booked_hotel_dict)
+            # property details from booking
+            
+##            nonavailable_property_list, available_property_dict = \
+##                                        hotel_utils.get_available_property(booked_hotel_dict)
+
+            
 ##            print("Non available property list::", nonavailable_property_list)
 ##            print("available property list::", available_property_dict)
 
@@ -334,7 +377,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if request.user:
             favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
 
-        
+        # self.queryset = self.queryset.distinct('id')
+        # ordering
+        self.property_order_ops()
+        self.queryset = self.queryset.distinct()
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 ##        self.queryset = self.queryset.values('id','name', 'title', 'property_type',
@@ -1255,29 +1301,6 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                                      status_code=status.HTTP_200_OK)
         return response
 
-    @action(detail=True, methods=['PATCH'], url_path='active',
-            url_name='active', permission_classes=[])
-    def make_active_or_inactive(self, request, pk):
-        
-        active = request.data.get('active', None)
-        if active is None:
-            response = self.get_error_response(
-                message="missing active field", status="error",
-                errors=[], error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
-            return response
-
-        # update active status
-        instance = self.get_object()
-        instance.active = active
-        #print("start date::", str(instance.start_date))  #.strftime('%Y-%m-%dT%H:%M%z'))
-        instance.save()
-        
-        serializer = BlockedPropertySerializer(instance)
-        response = self.get_response(data=serializer.data, count=1,
-                                     status="success", message="Property Update Success",
-                                     status_code=status.HTTP_200_OK)
-        return response
 
     def list(self, request, *args, **kwargs):
 
@@ -1320,6 +1343,77 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='room-list',
+            url_name='room-list', permission_classes=[])
+    def retrieve_available_room(self, request):
+        error_list = []
+        
+        blocked_property = self.request.data.get('blocked_property', None)
+        print("blocked property", blocked_property)
+        start_date = self.request.data.get('start_date', None)
+        end_date = self.request.data.get('end_date', None)
+
+        is_start_date_valid = validate_date(start_date)
+        if not is_start_date_valid:
+            error_list.append({"field":"start_date", "message": "Wrong date format",
+                               "error_code":"FORMAT_ERROR"})
+
+        is_end_date_valid = validate_date(end_date)
+        if not is_end_date_valid:
+            error_list.append({"field":"end_date", "message": "Wrong date format",
+                               "error_code":"FORMAT_ERROR"})
+
+##        blocked_room_list = hotel_db_utils.get_blocked_room_list(blocked_property, start_date, end_date)
+
+##        rooms = hotel_db_utils.get_rooms_by_property(blocked_property)
+##        serializer = RoomNameSerializer(rooms, many=True)
+
+        room_list = []
+
+        room_list = hotel_utils.get_available_room(start_date, end_date, blocked_property)
+
+##        room_raw_obj = hotel_db_utils.get_room_availability(start_date, end_date)
+##        for room_detail in room_raw_obj:
+##            room_dict = {"id":room_detail.id, "no_available_rooms":room_detail.no_available_rooms,
+##                         "no_booked_room":room_detail.no_booked_room, "no_of_blocked_rooms":room_detail.no_of_blocked_rooms,
+##                         "current_available_room":room_detail.current_available_room}
+##            room_list.append(room_dict)
+##        print(room_list)
+        custom_response = self.get_response(
+            data=room_list,
+            count=1, status="success",
+            message="Propery room list success",
+            status_code=status.HTTP_200_OK,
+            )
+        return custom_response
+        
+
+    @action(detail=True, methods=['PATCH'], url_path='active',
+            url_name='active', permission_classes=[])
+    def make_active_or_inactive(self, request, pk):
+        
+        active = request.data.get('active', None)
+        if active is None:
+            response = self.get_error_response(
+                message="missing active field", status="error",
+                errors=[], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
+        # update active status
+        instance = self.get_object()
+        instance.active = active
+        #print("start date::", str(instance.start_date))  #.strftime('%Y-%m-%dT%H:%M%z'))
+        instance.save()
+        
+        serializer = BlockedPropertySerializer(instance)
+        response = self.get_response(data=serializer.data, count=1,
+                                     status="success", message="Property Update Success",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+    
 
     
 
