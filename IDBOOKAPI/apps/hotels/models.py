@@ -122,7 +122,7 @@ class RoomAmenity(models.Model):
         verbose_name_plural = 'RoomAmenities'
 
 def default_property_additional_fields_json():
-    additional_fields_json = {"comment_count":0, "view_count":0}
+    additional_fields_json = {"comment_count":0, "view_count":0, "no_confirmed_booking":0}
     return additional_fields_json
 
 def default_starting_price_json():
