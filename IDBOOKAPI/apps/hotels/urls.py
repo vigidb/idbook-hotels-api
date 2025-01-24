@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework import routers
 from apps.hotels.viewsets import *
+from apps.hotels.subviews import calendar_viewset
 
 router = routers.DefaultRouter()
 
@@ -15,6 +16,7 @@ router.register(r'amenity-category', HotelAmenityCategoryViewSet, basename='amen
 router.register(r'room-category', RoomAmenityCategoryViewSet, basename='room-category')
 router.register(r'property-bank', PropertyBankDetailViewSet, basename='property-bank')
 router.register(r'block/property', BlockedPropertyViewSet, basename='blocked-property')
+router.register(r'calendar', calendar_viewset.PropertyCalendarViewSet, basename='calendar')
 
 urlpatterns = [
 ]

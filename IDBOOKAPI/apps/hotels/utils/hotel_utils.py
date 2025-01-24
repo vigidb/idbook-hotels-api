@@ -3,7 +3,8 @@ from apps.booking.utils.db_utils import (
     get_booked_hotel_booking, get_total_property_confirmed_booking)
 from apps.hotels.utils.db_utils import (
     get_room_by_id, get_total_rooms, get_blocked_property_ids,
-    get_property_availability, update_property_confirmed_booking)
+    get_property_availability, update_property_confirmed_booking,
+    get_calendar_unavailable_property)
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -219,9 +220,9 @@ def get_available_room(start_date, end_date, property_id):
     """ Get available room based on date range
         considering existing booking and blocked rooms"""
     room_list = []
-    
+
+    # get booked hotel list
     hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
-    print("hotel boooking ids::", hotel_booking_ids)
     # get blocked property details
     blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
 
@@ -234,6 +235,17 @@ def get_available_room(start_date, end_date, property_id):
                      "current_available_room":room_detail.current_available_room}
         room_list.append(room_dict)
     return room_list
+
+
+def get_room_for_calendar(start_date, end_date, property_id):
+    # get booked hotel list
+    hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    # get blocked property details
+    blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
+    
+    room_raw_obj = get_calendar_unavailable_property(hotel_booking_ids, blocked_ids)
+    return room_raw_obj
+    
 
 def process_property_confirmed_booking_total(property_id):
     try:
