@@ -10,7 +10,7 @@ class PaymentPropertyViewSet(viewsets.ModelViewSet, PaymentPropertyFilterMixins,
                              CommonDbMixins, StandardResponseMixin, LoggingMixin):
     queryset = Booking.objects.all()
     serializer_class = PropertyPaymentBookingSerializer
-    permission_classes = []
+    permission_classes = [IsAuthenticated, ]
         
 
     def list(self, request, *args, **kwargs):
