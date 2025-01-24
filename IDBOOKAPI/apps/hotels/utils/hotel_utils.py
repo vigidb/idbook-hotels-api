@@ -1,9 +1,9 @@
 from apps.booking.utils.db_utils import (
     get_booked_room, check_room_booked_details,
-    get_booked_hotel_booking)
+    get_booked_hotel_booking, get_total_property_confirmed_booking)
 from apps.hotels.utils.db_utils import (
     get_room_by_id, get_total_rooms, get_blocked_property_ids,
-    get_property_availability)
+    get_property_availability, update_property_confirmed_booking)
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -235,6 +235,13 @@ def get_available_room(start_date, end_date, property_id):
                      "current_available_room":room_detail.current_available_room}
         room_list.append(room_dict)
     return room_list
+
+def process_property_confirmed_booking_total(property_id):
+    try:
+        total_confirmed_booking = get_total_property_confirmed_booking(property_id)
+        update_property_confirmed_booking(property_id, total_confirmed_booking)
+    except Exception as e:
+        print(e)
     
     
     

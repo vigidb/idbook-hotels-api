@@ -226,5 +226,12 @@ def change_onhold_status():
             status='on_hold', on_hold_end_time__lt=on_hold_end_time).update(status='pending')
     except Exception as e:
         print("change on hold status::", e)
+
+def get_total_property_confirmed_booking(property_id):
+    total_confirmed_booking = Booking.objects.filter(
+        hotel_booking__confirmed_property=property_id,
+        status='confirmed').count()
+    return total_confirmed_booking
+    
     
     

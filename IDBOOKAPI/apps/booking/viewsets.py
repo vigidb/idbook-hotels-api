@@ -29,7 +29,9 @@ from apps.booking.utils.booking_utils import (
     generate_booking_confirmation_code)
 
 from apps.hotels.utils.db_utils import get_property_room_for_booking
-from apps.hotels.utils.hotel_utils import check_room_count, total_room_count
+from apps.hotels.utils.hotel_utils import (
+    check_room_count, total_room_count,
+    process_property_confirmed_booking_total)
 
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
@@ -852,6 +854,9 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         booking_payment_detail.amount = instance.final_amount
         booking_payment_detail.is_transaction_success = True
         booking_payment_detail.save()
+
+        # update total no of confirmed booking for a property
+        process_property_confirmed_booking_total(property_id)
         
         create_invoice_task.apply_async(args=[booking_id])
             
@@ -1303,6 +1308,10 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking.total_payment_made = amount
             booking.status = 'confirmed'
             booking.save()
+
+            # update property confirmed booking count
+            property_id = booking.hotel_booking.confirmed_property_id
+            process_property_confirmed_booking_total(property_id)
         
             create_invoice_task.apply_async(args=[booking_id])
             
@@ -1355,6 +1364,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_id = get_booking_from_payment(merchant_transaction_id)
             booking_payment_log['booking_id'] = booking_id
             self.set_booking_as_confirmed(booking_id, amount)
+
 
             custom_response = self.get_response(
                 status="success",

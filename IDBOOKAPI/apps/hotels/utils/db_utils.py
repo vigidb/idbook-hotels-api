@@ -307,6 +307,14 @@ where hotels_room.property_id IN %s order by hotels_room.property_id'''
 ##    print(room_raw_obj.query)
     return room_raw_obj
 
+def update_property_confirmed_booking(property_id, no_of_confirmed_booking):
+    try:
+        property_obj = Property.objects.get(id=property_id)
+        property_obj.additional_fields['no_confirmed_booking'] = no_of_confirmed_booking
+        property_obj.save()
+    except Exception as e:
+        print(e)
+
     
 
     
