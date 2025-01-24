@@ -166,7 +166,6 @@ def get_available_property(booked_hotel:dict):
                 if available_rooms > 0:
                     property_availability_status = True
                     
-                print("---", available_property_dict)
                 property_dict = available_property_dict.get(property_id, None)
                 if property_dict:
                     # property_dict[room_id] = available_rooms
