@@ -1,6 +1,7 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
     RoomGallery, FavoriteList, BlockedProperty)
+from apps.hotels.submodels.raw_sql_models import CalendarRoom
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -314,6 +315,43 @@ def update_property_confirmed_booking(property_id, no_of_confirmed_booking):
         property_obj.save()
     except Exception as e:
         print(e)
+
+def get_calendar_unavailable_property(hotel_booking_ids, blocked_ids):
+
+    if hotel_booking_ids:
+        hotel_booking_ids.append(-1)
+        hotel_booking_ids = tuple(hotel_booking_ids)
+    else:
+        hotel_booking_ids = (-1,-2)
+
+    if blocked_ids:
+        blocked_ids.append(-1)
+        blocked_ids = tuple(blocked_ids)
+    else:
+        blocked_ids = (-1, -2)
+
+    BLOCKED_PROPERY = f'''
+select id, blocked_property_id as property_id, blocked_room_id as room_id, 
+no_of_blocked_rooms as no_unavailable_rooms, 'blocked' as blocked_booked,
+start_date as start_date, end_date as end_date 
+from hotels_blockedproperty where id in {blocked_ids}
+'''
+    BOOKED_PROPERTY = f'''
+SELECT hb.id, hb.confirmed_property_id as property_id, (hb.room_id)::int as room_id, 
+(hb.no_of_rooms)::int as no_unavailable_rooms, 'booked' as blocked_booked,
+hb.confirmed_checkin_time as start_date, hb.confirmed_checkout_time as end_date
+FROM(SELECT id, confirmed_property_id, jsonb_path_query(confirmed_room_details, '$.room_id') AS room_id,
+jsonb_path_query(confirmed_room_details, '$.no_of_rooms') AS no_of_rooms,
+confirmed_checkin_time, confirmed_checkout_time
+FROM booking_hotelbooking as hb where id in {hotel_booking_ids}) as hb
+'''
+
+
+    raw_sql_query = f''' {BLOCKED_PROPERY} UNION ALL {BOOKED_PROPERTY} '''
+
+    room_unavailable_obj = CalendarRoom.objects.raw(raw_sql_query)
+    return room_unavailable_obj
+    
 
     
 

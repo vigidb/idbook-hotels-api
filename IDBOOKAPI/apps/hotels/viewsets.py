@@ -1413,10 +1413,6 @@ class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                                      status_code=status.HTTP_200_OK)
         return response
 
-    
-
-    
-
 
 class RuleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Rule.objects.all()
