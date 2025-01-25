@@ -106,6 +106,43 @@ def check_room_booked_details(check_in, check_out, property_id,
         'id', 'hotel_booking__confirmed_property_id', 'hotel_booking__confirmed_room_details')
     return booked_hotel
 
+def get_booked_hotel_booking(check_in, check_out, property_id):
+    on_hold_end_time = datetime.now(timezone('UTC'))
+
+    # filter based on check in and check out
+    booked_hotel = Booking.objects.filter(
+        hotel_booking__confirmed_checkin_time__lt=check_out,
+        hotel_booking__confirmed_checkout_time__gt=check_in).exclude(hotel_booking__confirmed_property_id__isnull=True)
+
+    # filter based on property id
+    if property_id:
+        booked_hotel = booked_hotel.filter(hotel_booking__confirmed_property_id=property_id)
+   
+##    booked_hotel = Booking.objects.filter(
+##        Q(status='confirmed', hotel_booking__confirmed_checkin_time__lt=check_out,
+##          hotel_booking__confirmed_checkout_time__gt=check_in,
+##          hotel_booking__confirmed_property_id=property_id) | Q(
+##              status='on_hold', hotel_booking__confirmed_checkin_time__lt=check_out,
+##              hotel_booking__confirmed_checkout_time__gt=check_in,
+##              hotel_booking__confirmed_property_id=property_id,
+##              on_hold_end_time__gte=on_hold_end_time))
+
+    # filter based on status and on hold time
+    booked_hotel = booked_hotel.filter(
+        Q(status='confirmed') | Q(status='on_hold', on_hold_end_time__gte=on_hold_end_time))
+
+    #print(booked_hotel.query)
+
+    if property_id:
+        hotel_booking_ids = booked_hotel.values_list('hotel_booking__id', flat=True)
+        return list(hotel_booking_ids)
+    else:
+        hotel_booking_ids = booked_hotel.values_list('hotel_booking__id', flat=True)
+        property_ids = booked_hotel.values_list(
+            'hotel_booking__confirmed_property_id', flat=True).distinct()
+        return list(hotel_booking_ids), list(property_ids)
+        
+
 def get_booking_based_tax_rule(booking_type):
     tax_rules = TaxRule.objects.filter(booking_type=booking_type).values(
         'id', 'math_compare_symbol', 'tax_rate_in_percent',
@@ -189,5 +226,12 @@ def change_onhold_status():
             status='on_hold', on_hold_end_time__lt=on_hold_end_time).update(status='pending')
     except Exception as e:
         print("change on hold status::", e)
+
+def get_total_property_confirmed_booking(property_id):
+    total_confirmed_booking = Booking.objects.filter(
+        hotel_booking__confirmed_property=property_id,
+        status='confirmed').count()
+    return total_confirmed_booking
+    
     
     

@@ -1,6 +1,9 @@
-from apps.booking.utils.db_utils import get_booked_room
+from apps.booking.utils.db_utils import (
+    get_booked_room, check_room_booked_details,
+    get_booked_hotel_booking, get_total_property_confirmed_booking)
 from apps.hotels.utils.db_utils import (
-    get_room_by_id, get_total_rooms)
+    get_room_by_id, get_total_rooms, get_blocked_property_ids,
+    get_property_availability, update_property_confirmed_booking)
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -75,12 +78,72 @@ def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
                         # room and no of rooms
                         booked_hotel_dict[property_id] = {room_id:no_of_rooms}
 
-    # print("booked hotel dict::", booked_hotel_dict)
+##    print("booked hotel dict::", booked_hotel_dict)
                 
     return booked_hotel_dict
 
+def get_filled_property_list(check_in, check_out):
+    """ get the details of property which is booked and blocked """
 
+    # get booked property details
+    hotel_booking_ids, booked_property_ids = get_booked_hotel_booking(check_in, check_out, None)
+    # get blocked property details
+    blocked_ids, blocked_property_ids = get_blocked_property_ids(check_in, check_out, None)
 
+    # merge the property ids by avoiding duplicates
+    property_ids = booked_property_ids + [
+        data for data in blocked_property_ids if data not in booked_property_ids]
+
+    
+    # get the property availability based on booked and blocked property
+    room_list = get_property_availability(property_ids, hotel_booking_ids, blocked_ids)
+
+    available_property_dict = {}
+    available_property_status = {}
+    nonavailable_property_list = []
+
+    # arrange the property based on available and non available
+    for room in room_list:
+        room_id = room.id
+        property_id = room.property_id
+        current_available_room = room.current_available_room
+
+        property_dict = available_property_dict.get(property_id, None)
+        if property_dict:
+            property_dict.append({'room_id': room_id, 'available_rooms': current_available_room})
+            if current_available_room > 0:
+                available_property_status[property_id] = True
+        else:
+            available_property_dict[property_id] = [{'room_id': room_id, 'available_rooms': current_available_room}]
+            if current_available_room > 0:
+                available_property_status[property_id] = True
+            else:
+                available_property_status[property_id] = False
+
+    # print("------------- query list -", available_property_dict)
+
+    for avpropstat_id in available_property_status:
+        prop_status = available_property_status.get(avpropstat_id)
+        if prop_status is False:
+            nonavailable_property_list.append(avpropstat_id)
+            available_property_dict.pop(avpropstat_id)
+
+    # print("dict after filtering::", available_property_dict)
+    # print("non available property list::", nonavailable_property_list)
+       
+    return nonavailable_property_list, available_property_dict
+
+def get_blocked_property(blocked_property_room):
+    blocked_room_dict = {}
+    for blocked_dict in blocked_property_room:
+        blocked_room = blocked_dict.get('blocked_room', None)
+        total_blocked_rooms = blocked_dict.get('total_blocked_rooms', None)
+        if blocked_room and total_blocked_rooms:
+            blocked_room_dict[blocked_room] = total_blocked_rooms
+
+    return blocked_room_dict
+            
+            
 def get_available_property(booked_hotel:dict):
     total_rooms = 0
     available_rooms = 0
@@ -128,7 +191,7 @@ def get_available_property(booked_hotel:dict):
 def check_room_count(booked_rooms, room_confirmed_dict):
     room_rejected_list = []
     # get_total_rooms(property_id, room_id)
-    print("booked rooms", booked_rooms)
+##    print("booked rooms", booked_rooms)
     room_dict = get_aggregate_confirmed_room(booked_rooms)
     for room_confirmed in room_confirmed_dict:
         confirmed_room_count = room_confirmed_dict.get(room_confirmed)
@@ -145,5 +208,41 @@ def check_room_count(booked_rooms, room_confirmed_dict):
         
     
         
- # checkin, checkout, property, room_id, booked_room_count, available_room_count       
+def check_room_availability_for_blocking(start_date, end_date, blocked_property, room_dict):
+    
+    booked_rooms = check_room_booked_details(start_date, end_date, blocked_property,
+                                             is_slot_price_enabled=True, booking_id=None)
+    room_rejected_list = check_room_count(booked_rooms, room_dict)
+    print(room_rejected_list)
+    return room_rejected_list
+
+def get_available_room(start_date, end_date, property_id):
+    """ Get available room based on date range
+        considering existing booking and blocked rooms"""
+    room_list = []
+    
+    hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    print("hotel boooking ids::", hotel_booking_ids)
+    # get blocked property details
+    blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
+
+    #room_raw_obj = get_room_availability(start_date, end_date, property_id, list(hotel_booking_ids))
+
+    room_raw_obj = get_property_availability([property_id], hotel_booking_ids, blocked_ids)
+    for room_detail in room_raw_obj:
+        room_dict = {"id":room_detail.id, "type":room_detail.room_type, "no_available_rooms":room_detail.no_available_rooms,
+                     "no_booked_room":room_detail.no_booked_room, "no_of_blocked_rooms":room_detail.no_of_blocked_rooms,
+                     "current_available_room":room_detail.current_available_room}
+        room_list.append(room_dict)
+    return room_list
+
+def process_property_confirmed_booking_total(property_id):
+    try:
+        total_confirmed_booking = get_total_property_confirmed_booking(property_id)
+        update_property_confirmed_booking(property_id, total_confirmed_booking)
+    except Exception as e:
+        print(e)
+    
+    
+    
         

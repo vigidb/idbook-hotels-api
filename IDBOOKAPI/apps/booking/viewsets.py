@@ -29,7 +29,9 @@ from apps.booking.utils.booking_utils import (
     generate_booking_confirmation_code)
 
 from apps.hotels.utils.db_utils import get_property_room_for_booking
-from apps.hotels.utils.hotel_utils import check_room_count, total_room_count
+from apps.hotels.utils.hotel_utils import (
+    check_room_count, total_room_count,
+    process_property_confirmed_booking_total)
 
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
@@ -100,6 +102,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
             if key in ('status', 'booking_type'):
                 filter_dict[key] = param_value
+            elif key == 'confirmed_property':
+                filter_dict['hotel_booking__confirmed_property'] = param_value
             elif key == 'invoice_generated':
                 if param_value in ('True', 'False', True, False):
                     if param_value == 'True':
@@ -119,25 +123,24 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##        user.category = 'CL-CUST'
 ##        if user.category == 'B-ADMIN':
 ##             company_id = self.request.query_params.get('company_id', None)
-        if user.category == 'CL-ADMIN':
-            company_id = user.company_id if user.company_id else -1
-            # user_id = self.request.query_params.get('user_id', None)
-        elif user.category == 'CL-CUST':
-            user_id = user.id
-            company_id = user.company_id if user.company_id else -1
+##        if user.category == 'CL-ADMIN':
+##            company_id = user.company_id if user.company_id else -1
+##            # user_id = self.request.query_params.get('user_id', None)
+##        elif user.category == 'CL-CUST':
+##            user_id = user.id
+##            company_id = user.company_id if user.company_id else -1
         
         if default_group == 'B2C-GRP':
            user_id = user.id
            company_id = None
            filter_dict['company_id__isnull'] = True
-            
-        # filter 
-##        booking_status = self.request.query_params.get('status', '')
-##        if booking_status:
-##            filter_dict['status'] = booking_status
-##        booking_type = self.request.query_params.get('booking_type', '')
-##        if booking_type:
-##            filter_dict['booking_type'] = booking_type
+        elif default_group in ('HTLR-ADMIN', 'FRANCH-ADMIN'):
+            pass
+        elif default_group == 'CORP-ADMIN':
+            company_id = user.company_id if user.company_id else -1
+        elif default_group == 'CORP-EMP':
+            user_id = user.id
+            company_id = user.company_id if user.company_id else -1
             
         if company_id:
             filter_dict['user__company_id'] = company_id
@@ -151,7 +154,32 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 **exclude_dict)
         else:
             self.queryset = self.queryset.filter(**filter_dict)
-        
+
+        # filter to get booked property based on date
+        property_booked_date =  self.request.query_params.get('property_booked_date', None)
+        if property_booked_date:
+            property_booked_date = datetime.strptime(
+                property_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+
+            booked_date_query = Q(hotel_booking__confirmed_checkin_time__date=property_booked_date)
+            booked_date_query |= Q(hotel_booking__confirmed_checkout_time__date=property_booked_date)
+            self.queryset = self.queryset.filter(booked_date_query)
+   
+        # filter to get booked property based on date range
+        start_booked_date = self.request.query_params.get('start_booked_date', None)
+        end_booked_date = self.request.query_params.get('end_booked_date', None)
+        if start_booked_date and end_booked_date:
+            start_booked_date = datetime.strptime(
+                start_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+            end_booked_date = datetime.strptime(
+                end_booked_date, '%Y-%m-%d').replace(tzinfo=timezone('UTC')).date()
+
+            booked_drange_query = Q(hotel_booking__confirmed_checkin_time__date__lte=end_booked_date,
+                                  hotel_booking__confirmed_checkin_time__date__gte=start_booked_date)
+
+            booked_drange_query |= Q(hotel_booking__confirmed_checkout_time__date__lte=end_booked_date,
+                                  hotel_booking__confirmed_checkout_time__date__gte=start_booked_date)
+            self.queryset = self.queryset.filter(booked_drange_query) 
 
         # search 
         search = self.request.query_params.get('search', '')
@@ -826,6 +854,9 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         booking_payment_detail.amount = instance.final_amount
         booking_payment_detail.is_transaction_success = True
         booking_payment_detail.save()
+
+        # update total no of confirmed booking for a property
+        process_property_confirmed_booking_total(property_id)
         
         create_invoice_task.apply_async(args=[booking_id])
             
@@ -1277,6 +1308,10 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking.total_payment_made = amount
             booking.status = 'confirmed'
             booking.save()
+
+            # update property confirmed booking count
+            property_id = booking.hotel_booking.confirmed_property_id
+            process_property_confirmed_booking_total(property_id)
         
             create_invoice_task.apply_async(args=[booking_id])
             
@@ -1329,6 +1364,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_id = get_booking_from_payment(merchant_transaction_id)
             booking_payment_log['booking_id'] = booking_id
             self.set_booking_as_confirmed(booking_id, amount)
+
 
             custom_response = self.get_response(
                 status="success",

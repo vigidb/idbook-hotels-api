@@ -214,6 +214,14 @@ def get_days_from_string(start_date: str, end_date: str, string_format='%Y-%m-%d
     except Exception as e:
         print(e)
         return None
+
+def validate_date(date:str, date_format="%Y-%m-%dT%H:%M%z"):
+    try:
+        datetime.datetime.strptime(date, date_format)
+        return True
+    except Exception as e:
+        print(e)
+        return False
     
     
     

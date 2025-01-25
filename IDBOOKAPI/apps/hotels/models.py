@@ -122,7 +122,7 @@ class RoomAmenity(models.Model):
         verbose_name_plural = 'RoomAmenities'
 
 def default_property_additional_fields_json():
-    additional_fields_json = {"comment_count":0, "view_count":0}
+    additional_fields_json = {"comment_count":0, "view_count":0, "no_confirmed_booking":0}
     return additional_fields_json
 
 def default_starting_price_json():
@@ -191,6 +191,9 @@ class Property(models.Model):
     additional_fields = models.JSONField(null=True, default=default_property_additional_fields_json,
                                          help_text='Additional Fields related to the property')
     status = models.CharField(max_length=50, choices=HOTEL_STATUS, default='In-Progress')
+    is_slot_price_enabled = models.BooleanField(default=False)
+    property_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
+    property_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
                                          
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
@@ -292,6 +295,24 @@ class PropertyGallery(models.Model):
 
     class Meta:
         verbose_name_plural = 'PropertyGallery'
+
+class BlockedProperty(models.Model):
+    blocked_property = models.ForeignKey(Property, on_delete=models.CASCADE,
+                                         related_name='blocked_property')
+    blocked_room =  models.ForeignKey(Room, on_delete=models.CASCADE,
+                                 null=True, related_name='blocked_room')
+    no_of_blocked_rooms = models.PositiveSmallIntegerField(default=0)
+    is_entire_property = models.BooleanField(default=False)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'BlockedProperty'
+    
+    
 
 class RoomGallery(models.Model):
     room = models.ForeignKey(Room, on_delete=models.SET_NULL,
