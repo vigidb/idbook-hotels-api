@@ -8,7 +8,8 @@ from IDBOOKAPI.utils import format_custom_id, find_state
 from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
-                     PropertyGallery, RoomGallery, PropertyBankDetails)
+                     PropertyGallery, RoomGallery, PropertyBankDetails,
+                     PolicyDetails)
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 
@@ -355,6 +356,12 @@ class CalendarRoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CalendarRoom
+        fields = '__all__'
+
+class PolicySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PolicyDetails
         fields = '__all__'
 
 
