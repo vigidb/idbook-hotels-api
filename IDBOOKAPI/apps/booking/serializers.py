@@ -23,6 +23,8 @@ from .models import (
 # from payment_gateways.models import *
 # from IDBOOKAPI.utils import format_custom_id
 
+import pytz
+
 
 class BookingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -395,7 +397,16 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Booking
-        fields = ('id', 'reference_code', 'confirmation_code',
+        fields = ('id', 'reference_code', 'confirmation_code', 'final_amount', 'total_payment_made',
                   'invoice_id', 'confirmed_checkin_time', 'confirmed_checkout_time',
                   'merchant_transaction_id', 'payment_type', 'payment_medium',
                   'payment_amount', 'is_transaction_success')
+
+class PaymentMediumSerializer(serializers.Serializer):
+    payment_type = serializers.CharField(
+        source='booking_payment__payment_type', allow_null=True)
+    payment_medium = serializers.CharField(
+        source='booking_payment__payment_medium', allow_null=True)
+    total_payment = serializers.DecimalField(
+        allow_null=True, max_digits=15, decimal_places=6)
+    
