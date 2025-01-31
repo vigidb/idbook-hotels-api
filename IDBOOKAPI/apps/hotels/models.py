@@ -16,6 +16,8 @@ from IDBOOKAPI.basic_resources import (
 )
 from django.core.validators import EmailValidator, RegexValidator
 
+from apps.hotels.utils.hotel_policies_utils import default_hotel_policy_json
+
 
 ##class PropertyQuerySet(models.query.QuerySet):
 ##    def active(self):
@@ -445,6 +447,13 @@ class PropertyBankDetails(models.Model):
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+class PolicyDetails(models.Model):
+    policy_details =  models.JSONField(null=True, default=default_hotel_policy_json)
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
     
     
     
