@@ -30,9 +30,14 @@ def get_user_from_email(email):
     user = User.objects.filter(email=email).first()
     return user
 
-def create_user(user_details):
+def create_user(user_details, customer_details=None):
     user = User.objects.create(**user_details)
-    Customer.objects.create(user=user, active=True)
+    if not customer_details:
+        Customer.objects.create(user=user, active=True)
+    else:
+        customer_details['user_id'] = user.id
+        customer_details['active'] = True
+        Customer.objects.create(**customer_details)
     return user
 
 def create_email_otp(otp, to_email, otp_for):

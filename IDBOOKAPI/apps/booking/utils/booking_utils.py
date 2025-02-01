@@ -4,6 +4,7 @@ from django.conf import settings
 from IDBOOKAPI.utils import get_current_date
 
 from apps.authentication.utils.db_utils import get_user_by_referralcode
+from apps.authentication.utils.authentication_utils import generate_refresh_access_token
 
 from apps.customer.utils.db_utils import (
     add_company_wallet_amount, update_wallet_transaction,
@@ -132,8 +133,12 @@ def generate_context_confirmed_booking(booking):
     subtotal = booking.subtotal
     tax = booking.gst_amount
 
-    invoice_id = booking.invoice_id    
-    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
+    invoice_id = booking.invoice_id
+    access = ""
+    if booking.user:
+        refresh, access = generate_refresh_access_token(booking.user)
+    
+    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?token={access}"
     invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
