@@ -1363,7 +1363,8 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             update_booking_payment_details(merchant_transaction_id, booking_payment_details)
             booking_id = get_booking_from_payment(merchant_transaction_id)
             booking_payment_log['booking_id'] = booking_id
-            self.set_booking_as_confirmed(booking_id, amount)
+            if code == "PAYMENT_SUCCESS":
+                self.set_booking_as_confirmed(booking_id, amount)
 
 
             custom_response = self.get_response(

@@ -23,6 +23,8 @@ from .models import (
 # from payment_gateways.models import *
 # from IDBOOKAPI.utils import format_custom_id
 
+import pytz
+
 
 class BookingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -374,3 +376,37 @@ class BookingPaymentDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = BookingPaymentDetail
         fields = '__all__'
+
+class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
+    confirmed_checkin_time = serializers.DateTimeField(
+        source='hotel_booking__confirmed_checkin_time', allow_null=True)
+    confirmed_checkout_time = serializers.DateTimeField(
+        source='hotel_booking__confirmed_checkout_time', allow_null=True)
+    merchant_transaction_id = serializers.CharField(
+        source='booking_payment__merchant_transaction_id', allow_null=True)
+    payment_type = serializers.CharField(
+        source='booking_payment__payment_type', allow_null=True)
+    payment_medium = serializers.CharField(
+        source='booking_payment__payment_medium', allow_null=True)
+    payment_amount = serializers.DecimalField(
+        source='booking_payment__amount', allow_null=True,
+        max_digits=15, decimal_places=6)
+    is_transaction_success = serializers.BooleanField(
+        source='booking_payment__is_transaction_success',
+        allow_null=True)
+    
+    class Meta:
+        model = Booking
+        fields = ('id', 'reference_code', 'confirmation_code', 'final_amount', 'total_payment_made',
+                  'invoice_id', 'confirmed_checkin_time', 'confirmed_checkout_time',
+                  'merchant_transaction_id', 'payment_type', 'payment_medium',
+                  'payment_amount', 'is_transaction_success')
+
+class PaymentMediumSerializer(serializers.Serializer):
+    payment_type = serializers.CharField(
+        source='booking_payment__payment_type', allow_null=True)
+    payment_medium = serializers.CharField(
+        source='booking_payment__payment_medium', allow_null=True)
+    total_payment = serializers.DecimalField(
+        allow_null=True, max_digits=15, decimal_places=6)
+    
