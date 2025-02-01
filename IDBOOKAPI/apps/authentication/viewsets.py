@@ -1,3 +1,5 @@
+import traceback
+
 # django import
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
@@ -16,6 +18,8 @@ from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.email_utils import (send_otp_email, send_password_forget_email,
                                    email_validation, get_domain)
 from IDBOOKAPI.otp_utils import generate_otp
+from IDBOOKAPI.utils import get_timediff_in_minutes, validate_mobile_number
+
 from .models import User, UserOtp
 from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
@@ -335,6 +339,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return response
+
+    
     
 
     @action(detail=False, methods=['POST'], url_path='buser/email-otp',
@@ -421,7 +427,6 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
         return response
-        
         
 
 
@@ -512,7 +517,216 @@ class LogoutAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
             )
         self.log_response(response)  # Log the response before returning
         return response
+
+class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = User.objects.all()
+    serializer_class = UserSignupSerializer
+    http_method_names = ['get', 'post', 'put', 'patch']
+    
+    @action(detail=False, methods=['POST'], url_path='signup',
+            url_name='otp-signup')
+    def otp_based_user_signup(self, request):
         
+        email = request.data.get('email', '')
+        mobile_number = request.data.get('mobile_number', '')
+        name = request.data.get('name', '')
+        otp = request.data.get('otp', None)
+        referred_code = request.data.get('referred_code', '')
+
+        valid = email_validation(email)
+        if not valid:
+            response = self.get_error_response(message="Invalid Email", status="error",
+                                               errors=[], error_code="INVALID_EMAIL",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+        if not otp:
+            response = self.get_error_response(message="OTP Missing", status="error",
+                                               errors=[], error_code="OTP_MISSING",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+        is_mb_valid = validate_mobile_number(mobile_number)
+        if not is_mb_valid:
+            response = self.get_error_response(message="Invalid Mobile Number", status="error",
+                                               errors=[], error_code="INVALID_NUMBER",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        user_otp = db_utils.get_user_otp_details(email, mobile_number, otp)
+        # user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
+        if not user_otp:
+            response = self.get_error_response(
+                message="Invalid Credentials", status="error",
+                errors=[], error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        # check whether otp expired or not
+        current_time = timezone.now()
+        timediff = current_time - user_otp.created
+        timediff_in_minutes = timediff.total_seconds()/60
+
+        if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+            response = self.get_error_response(message="OTP Expired", status="error",
+                                           errors=[], error_code="OTP_EXPIRED",
+                                           status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        # check whether email already exist or not
+        check_existing_user = User.objects.filter(email=email).first()
+        if check_existing_user:
+            response = self.get_error_response(
+                message="Email already exist", status="error", errors=[],
+                error_code="EMAIL_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        # create user
+        new_user = User.objects.create(
+            name=name, email=email, mobile_number=mobile_number,
+            referred_code=referred_code, default_group='B2C-GRP')
+        Customer.objects.create(user_id=new_user.id, active=True)
+        
+        # set groups and roles
+        grp = db_utils.get_group_by_name('B2C-GRP')
+        role = db_utils.get_role_by_name('B2C-CUST')
+
+        if grp:
+            new_user.groups.add(grp)
+        if role:
+            new_user.roles.add(role)
+            
+        # data = self.get_user_with_tokens(new_user)
+        
+        data = authentication_utils.generate_refresh_token(new_user)
+        response = self.get_response(data=data, status="success",
+                                     message="Signup successful",
+                                     status_code=status.HTTP_200_OK)
+        return response
+    
+
+    @action(detail=False, methods=['POST'], url_path='login',
+            url_name='otp-login')
+    def otp_based_user_login(self, request):
+
+        username = request.data.get('username', '')
+        user_id = request.data.get('user_id', None)
+        otp = request.data.get('otp', None)
+
+        if not username or not user_id:
+            response = self.get_error_response(
+                message="Missing username or user_id", status="error",
+                errors=[], error_code="INVALID_PARAM",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        # get the otp details
+        user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for='LOGIN').first()
+        if not user_otp:
+            response = self.get_error_response(
+                message="Invalid Credentials", status="error",
+                errors=[], error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+            
+        # get the time difference
+        current_time = timezone.now()
+        timediff_in_minutes = get_timediff_in_minutes(
+            user_otp.created, current_time)
+
+        if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+            response = self.get_error_response(message="OTP Expired", status="error",
+                                               errors=[], error_code="OTP_EXPIRED",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        user_detail = db_utils.get_user_details(user_id, username)
+        if not user_detail:
+            response = self.get_error_response(
+                message="Invalid user details", status="error",
+                errors=[], error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+       
+        data = authentication_utils.generate_refresh_token(user_detail)
+        response = self.get_response(data=data, status="success",
+                                     message="Login successful",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+    @action(detail=False, methods=['POST'], url_path='generate-otp',
+            url_name='generate-otp')
+    def generate_otp(self, request):
+        try:
+            username = request.data.get('username', None)
+            otp_for = request.data.get('otp_for', None)
+            
+            if not username:
+                response = self.get_error_response(message="Missing username", status="error",
+                                                   errors=[], error_code="INVALID_PARAM",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+
+            if not otp_for:
+                response = self.get_error_response(message="Missing otp_for", status="error",
+                                                   errors=[], error_code="INVALID_PARAM",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+
+            
+            # check whether user name is based on email
+            # or mobile number
+            is_mb_valid = validate_mobile_number(username)
+            if is_mb_valid:
+                medium_type = 'mobile'
+            else:
+                is_email_valid = email_validation(username)
+                if is_email_valid:
+                    medium_type = 'email'
+                else:
+                    response = self.get_error_response(message="Invalid Username", status="error",
+                                                   errors=[], error_code="INVALID_USERNAME",
+                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    return response
+
+            user_objs = db_utils.get_userid_list(username)
+            if otp_for == 'LOGIN':
+                if not user_objs:
+                    response = self.get_error_response(
+                        message="No user associated with the account!",
+                        status="error", errors=[], error_code="MISSING_USERNAME",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    return response
+            elif otp_for == 'SIGNUP':
+                if medium_type == 'email' and user_objs:
+                    response = self.get_error_response(
+                        message="User email is already associated with the account!",
+                        status="error", errors=[], error_code="USERNAME_DUPLICATE",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    return response
+                
+            # generate otp
+            otp = generate_otp(no_digits=4)
+
+            if medium_type == 'email':
+                authentication_utils.email_generate_otp_process(otp, username, otp_for)
+            elif medium_type == 'mobile':
+                authentication_utils.mobile_generate_otp_process(otp, username, otp_for)
+            
+            data = {'user_list': user_objs}
+            response = self.get_response(data=data, status="success",
+                                         message="OTP Success",
+                                         status_code=status.HTTP_200_OK)
+        except Exception as e:
+            print(traceback.format_exc())
+            print(e)
+            response = self.get_error_response(message="Internal server error. Please try again later.",
+                                               status="error",
+                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return response
+
+    
+
 
 class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()

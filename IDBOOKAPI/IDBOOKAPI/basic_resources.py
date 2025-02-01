@@ -1235,7 +1235,12 @@ EXTRA_BED_TYPE = (
     ('Sofa cum bed', 'Sofa cum bed'),
 )
     
-    
+OTP_FOR_CHOICES = (
+    ('LOGIN', 'LOGIN'),
+    ('SIGNUP', 'SIGNUP'),
+    ('VERIFY', 'VERIFY'),
+    ('OTHER', 'OTHER')
+)    
 
     
     
