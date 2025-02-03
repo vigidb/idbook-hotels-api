@@ -649,7 +649,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     confirmed_checkin_time, confirmed_checkout_time,
                     property_id, is_slot_price_enabled=True, booking_id=None)
                 room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
-                    
+    
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,

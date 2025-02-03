@@ -182,17 +182,17 @@ class Booking(models.Model):
     coupon_code = models.CharField(max_length=20, blank=True, default='')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
 
-    subtotal = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="Price for the booking")
-    gst_percentage = models.DecimalField(default=0.0, max_digits=15, decimal_places=6, help_text="GST % for the booking")
-    gst_amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=6, help_text="GST amount for the booking")
+    subtotal = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="Price for the booking")
+    gst_percentage = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="GST % for the booking")
+    gst_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="GST amount for the booking")
     gst_type = models.CharField(max_length=25, choices=GST_TYPE, default='', blank=True, help_text="GST Type")
-    service_tax =  models.DecimalField(default=0.0, max_digits=15, decimal_places=6,
+    service_tax =  models.DecimalField(default=0.0, max_digits=20, decimal_places=6,
                                        help_text="Service tax for the booking")
     
-    final_amount = models.DecimalField(default=0, max_digits=15, decimal_places=6,
+    final_amount = models.DecimalField(default=0, max_digits=20, decimal_places=6,
                                        help_text="Final amount after considering gst, discount")
     total_payment_made = models.DecimalField(
-        max_digits=15, decimal_places=6, default=0.0, help_text="Total Payment made")
+        max_digits=20, decimal_places=6, default=0.0, help_text="Total Payment made")
     
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
     on_hold_end_time = models.DateTimeField(null=True)
@@ -227,7 +227,7 @@ class BookingPaymentDetail(models.Model):
     message = models.CharField(max_length=150, blank=True, default='')
     payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, null=True)
     payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, null=True)
-    amount = models.DecimalField(null=True, max_digits=15, decimal_places=6)
+    amount = models.DecimalField(null=True, max_digits=20, decimal_places=6)
     is_transaction_success = models.BooleanField(default=False)
     transaction_details = models.JSONField(null=True, default=dict)
     created = models.DateTimeField(auto_now_add=True)
@@ -237,7 +237,7 @@ class BookingPaymentDetail(models.Model):
 class AppliedCoupon(models.Model):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='coupon_applied')
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_applied_coupon')
-    discount_amount = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(0)])
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
 
     def __str__(self):
         return f"{self.coupon.code} applied to {self.booking}"
