@@ -39,7 +39,8 @@ from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.utils.db_utils import create_booking_payment_log
 
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
-from apps.authentication.utils.authentication_utils import add_group_based_on_signup
+from apps.authentication.utils.authentication_utils import (
+    add_group_based_on_signup, add_group_for_guest_user)
 
 from rest_framework.decorators import action
 from django.db.models import Q, Sum
@@ -648,13 +649,19 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     confirmed_checkin_time, confirmed_checkout_time,
                     property_id, is_slot_price_enabled=True, booking_id=None)
                 room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
-                    
+    
                 hotel_booking = HotelBooking(
                     confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
                     confirmed_checkin_time=confirmed_checkin_time,
                     confirmed_checkout_time=confirmed_checkout_time,
                     booking_slot=booking_slot, requested_room_no=requested_room_no)
                 hotel_booking.save()
+
+##                booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking, "booking_type":'HOTEL',
+##                                "subtotal":subtotal, "discount":discount, "final_amount":final_amount,
+##                                "gst_amount": final_tax_amount, "adult_count":adult_count,
+##                                "child_count":child_count, "infant_count":infant_count,
+##                                "child_age_list":child_age_list}
                 
                 booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
                                   subtotal=subtotal, discount=discount, final_amount=final_amount,
@@ -1210,6 +1217,12 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 name = user_details.get('name', '')
                 email = user_details.get('email', '')
                 mobile_number = user_details.get('mobile_number', '')
+                address = user_details.get('address', '')
+                gender = user_details.get('gender', '')
+                state = user_details.get('state', '')
+                country = user_details.get('country', '')
+                pan_card_number = user_details.get('pan_card_number', '')
+                
                 
                 if not email:
                     custom_response = self.get_error_response(
@@ -1221,8 +1234,15 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 
                 user = get_user_from_email(email)
                 if not user:
-                    user = create_user(user_details)
-                    add_group_based_on_signup(user, '')
+                    udetails = {"name":name, "mobile_number":mobile_number,
+                                "email":email}
+                    cdetails = {"address":address, "gender":gender,
+                                "state":state, "country":country,
+                                "pan_card_number":pan_card_number}
+                    
+                    user = create_user(udetails, cdetails)
+                    user = add_group_for_guest_user(user)
+                    # add_group_based_on_signup(user, '')
                 else:
                     user.name = name
                     user.mobile_number = mobile_number

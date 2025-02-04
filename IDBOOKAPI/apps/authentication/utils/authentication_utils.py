@@ -44,6 +44,10 @@ def generate_refresh_token(user):
 
     return data
 
+def generate_refresh_access_token(user):
+    refresh = RefreshToken.for_user(user)
+    return str(refresh), str(refresh.access_token)
+
 def check_email_exist_for_group(email, group_name):
     user = User.objects.filter(email=email).first()
     if user:
@@ -79,6 +83,23 @@ def add_group_based_on_signup(user, group_name):
     user.save()
 
     return user
+
+def add_group_for_guest_user(user):
+    grp = db_utils.get_group_by_name('B2C-GRP')
+    role = db_utils.get_role_by_name('B2C-GUEST')
+    user.default_group = 'B2C-GRP'
+
+    if grp:
+        user.groups.add(grp)
+    if role:
+        user.roles.add(role)
+
+    user.is_active = True
+    user.save()
+
+    return user
+
+    
 
 def email_generate_otp_process(otp, to_email, otp_for):
     # otp create
