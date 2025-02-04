@@ -81,7 +81,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 gallery_property = get_property_gallery(property_id)
 
                 if gallery_property:
-                    property_gallery = list(gallery_property.values('media', 'caption', 'featured_image'))
+                    property_gallery = list(gallery_property.filter(active=True).values(
+                        'id','media', 'caption', 'featured_image'))
                     for gallery in property_gallery:
                         gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                     representation['property_gallery'] = property_gallery
@@ -156,7 +157,7 @@ class RoomSerializer(serializers.ModelSerializer):
         
         if instance and instance.gallery_room:
             room_gallery = list(instance.gallery_room.filter(active=True).values(
-                'media', 'caption', 'featured_image'))
+                'id','media', 'caption', 'featured_image'))
             for gallery in room_gallery:
                 gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
             representation['room_gallery'] = room_gallery
@@ -187,7 +188,7 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
 ##                else:
 ##                    representation['featured_image'] = ""
                 room_gallery = list(instance.gallery_room.filter(active=True).values(
-                    'media', 'caption', 'featured_image'))
+                    'id', 'media', 'caption', 'featured_image'))
                 for gallery in room_gallery:
                     gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                 representation['room_gallery'] = room_gallery
@@ -197,10 +198,15 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         return representation 
 
 class PropertyRetrieveSerializer(serializers.ModelSerializer):
+    
 
-    property_room = PropertyRoomSerializer(many=True)
+##    property_room = PropertyRoomSerializer(many=True)
 
-
+    property_room = serializers.SerializerMethodField()
+    def get_property_room(self, obj):
+        active_property_room = obj.property_room.filter(active=True)
+        return PropertyRoomSerializer(active_property_room, many=True).data
+        
     class Meta:
         model = Property
         exclude = ('legal_document', )
@@ -222,7 +228,8 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
 ##            representation['property_room'] = room_details
             
             if instance.gallery_property:
-                property_gallery = list(instance.gallery_property.values('media', 'caption', 'featured_image'))
+                property_gallery = list(instance.gallery_property.filter(
+                    active=True).values('id','media', 'caption', 'featured_image'))
                 for gallery in property_gallery:
                     gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                 representation['property_gallery'] = property_gallery

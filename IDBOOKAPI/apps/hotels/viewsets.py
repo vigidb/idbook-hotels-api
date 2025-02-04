@@ -527,6 +527,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                      status_code=status.HTTP_200_OK)
         return response
 
+    @action(detail=False, methods=['POST'], url_path='media/inactive',
+            url_name='media-inactive', permission_classes=[IsAuthenticated])
+    def make_media_inactive(self, request):
+
+        image_ids = request.data.get('image_ids', [])
+        active = request.data.get('active', False)
+        
+        if not image_ids and not isinstance(image_ids, list):
+            custom_response = self.get_error_response(
+                message="Invalid Ids", status="error", errors=[],
+                error_code="INVALID_ID", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        # make media active or inactive
+        update_status = PropertyGallery.objects.filter(id__in=image_ids).update(active=active)
+            
+        custom_response = self.get_response(
+            data={},  # Use the data from the default response
+            message="Success",
+            count=update_status,
+            status_code=status.HTTP_200_OK,  # 200 for successful update
+        )
+        return custom_response 
+
     @action(detail=False, methods=['GET'], url_path='favorite/list',
             url_name='favorite', permission_classes=[IsAuthenticated])
     def get_favorite_property(self, request):
@@ -1140,6 +1164,55 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                                      status="success", message="List Room Gallery",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=True, methods=['PATCH'], url_path='inactive',
+            url_name='inactive', permission_classes=[IsAuthenticated])
+    def make_room_inactive(self, request, pk):
+        active = request.data.get('active', False)
+        # Get the object to be updated
+        instance = self.get_object()
+        instance.active = active
+        instance.save()
+        property_id = instance.property_id
+
+        # update starting price
+        if property_id:
+            starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
+            is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(property_id)
+            hotel_db_utils.room_based_property_update(property_id, starting_price_details, is_slot_price_enabled)
+        
+        data = {"id": instance.id, "active":instance.active}
+
+        custom_response = self.get_response(
+            data=data,  # Use the data from the default response
+            message="Success",
+            status_code=status.HTTP_200_OK,  # 200 for successful update
+        )
+        return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='media/inactive',
+            url_name='media-inactive', permission_classes=[IsAuthenticated])
+    def make_media_inactive(self, request):
+
+        image_ids = request.data.get('image_ids', [])
+        active = request.data.get('active', False)
+        
+        if not image_ids and not isinstance(image_ids, list):
+            custom_response = self.get_error_response(
+                message="Invalid Ids", status="error", errors=[],
+                error_code="INVALID_ID", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        # make media active or inactive
+        update_status = RoomGallery.objects.filter(id__in=image_ids).update(active=active)
+            
+        custom_response = self.get_response(
+            data={},  # Use the data from the default response
+            message="Success",
+            count=update_status,
+            status_code=status.HTTP_200_OK,  # 200 for successful update
+        )
+        return custom_response
 
 class BlockedPropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = BlockedProperty.objects.all()

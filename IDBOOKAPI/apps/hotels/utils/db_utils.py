@@ -80,7 +80,7 @@ def check_slot_price_enabled(property_id):
 def get_slot_based_starting_room_price(property_id):
     try:
 ##        is_exists = check_slot_price_enabled(property_id)
-        room_obj = Room.objects.filter(property=property_id)
+        room_obj = Room.objects.filter(property=property_id, active=True)
 
         starting_price_slot_list = room_obj.filter(is_slot_price_enabled=True).annotate(
             hrs4=Cast(KT('room_price__price_4hrs'), IntegerField()),
