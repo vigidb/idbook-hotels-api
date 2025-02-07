@@ -1,7 +1,11 @@
 # authentication utils
 from apps.authentication.utils import db_utils
 from apps.authentication.models import User
+from apps.authentication.tasks import send_email_task
+
 from django.conf import settings
+
+from rest_framework_simplejwt.tokens import RefreshToken
 
 def user_representation(user, refresh_token=None):
     
@@ -33,6 +37,16 @@ def user_representation(user, refresh_token=None):
         return data
 
     return user_data
+
+def generate_refresh_token(user):
+    refresh = RefreshToken.for_user(user)
+    data = user_representation(user, refresh_token=refresh)
+
+    return data
+
+def generate_refresh_access_token(user):
+    refresh = RefreshToken.for_user(user)
+    return str(refresh), str(refresh.access_token)
 
 def check_email_exist_for_group(email, group_name):
     user = User.objects.filter(email=email).first()
@@ -69,5 +83,33 @@ def add_group_based_on_signup(user, group_name):
     user.save()
 
     return user
+
+def add_group_for_guest_user(user):
+    grp = db_utils.get_group_by_name('B2C-GRP')
+    role = db_utils.get_role_by_name('B2C-GUEST')
+    user.default_group = 'B2C-GRP'
+
+    if grp:
+        user.groups.add(grp)
+    if role:
+        user.roles.add(role)
+
+    user.is_active = True
+    user.save()
+
+    return user
+
+    
+
+def email_generate_otp_process(otp, to_email, otp_for):
+    # otp create
+    db_utils.create_email_otp(otp, to_email, otp_for)
+    # send_otp_email(otp, [to_email])
+    send_email_task.apply_async(args=[otp, [to_email]])
+
+def mobile_generate_otp_process(otp, mobile_number, otp_for):
+    # otp create
+    db_utils.create_mobile_otp(otp, mobile_number, otp_for)
+    
             
         

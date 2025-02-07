@@ -6,6 +6,7 @@ import re
 from django.utils import timezone
 from decimal import Decimal
 import calendar
+from django.core.validators import RegexValidator
 
 import time
 
@@ -223,7 +224,10 @@ def validate_date(date:str, date_format="%Y-%m-%dT%H:%M%z"):
         print(e)
         return False
     
-    
+def get_timediff_in_minutes(start_datetime, end_datetime):
+    timediff = end_datetime - start_datetime
+    timediff_in_minutes = timediff.total_seconds()/60
+    return timediff_in_minutes
     
 
 ##def quantize_decimal_value(value: Decimal):
@@ -260,6 +264,14 @@ def default_address_json():
                     "pincode":"", "coordinates":{"lat":"", "lng":""},
                     "location_url": ""}
     return address_json
+
+def validate_mobile_number(mobile_number):
+    try:
+        regex_mb = RegexValidator(regex=r'^\+?1?\d{9,15}$')
+        regex_mb(mobile_number)
+        return True
+    except Exception as e:
+        return False
 
 
 # Example usage

@@ -71,9 +71,12 @@ admin.site.register(Permission)
 class RoleAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'short_code')
 
+class UserOtpAdmin(admin.ModelAdmin):
+    list_display = ('id', 'otp', 'created')
+
 
 admin.site.register(Role, RoleAdmin)
-admin.site.register(UserOtp)
+admin.site.register(UserOtp, UserOtpAdmin)
 
 admin.site.site_title = 'IDBookHotels Admin Panel'
 admin.site.site_header = 'IDBookHotels'

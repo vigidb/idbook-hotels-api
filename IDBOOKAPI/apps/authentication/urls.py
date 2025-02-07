@@ -7,6 +7,9 @@ from rest_framework import routers
 router = routers.DefaultRouter()
 router.register(r'', UserCreateAPIView, basename='')
 
+otp_router = routers.DefaultRouter()
+otp_router.register(r'', OtpBasedUserEntryAPIView, basename='')
+
 user_router = routers.DefaultRouter()
 user_router.register(r'profile', UserProfileViewset, basename='profile')
 
@@ -27,7 +30,9 @@ urlpatterns = [
     path('auth/reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
     path('auth/signup/', include(router.urls)),
     path('auth/user/', include(user_router.urls)),
-    path('auth/password/', include(password_router.urls))
+    path('auth/password/', include(password_router.urls)),
+    path('auth/otp/', include(otp_router.urls)),
+    
 ]
 
 # path('', include(router.urls)),

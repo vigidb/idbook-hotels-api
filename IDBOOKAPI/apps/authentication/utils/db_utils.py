@@ -1,7 +1,10 @@
+from django.db.models import Q
+
 from django.contrib.auth.models import Group
 from apps.authentication.models import Role
-from apps.authentication.models import User
+from apps.authentication.models import User, UserOtp
 from apps.customer.models import Customer
+
 
 def get_group_by_name(name):
     #CORPORATE-GRP
@@ -27,7 +30,52 @@ def get_user_from_email(email):
     user = User.objects.filter(email=email).first()
     return user
 
-def create_user(user_details):
+def create_user(user_details, customer_details=None):
     user = User.objects.create(**user_details)
-    Customer.objects.create(user=user, active=True)
+    if not customer_details:
+        Customer.objects.create(user=user, active=True)
+    else:
+        customer_details['user_id'] = user.id
+        customer_details['active'] = True
+        Customer.objects.create(**customer_details)
     return user
+
+def create_email_otp(otp, to_email, otp_for):
+    # delete any previous otp for the user account
+    UserOtp.objects.filter(user_account=to_email).delete()
+    # save otp
+    UserOtp.objects.create(
+        otp=otp, otp_type='EMAIL',
+        user_account=to_email, otp_for=otp_for)
+
+def create_mobile_otp(otp, mobile_number, otp_for):
+    # delete any previous otp for the user account
+    UserOtp.objects.filter(user_account=mobile_number).delete()
+    # save otp
+    UserOtp.objects.create(
+        otp=otp, otp_type='MOBILE',
+        user_account=mobile_number,
+         otp_for=otp_for)
+
+def get_userid_list(username):
+    user_objs = User.objects.filter(
+        Q(email=username)|Q(mobile_number=username)).values(
+            'id', 'email', 'mobile_number')
+    return user_objs
+
+def get_user_details(user_id, username):
+    user_detail = User.objects.filter(id=user_id).filter(
+        Q(email=username)|Q(mobile_number=username)).first()
+    return user_detail
+
+def get_user_otp_details(email, mobile_number, otp):
+    user_otp_detail = UserOtp.objects.filter(
+        otp=otp, otp_for='SIGNUP').filter(
+            Q(user_account=email)|Q(user_account=mobile_number)).first()
+    return user_otp_detail
+    
+    
+    
+    
+
+    
