@@ -56,7 +56,7 @@ def get_property_room_for_booking(property_id:int, room_id:int):
         id=room_id, property_id=property_id).values(
             'id', 'room_type', 'room_price',
             'is_extra_bed_available', 'room_occupancy').first()
-    return room_detail
+    return room_detail    
 
 def get_favorite_property(user_id):
     favorite_list = FavoriteList.objects.filter(
@@ -372,6 +372,19 @@ def get_dynamic_pricing(property_id, start_date, end_date):
         end_date__gt=start_date, active=True)
     
     return dynamic_pricing_obj
+
+def get_dynamic_room_pricing_list(start_date, end_date, room_ids:list):
+
+    pricing_objs = DynamicRoomPricing.objects.filter(
+        for_room__in=room_ids, active=True)
+        #start_date__date__lt=end_date, end_date__date__gt=start_date)
+
+##    .filter(
+##            Q(start_date__date__lte=start_date, end_date__date__gte=start_date)
+##            | Q(start_date__date__gt=end_date, end_date__date__gt=end_date))
+    # print("-- query", pricing_objs.query)
+
+    return pricing_objs
     
     
 
