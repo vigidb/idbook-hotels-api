@@ -29,7 +29,7 @@ class BookingMixins:
             start_date, end_date, room_ids)
 
         if not pricing_objs.exists():
-            return {}
+            return room_dprice_dict, date_list, dprice_roomids
 
         # store dynamic price based on date and room
         for date in date_list:
