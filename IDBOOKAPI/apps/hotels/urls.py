@@ -19,6 +19,8 @@ router.register(r'room-category', RoomAmenityCategoryViewSet, basename='room-cat
 router.register(r'property-bank', PropertyBankDetailViewSet, basename='property-bank')
 router.register(r'block/property', BlockedPropertyViewSet, basename='blocked-property')
 router.register(r'calendar', calendar_viewset.PropertyCalendarViewSet, basename='calendar')
+router.register(r'room/dynamic-pricing', calendar_viewset.RoomPricingCalendarViewset,
+                basename='room-dynamic-pricing')
 
 urlpatterns = [
 ]

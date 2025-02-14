@@ -509,6 +509,9 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         child_age_list = request.data.get('child_age_list', [])
         infant_count = request.data.get('infant_count', 0)
         booking_slot = request.data.get('booking_slot', '24 Hrs')
+        booking_id = request.data.get('booking_id', 0)
+        additional_notes = request.data.get('additional_notes', '')
+        booking_status = request.data.get('status', '')
         
         
         coupon_code = request.data.get('coupon_code', None)
@@ -842,45 +845,79 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 ##                tm ='Asia/Kolkata'
 ##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
 
-
-                # check the room availability before locking
-##                room_confirmed_dict = total_room_count(confirmed_room_details)
-##                booked_rooms = check_room_booked_details(
-##                    confirmed_checkin_time, confirmed_checkout_time,
-##                    property_id, is_slot_price_enabled=True, booking_id=None)
-##                room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
     
-                hotel_booking = HotelBooking(
-                    confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
-                    confirmed_checkin_time=confirmed_checkin_time,
-                    confirmed_checkout_time=confirmed_checkout_time,
-                    booking_slot=booking_slot, requested_room_no=requested_room_no)
-                hotel_booking.save()
+##                hotel_booking = HotelBooking(
+##                    confirmed_property_id=property_id, confirmed_room_details=confirmed_room_details,
+##                    confirmed_checkin_time=confirmed_checkin_time,
+##                    confirmed_checkout_time=confirmed_checkout_time,
+##                    booking_slot=booking_slot, requested_room_no=requested_room_no)
+##                hotel_booking.save()
 
-##                booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking, "booking_type":'HOTEL',
-##                                "subtotal":subtotal, "discount":discount, "final_amount":final_amount,
-##                                "gst_amount": final_tax_amount, "adult_count":adult_count,
-##                                "child_count":child_count, "infant_count":infant_count,
-##                                "child_age_list":child_age_list}
+##                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
+##                                  subtotal=subtotal, discount=discount, final_amount=final_amount,
+##                                  gst_amount=final_tax_amount, adult_count=adult_count,
+##                                  child_count=child_count, infant_count=infant_count,
+##                                  child_age_list=child_age_list)
+
+                if booking_id:
+                    booking_objs = Booking.objects.filter(id=booking_id)
+                    hotel_booking_id = booking_objs.first().hotel_booking_id
+                    hotel_booking_objs = HotelBooking.objects.filter(id=hotel_booking_id)
+                    
+
+                hotel_booking_dict = {
+                    "confirmed_property_id":property_id, "confirmed_room_details":confirmed_room_details,
+                    "confirmed_checkin_time":confirmed_checkin_time,
+                    "confirmed_checkout_time":confirmed_checkout_time,
+                    "booking_slot":booking_slot, "requested_room_no":requested_room_no
+                }
                 
-                booking = Booking(user_id=user.id, hotel_booking=hotel_booking, booking_type='HOTEL',
-                                  subtotal=subtotal, discount=discount, final_amount=final_amount,
-                                  gst_amount=final_tax_amount, adult_count=adult_count,
-                                  child_count=child_count, infant_count=infant_count,
-                                  child_age_list=child_age_list)
+                # save hotel booking details
+                if booking_id:
+                    hotel_booking_objs.update(**hotel_booking_dict)
+                else:
+                    hotel_booking = HotelBooking(**hotel_booking_dict)
+                    hotel_booking.save()
+                    hotel_booking_id = hotel_booking.id
+                    
 
+                booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
+                                "subtotal":subtotal, "discount":discount, "final_amount":final_amount,
+                                "gst_amount": final_tax_amount, "adult_count":adult_count,
+                                "child_count":child_count, "infant_count":infant_count,
+                                "child_age_list":child_age_list, "additional_notes":additional_notes}
                 if coupon:
-                    booking.coupon_code = coupon_code
+                    booking_dict['coupon_code'] = coupon_code
+                    #booking.coupon_code = coupon_code
                     
                 if company_id:
-                    booking.company_id = company_id
+                    booking_dict['company_id'] = company_id
+                    # booking.company_id = company_id
 
-##                if not room_rejected_list:
-##                    on_hold_end_time = datetime.now(timezone('UTC')) + timedelta(minutes=5)
-##                    booking.status = 'on_hold'
-##                    booking.on_hold_end_time = on_hold_end_time
-                    
-                booking.save()
+                if not booking_id:
+                    booking = Booking(**booking_dict)
+                    booking.save()
+                else:
+                    booking_objs.update(**booking_dict)
+                    booking = booking_objs.first()
+            
+                booking_status_message = ""
+                if booking_id and booking_status == "on_hold":
+                    # check the room availability before locking
+                    room_confirmed_dict = total_room_count(confirmed_room_details)
+                    booked_rooms = check_room_booked_details(
+                        confirmed_checkin_time, confirmed_checkout_time,
+                        property_id, is_slot_price_enabled=True, booking_id=booking.id)
+                    room_rejected_list = check_room_count(booked_rooms, room_confirmed_dict)
+
+                    if not room_rejected_list:
+                        on_hold_end_time = datetime.now(timezone('UTC')) + timedelta(minutes=5)
+                        booking.status = 'on_hold'
+                        booking.on_hold_end_time = on_hold_end_time
+                        booking.save()
+                        booking_status_message = "Status Changed to on_hold"
+                    else:
+                        booking_status_message = "Failed to change status to on_hold"
 
                 # create and save merchant transaction id for payment reference
 ##                append_id = "%s" % (user.id)
@@ -898,7 +935,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     confirmed_checkin_time, confirmed_checkout_time, property_id)
                 
                 booking_dict = {'merchant_transaction_id': '',
-                                'room_availability_details':room_availability_list}
+                                'room_availability_details':room_availability_list,
+                                'booking_status_message': booking_status_message}
                 booking_dict.update(serializer.data)
                 
                 custom_response = self.get_response(
