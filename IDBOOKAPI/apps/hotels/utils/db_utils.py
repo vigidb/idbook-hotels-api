@@ -385,6 +385,26 @@ def get_dynamic_room_pricing_list(start_date, end_date, room_ids:list):
     # print("-- query", pricing_objs.query)
 
     return pricing_objs
+
+def get_dynamic_pricing_with_date_list(room_id, date_list):
+    pricing_obj = DynamicRoomPricing.objects.filter(
+        for_room_id=room_id, active=True)
+    date_price_dict = {}
+    is_price_available = False
+    if pricing_obj.exists():
+        for date in date_list:
+            date_pricing_obj = pricing_obj.filter(
+                start_date__date__lte=date, end_date__date__gte=date).values(
+                    'room_price').first()
+            if date_pricing_obj:
+                date_price_dict[str(date)] = date_pricing_obj
+                is_price_available = True
+            else:
+                date_price_dict[str(date)] = ""
+    if not is_price_available:
+        return {}
+    return date_price_dict
+    
     
     
 

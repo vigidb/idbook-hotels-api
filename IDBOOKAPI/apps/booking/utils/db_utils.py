@@ -4,11 +4,14 @@ from apps.booking.models import (
     Review, BookingPaymentDetail, Review)
 
 from IDBOOKAPI.utils import get_unique_id_from_time
-from django.db.models import Avg
 from datetime import datetime
 from pytz import timezone
 
 from django.db.models import Q
+from django.db.models import FloatField
+from django.db.models.fields.json import KT
+from django.db.models import Avg
+from django.db.models.functions import Cast, Coalesce
 
 def get_booking(booking_id):
     try:
@@ -232,6 +235,48 @@ def get_total_property_confirmed_booking(property_id):
         hotel_booking__confirmed_property=property_id,
         status='confirmed').count()
     return total_confirmed_booking
+
+def get_overall_booking_rating(property_id):
+    review_obj = Review.objects.filter(
+        property_id=property_id, active=True)
+
+    # property rating
+    property_review_list = review_obj.annotate(
+        check_in=Cast(KT('property_review__check_in_rating'), FloatField()),
+        food=Cast(KT('property_review__food_rating'), FloatField()),
+        cleanliness=Cast(KT('property_review__cleanliness_rating'), FloatField()),
+        comfort=Cast(KT('property_review__comfort_rating'), FloatField()),
+        hotel_staff=Cast(KT('property_review__hotel_staff_rating'), FloatField()),
+        facilities=Cast(KT('property_review__facilities_rating'), FloatField()),
+        overall=Cast('overall_rating', FloatField())
+        ).aggregate(
+            check_in_rating=Coalesce(Avg('check_in'), 0, output_field=FloatField()),
+            food_rating=Coalesce(Avg('food'), 0, output_field=FloatField()),
+            cleanliness_rating=Coalesce(Avg('cleanliness'), 0, output_field=FloatField()),
+            comfort_rating=Coalesce(Avg('comfort'), 0, output_field=FloatField()),
+            hotel_staff_rating=Coalesce(Avg('hotel_staff'), 0, output_field=FloatField()),
+            facilities_rating=Coalesce(Avg('facilities'), 0, output_field=FloatField()),
+            overall_rating=Coalesce(Avg('overall'), 0, output_field=FloatField())
+            )
+
+    agency_review_list = review_obj.annotate(
+        booking_experience=Cast(KT('agency_review__booking_experience_rating'), FloatField()),
+        cancellation_experience=Cast(KT('agency_review__cancellation_experience_rating'), FloatField()),
+        search_property_experience=Cast(KT('agency_review__search_property_experience_rating'), FloatField()),
+        overall_agency=Cast('overall_agency_rating', FloatField())
+        ).aggregate(
+            booking_experience_rating=Coalesce(
+                Avg('booking_experience'), 0, output_field=FloatField()),
+            cancellation_experience_rating=Coalesce(
+                Avg('cancellation_experience'), 0, output_field=FloatField()),
+            search_property_experience_rating=Coalesce(
+                Avg('search_property_experience'), 0, output_field=FloatField()),
+            overall_agency_rating=Coalesce(
+                Avg('overall_agency'), 0, output_field=FloatField())
+            
+            )
+
+    return property_review_list, agency_review_list
     
     
     

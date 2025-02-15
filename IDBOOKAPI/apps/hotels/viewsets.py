@@ -10,7 +10,9 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, validate_date
+from IDBOOKAPI.utils import (
+    paginate_queryset, validate_date, get_dates_from_range,
+    get_date_from_string)
 
 from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
@@ -409,7 +411,65 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        
+        pk = kwargs.get('pk')
+        if isinstance(pk, str) and not pk.isdigit():
+            instance = Property.objects.filter(slug=pk).first()
+        else:
+            instance = Property.objects.filter(id=pk).first()
+
+        if not instance:
+            custom_response = self.get_error_response(message="Property not found", status="error",
+                                                      errors=[],error_code="PROPERTY_MISSING",
+                                                      status_code=status.HTTP_404_NOT_FOUND)
+            return custom_response
+
+        
+
+        checkin_date = self.request.query_params.get('checkin', '')
+        checkout_date = self.request.query_params.get('checkout', '')
+
+        
+        
+        if checkin_date and checkout_date:
+            checkin_date = checkin_date.replace(' ', '+')
+            checkout_date = checkout_date.replace(' ', '+')
+            
+            start_date = get_date_from_string(checkin_date)
+            end_date = get_date_from_string(checkout_date)
+            
+            if not start_date or not end_date:
+                custom_response = self.get_error_response(
+                    message="Error in Date Format", status="error",
+                    errors=[],error_code="DATE_FORMAT_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                
+            date_list = get_dates_from_range(start_date.date(), end_date.date())
+            if len(date_list) >= 2:
+                date_list.pop()
+            date_list={"date_list": date_list}
+        else:
+            date_list={}
+            
+            
+            
         user_id = request.user.id
+
+        response = PropertyRetrieveSerializer(instance,  context=date_list)
+
+        property_id = instance.id
+        if user_id and property_id:
+            create_or_update_property_count(property_id, user_id)
+
+        custom_response = self.get_response(
+            count=1, status="success",
+            data=response.data,  # Use the data from the default response
+            message="List Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+
+        return custom_response
 
 ##        print("-----", request.data.get('sample'))
 ##        available_rooms = self.request.query_params.get('available_rooms')
@@ -428,30 +488,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##            status_code=status.HTTP_200_OK,  # 200 for successful listing
 ##            )
 
-        # Perform the default retrieval logic
-        response = super().retrieve(request, *args, **kwargs)
-
-        if response.status_code == status.HTTP_200_OK:
-            # If the response status code is OK (200), it's a successful retrieval
-            custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response,
-                count=1,
-                status="success",
-                message="Item Retrieved",
-                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
-            )
-            property_id = response.data.get('id', None)
-            if user_id and property_id:
-                create_or_update_property_count(property_id, user_id)
-        else:
-            # If the response status code is not OK, it's an error
-            custom_response = self.get_error_response(message="Error Occured", status="error",
-                                                      errors=[],error_code="ERROR",
-                                                      status_code=response.status_code)
-
-        self.log_response(custom_response)  # Log the custom response before returning
-        return custom_response
+##        # Perform the default retrieval logic
+##        response = super().retrieve(request, *args, **kwargs)
+##
+##        if response.status_code == status.HTTP_200_OK:
+##            # If the response status code is OK (200), it's a successful retrieval
+##            custom_response = self.get_response(
+##                data=response.data,  # Use the data from the default response,
+##                count=1,
+##                status="success",
+##                message="Item Retrieved",
+##                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+##
+##            )
+##            property_id = response.data.get('id', None)
+##            if user_id and property_id:
+##                create_or_update_property_count(property_id, user_id)
+##        else:
+##            # If the response status code is not OK, it's an error
+##            custom_response = self.get_error_response(message="Error Occured", status="error",
+##                                                      errors=[],error_code="ERROR",
+##                                                      status_code=response.status_code)
+##
+##        self.log_response(custom_response)  # Log the custom response before returning
+##        return custom_response
 
     @action(detail=False, methods=['POST'], url_path='media',
             url_name='media', permission_classes=[IsAuthenticated])
