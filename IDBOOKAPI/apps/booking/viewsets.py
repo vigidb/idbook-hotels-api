@@ -10,7 +10,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, calculate_tax, get_days_from_string
+from IDBOOKAPI.utils import paginate_queryset, calculate_tax
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer)
@@ -19,8 +19,7 @@ from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymen
 
 from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.db_utils import (
-    get_user_based_booking, get_booking_based_tax_rule,
-    check_review_exist_for_booking, create_booking_payment_details,
+    get_user_based_booking, check_review_exist_for_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
     get_booking_from_payment, check_room_booked_details, get_booking)
 from apps.booking.utils.booking_utils import (
@@ -28,7 +27,10 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code)
 
-from apps.hotels.utils.db_utils import get_property_room_for_booking
+from apps.booking.mixins.booking_mixins import BookingMixins
+from apps.booking.mixins.validation_mixins import ValidationMixins
+
+from apps.hotels.utils.db_utils import get_property_room_for_booking # need to remove
 from apps.hotels.utils.hotel_utils import (
     check_room_count, total_room_count,
     process_property_confirmed_booking_total,
@@ -67,7 +69,8 @@ from pytz import timezone
 ##    type=openapi.TYPE_BOOLEAN)
 
 
-class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
+                     StandardResponseMixin, LoggingMixin):
     queryset = Booking.objects.all()
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated,]
@@ -422,60 +425,60 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     status_code=status.HTTP_404_NOT_FOUND)
         return custom_response
 
-    def validate_pre_confirm_booking(self):
-
-        child_count = self.request.data.get('child_count', 0)
-        child_age_list = self.request.data.get('child_age_list', [])
-
-        if not isinstance(child_age_list, list):
-            error_info = {"message": "invalid child age list format",
-                          "error_code":"CHILD_AGE_ERROR"}
-            return False, error_info
-
-
-        if child_count != len(child_age_list):
-            error_info = {"message": "Mismatch between child count and age list",
-                          "error_code":"MISMATCH_CHILD_COUNT_AGE"}
-            return False, error_info
-
-        confirmed_checkin_time = self.request.data.get('confirmed_checkin_time', None)
-        confirmed_checkout_time = self.request.data.get('confirmed_checkout_time', None)
-
-        if not confirmed_checkin_time or not confirmed_checkout_time:
-            error_info = {"message": "check in and check out missing",
-                          "error_code":"DATE_MISSING"}
-            return False, error_info
-
-        property_id = self.request.data.get('property', None)
-        if not property_id:
-            error_info = {"message": "Property missing",
-                          "error_code":"PROPERTY_MISSING"}
-            return False, error_info
-
-        room_list = self.request.data.get('room_list', [])
-        if not room_list or not isinstance(room_list, list):
-            error_info = {"message": "Missing Room list or invalid list format",
-                          "error_code":"ROOM_MISSING"}
-            return False, error_info
-
-        self.no_of_days = get_days_from_string(
-            confirmed_checkin_time, confirmed_checkout_time,
-            string_format="%Y-%m-%dT%H:%M%z")
-
-        if self.no_of_days is None:
-            error_info = {"message": "Error in date conversion",
-                          "error_code":"DATE_ERROR"}
-            return False, error_info
-
-        self.tax_rules_dict = get_booking_based_tax_rule('HOTEL')
-        if not self.tax_rules_dict:
-            error_info = {"message": "Tax Rule Missing",
-                          "error_code":"TAX_RULE_MISSING"}
-            return False, error_info
-
-        success_info = {"message":"Success"}
-        return True, success_info
-            
+##    def validate_pre_confirm_booking(self):
+##
+##        child_count = self.request.data.get('child_count', 0)
+##        child_age_list = self.request.data.get('child_age_list', [])
+##
+##        if not isinstance(child_age_list, list):
+##            error_info = {"message": "invalid child age list format",
+##                          "error_code":"CHILD_AGE_ERROR"}
+##            return False, error_info
+##
+##
+##        if child_count != len(child_age_list):
+##            error_info = {"message": "Mismatch between child count and age list",
+##                          "error_code":"MISMATCH_CHILD_COUNT_AGE"}
+##            return False, error_info
+##
+##        confirmed_checkin_time = self.request.data.get('confirmed_checkin_time', None)
+##        confirmed_checkout_time = self.request.data.get('confirmed_checkout_time', None)
+##
+##        if not confirmed_checkin_time or not confirmed_checkout_time:
+##            error_info = {"message": "check in and check out missing",
+##                          "error_code":"DATE_MISSING"}
+##            return False, error_info
+##
+##        property_id = self.request.data.get('property', None)
+##        if not property_id:
+##            error_info = {"message": "Property missing",
+##                          "error_code":"PROPERTY_MISSING"}
+##            return False, error_info
+##
+##        room_list = self.request.data.get('room_list', [])
+##        if not room_list or not isinstance(room_list, list):
+##            error_info = {"message": "Missing Room list or invalid list format",
+##                          "error_code":"ROOM_MISSING"}
+##            return False, error_info
+##
+##        self.no_of_days = get_days_from_string(
+##            confirmed_checkin_time, confirmed_checkout_time,
+##            string_format="%Y-%m-%dT%H:%M%z")
+##
+##        if self.no_of_days is None:
+##            error_info = {"message": "Error in date conversion",
+##                          "error_code":"DATE_ERROR"}
+##            return False, error_info
+##
+##        self.tax_rules_dict = get_booking_based_tax_rule('HOTEL')
+##        if not self.tax_rules_dict:
+##            error_info = {"message": "Tax Rule Missing",
+##                          "error_code":"TAX_RULE_MISSING"}
+##            return False, error_info
+##
+##        success_info = {"message":"Success"}
+##        return True, success_info
+##            
         
 
     @action(detail=False, methods=['POST'], url_path='hotel/pre-confirm',
@@ -517,19 +520,19 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         coupon_code = request.data.get('coupon_code', None)
         coupon = None
         
-        confirmed_room_details = []
-        
-        final_amount, final_tax_amount, subtotal = 0, 0, 0
+##        confirmed_room_details = []
+##        
+##        final_amount, final_tax_amount, subtotal = 0, 0, 0
 
         
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
         confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
 
-        no_of_days = self.no_of_days
-        if no_of_days == 0:
-            no_of_days = 1
+        # no_of_days = self.no_of_days
+        if self.no_of_days == 0:
+            self.no_of_days = 1
 
-        tax_rules_dict = self.tax_rules_dict 
+        # tax_rules_dict = self.tax_rules_dict 
 
         try:
             # get coupon details
@@ -542,290 +545,323 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
 
-            # room_id_list = []
-            room_detail_dict = {}
-            room_occupancy_dict = {}
-            allotted_person = 0
-            need_to_allot = adult_count
-            child_need_to_allot = child_count
-            child_age_need_to_allot = child_age_list
-            
+            self.adult_count = adult_count
+            self.child_count = child_count
+            self.child_age_list = child_age_list
 
-            for room in room_list:
-                child_allotted_list = []
-                room_id = room.get('room_id', None)
-                no_of_rooms = room.get('no_of_rooms', None)
-                # room_id_list.append(room_id)
+            self.room_list = room_list
+            self.property_id = property_id
+            self.booking_slot = booking_slot
 
-                room_detail = get_property_room_for_booking(property_id, room_id)
-                if not room_detail:
-                    custom_response = self.get_error_response(
-                        message=f"The room: {room_id} is missing for the property", status="error",
-                        errors=[],error_code="ROOM_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
+            # get dynamic pricing if applicable
+            self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+                self.checkin_datetime.date(), self.checkout_datetime.date())
 
-                room_detail_dict[room_id] = room_detail
+            # print("room dynamic price dict::", room_dprice_dict)
 
-                child_bed_price = room_detail.get('room_price', {}).get('child_bed_price', {})
 
-                
-                room_occupancy = room_detail.get('room_occupancy', {})
-                base_adults = room_occupancy.get('base_adults', None)
-                max_occupancy = room_occupancy.get('max_occupancy', None)
-
-                is_extra_bed_available = room_detail.get('is_extra_bed_available', False)
-
-                if not no_of_rooms:
-                    custom_response = self.get_error_response(
-                        message=f"The no of rooms for {room_id} is missing", status="error",
-                        errors=[],error_code="NO_ROOM_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
-
-                
-                total_base_adults =  base_adults * no_of_rooms
-                total_max_occupancy = max_occupancy * no_of_rooms
-
-                if need_to_allot <= total_base_adults:
-                    allotted_person = need_to_allot
-                    need_to_allot = 0
-                elif need_to_allot > total_base_adults:
-                    allotted_person = total_base_adults
-                    need_to_allot = need_to_allot - allotted_person 
-                    
-                extra_persons_allowed = total_max_occupancy - allotted_person
-                len_child_to_allot = len(child_age_need_to_allot)
-                print("child age need to allot::", child_age_need_to_allot)
-                print("extra_persons_allowed::", extra_persons_allowed)
-                
-
-                if  len_child_to_allot and extra_persons_allowed:
-                    remove_alloted_list = []
-                    for age in child_age_need_to_allot:
-                        print("age::", age, "extra_persons_allowed::", extra_persons_allowed)
-                        if not extra_persons_allowed:
-                            break
-                        else:
-                            allotted_status = False
-                            for price_details in child_bed_price:
-                                age_list = price_details.get('age_limit', [])
-                                
-                                if age_list[0] <= age <= age_list[1]:
-                                    print("age:", age, "age0:", age_list[0], "age1:", age_list[1])
-                                    if booking_slot == '12 Hrs':
-                                        age_price = price_details.get('child_bed_price_12hrs', 0)
-                                    elif booking_slot == '8 Hrs':
-                                        age_price = price_details.get('child_bed_price_8hrs', 0)
-                                    elif booking_slot == '4 Hrs':
-                                        age_price = price_details.get('child_bed_price_4hrs', 0)
-                                    else:
-                                        age_price = price_details.get('child_bed_price', 0)
-
-                                    child_allotted = {'age': age, 'price':age_price}
-                                    child_allotted_list.append(child_allotted)
-                                    extra_persons_allowed = extra_persons_allowed - 1
-                                    remove_alloted_list.append(age)
-                                    allotted_status = True
-                                    break
-
-                            # if age not withing the price range then provide adult extra bed price
-                            if not allotted_status:
-                                if booking_slot == '12 Hrs':
-                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_12hrs', 0)
-                                elif booking_slot == '8 Hrs':
-                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_8hrs', 0)
-                                elif booking_slot == '4 Hrs':
-                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_4hrs', 0)
-                                else:
-                                    age_price = room_detail.get('room_price', {}).get('extra_bed_price', 0)
-                                    
-                                child_allotted = {'age': age, 'price':age_price}
-                                child_allotted_list.append(child_allotted)
-                                extra_persons_allowed = extra_persons_allowed - 1
-                                remove_alloted_list.append(age)
-                                    
-                    # remove alloted list
-                    print("child age need to allot", child_age_need_to_allot)
-                    print("remove_alloted_list", remove_alloted_list)
-                    #child_age_need_to_allot = [x for x in child_age_need_to_allot if x not in remove_alloted_list]
-                    for pop_age in remove_alloted_list:
-                        child_age_need_to_allot.remove(pop_age)
-    
-                room_occupancy_dict[room_id] = {'total_base_adults':total_base_adults,
-                                                'total_max_occupancy': total_max_occupancy,
-                                                'allotted_person': allotted_person,
-                                                'is_extra_bed_available':is_extra_bed_available,
-                                                'extra_persons_allowed':extra_persons_allowed,
-                                                'extra_adults_allotted':0,
-                                                'child_allotted': child_allotted_list
-                                                }  
-                
-            if need_to_allot:
-                for room_occupancy_key in room_occupancy_dict:
-                    room_occupancy_details = room_occupancy_dict.get(room_occupancy_key)
-                    extra_persons_allowed = room_occupancy_details.get('extra_persons_allowed', 0)
-
-                    if need_to_allot <= extra_persons_allowed:
-                        room_occupancy_details['extra_adults_allotted'] = need_to_allot
-                        need_to_allot = 0
-                    elif need_to_allot > extra_persons_allowed:
-                        need_to_allot = need_to_allot - extra_persons_allowed
-                        room_occupancy_details['extra_adults_allotted'] = extra_persons_allowed
-
-            print(room_occupancy_dict)
-
-            if need_to_allot or child_age_need_to_allot:
-                custom_response = self.get_error_response(
-                    message=f"The no of guests is more for selected room(s)", status="error",
-                    errors=[],error_code="INADEQUATE_ROOM",
-                    status_code=status.HTTP_400_BAD_REQUEST)
+##            custom_response = self.get_error_response(
+##                message="", status="error",
+##                errors=[],error_code="TYU_RT",
+##                status_code=status.HTTP_400_BAD_REQUEST)
+##
+##            return custom_response
+##            
+            is_status, custom_response = self.room_allocation()
+            if not is_status:
                 return custom_response
+
+            self.confirmed_room_details = []
+            self.final_amount, self.final_tax_amount, self.subtotal = 0, 0, 0
+
+            is_cal_status, custom_response = self.amount_calculation()
+            if not is_cal_status:
+                return custom_response
+
+
+##            room_detail_dict = {}
+##            room_occupancy_dict = {}
+##            allotted_person = 0
+##            need_to_allot = adult_count
+##            child_need_to_allot = child_count
+##            child_age_need_to_allot = child_age_list
+            
+
+##            for room in room_list:
+##                child_allotted_list = []
+##                room_id = room.get('room_id', None)
+##                no_of_rooms = room.get('no_of_rooms', None)
+##                # room_id_list.append(room_id)
+##
+##                room_detail = get_property_room_for_booking(property_id, room_id)
+##                if not room_detail:
+##                    custom_response = self.get_error_response(
+##                        message=f"The room: {room_id} is missing for the property", status="error",
+##                        errors=[],error_code="ROOM_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##
+##                room_detail_dict[room_id] = room_detail
+##
+##                child_bed_price = room_detail.get('room_price', {}).get('child_bed_price', {})
+##
+##                
+##                room_occupancy = room_detail.get('room_occupancy', {})
+##                base_adults = room_occupancy.get('base_adults', None)
+##                max_occupancy = room_occupancy.get('max_occupancy', None)
+##
+##                is_extra_bed_available = room_detail.get('is_extra_bed_available', False)
+##
+##                if not no_of_rooms:
+##                    custom_response = self.get_error_response(
+##                        message=f"The no of rooms for {room_id} is missing", status="error",
+##                        errors=[],error_code="NO_ROOM_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##
+##                
+##                total_base_adults =  base_adults * no_of_rooms
+##                total_max_occupancy = max_occupancy * no_of_rooms
+##
+##                if need_to_allot <= total_base_adults:
+##                    allotted_person = need_to_allot
+##                    need_to_allot = 0
+##                elif need_to_allot > total_base_adults:
+##                    allotted_person = total_base_adults
+##                    need_to_allot = need_to_allot - allotted_person 
+##                    
+##                extra_persons_allowed = total_max_occupancy - allotted_person
+##                len_child_to_allot = len(child_age_need_to_allot)
+##                print("child age need to allot::", child_age_need_to_allot)
+##                print("extra_persons_allowed::", extra_persons_allowed)
+##                
+##
+##                if  len_child_to_allot and extra_persons_allowed:
+##                    remove_alloted_list = []
+##                    for age in child_age_need_to_allot:
+##                        print("age::", age, "extra_persons_allowed::", extra_persons_allowed)
+##                        if not extra_persons_allowed:
+##                            break
+##                        else:
+##                            allotted_status = False
+##                            for price_details in child_bed_price:
+##                                age_list = price_details.get('age_limit', [])
+##                                
+##                                if age_list[0] <= age <= age_list[1]:
+##                                    print("age:", age, "age0:", age_list[0], "age1:", age_list[1])
+##                                    if booking_slot == '12 Hrs':
+##                                        age_price = price_details.get('child_bed_price_12hrs', 0)
+##                                    elif booking_slot == '8 Hrs':
+##                                        age_price = price_details.get('child_bed_price_8hrs', 0)
+##                                    elif booking_slot == '4 Hrs':
+##                                        age_price = price_details.get('child_bed_price_4hrs', 0)
+##                                    else:
+##                                        age_price = price_details.get('child_bed_price', 0)
+##
+##                                    child_allotted = {'age': age, 'price':age_price}
+##                                    child_allotted_list.append(child_allotted)
+##                                    extra_persons_allowed = extra_persons_allowed - 1
+##                                    remove_alloted_list.append(age)
+##                                    allotted_status = True
+##                                    break
+##
+##                            # if age not withing the price range then provide adult extra bed price
+##                            if not allotted_status:
+##                                if booking_slot == '12 Hrs':
+##                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_12hrs', 0)
+##                                elif booking_slot == '8 Hrs':
+##                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_8hrs', 0)
+##                                elif booking_slot == '4 Hrs':
+##                                    age_price =  room_detail.get('room_price', {}).get('extra_bed_price_4hrs', 0)
+##                                else:
+##                                    age_price = room_detail.get('room_price', {}).get('extra_bed_price', 0)
+##                                    
+##                                child_allotted = {'age': age, 'price':age_price}
+##                                child_allotted_list.append(child_allotted)
+##                                extra_persons_allowed = extra_persons_allowed - 1
+##                                remove_alloted_list.append(age)
+##                                    
+##                    # remove alloted list
+##                    print("child age need to allot", child_age_need_to_allot)
+##                    print("remove_alloted_list", remove_alloted_list)
+##                    #child_age_need_to_allot = [x for x in child_age_need_to_allot if x not in remove_alloted_list]
+##                    for pop_age in remove_alloted_list:
+##                        child_age_need_to_allot.remove(pop_age)
+##    
+##                room_occupancy_dict[room_id] = {'total_base_adults':total_base_adults,
+##                                                'total_max_occupancy': total_max_occupancy,
+##                                                'allotted_person': allotted_person,
+##                                                'is_extra_bed_available':is_extra_bed_available,
+##                                                'extra_persons_allowed':extra_persons_allowed,
+##                                                'extra_adults_allotted':0,
+##                                                'child_allotted': child_allotted_list
+##                                                }  
+##                
+##            if need_to_allot:
+##                for room_occupancy_key in room_occupancy_dict:
+##                    room_occupancy_details = room_occupancy_dict.get(room_occupancy_key)
+##                    extra_persons_allowed = room_occupancy_details.get('extra_persons_allowed', 0)
+##
+##                    if need_to_allot <= extra_persons_allowed:
+##                        room_occupancy_details['extra_adults_allotted'] = need_to_allot
+##                        need_to_allot = 0
+##                    elif need_to_allot > extra_persons_allowed:
+##                        need_to_allot = need_to_allot - extra_persons_allowed
+##                        room_occupancy_details['extra_adults_allotted'] = extra_persons_allowed
+##
+##            print(room_occupancy_dict)
+##
+##            if need_to_allot or child_age_need_to_allot:
+##                custom_response = self.get_error_response(
+##                    message=f"The no of guests is more for selected room(s)", status="error",
+##                    errors=[],error_code="INADEQUATE_ROOM",
+##                    status_code=status.HTTP_400_BAD_REQUEST)
+##                return custom_response
                 
             
-            for room in room_list:
-                room_id = room.get('room_id', None)
-                no_of_rooms = room.get('no_of_rooms', None)
-                base_price = 0
-
-                room_detail = room_detail_dict.get(room_id)
-
-                # get room details
-                room_type = room_detail.get('room_type')
-                room_price = room_detail.get('room_price')
-                if not room_price:
-                    custom_response = self.get_error_response(
-                        message=f"The room price details for {room_id} is missing", status="error",
-                        errors=[],error_code="ROOM_PRICE_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
-
-                # get 24 hours price
-                base_price = room_price.get('base_rate', None)
-                if not base_price:
-                    custom_response = self.get_error_response(
-                        message=f"The room price details for room id {room_id} is missing", status="error",
-                        errors=[],error_code="ROOM_PRICE_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
-
-                if booking_slot == '12 Hrs':
-                    slot_price = room_price.get('price_12hrs', None)
-                    extra_bed_price = room_price.get('extra_bed_price_12hrs', 0)
-                    booking_room_price = slot_price
-                elif booking_slot == '8 Hrs':
-                    slot_price = room_price.get('price_8hrs', None)
-                    extra_bed_price = room_price.get('extra_bed_price_8hrs', 0)
-                    booking_room_price = slot_price
-                elif booking_slot == '4 Hrs':
-                    slot_price = room_price.get('price_4hrs', None)
-                    extra_bed_price = room_price.get('extra_bed_price_4hrs', 0)
-                    booking_room_price = slot_price
-                else:
-                    slot_price = None
-                    extra_bed_price = room_price.get('extra_bed_price', 0)
-                    booking_room_price = base_price
-                    
-                if not slot_price and not booking_slot == '24 Hrs':
-                    custom_response = self.get_error_response(
-                        message=f"The {booking_slot} hrs room price for room id {room_id} is missing", status="error",
-                        errors=[],error_code="ROOM_PRICE_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
-                        
-                print("extra bed price::", extra_bed_price)    
-                # get tax percent based on amount
-                tax_in_percent = get_tax_rate(base_price, tax_rules_dict)
-                if not tax_in_percent:
-                    custom_response = self.get_error_response(
-                        message=f"The room price details for room id {room_id} is missing", status="error",
-                        errors=[],error_code="ROOM_PRICE_MISSING",
-                        status_code=status.HTTP_400_BAD_REQUEST)
-                    return custom_response
-
-                # tax percentage based on base price
-                tax_in_percent = float(tax_in_percent)
-
-                # for extra bed calculation
-                occup_details = room_occupancy_dict.get(room_id)
-                extra_adults_allotted = occup_details.get('extra_adults_allotted', 0)
-                child_allotted = occup_details.get('child_allotted', [])
-
-                if extra_adults_allotted:
-                    total_extra_bed_price = extra_bed_price * extra_adults_allotted
-
-                
-                # tax calculation based on booked 
-                if booking_slot == '24 Hrs':
-                    tax_amount = calculate_tax(tax_in_percent, base_price)
-                    
-                else:
-                    tax_amount = calculate_tax(tax_in_percent, slot_price)
-
-                # calculate total tax amount
-                total_tax_amount =   calculate_room_booking_amount(
-                    tax_amount, no_of_days, no_of_rooms)
-
-                # calculate tax amount for extra person
-                if extra_adults_allotted:
-                    tax_amount_xbed = calculate_tax(tax_in_percent, total_extra_bed_price)
-                    total_tax_amount_xbed = calculate_xbed_amount(tax_amount_xbed, no_of_days)
-
-                    # total tax amount including extra bed
-                    total_tax_amount = total_tax_amount + total_tax_amount_xbed
-
-                total_child_price = 0
-                if child_allotted:
-                    for child_price in child_allotted:
-                        total_child_price = total_child_price + child_price.get('price', 0)
-                # calculate tax amount for children
-                if total_child_price:
-                    tax_amount_child = calculate_tax(tax_in_percent, total_child_price)
-                    total_tax_amount_child = calculate_xbed_amount(tax_amount_child, no_of_days)
-
-                    # total tax amount including extra bed
-                    total_tax_amount = total_tax_amount + total_tax_amount_child
-                    
-                    
-                
-                # calculate total room amount
-                if booking_slot == '24 Hrs':
-                    total_room_amount = calculate_room_booking_amount(
-                        base_price, no_of_days, no_of_rooms)
-                else:
-                    total_room_amount = calculate_room_booking_amount(
-                        slot_price, no_of_days, no_of_rooms)
-
-                # calculate extra bed amount
-                if extra_adults_allotted:
-                    total_room_amount_xbed = calculate_xbed_amount(total_extra_bed_price, no_of_days)
-                    total_room_amount = total_room_amount + total_room_amount_xbed
-
-                # calculate children price
-                if total_child_price:
-                    total_child_amount = calculate_xbed_amount(total_child_price, no_of_days)
-                    total_room_amount = total_room_amount + total_child_amount
-                
-                
-                final_room_total = total_room_amount + total_tax_amount
-
-                
-                confirmed_room = {"room_id": room_id, "room_type":room_type, "base_price":base_price,
-                                  "price": booking_room_price,
-                                  "no_of_rooms": no_of_rooms,
-                                  "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
-                                  "total_tax_amount": total_tax_amount,
-                                  "no_of_days": no_of_days, "total_room_amount":total_room_amount,
-                                  "final_room_total": final_room_total, "booking_slot":booking_slot,
-                                  "extra_adults_allotted":extra_adults_allotted, "extra_bed_price":extra_bed_price,
-                                  "child_allotted":child_allotted
-                                  }
-                
-                confirmed_room_details.append(confirmed_room)
-                # final amount
-                # final_amount = final_amount + final_room_total
-                final_tax_amount = final_tax_amount + total_tax_amount
-                subtotal = subtotal + total_room_amount # total room amount without tax and services
+##            for room in room_list:
+##                room_id = room.get('room_id', None)
+##                no_of_rooms = room.get('no_of_rooms', None)
+##                base_price = 0
+##
+##                room_detail = room_detail_dict.get(room_id)
+##
+##                # get room details
+##                room_type = room_detail.get('room_type')
+##                room_price = room_detail.get('room_price')
+##                if not room_price:
+##                    custom_response = self.get_error_response(
+##                        message=f"The room price details for {room_id} is missing", status="error",
+##                        errors=[],error_code="ROOM_PRICE_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##
+##                # get 24 hours price
+##                base_price = room_price.get('base_rate', None)
+##                if not base_price:
+##                    custom_response = self.get_error_response(
+##                        message=f"The room price details for room id {room_id} is missing", status="error",
+##                        errors=[],error_code="ROOM_PRICE_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##
+##                if booking_slot == '12 Hrs':
+##                    slot_price = room_price.get('price_12hrs', None)
+##                    extra_bed_price = room_price.get('extra_bed_price_12hrs', 0)
+##                    booking_room_price = slot_price
+##                elif booking_slot == '8 Hrs':
+##                    slot_price = room_price.get('price_8hrs', None)
+##                    extra_bed_price = room_price.get('extra_bed_price_8hrs', 0)
+##                    booking_room_price = slot_price
+##                elif booking_slot == '4 Hrs':
+##                    slot_price = room_price.get('price_4hrs', None)
+##                    extra_bed_price = room_price.get('extra_bed_price_4hrs', 0)
+##                    booking_room_price = slot_price
+##                else:
+##                    slot_price = None
+##                    extra_bed_price = room_price.get('extra_bed_price', 0)
+##                    booking_room_price = base_price
+##                    
+##                if not slot_price and not booking_slot == '24 Hrs':
+##                    custom_response = self.get_error_response(
+##                        message=f"The {booking_slot} hrs room price for room id {room_id} is missing", status="error",
+##                        errors=[],error_code="ROOM_PRICE_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##                        
+##                print("extra bed price::", extra_bed_price)    
+##                # get tax percent based on amount
+##                tax_in_percent = get_tax_rate(base_price, tax_rules_dict)
+##                if not tax_in_percent:
+##                    custom_response = self.get_error_response(
+##                        message=f"The room price details for room id {room_id} is missing", status="error",
+##                        errors=[],error_code="ROOM_PRICE_MISSING",
+##                        status_code=status.HTTP_400_BAD_REQUEST)
+##                    return custom_response
+##
+##                # tax percentage based on base price
+##                tax_in_percent = float(tax_in_percent)
+##
+##                # for extra bed calculation
+##                occup_details = room_occupancy_dict.get(room_id)
+##                extra_adults_allotted = occup_details.get('extra_adults_allotted', 0)
+##                child_allotted = occup_details.get('child_allotted', [])
+##
+##                if extra_adults_allotted:
+##                    total_extra_bed_price = extra_bed_price * extra_adults_allotted
+##
+##                
+##                # tax calculation based on booked 
+##                if booking_slot == '24 Hrs':
+##                    tax_amount = calculate_tax(tax_in_percent, base_price)
+##                    
+##                else:
+##                    tax_amount = calculate_tax(tax_in_percent, slot_price)
+##
+##                # calculate total tax amount
+##                total_tax_amount =   calculate_room_booking_amount(
+##                    tax_amount, no_of_days, no_of_rooms)
+##
+##                # calculate tax amount for extra person
+##                if extra_adults_allotted:
+##                    tax_amount_xbed = calculate_tax(tax_in_percent, total_extra_bed_price)
+##                    total_tax_amount_xbed = calculate_xbed_amount(tax_amount_xbed, no_of_days)
+##
+##                    # total tax amount including extra bed
+##                    total_tax_amount = total_tax_amount + total_tax_amount_xbed
+##
+##                total_child_price = 0
+##                if child_allotted:
+##                    for child_price in child_allotted:
+##                        total_child_price = total_child_price + child_price.get('price', 0)
+##                # calculate tax amount for children
+##                if total_child_price:
+##                    tax_amount_child = calculate_tax(tax_in_percent, total_child_price)
+##                    total_tax_amount_child = calculate_xbed_amount(tax_amount_child, no_of_days)
+##
+##                    # total tax amount including extra bed
+##                    total_tax_amount = total_tax_amount + total_tax_amount_child
+##                    
+##                    
+##                
+##                # calculate total room amount
+##                if booking_slot == '24 Hrs':
+##                    total_room_amount = calculate_room_booking_amount(
+##                        base_price, no_of_days, no_of_rooms)
+##                else:
+##                    total_room_amount = calculate_room_booking_amount(
+##                        slot_price, no_of_days, no_of_rooms)
+##
+##                # calculate extra bed amount
+##                if extra_adults_allotted:
+##                    total_room_amount_xbed = calculate_xbed_amount(total_extra_bed_price, no_of_days)
+##                    total_room_amount = total_room_amount + total_room_amount_xbed
+##
+##                # calculate children price
+##                if total_child_price:
+##                    total_child_amount = calculate_xbed_amount(total_child_price, no_of_days)
+##                    total_room_amount = total_room_amount + total_child_amount
+##                
+##                
+##                final_room_total = total_room_amount + total_tax_amount
+##
+##                
+##                confirmed_room = {"room_id": room_id, "room_type":room_type, "base_price":base_price,
+##                                  "price": booking_room_price,
+##                                  "no_of_rooms": no_of_rooms,
+##                                  "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
+##                                  "total_tax_amount": total_tax_amount,
+##                                  "no_of_days": no_of_days, "total_room_amount":total_room_amount,
+##                                  "final_room_total": final_room_total, "booking_slot":booking_slot,
+##                                  "extra_adults_allotted":extra_adults_allotted, "extra_bed_price":extra_bed_price,
+##                                  "child_allotted":child_allotted
+##                                  }
+##                
+##                confirmed_room_details.append(confirmed_room)
+##                # final amount
+##                # final_amount = final_amount + final_room_total
+##                final_tax_amount = final_tax_amount + total_tax_amount
+##                subtotal = subtotal + total_room_amount # total room amount without tax and services
         
 
             with transaction.atomic():
@@ -835,12 +871,12 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     coupon_discount_type = coupon.discount_type
                     coupon_discount = coupon.discount
                     discount, subtotal_after_discount = apply_coupon_based_discount(
-                        coupon_discount, coupon_discount_type, subtotal)
+                        coupon_discount, coupon_discount_type, self.subtotal)
 
-                    final_amount = float(subtotal_after_discount) + final_tax_amount
+                    self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
                 else:
                     discount = 0
-                    final_amount = subtotal + final_tax_amount
+                    self.final_amount = self.subtotal + self.final_tax_amount
 
 ##                tm ='Asia/Kolkata'
 ##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
@@ -866,7 +902,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     
 
                 hotel_booking_dict = {
-                    "confirmed_property_id":property_id, "confirmed_room_details":confirmed_room_details,
+                    "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
                     "confirmed_checkin_time":confirmed_checkin_time,
                     "confirmed_checkout_time":confirmed_checkout_time,
                     "booking_slot":booking_slot, "requested_room_no":requested_room_no
@@ -882,8 +918,8 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     
 
                 booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
-                                "subtotal":subtotal, "discount":discount, "final_amount":final_amount,
-                                "gst_amount": final_tax_amount, "adult_count":adult_count,
+                                "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
+                                "gst_amount": self.final_tax_amount, "adult_count":adult_count,
                                 "child_count":child_count, "infant_count":infant_count,
                                 "child_age_list":child_age_list, "additional_notes":additional_notes}
                 if coupon:
@@ -904,7 +940,7 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 booking_status_message = ""
                 if booking_id and booking_status == "on_hold":
                     # check the room availability before locking
-                    room_confirmed_dict = total_room_count(confirmed_room_details)
+                    room_confirmed_dict = total_room_count(self.confirmed_room_details)
                     booked_rooms = check_room_booked_details(
                         confirmed_checkin_time, confirmed_checkout_time,
                         property_id, is_slot_price_enabled=True, booking_id=booking.id)
@@ -991,10 +1027,10 @@ class BookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         discount, subtotal_after_discount = apply_coupon_based_discount(
             coupon_discount, coupon_discount_type, subtotal)
 
-        final_amount = subtotal_after_discount + tax_amount
+        self.final_amount = subtotal_after_discount + tax_amount
 
         # save the deduction details based on discount
-        instance.final_amount = final_amount
+        instance.final_amount = self.final_amount
         instance.discount = discount
         instance.coupon_code = coupon_code
         instance.save()
