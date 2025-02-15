@@ -12,6 +12,7 @@ from .models import (Property, Gallery, Room, Rule,
                      PolicyDetails)
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
+from apps.hotels.submodels.related_models import DynamicRoomPricing
 
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
@@ -363,6 +364,18 @@ class CalendarRoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CalendarRoom
+        fields = '__all__'
+
+##    def to_representation(self, instance):
+##        representation = super().to_representation(instance)
+##        if instance:
+##            room_id = instance.room_id
+##        return representation
+
+class DynamicRoomPricingSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = DynamicRoomPricing
         fields = '__all__'
 
 class PolicySerializer(serializers.ModelSerializer):

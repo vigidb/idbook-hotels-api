@@ -223,7 +223,17 @@ def default_room_occupancy_json():
     return room_occupancy_json
 
 def default_room_price_json():
-    room_price_json = {"base_rate":0, "price_4hrs":0, "price_8hrs":0, "price_12hrs":0}
+    room_price_json = {"base_rate":0, "price_4hrs":0, "price_8hrs":0, "price_12hrs":0,
+                       "extra_bed_price":0, "extra_bed_price_4hrs":0,
+                       "extra_bed_price_8hrs":0, "extra_bed_price_12hrs":0,
+                       "child_bed_price":[{"age_limit":[0, 4], "child_bed_price":0,
+                                           "child_bed_price_4hrs":0, "child_bed_price_8hrs":0,
+                                           "child_bed_price_12hrs":0},
+                                          {"age_limit":[5, 12], "child_bed_price":0,
+                                           "child_bed_price_4hrs":0, "child_bed_price_8hrs":0,
+                                           "child_bed_price_12hrs":0}
+                                          ],
+                       "pet_charges":0}
     return room_price_json
 
 class Room(models.Model):

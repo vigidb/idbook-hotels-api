@@ -1,7 +1,9 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
     RoomGallery, FavoriteList, BlockedProperty)
+
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
+from apps.hotels.submodels.related_models import DynamicRoomPricing
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -52,7 +54,8 @@ def get_rooms_by_property(property_id):
 def get_property_room_for_booking(property_id:int, room_id:int):
     room_detail = Room.objects.filter(
         id=room_id, property_id=property_id).values(
-            'id', 'room_type', 'room_price').first()
+            'id', 'room_type', 'room_price',
+            'is_extra_bed_available', 'room_occupancy').first()
     return room_detail
 
 def get_favorite_property(user_id):
@@ -161,6 +164,17 @@ def check_room_blocked(room_id, start_date, end_date, instance_id=None):
         blocked_property_obj = blocked_property_obj.exclude(id=instance_id)
         
     return blocked_property_obj.exists()
+
+def check_is_room_dynamic_price_set(room_id, start_date, end_date, instance_id=None):
+    dynamic_pricing_obj = DynamicRoomPricing.objects.filter(
+        for_room=room_id, start_date__lt=end_date,
+        end_date__gt=start_date, active=True)
+    # for update
+    if instance_id:
+        dynamic_pricing_obj = dynamic_pricing_obj.exclude(id=instance_id)
+
+    return dynamic_pricing_obj.exists()
+        
 
 
 def get_blocked_room_list(property_id, start_date, end_date):
@@ -351,6 +365,14 @@ FROM booking_hotelbooking as hb where id in {hotel_booking_ids}) as hb
 
     room_unavailable_obj = CalendarRoom.objects.raw(raw_sql_query)
     return room_unavailable_obj
+
+def get_dynamic_pricing(property_id, start_date, end_date):
+    dynamic_pricing_obj = DynamicRoomPricing.objects.filter(
+        for_property_id=property_id, start_date__lt=end_date,
+        end_date__gt=start_date, active=True)
+    
+    return dynamic_pricing_obj
+    
     
 
     

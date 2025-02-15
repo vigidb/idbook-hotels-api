@@ -469,8 +469,12 @@ booking ({booking.confirmation_code})"
 
     return status
 
-def calculate_room_booking_amount(amount, no_of_days, no_of_rooms):
+def calculate_room_booking_amount(amount, no_of_days, no_of_rooms):    
     total_amount = (amount * no_of_rooms) * no_of_days 
+    return total_amount
+
+def calculate_xbed_amount(amount, no_of_days):
+    total_amount = amount * no_of_days
     return total_amount
 
 def get_tax_rate(amount, tax_rules_dict):
