@@ -9,7 +9,7 @@ from django.dispatch import receiver
 from django.core.validators import (EmailValidator, RegexValidator)
 from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator)
 
-from IDBOOKAPI.basic_resources import OTP_TYPE_CHOICES
+from IDBOOKAPI.basic_resources import OTP_TYPE_CHOICES, OTP_FOR_CHOICES
 
 
 class UserOtp(models.Model):
@@ -17,6 +17,8 @@ class UserOtp(models.Model):
     otp_type = models.CharField(max_length=25, choices=OTP_TYPE_CHOICES,
                                 default='EMAIL', help_text="otp generated medium")
     user_account =  models.CharField(max_length=100, help_text="Email or Mobile Number")
+    otp_for = models.CharField(max_length=25, choices=OTP_FOR_CHOICES,
+                                default='OTHER')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

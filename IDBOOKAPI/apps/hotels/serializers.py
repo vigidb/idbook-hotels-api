@@ -3,13 +3,20 @@ from django.contrib.auth.models import Permission, Group
 from django.contrib.auth import authenticate
 
 from IDBOOKAPI.img_kit import upload_media_to_bucket
+from IDBOOKAPI.utils import format_custom_id, find_state
+
 from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
-                     PropertyGallery, RoomGallery, PropertyBankDetails)
-from IDBOOKAPI.utils import format_custom_id, find_state
+                     PropertyGallery, RoomGallery, PropertyBankDetails,
+                     PolicyDetails)
+from .models import BlockedProperty
+from apps.hotels.submodels.raw_sql_models import CalendarRoom
+from apps.hotels.submodels.related_models import DynamicRoomPricing
+
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
+
 from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
     get_slot_based_starting_room_price, get_property_gallery)
@@ -22,6 +29,12 @@ class PropertyGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyGallery
         fields = '__all__'
+
+
+class PropertyNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Property
+        fields = ('id', 'name', 'title')
         
 class PropertySerializer(serializers.ModelSerializer):
     custom_id = serializers.ReadOnlyField()
@@ -44,17 +57,20 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'rental_form', 'review_star', 'review_count',
                   'additional_fields', 'area_name',
                   'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page', 'address')
+                  'status', 'current_page', 'address', 'starting_price_details',
+                  'amenity_details', 'policies', 'is_slot_price_enabled',
+                  'property_size', 'property_measurement_type')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         available_property_dict = self.context.get("available_property_dict", {})
         favorite_list = self.context.get("favorite_list", [])
-        # nonavailable_property_list = self.context.get("nonavailable_property_list", [])
+        nonavailable_property_list = self.context.get("nonavailable_property_list", [])
         #print("available property dict::", available_property_dict)
         if instance:
             gallery = None
-            property_id = instance.get('id', None)
+##            property_id = instance.get('id', None)
+            property_id = instance.id
             if property_id:
                 
 ##                gallery = get_property_featured_image(property_id)
@@ -66,13 +82,14 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 gallery_property = get_property_gallery(property_id)
 
                 if gallery_property:
-                    property_gallery = list(gallery_property.values('media', 'caption', 'featured_image'))
+                    property_gallery = list(gallery_property.filter(active=True).values(
+                        'id','media', 'caption', 'featured_image'))
                     for gallery in property_gallery:
                         gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                     representation['property_gallery'] = property_gallery
                 else:
                     representation['property_gallery'] = []
-                
+
             avail_prop = available_property_dict.get(property_id, None)
             if avail_prop:
                 representation['available_room_after_booking'] = avail_prop
@@ -90,10 +107,10 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 # starting_price_list = get_slot_based_starting_room_price(property_id)
                 # representation['starting_price_list'] = starting_price_list
 
-##            if property_id in nonavailable_property_list:
-##                representation['available'] = False
-##            else:
-##                representation['available'] = True
+            if property_id in nonavailable_property_list:
+                representation['available'] = False
+            else:
+                representation['available'] = True
 
         return representation     
 
@@ -115,6 +132,21 @@ class RoomGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomGallery
         fields = '__all__'
+
+class RoomNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ('id', 'name', 'room_type')
+
+class RoomBlockSelectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Room
+        fields = ('id', 'name', 'room_type')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        room_blocked_status = self.context.get("room_blocked_status", {})
+        return representation
         
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
@@ -126,7 +158,7 @@ class RoomSerializer(serializers.ModelSerializer):
         
         if instance and instance.gallery_room:
             room_gallery = list(instance.gallery_room.filter(active=True).values(
-                'media', 'caption', 'featured_image'))
+                'id','media', 'caption', 'featured_image'))
             for gallery in room_gallery:
                 gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
             representation['room_gallery'] = room_gallery
@@ -142,7 +174,10 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         model = Room
         fields = ('id','name', 'room_type', 'room_view',
                   'no_available_rooms', 'room_price',
-                  'room_occupancy', 'is_slot_price_enabled')
+                  'room_occupancy', 'is_slot_price_enabled',
+                  'room_size', 'room_measurement_type',
+                  'meal_options', 'is_smoking_allowed',
+                  'extra_bed_type', 'is_extra_bed_available')
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -154,7 +189,7 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
 ##                else:
 ##                    representation['featured_image'] = ""
                 room_gallery = list(instance.gallery_room.filter(active=True).values(
-                    'media', 'caption', 'featured_image'))
+                    'id', 'media', 'caption', 'featured_image'))
                 for gallery in room_gallery:
                     gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                 representation['room_gallery'] = room_gallery
@@ -164,10 +199,15 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         return representation 
 
 class PropertyRetrieveSerializer(serializers.ModelSerializer):
+    
 
-    property_room = PropertyRoomSerializer(many=True)
+##    property_room = PropertyRoomSerializer(many=True)
 
-
+    property_room = serializers.SerializerMethodField()
+    def get_property_room(self, obj):
+        active_property_room = obj.property_room.filter(active=True)
+        return PropertyRoomSerializer(active_property_room, many=True).data
+        
     class Meta:
         model = Property
         exclude = ('legal_document', )
@@ -189,7 +229,8 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
 ##            representation['property_room'] = room_details
             
             if instance.gallery_property:
-                property_gallery = list(instance.gallery_property.values('media', 'caption', 'featured_image'))
+                property_gallery = list(instance.gallery_property.filter(
+                    active=True).values('id','media', 'caption', 'featured_image'))
                 for gallery in property_gallery:
                     gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
                 representation['property_gallery'] = property_gallery
@@ -310,6 +351,37 @@ class RoomAmenityCategorySerializer(serializers.ModelSerializer):
 class PropertyBankDetailsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyBankDetails
+        fields = '__all__'
+
+class BlockedPropertySerializer(serializers.ModelSerializer):
+    blocked_property = PropertyNameSerializer(read_only=True)
+    blocked_room = RoomNameSerializer(read_only=True)
+    class Meta:
+        model = BlockedProperty
+        fields = '__all__'
+
+class CalendarRoomSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = CalendarRoom
+        fields = '__all__'
+
+##    def to_representation(self, instance):
+##        representation = super().to_representation(instance)
+##        if instance:
+##            room_id = instance.room_id
+##        return representation
+
+class DynamicRoomPricingSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = DynamicRoomPricing
+        fields = '__all__'
+
+class PolicySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PolicyDetails
         fields = '__all__'
 
 

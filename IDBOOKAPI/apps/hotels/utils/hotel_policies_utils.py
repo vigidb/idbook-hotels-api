@@ -4,7 +4,8 @@
 def default_hotel_policy_json():
 
     cancellation_policy = {"cancellation_policy":["24Hrs-Free", "48Hrs-Free",
-                                                  "72hrs-Free", "Non-Refundable"]}
+                                                  "72hrs-Free", "Non-Refundable"],
+                           "cancellation_msg":"", "percent_deduct": 0}
 
     guest_profile = {"is_allowed_unmarried_couples":["No", "Yes"],
                      "is_allowed_guest_below_18_years":["No", "Yes"],

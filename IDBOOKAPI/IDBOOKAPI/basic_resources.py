@@ -34,6 +34,16 @@ ROOM_VIEW_CHOICES = (
     ('SEA VIEW', 'SEA VIEW'),
     ('RIVER VIEW', 'RIVER VIEW'),
     ('VALLEY VIEW', 'VALLEY VIEW'),
+    ('CITY VIEW', 'CITY VIEW'),
+    ('POOL VIEW', 'POOL VIEW'),
+    ('BEACH VIEW', 'BEACH VIEW'),
+    ('MOUNTAIN VIEW', 'MOUNTAIN VIEW'),
+    ('LAKE VIEW', 'LAKE VIEW'),
+    ('TEMPLE VIEW', 'TEMPLE VIEW'),
+    ('GARDEN VIEW', 'GARDEN VIEW'),
+    ('HILL VIEW', 'HILL VIEW'),
+    ('NON VIEW', 'NON VIEW'),
+    
 )
 
 ROOM_MEASUREMENT = (
@@ -1235,7 +1245,12 @@ EXTRA_BED_TYPE = (
     ('Sofa cum bed', 'Sofa cum bed'),
 )
     
-    
+OTP_FOR_CHOICES = (
+    ('LOGIN', 'LOGIN'),
+    ('SIGNUP', 'SIGNUP'),
+    ('VERIFY', 'VERIFY'),
+    ('OTHER', 'OTHER')
+)    
 
     
     
