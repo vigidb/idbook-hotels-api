@@ -86,7 +86,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
                     property_gallery = list(gallery_property.filter(active=True).values(
                         'id','media', 'caption', 'featured_image'))
                     for gallery in property_gallery:
-                        gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                        # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                        gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                     representation['property_gallery'] = property_gallery
                 else:
                     representation['property_gallery'] = []
@@ -161,7 +162,8 @@ class RoomSerializer(serializers.ModelSerializer):
             room_gallery = list(instance.gallery_room.filter(active=True).values(
                 'id','media', 'caption', 'featured_image'))
             for gallery in room_gallery:
-                gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
             representation['room_gallery'] = room_gallery
         else:
             representation['room_gallery'] = []
@@ -192,7 +194,8 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
                 room_gallery = list(instance.gallery_room.filter(active=True).values(
                     'id', 'media', 'caption', 'featured_image'))
                 for gallery in room_gallery:
-                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                 representation['room_gallery'] = room_gallery
             else:
                 representation['room_gallery'] = []
@@ -246,7 +249,8 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
                 property_gallery = list(instance.gallery_property.filter(
                     active=True).values('id','media', 'caption', 'featured_image'))
                 for gallery in property_gallery:
-                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                 representation['property_gallery'] = property_gallery
             else:
                 representation['property_gallery'] = []
