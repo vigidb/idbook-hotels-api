@@ -53,7 +53,7 @@ class PropertyAnalyticsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         property_revenue_analytics = get_property_revenue(property_id, date=date, start_date=start_date, end_date=end_date)
         
         analytics = {'property_visit': property_visit_analytics, 'property_checkin':property_checkin_analytics,
-                     ' property_revenue': property_revenue_analytics}
+                     'property_revenue': property_revenue_analytics}
         
         
         response = self.get_response(

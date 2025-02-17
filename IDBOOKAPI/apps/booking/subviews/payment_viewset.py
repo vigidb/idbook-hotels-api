@@ -1,11 +1,11 @@
 from .__init__ import *
 
-from apps.booking.models import Booking
+
 from apps.booking.serializers import (
     PropertyPaymentBookingSerializer, PaymentMediumSerializer)
 
 from apps.booking.mixins.filter_mixins import PaymentPropertyFilterMixins
-from apps.booking.mixins.booking_db_mixins import CommonDbMixins
+
 
 class PaymentPropertyViewSet(viewsets.ModelViewSet, PaymentPropertyFilterMixins,
                              CommonDbMixins, StandardResponseMixin, LoggingMixin):
