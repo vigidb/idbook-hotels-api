@@ -1063,9 +1063,71 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 status_code=status.HTTP_404_NOT_FOUND)
         return custom_response
         
-        
+class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = User.objects.all()
+    serializer_class = UserListSerializer
+    http_method_names = ['get', 'post', 'put', 'patch']
 
+    @action(detail=False, methods=['POST'], url_path='google',
+            permission_classes=[],
+            url_name='google')
+    def google_based_authentication(self, request):
+        gtoken = request.data.get('id_token', None)
+        referred_code = request.data.get('referred_code', '')
+
+        if not gtoken:
+            custom_response = self.get_error_response(
+                message="Missing token", status="error",
+                errors=[],error_code="TOKEN_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
         
+        token_status, name, email = authentication_utils.validate_google_token(gtoken)
+        if not token_status:
+            custom_response = self.get_error_response(
+                message="Invalid token", status="error",
+                errors=[],error_code="INVALID_TOKEN",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        if not email:
+            custom_response = self.get_error_response(
+                message="Missing Email", status="error",
+                errors=[],error_code="MISSING_EMAIL",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+            
+        check_existing_user = User.objects.filter(email=email).first()
+        if check_existing_user:
+            data = authentication_utils.generate_refresh_token(check_existing_user)
+            response = self.get_response(data=data, status="success",
+                                         message="Login successful",
+                                         status_code=status.HTTP_200_OK)
+            return response
+
+
+        # for new user 
+        new_user = User.objects.create(
+            name=name, email=email, mobile_number="",
+            referred_code=referred_code, default_group='B2C-GRP')
+        Customer.objects.create(user_id=new_user.id, active=True)
+        
+        # set groups and roles
+        grp = db_utils.get_group_by_name('B2C-GRP')
+        role = db_utils.get_role_by_name('B2C-CUST')
+
+        if grp:
+            new_user.groups.add(grp)
+        if role:
+            new_user.roles.add(role)
+        
+        data = authentication_utils.generate_refresh_token(new_user)
+        
+        response = self.get_response(data=data, status="success",
+                                     message="Signup successful",
+                                     status_code=status.HTTP_200_OK)
+        return response
 
 
 # class ForgotPasswordView(APIView):
