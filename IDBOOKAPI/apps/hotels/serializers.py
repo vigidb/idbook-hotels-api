@@ -20,7 +20,7 @@ from ..org_resources.serializers import UploadedMediaSerializer
 from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
     get_slot_based_starting_room_price, get_property_gallery,
-    get_dynamic_pricing_with_date_list)
+    get_dynamic_pricing_with_date_list, is_property_favorite)
 
 from django.conf import settings
 
@@ -258,6 +258,12 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
             # legal document
             if instance.legal_document:
                 representation['legal_document'] = settings.MEDIA_URL + str(instance.legal_document)
+            representation['favorite'] = False
+            user_id = self.context.get("user_id", None)
+            if user_id:
+                is_favorite = is_property_favorite(user_id, instance.id)
+                if is_favorite:
+                    representation['favorite'] = True
         
         return representation
 

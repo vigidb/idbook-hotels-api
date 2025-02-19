@@ -10,7 +10,7 @@ class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     serializer_class = ReviewSerializer
     # permission_classes = [IsAuthenticated,]
     # permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
                                     'partial_update': [IsAuthenticated],
@@ -101,6 +101,35 @@ class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        # Get the object to be updated
+        instance = self.get_object()
+
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default update logic
+            #response = super().partial_update(request, *args, **kwargs)
+            response = self.perform_update(serializer)
+            custom_response = self.get_response(
+                status="success",
+                count=1,
+                data=serializer.data,  # Use the data from the default response
+                message="Update success",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+            return custom_response
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            serializer_errors = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                      errors=serializer_errors,error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -122,6 +151,19 @@ class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                                                       status_code=status.HTTP_400_BAD_REQUEST)
 
         self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def destroy(self, request, pk=None):
+
+        instance = self.get_object()
+        booking_id = instance.booking_id
+        instance.delete()
+        Booking.objects.filter(id=booking_id).update(is_reviewed=False)
+        custom_response = self.get_response(
+            status='success', data=None,
+            message="Review deleted successfully",
+            status_code=status.HTTP_200_OK,
+            )
         return custom_response
 
     @action(detail=False, methods=['POST'], url_path='overall-rating/property',

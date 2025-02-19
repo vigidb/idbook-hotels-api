@@ -63,6 +63,12 @@ def get_favorite_property(user_id):
         user_id=user_id, property__isnull=False).values_list('property_id', flat=True)
     return list(favorite_list)
 
+def is_property_favorite(user_id, property_id):
+    is_favorite = FavoriteList.objects.filter(
+        user_id=user_id, property_id=property_id).exists()
+    return is_favorite
+    
+
 def get_starting_room_price(property_id):
     try:
         starting_price = Room.objects.annotate(val=KT('room_price__base_rate')).filter(
