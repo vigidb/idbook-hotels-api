@@ -223,11 +223,27 @@ def validate_date(date:str, date_format="%Y-%m-%dT%H:%M%z"):
     except Exception as e:
         print(e)
         return False
+
+def get_date_from_string(date:str, date_format="%Y-%m-%dT%H:%M%z"):
+    try:
+        conv_date = datetime.datetime.strptime(date, date_format)
+        return conv_date
+    except Exception as e:
+        print(e)
+        return False
     
 def get_timediff_in_minutes(start_datetime, end_datetime):
     timediff = end_datetime - start_datetime
     timediff_in_minutes = timediff.total_seconds()/60
     return timediff_in_minutes
+
+def get_dates_from_range(start_date, end_date):
+    date_list = []
+    # Loop through the range of dates and append to the list
+    while start_date <= end_date:
+        date_list.append(start_date)
+        start_date += datetime.timedelta(days=1)
+    return date_list
     
 
 ##def quantize_decimal_value(value: Decimal):
@@ -272,6 +288,7 @@ def validate_mobile_number(mobile_number):
         return True
     except Exception as e:
         return False
+
 
 
 # Example usage
