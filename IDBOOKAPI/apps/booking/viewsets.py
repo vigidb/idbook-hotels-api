@@ -19,7 +19,7 @@ from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymen
 
 from apps.booking.tasks import send_booking_email_task, create_invoice_task
 from apps.booking.utils.db_utils import (
-    get_user_based_booking, check_review_exist_for_booking, create_booking_payment_details,
+    get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
     get_booking_from_payment, check_room_booked_details, get_booking)
 from apps.booking.utils.booking_utils import (
@@ -1189,123 +1189,123 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             
         
 
-class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
-    queryset = Review.objects.all()
-    serializer_class = ReviewSerializer
-    # permission_classes = [IsAuthenticated,]
-    # permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
-
-    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
-                                    'partial_update': [IsAuthenticated],
-                                    'destroy': [IsAuthenticated], 'list':[AllowAny], 'retrieve':[AllowAny]}
-
-    def get_permissions(self):
-        try:
-            return [permission() for permission in self.permission_classes_by_action[self.action]]
-        except KeyError: 
-            # action is not set return default permission_classes
-            return [permission() for permission in self.permission_classes]
-
-    def review_filter_ops(self):
-        
-        filter_dict = {}
-        # fetch filter parameters
-        param_dict= self.request.query_params
-        for key in param_dict:
-            if key in ('booking', 'property', 'user'):
-                filter_dict[key] = param_dict[key]
-
-        if filter_dict:
-            self.queryset = self.queryset.filter(**filter_dict)
-
-        
-
-    def create(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-
-        booking_id = request.data.get('booking', None)
-        review_exist = check_review_exist_for_booking(booking_id)
-        if review_exist:
-            custom_response = self.get_error_response(message="Review already done for the booking", status="error",
-                                                      errors=[],error_code="DUPLICATE_REVIEW",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
-            return custom_response
-            
-
-        # Create an instance of your serializer with the request data
-        serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            # If the serializer is valid, perform the default creation logic
-            response = super().create(request, *args, **kwargs)
-
-            # Create a custom response
-            custom_response = self.get_response(
-                status="success",
-                data=response.data,  # Use the data from the default response
-                message="Review Created",
-                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
-            )
-        else:
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
-
-        self.log_response(custom_response)  # Log the custom response before returning
-        return custom_response
-
-    def list(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-
-        self.review_filter_ops()
-        # paginate the result
-        count, self.queryset = paginate_queryset(self.request,  self.queryset)
-
-        # Perform the default listing logic
-        response = super().list(request, *args, **kwargs)
-
-        if response.status_code == status.HTTP_200_OK:
-            # If the response status code is OK (200), it's a successful listing
-            custom_response = self.get_response(
-                status="success",
-                count=count,
-                data=response.data,  # Use the data from the default response
-                message="List Retrieved",
-                status_code=status.HTTP_200_OK,  # 200 for successful listing
-
-            )
-        else:
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
-
-        self.log_response(custom_response)  # Log the custom response before returning
-        return custom_response
-
-    def retrieve(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-
-        # Perform the default retrieval logic
-        response = super().retrieve(request, *args, **kwargs)
-
-        if response.status_code == status.HTTP_200_OK:
-            # If the response status code is OK (200), it's a successful retrieval
-            custom_response = self.get_response(
-                status="success",
-                data=response.data,  # Use the data from the default response
-                message="Item Retrieved",
-                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
-            )
-        else:
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
-
-        self.log_response(custom_response)  # Log the custom response before returning
-        return custom_response
+##class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+##    queryset = Review.objects.all()
+##    serializer_class = ReviewSerializer
+##    # permission_classes = [IsAuthenticated,]
+##    # permission_classes = [AnonymousCanViewOnlyPermission,]
+##    http_method_names = ['get', 'post', 'put', 'patch']
+##
+##    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+##                                    'partial_update': [IsAuthenticated],
+##                                    'destroy': [IsAuthenticated], 'list':[AllowAny], 'retrieve':[AllowAny]}
+##
+##    def get_permissions(self):
+##        try:
+##            return [permission() for permission in self.permission_classes_by_action[self.action]]
+##        except KeyError: 
+##            # action is not set return default permission_classes
+##            return [permission() for permission in self.permission_classes]
+##
+##    def review_filter_ops(self):
+##        
+##        filter_dict = {}
+##        # fetch filter parameters
+##        param_dict= self.request.query_params
+##        for key in param_dict:
+##            if key in ('booking', 'property', 'user'):
+##                filter_dict[key] = param_dict[key]
+##
+##        if filter_dict:
+##            self.queryset = self.queryset.filter(**filter_dict)
+##
+##        
+##
+##    def create(self, request, *args, **kwargs):
+##        self.log_request(request)  # Log the incoming request
+##
+##        booking_id = request.data.get('booking', None)
+##        review_exist = check_review_exist_for_booking(booking_id)
+##        if review_exist:
+##            custom_response = self.get_error_response(message="Review already done for the booking", status="error",
+##                                                      errors=[],error_code="DUPLICATE_REVIEW",
+##                                                      status_code=status.HTTP_400_BAD_REQUEST)
+##            return custom_response
+##            
+##
+##        # Create an instance of your serializer with the request data
+##        serializer = self.get_serializer(data=request.data)
+##
+##        if serializer.is_valid():
+##            # If the serializer is valid, perform the default creation logic
+##            response = super().create(request, *args, **kwargs)
+##
+##            # Create a custom response
+##            custom_response = self.get_response(
+##                status="success",
+##                data=response.data,  # Use the data from the default response
+##                message="Review Created",
+##                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+##
+##            )
+##        else:
+##            custom_response = self.get_error_response(message="Validation Error", status="error",
+##                                                      errors=[],error_code="VALIDATION_ERROR",
+##                                                      status_code=status.HTTP_400_BAD_REQUEST)
+##
+##        self.log_response(custom_response)  # Log the custom response before returning
+##        return custom_response
+##
+##    def list(self, request, *args, **kwargs):
+##        self.log_request(request)  # Log the incoming request
+##
+##        self.review_filter_ops()
+##        # paginate the result
+##        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+##
+##        # Perform the default listing logic
+##        response = super().list(request, *args, **kwargs)
+##
+##        if response.status_code == status.HTTP_200_OK:
+##            # If the response status code is OK (200), it's a successful listing
+##            custom_response = self.get_response(
+##                status="success",
+##                count=count,
+##                data=response.data,  # Use the data from the default response
+##                message="List Retrieved",
+##                status_code=status.HTTP_200_OK,  # 200 for successful listing
+##
+##            )
+##        else:
+##            custom_response = self.get_error_response(message="Validation Error", status="error",
+##                                                      errors=[],error_code="VALIDATION_ERROR",
+##                                                      status_code=status.HTTP_400_BAD_REQUEST)
+##
+##        self.log_response(custom_response)  # Log the custom response before returning
+##        return custom_response
+##
+##    def retrieve(self, request, *args, **kwargs):
+##        self.log_request(request)  # Log the incoming request
+##
+##        # Perform the default retrieval logic
+##        response = super().retrieve(request, *args, **kwargs)
+##
+##        if response.status_code == status.HTTP_200_OK:
+##            # If the response status code is OK (200), it's a successful retrieval
+##            custom_response = self.get_response(
+##                status="success",
+##                data=response.data,  # Use the data from the default response
+##                message="Item Retrieved",
+##                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+##
+##            )
+##        else:
+##            custom_response = self.get_error_response(message="Validation Error", status="error",
+##                                                      errors=[],error_code="VALIDATION_ERROR",
+##                                                      status_code=status.HTTP_400_BAD_REQUEST)
+##
+##        self.log_response(custom_response)  # Log the custom response before returning
+##        return custom_response
 
 
 class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
