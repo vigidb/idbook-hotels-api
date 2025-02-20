@@ -1,3 +1,4 @@
+import requests, json
 # authentication utils
 from apps.authentication.utils import db_utils
 from apps.authentication.models import User
@@ -110,6 +111,23 @@ def email_generate_otp_process(otp, to_email, otp_for):
 def mobile_generate_otp_process(otp, mobile_number, otp_for):
     # otp create
     db_utils.create_mobile_otp(otp, mobile_number, otp_for)
+
+
+def validate_google_token(id_token):
+    name, email = "", ""
+    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
+    
+    headers = {
+      'Content-Type': 'application/json'
+    }
+    response = requests.request("POST", url, headers=headers, data={})
+    if response.status_code == 200:
+        data = response.json()
+        name = data.get('name', '')
+        email = data.get('email', '')
+        return True, name, email
+    else:
+        return False, name, email
     
             
         

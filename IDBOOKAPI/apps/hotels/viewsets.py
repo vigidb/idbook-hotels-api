@@ -448,15 +448,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             date_list = get_dates_from_range(start_date.date(), end_date.date())
             if len(date_list) >= 2:
                 date_list.pop()
-            date_list={"date_list": date_list}
+            #date_list={"date_list": date_list}
         else:
-            date_list={}
+            date_list=[]
             
             
-            
+           
         user_id = request.user.id
-
-        response = PropertyRetrieveSerializer(instance,  context=date_list)
+        context={"date_list": date_list, "user_id":user_id} 
+        response = PropertyRetrieveSerializer(instance,  context=context)
 
         property_id = instance.id
         if user_id and property_id:
