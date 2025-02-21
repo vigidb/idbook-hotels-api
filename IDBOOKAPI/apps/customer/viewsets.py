@@ -431,8 +431,12 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                          "transaction_id":merchant_transaction_id,
                          "payment_type":"PAYMENT GATEWAY",
                          "payment_medium":"PHONE PAY"}
+
+            payment_log['user_id'] = user.id
+            payment_log['merchant_transaction_id'] = merchant_transaction_id
             if company_id:
                 wtransact['company_id'] = company_id
+                payment_log['company_id'] = company_id
 
             # wallet transaction entry
             update_wallet_transaction(wtransact)
@@ -505,7 +509,8 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
         try:
             payment_log = {}
             x_verify = request.META.get('HTTP_X_VERIFY', None)
-            payment_log['x_verify'] = x_verify
+            if x_verify:
+                payment_log['x_verify'] = x_verify
             response = request.data.get('response', None)
 
             if not response:
@@ -543,8 +548,14 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                 payment_details["is_transaction_success"] = True
 
             # update wallet transaction and wallet 
-            update_wallet_recharge_details(merchant_transaction_id, payment_details, amount)
-        
+            user_id, company_id = update_wallet_recharge_details(
+                merchant_transaction_id, payment_details, amount)
+            if user_id:
+                payment_log['user_id'] = user_id
+            if company_id:
+                payment_log['company_id'] = company_id
+
+            payment_details['phone_pe_transaction_id'] = transaction_id
 
             custom_response = self.get_response(
                 status="success",
@@ -553,18 +564,15 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
                 )
             payment_log['response'] = payment_details
-            # create_wallet_payment_log(payment_log)
-            # create_booking_payment_log(booking_payment_log)
-            return custom_response
-            
-            
+            create_wallet_payment_log(payment_log)
+            return custom_response   
             
         except Exception as e:
             custom_response = self.get_error_response(message=str(e), status="error",
                                                       errors=[],error_code="INTERNAL_SERVER_ERROR",
                                                       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-##            booking_payment_log['response'] = {'message': str(e)}
-##            create_booking_payment_log(booking_payment_log)
+            payment_log['response'] = {'message': str(e)}
+            create_wallet_payment_log(payment_log)
             return custom_response
             
         
