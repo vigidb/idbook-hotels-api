@@ -152,6 +152,11 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                    Q(country__icontains=param_value) | Q(state__icontains=param_value)
 ##                    | Q(city_name__icontains=param_value) | Q(area_name__icontains=param_value))
                 print("queryset::", self.queryset.query)
+
+            if key == 'property_search':
+                query = Q(name__icontains=param_value.strip()) | Q(title__icontains=param_value.strip())
+                self.queryset = self.queryset.filter(query)
+                
             if key == 'user':
                 filter_dict['added_by'] = param_value
 
@@ -176,8 +181,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                filter_dict['review_star__gte'] = start_review_star
             if key == 'end_review_star':
                end_review_star = param_value
-               filter_dict['review_star__lt'] = end_review_star
-               
+               filter_dict['review_star__lt'] = end_review_star 
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
