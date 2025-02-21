@@ -41,6 +41,7 @@ from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.utils.db_utils import create_booking_payment_log
 
+from apps.authentication.models import UserOtp
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
 from apps.authentication.utils.authentication_utils import (
     add_group_based_on_signup, add_group_for_guest_user)
@@ -1533,12 +1534,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 name = user_details.get('name', '')
                 email = user_details.get('email', '')
                 mobile_number = user_details.get('mobile_number', '')
+                otp = user_details.get('otp', None)
+
                 address = user_details.get('address', '')
                 gender = user_details.get('gender', '')
                 state = user_details.get('state', '')
                 country = user_details.get('country', '')
                 pan_card_number = user_details.get('pan_card_number', '')
-                
                 
                 if not email:
                     custom_response = self.get_error_response(
@@ -1546,6 +1548,17 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         status="error", errors=[], error_code="VALIDATION_ERROR",
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
+
+                # verify email using otp
+                user_otp = None
+                if otp:
+                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+                    if not user_otp:
+                        response = self.get_error_response(
+                            message="Invalid OTP", status="error",
+                            errors=[], error_code="INVALID_OTP",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                        return response
                    
 
                 user = get_user_from_email(email)
