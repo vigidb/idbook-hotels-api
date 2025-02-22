@@ -9,6 +9,9 @@ from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, AppliedCoupon,
     Review, BookingPaymentDetail)
+from apps.customer.models import Customer
+
+from django.conf import settings
 
 
 # from booking.models import *
@@ -366,6 +369,23 @@ class ReviewSerializer(serializers.ModelSerializer):
         review_instance.user = user
         review_instance.save()
         return review_instance
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        user = instance.user
+        if user:
+            name = user.name
+            profile_picture=""
+            customer = Customer.objects.filter(user=user).values('profile_picture').first()
+            if customer:
+                profile_picture = customer.get('profile_picture', '')
+            if profile_picture:
+                profile_picture = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(profile_picture)}"
+            representation['user'] = {"id":user.id, "name":name, "profile_picture":profile_picture}
+        else:
+            representation['user'] = {}
+        return representation
+            
 
 class AppliedCouponSerializer(serializers.ModelSerializer):
     class Meta:

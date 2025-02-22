@@ -41,6 +41,7 @@ from django.db.models import Q
 from datetime import datetime
 
 from functools import reduce
+import traceback
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -684,7 +685,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='price-range', permission_classes=[AllowAny])
     def get_price_range(self, request):
         try:
-            min_price, max_price = hotel_db_utils.get_price_range()
+            location = request.query_params.get('location', '')
+            slot = request.query_params.get('slot', '24 Hrs')
+            location_list = []
+            if location:
+                location_list = location.split(',')
+                
+            min_price, max_price = hotel_db_utils.get_price_range(
+                location_list=location_list, slot=slot)
             if min_price:
                 min_price = int(min_price.get('min', 0))
             else:
@@ -700,6 +708,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                          status="success", message="Price range",
                                          status_code=status.HTTP_200_OK)
         except Exception as e:
+            print(traceback.format_exc())
             response = self.get_error_response(message=str(e), status="error",
                                                errors=[],error_code="PRICE_ERROR",
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
