@@ -564,7 +564,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = PropertyGallery.objects.filter(property_id=property_id)
+            count = gallery_objs.count()
+            serializer = PropertyGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count=count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
@@ -1210,7 +1213,10 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = RoomGallery.objects.filter(room_id=room_id)
+            count = gallery_objs.count()
+            serializer = RoomGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count = count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
