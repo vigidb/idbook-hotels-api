@@ -6,6 +6,7 @@ from rest_framework import routers
 
 router = routers.DefaultRouter()
 router.register(r'', UserCreateAPIView, basename='')
+router.register(r'social', SocialAuthentication, basename='social')
 
 otp_router = routers.DefaultRouter()
 otp_router.register(r'', OtpBasedUserEntryAPIView, basename='')

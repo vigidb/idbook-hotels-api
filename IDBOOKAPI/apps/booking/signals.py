@@ -1,5 +1,6 @@
 # code
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import (
+        post_save, pre_save, post_delete)
 from django.dispatch import receiver
 
 from .models import Booking, Review
@@ -27,6 +28,17 @@ import traceback
 
 @receiver(post_save, sender=Review)
 def update_review_in_property(sender, instance:Review, **kwargs):
+        try:
+                property_id = instance.property_id
+                total_review_count = get_property_based_review_count(property_id)
+                rating_average = get_property_rating_average(property_id)
+                update_property_review_details(property_id, rating_average, total_review_count)
+        except Exception as e:
+                print(traceback.format_exc())
+                print(e)
+
+@receiver(post_delete,sender=Review)
+def delete_review(sender,instance,*args,**kwargs):
         try:
                 property_id = instance.property_id
                 total_review_count = get_property_based_review_count(property_id)

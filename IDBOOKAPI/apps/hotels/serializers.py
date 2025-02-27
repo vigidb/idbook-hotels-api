@@ -20,7 +20,7 @@ from ..org_resources.serializers import UploadedMediaSerializer
 from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
     get_slot_based_starting_room_price, get_property_gallery,
-    get_dynamic_pricing_with_date_list)
+    get_dynamic_pricing_with_date_list, is_property_favorite)
 
 from django.conf import settings
 
@@ -86,7 +86,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
                     property_gallery = list(gallery_property.filter(active=True).values(
                         'id','media', 'caption', 'featured_image'))
                     for gallery in property_gallery:
-                        gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                        # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                        gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                     representation['property_gallery'] = property_gallery
                 else:
                     representation['property_gallery'] = []
@@ -161,7 +162,8 @@ class RoomSerializer(serializers.ModelSerializer):
             room_gallery = list(instance.gallery_room.filter(active=True).values(
                 'id','media', 'caption', 'featured_image'))
             for gallery in room_gallery:
-                gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
             representation['room_gallery'] = room_gallery
         else:
             representation['room_gallery'] = []
@@ -192,7 +194,8 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
                 room_gallery = list(instance.gallery_room.filter(active=True).values(
                     'id', 'media', 'caption', 'featured_image'))
                 for gallery in room_gallery:
-                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                 representation['room_gallery'] = room_gallery
             else:
                 representation['room_gallery'] = []
@@ -246,7 +249,8 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
                 property_gallery = list(instance.gallery_property.filter(
                     active=True).values('id','media', 'caption', 'featured_image'))
                 for gallery in property_gallery:
-                    gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
+                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
                 representation['property_gallery'] = property_gallery
             else:
                 representation['property_gallery'] = []
@@ -254,6 +258,12 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
             # legal document
             if instance.legal_document:
                 representation['legal_document'] = settings.MEDIA_URL + str(instance.legal_document)
+            representation['favorite'] = False
+            user_id = self.context.get("user_id", None)
+            if user_id:
+                is_favorite = is_property_favorite(user_id, instance.id)
+                if is_favorite:
+                    representation['favorite'] = True
         
         return representation
 
