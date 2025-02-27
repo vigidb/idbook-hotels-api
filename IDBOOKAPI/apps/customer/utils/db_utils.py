@@ -2,6 +2,8 @@
 from apps.customer.models import (
     Customer, Wallet, WalletTransaction)
 
+from decimal import Decimal
+
 def create_customer_signup_entry(user, added_user=None, gender='',
                                  employee_id='',
                                  group_name='DEFAULT',
@@ -109,5 +111,30 @@ def add_company_wallet_amount(company_id, amount):
         print("Wallet Balance add error::", e)
         return False
     return True
+
+def update_wallet_recharge_details(
+    merchant_transaction_id, payment_details:dict, amount):
+
+    user_id, company_id = None, None
+    amount = Decimal(str(amount))
+
+    # update wallet transaction
+    payment_objs = WalletTransaction.objects.filter(
+        transaction_id=merchant_transaction_id)
+    payment_objs.update(**payment_details)
+    payment_obj = payment_objs.first()
+    if payment_obj:
+        user_id = payment_obj.user.id
+        company_id = payment_obj.company_id
+        # add wallet amount
+        if company_id:
+            add_company_wallet_amount(company_id, amount)
+        elif user_id:
+            add_user_wallet_amount(user_id, amount)
+    return user_id, company_id
+            
+            
+    
+    
         
     

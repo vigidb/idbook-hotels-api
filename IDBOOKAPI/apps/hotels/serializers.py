@@ -31,6 +31,12 @@ class PropertyGallerySerializer(serializers.ModelSerializer):
         model = PropertyGallery
         fields = '__all__'
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        return representation
+
 
 class PropertyNameSerializer(serializers.ModelSerializer):
     class Meta:
@@ -134,6 +140,12 @@ class RoomGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomGallery
         fields = '__all__'
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        return representation
 
 class RoomNameSerializer(serializers.ModelSerializer):
     class Meta:

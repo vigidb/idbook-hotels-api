@@ -41,6 +41,7 @@ from django.db.models import Q
 from datetime import datetime
 
 from functools import reduce
+import traceback
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -152,6 +153,11 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                    Q(country__icontains=param_value) | Q(state__icontains=param_value)
 ##                    | Q(city_name__icontains=param_value) | Q(area_name__icontains=param_value))
                 print("queryset::", self.queryset.query)
+
+            if key == 'property_search':
+                query = Q(name__icontains=param_value.strip()) | Q(title__icontains=param_value.strip())
+                self.queryset = self.queryset.filter(query)
+                
             if key == 'user':
                 filter_dict['added_by'] = param_value
 
@@ -176,8 +182,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                filter_dict['review_star__gte'] = start_review_star
             if key == 'end_review_star':
                end_review_star = param_value
-               filter_dict['review_star__lt'] = end_review_star
-               
+               filter_dict['review_star__lt'] = end_review_star 
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
@@ -559,7 +564,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = PropertyGallery.objects.filter(property_id=property_id)
+            count = gallery_objs.count()
+            serializer = PropertyGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count=count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
@@ -680,7 +688,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='price-range', permission_classes=[AllowAny])
     def get_price_range(self, request):
         try:
-            min_price, max_price = hotel_db_utils.get_price_range()
+            location = request.query_params.get('location', '')
+            slot = request.query_params.get('slot', '24 Hrs')
+            location_list = []
+            if location:
+                location_list = location.split(',')
+                
+            min_price, max_price = hotel_db_utils.get_price_range(
+                location_list=location_list, slot=slot)
             if min_price:
                 min_price = int(min_price.get('min', 0))
             else:
@@ -696,6 +711,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                          status="success", message="Price range",
                                          status_code=status.HTTP_200_OK)
         except Exception as e:
+            print(traceback.format_exc())
             response = self.get_error_response(message=str(e), status="error",
                                                errors=[],error_code="PRICE_ERROR",
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1197,7 +1213,10 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = RoomGallery.objects.filter(room_id=room_id)
+            count = gallery_objs.count()
+            serializer = RoomGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count = count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 

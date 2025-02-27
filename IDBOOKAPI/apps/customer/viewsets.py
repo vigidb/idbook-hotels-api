@@ -11,7 +11,12 @@ from rest_framework.generics import (
 from rest_framework.decorators import action
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset
+from IDBOOKAPI.utils import paginate_queryset, get_unique_id_from_time
+
+from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.customer.utils.db_utils import update_wallet_transaction, update_wallet_recharge_details
+from apps.log_management.utils.db_utils import create_wallet_payment_log
+
 from .serializers import (
     CustomerSerializer, WalletSerializer,
     WalletTransactionSerializer)
@@ -21,8 +26,12 @@ from .models import (Customer, Wallet, WalletTransaction)
 from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-
+import traceback
 from rest_framework.parsers import MultiPartParser
+
+from django.conf import settings
+
+import base64, json
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Customer.objects.all()
@@ -366,7 +375,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         return custom_response
         
 
-class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin, LoggingMixin):
     queryset = Wallet.objects.all()
     serializer_class = WalletSerializer
     permission_classes = [IsAuthenticated]
@@ -395,6 +404,179 @@ class WalletViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
             )
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='recharge',
+            url_name='recharge')
+    def wallet_recharge(self, request):
+        user = request.user
+        payment_channel = request.data.get('payment_channel')
+        redirect_url = request.data.get('redirect_url', '')
+        amount = request.data.get('amount', None)
+        company_id = request.data.get('company', None)
+
+        payment_log = {}
+
+        if not amount:
+            custom_response = self.get_error_response(message="Amount mising", status="error",
+                                                      errors=[],error_code="AMOUNT_MISSING",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        try:
+            append_id = "%s%s" % ('WLT', user.id)
+            merchant_transaction_id = get_unique_id_from_time(append_id)
+
+            wtransact = {"user_id":user.id, "amount":amount,
+                         "transaction_type":"Credit",
+                         "transaction_id":merchant_transaction_id,
+                         "payment_type":"PAYMENT GATEWAY",
+                         "payment_medium":"PHONE PAY"}
+
+            payment_log['user_id'] = user.id
+            payment_log['merchant_transaction_id'] = merchant_transaction_id
+            if company_id:
+                wtransact['company_id'] = company_id
+                payment_log['company_id'] = company_id
+
+            # wallet transaction entry
+            update_wallet_transaction(wtransact)
+
+            if payment_channel == 'PHONE PAY':
+                
+                merchant_id = settings.MERCHANT_ID
+                callback_url = settings.CALLBACK_URL + "/api/v1/customer/wallet/phone-pay/callbackurl/"
+
+                    
+                payload = {
+                    "merchantId": merchant_id,
+                    "merchantTransactionId": merchant_transaction_id,
+                    "merchantUserId": user.id,
+                    "amount": amount * 100,
+                    "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
+                    "redirectMode": "REDIRECT",
+                    "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
+                    "paymentInstrument":{ "type": "PAY_PAGE"}
+                    }
+
+                req, auth_header = self.get_encrypted_header_and_payload(payload)
+                response = self.post_pay_page(req, auth_header)
+
+                if response.status_code == 200:
+                    data_json = response.json()
+                    payment_log['response'] = data_json
+                    instrument_response = data_json.get('data').get('instrumentResponse',{})
+                    data_json.pop('data')
+                    data_json['instrumentResponse'] = instrument_response
+                    custom_response = self.get_response(
+                        status="success",
+                        count=1,
+                        data=data_json,  # Use the data from the default response
+                        message="Payment Initiate Url",
+                        status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+                        )
+                    # log
+                    create_wallet_payment_log(payment_log)
+                    return custom_response
+
+                else:
+                    payment_log['response'] = {'message': response.text}
+                    custom_response = self.get_error_response(message=response.text, status="error",
+                                                              errors=[],error_code="PAYMENT_ERROR",
+                                                          status_code=status.HTTP_400_BAD_REQUEST)
+                    # logs
+                    create_wallet_payment_log(payment_log)
+                    return custom_response
+
+            else:
+                custom_response = self.get_error_response(
+                    message="Invalid option", status="error",
+                    errors=[],error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+        except Exception as e:
+            print(traceback.format_exc())
+            payment_log['response'] = {'message': str(e)}
+            custom_response = self.get_error_response(message=str(e), status="error",
+                                                      errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                                      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            create_wallet_payment_log(payment_log)
+
+            return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
+            url_name='phone-pay-callbackurl', permission_classes=[])
+    def phone_pay_callbackurl(self, request):
+        try:
+            payment_log = {}
+            x_verify = request.META.get('HTTP_X_VERIFY', None)
+            if x_verify:
+                payment_log['x_verify'] = x_verify
+            response = request.data.get('response', None)
+
+            if not response:
+                custom_response = self.get_error_response(
+                    message="Error in Response", status="error",
+                    errors=[],error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                payment_log['request'] = {"message":"empty request"}
+                # log
+                create_wallet_payment_log(payment_log)
+                return custom_response
+
+            payment_log['request'] = {"response": response}
+            data = base64.b64decode(response)
+            decoded_data =  data.decode('utf-8')
+            json_data = json.loads(decoded_data)
+            payment_log['request'] = json_data
+            
+            code = json_data.get('code', '')
+            message = json_data.get('message', '')
+
+            sub_json_data = json_data.get('data', {})
+            amount = sub_json_data.get('amount', 0)/100
+            merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
+            payment_log['merchant_transaction_id'] = merchant_transaction_id
+            transaction_id = sub_json_data.get('transactionId', '')        
+            print(json_data)
+
+            payment_details = {
+                "transaction_id": merchant_transaction_id, "code": code,
+                "transaction_details":message, "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "PHONE PAY", "amount": amount}
+
+            if code == "PAYMENT_SUCCESS":
+                payment_details["is_transaction_success"] = True
+
+            # update wallet transaction and wallet 
+            user_id, company_id = update_wallet_recharge_details(
+                merchant_transaction_id, payment_details, amount)
+            if user_id:
+                payment_log['user_id'] = user_id
+            if company_id:
+                payment_log['company_id'] = company_id
+
+            payment_details['phone_pe_transaction_id'] = transaction_id
+
+            custom_response = self.get_response(
+                status="success",
+                data=payment_details,  # Use the data from the default response
+                message="Wallet Recharge",
+                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+                )
+            payment_log['response'] = payment_details
+            create_wallet_payment_log(payment_log)
+            return custom_response   
+            
+        except Exception as e:
+            custom_response = self.get_error_response(message=str(e), status="error",
+                                                      errors=[],error_code="INTERNAL_SERVER_ERROR",
+                                                      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            payment_log['response'] = {'message': str(e)}
+            create_wallet_payment_log(payment_log)
+            return custom_response
+            
+        
+    
 
 class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = WalletTransaction.objects.all()
