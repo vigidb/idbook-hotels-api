@@ -65,11 +65,11 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##        if user.category == 'B-ADMIN':
 ##             company_id = self.request.query_params.get('company_id', None)
 ##             user_id = self.request.query_params.get('user_id', None)
-        if user.category == 'CL-ADMIN':
-            company_id = user.company_id if user.company_id else -1
-            # user_id = self.request.query_params.get('user_id', None)
-        elif user.category == 'CL-CUST':
-            user_id = user.id
+##        if user.category == 'CL-ADMIN':
+##            company_id = user.company_id if user.company_id else -1
+##            # user_id = self.request.query_params.get('user_id', None)
+##        elif user.category == 'CL-CUST':
+##            user_id = user.id
         
         #company_id = 25    
         if company_id:
@@ -547,13 +547,13 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             if code == "PAYMENT_SUCCESS":
                 payment_details["is_transaction_success"] = True
 
-            # update wallet transaction and wallet 
-            user_id, company_id = update_wallet_recharge_details(
-                merchant_transaction_id, payment_details, amount)
-            if user_id:
-                payment_log['user_id'] = user_id
-            if company_id:
-                payment_log['company_id'] = company_id
+                # update wallet transaction and wallet 
+                user_id, company_id = update_wallet_recharge_details(
+                    merchant_transaction_id, payment_details, amount)
+                if user_id:
+                    payment_log['user_id'] = user_id
+                if company_id:
+                    payment_log['company_id'] = company_id
 
             payment_details['phone_pe_transaction_id'] = transaction_id
 
