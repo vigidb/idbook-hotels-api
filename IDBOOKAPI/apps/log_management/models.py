@@ -56,5 +56,12 @@ class WalletTransactionLog(models.Model):
             return self.merchant_transaction_id
         else:
             return str(self.id)
+
+class SmsOtpLog(models.Model):
+    mobile_number = models.CharField(max_length=100, blank=True)
+    response =  models.JSONField(blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
     
     
