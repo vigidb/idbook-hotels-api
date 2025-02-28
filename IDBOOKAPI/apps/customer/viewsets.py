@@ -56,11 +56,12 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##        if user.category == 'B-ADMIN':
 ##             company_id = self.request.query_params.get('company_id', None)
 ##             user_id = self.request.query_params.get('user_id', None)
-        if user.category == 'CL-ADMIN':
-            company_id = user.company_id if user.company_id else -1
-            # user_id = self.request.query_params.get('user_id', None)
-        elif user.category == 'CL-CUST':
-            user_id = user.id
+                
+##        if user.category == 'CL-ADMIN':
+##            company_id = user.company_id if user.company_id else -1
+##            # user_id = self.request.query_params.get('user_id', None)
+##        elif user.category == 'CL-CUST':
+##            user_id = user.id
         
         #company_id = 25    
         if company_id:
