@@ -14,7 +14,9 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from IDBOOKAPI.utils import paginate_queryset, get_unique_id_from_time
 
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
-from apps.customer.utils.db_utils import update_wallet_transaction, update_wallet_recharge_details
+from apps.customer.utils.db_utils import (
+    update_wallet_transaction, update_wallet_recharge_details,
+    update_wallet_transaction_detail)
 from apps.log_management.utils.db_utils import create_wallet_payment_log
 
 from .serializers import (
@@ -426,11 +428,18 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             append_id = "%s%s" % ('WLT', user.id)
             merchant_transaction_id = get_unique_id_from_time(append_id)
 
-            wtransact = {"user_id":user.id, "amount":amount,
-                         "transaction_type":"Credit",
+##            wtransact = {"user_id":user.id, "amount":amount,
+##                         "transaction_type":"Credit",
+##                         "transaction_id":merchant_transaction_id,
+##                         "payment_type":"PAYMENT GATEWAY",
+##                         "payment_medium":"PHONE PAY"}
+
+            wtransact = {"user_id":user.id,
                          "transaction_id":merchant_transaction_id,
+                         "transaction_type":"Credit",
                          "payment_type":"PAYMENT GATEWAY",
-                         "payment_medium":"PHONE PAY"}
+                         "payment_medium":"PHONE PAY"
+                         }
 
             payment_log['user_id'] = user.id
             payment_log['merchant_transaction_id'] = merchant_transaction_id
@@ -454,7 +463,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                     "amount": amount * 100,
                     "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
                     "redirectMode": "REDIRECT",
-                    "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
+                    "callbackUrl": callback_url, #https://webhook-test.com/6d8aac024b00f1e22e38f927a29a6522
                     "paymentInstrument":{ "type": "PAY_PAGE"}
                     }
 
@@ -547,13 +556,24 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             if code == "PAYMENT_SUCCESS":
                 payment_details["is_transaction_success"] = True
 
-                # update wallet transaction and wallet 
-                user_id, company_id = update_wallet_recharge_details(
-                    merchant_transaction_id, payment_details, amount)
+                # update wallet transaction and wallet
+                user_id, company_id = update_wallet_transaction_detail(
+                    merchant_transaction_id, payment_details)
+                update_wallet_recharge_details(user_id, company_id, amount)
                 if user_id:
                     payment_log['user_id'] = user_id
                 if company_id:
                     payment_log['company_id'] = company_id
+            else:
+                payment_details["is_transaction_success"] = False
+                user_id, company_id = update_wallet_transaction_detail(
+                    merchant_transaction_id, payment_details)
+                if user_id:
+                    payment_log['user_id'] = user_id
+                if company_id:
+                    payment_log['company_id'] = company_id
+                
+                
 
             payment_details['phone_pe_transaction_id'] = transaction_id
 
@@ -591,6 +611,11 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         transaction_type = self.request.query_params.get('transaction_type', '')
         if transaction_type:
             filter_dict['transaction_type'] = transaction_type
+
+        is_transaction_success = self.request.query_params.get('is_transaction_success', '')
+        if is_transaction_success:
+            filter_dict['is_transaction_success'] = is_transaction_success
+            
 
         company_id = self.request.query_params.get('company_id', '') 
         if company_id:
