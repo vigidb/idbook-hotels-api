@@ -8,7 +8,7 @@ from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from .models import (
     Property, Room, Gallery, FinancialDetail,
     HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
-    RoomGallery, PropertyGallery, BlockedProperty
+    RoomGallery, PropertyGallery, BlockedProperty, PolicyDetails
 )
 from apps.hotels.submodels.related_models import DynamicRoomPricing
 
@@ -40,3 +40,4 @@ admin.site.register(RoomGallery)
 admin.site.register(PropertyGallery)
 admin.site.register(BlockedProperty)
 admin.site.register(DynamicRoomPricing)
+admin.site.register(PolicyDetails)
