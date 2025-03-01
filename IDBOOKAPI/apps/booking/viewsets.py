@@ -10,7 +10,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, calculate_tax
+from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer)
@@ -286,8 +286,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        # filter and pagination
+        # filter, order and pagination
         self.booking_filter_ops()
+        self.queryset = order_ops(self.request, self.queryset)
         count, self.queryset = paginate_queryset(self.request, self.queryset) #self.booking_pagination_ops()
 
         # Perform the default listing logic
@@ -358,8 +359,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##        count = self.queryset.count()
 ##        self.queryset = self.queryset[offset:offset+limit]
 
-        # filter and pagination
+        # filter, order and pagination
         self.booking_filter_ops()
+        self.queryset = order_ops(self.request, self.queryset)
         # count = self.booking_pagination_ops()
         count, self.queryset = paginate_queryset(self.request, self.queryset)
         booking_serializer = BookingSerializer(self.queryset, many=True)
