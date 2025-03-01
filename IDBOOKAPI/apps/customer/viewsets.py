@@ -627,6 +627,12 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
 
         self.queryset = self.queryset.filter(**filter_dict)
 
+    def wtransaction_order_ops(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
+
 
 ##    def wtransaction_pagination_ops(self):
 ##        # offset and pagination
@@ -650,6 +656,7 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         # self.queryset = self.queryset.filter(user_id=user_id)
         # filter and pagination
         self.wtransaction_filter_ops()
+        self.wtransaction_order_ops()
         # count = self.wtransaction_pagination_ops()
         count, self.queryset = paginate_queryset(self.request, self.queryset)
         instance = self.queryset
