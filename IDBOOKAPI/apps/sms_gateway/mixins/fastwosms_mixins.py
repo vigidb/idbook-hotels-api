@@ -13,7 +13,7 @@ class Fast2SmsMixin:
         api_key = settings.FAST2SMS_APIKEY
         dlt_sender_id = settings.FAST_DLT_SENDER_ID
         message_id = settings.FAST_MESSAGE_ID
-        payload = f"sender_id={dlt_sender_id}&message={message_id}&variables_values={otp}&route=dlt&numbers={number}"
+        payload = f"sender_id={dlt_sender_id}&message={message_id}&variables_values=User|{otp}&route=dlt&numbers={number}"
         headers = {
             'authorization': api_key,
             'Content-Type': "application/x-www-form-urlencoded",
