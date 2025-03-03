@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     BookingInvoiceLog, BookingPaymentLog,
-    WalletTransactionLog)
+    WalletTransactionLog, SmsOtpLog)
 
 # Register your models here.
 
@@ -16,5 +16,6 @@ class WalletTransactionLogAdmin(admin.ModelAdmin):
 
 admin.site.register(BookingInvoiceLog, BookingInvoiceLogAdmin)
 admin.site.register(BookingPaymentLog, BookingPaymentLogAdmin)
-admin.site.register(WalletTransactionLog, WalletTransactionLogAdmin) 
+admin.site.register(WalletTransactionLog, WalletTransactionLogAdmin)
+admin.site.register(SmsOtpLog)
 
