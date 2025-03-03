@@ -10,6 +10,7 @@ from .models import (
     VehicleBooking, FlightBooking, AppliedCoupon,
     Review, BookingPaymentDetail)
 from apps.customer.models import Customer
+from apps.hotels.utils.db_utils import get_property_gallery
 
 from django.conf import settings
 
@@ -219,11 +220,33 @@ class BookingSerializer(serializers.ModelSerializer):
             address = confirmed_property.address
             name = confirmed_property.name
             title = confirmed_property.title
+            area_name = confirmed_property.area_name
+            city_name = confirmed_property.city_name
+            state = confirmed_property.state
+            country = confirmed_property.country
+            slug = confirmed_property.slug
+            
+            # get property gallery
+            gallery_property = get_property_gallery(confirmed_property.id)
+            gallery_list = []
+            if gallery_property:
+                property_gallery = list(gallery_property.filter(active=True).values('id','media'))
+                for gallery in property_gallery:
+                    media_gallery = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
+                    gallery_list.append(media_gallery)
+                
             confirmed_property_json = {
                 "id":confirmed_property.id,
                 "service_category":service_category,
+                "address":address,
+                "area_name":area_name,
+                "city_name":city_name,
+                "state":state,
+                "country":country,
                 "name":name,
-                "title":title
+                "title":title,
+                "gallery":gallery_list,
+                "slug":slug
             }
             
 ##        room = hotel_booking.room
