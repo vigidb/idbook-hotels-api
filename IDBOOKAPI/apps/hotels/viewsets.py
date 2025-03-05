@@ -41,6 +41,7 @@ from django.db.models import Q
 from datetime import datetime
 
 from functools import reduce
+import traceback
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -141,7 +142,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                (Q(area_name__icontains=loc.strip())
                                 | Q(city_name=loc.strip())
                                 | Q(state=loc.strip())
-                                | Q(country=loc.strip())  for loc in loc_list),)
+                                | Q(country=loc.strip())
+                                | Q(name__icontains=param_value.strip())
+                                | Q(title__icontains=param_value.strip()) for loc in loc_list),)
 
 ##                query = reduce(lambda a, b: a | b,
 ##                               (Q(city_name=loc) for loc in loc_list),)
@@ -151,7 +154,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                self.queryset = self.queryset.filter(
 ##                    Q(country__icontains=param_value) | Q(state__icontains=param_value)
 ##                    | Q(city_name__icontains=param_value) | Q(area_name__icontains=param_value))
-                print("queryset::", self.queryset.query)
+
+            if key == 'property_search':
+                query = Q(name__icontains=param_value.strip()) | Q(title__icontains=param_value.strip())
+                self.queryset = self.queryset.filter(query)
+
+            if key == 'property_id':
+                self.queryset = self.queryset.filter(id=param_value)
+                
+                
             if key == 'user':
                 filter_dict['added_by'] = param_value
 
@@ -176,8 +187,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                filter_dict['review_star__gte'] = start_review_star
             if key == 'end_review_star':
                end_review_star = param_value
-               filter_dict['review_star__lt'] = end_review_star
-               
+               filter_dict['review_star__lt'] = end_review_star 
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
@@ -198,7 +208,6 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         end_price = self.request.query_params.get('end_price', None)
         if start_price is not None and end_price is not None:
             property_list = hotel_db_utils.get_property_from_price_range(int(start_price), int(end_price))
-            print("property list", property_list)
             self.queryset = self.queryset.filter(id__in=property_list)
 
         # filter based on slot based property
@@ -559,7 +568,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = PropertyGallery.objects.filter(property_id=property_id)
+            count = gallery_objs.count()
+            serializer = PropertyGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count=count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
@@ -680,7 +692,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='price-range', permission_classes=[AllowAny])
     def get_price_range(self, request):
         try:
-            min_price, max_price = hotel_db_utils.get_price_range()
+            location = request.query_params.get('location', '')
+            slot = request.query_params.get('slot', '24 Hrs')
+            location_list = []
+            if location:
+                location_list = location.split(',')
+                
+            min_price, max_price = hotel_db_utils.get_price_range(
+                location_list=location_list, slot=slot)
             if min_price:
                 min_price = int(min_price.get('min', 0))
             else:
@@ -696,6 +715,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                          status="success", message="Price range",
                                          status_code=status.HTTP_200_OK)
         except Exception as e:
+            print(traceback.format_exc())
             response = self.get_error_response(message=str(e), status="error",
                                                errors=[],error_code="PRICE_ERROR",
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -717,8 +737,17 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='location-autosuggest', permission_classes=[AllowAny])
     def get_location_suggestion(self, request):
         location = self.request.query_params.get('location', '')
+        user_query = self.request.query_params.get('user_query', '')
         autosuggest_list = []
         autosuggest_dict = {}
+
+        if location:
+            location = location.strip()
+
+        if user_query:
+            user_query = user_query.strip()
+            location = user_query
+            #property_info = user_query
 
 
 
@@ -746,13 +775,25 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                     autosuggest_dict = {country: {state:[city_name]}}
 
 
-                
-##                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
-##                autosuggest_list.append(autosuggest_data)
+            if not user_query:
+                response = self.get_response(
+                    data=autosuggest_dict, count=1, status="success",
+                    message="Location Autosuggest", status_code=status.HTTP_200_OK)
+                return response
+        
+        if user_query:
             
+            property_info_dict = self.queryset.filter(
+                Q(name__icontains=user_query) | Q(title__icontains=user_query)
+                | Q(description__icontains=user_query)).values(
+                    'id', 'name', 'title').distinct('id').order_by('id')
+
+            user_suggest_dict = {"location": autosuggest_dict,
+                                 "property_info": property_info_dict}
+
             response = self.get_response(
-                data=autosuggest_dict, count=1, status="success",
-                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+                data=user_suggest_dict, count=1, status="success",
+                message="Location or Property Autosuggest", status_code=status.HTTP_200_OK)
             return response
         
 ##        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
@@ -1197,7 +1238,10 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = RoomGallery.objects.filter(room_id=room_id)
+            count = gallery_objs.count()
+            serializer = RoomGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count = count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 

@@ -10,7 +10,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, calculate_tax
+from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer)
@@ -41,6 +41,7 @@ from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.utils.db_utils import create_booking_payment_log
 
+from apps.authentication.models import UserOtp
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
 from apps.authentication.utils.authentication_utils import (
     add_group_based_on_signup, add_group_for_guest_user)
@@ -285,8 +286,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        # filter and pagination
+        # filter, order and pagination
         self.booking_filter_ops()
+        self.queryset = order_ops(self.request, self.queryset)
         count, self.queryset = paginate_queryset(self.request, self.queryset) #self.booking_pagination_ops()
 
         # Perform the default listing logic
@@ -357,8 +359,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##        count = self.queryset.count()
 ##        self.queryset = self.queryset[offset:offset+limit]
 
-        # filter and pagination
+        # filter, order and pagination
         self.booking_filter_ops()
+        self.queryset = order_ops(self.request, self.queryset)
         # count = self.booking_pagination_ops()
         count, self.queryset = paginate_queryset(self.request, self.queryset)
         booking_serializer = BookingSerializer(self.queryset, many=True)
@@ -1533,12 +1536,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 name = user_details.get('name', '')
                 email = user_details.get('email', '')
                 mobile_number = user_details.get('mobile_number', '')
+                otp = user_details.get('otp', None)
+
                 address = user_details.get('address', '')
                 gender = user_details.get('gender', '')
                 state = user_details.get('state', '')
                 country = user_details.get('country', '')
                 pan_card_number = user_details.get('pan_card_number', '')
-                
                 
                 if not email:
                     custom_response = self.get_error_response(
@@ -1546,6 +1550,17 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         status="error", errors=[], error_code="VALIDATION_ERROR",
                         status_code=status.HTTP_400_BAD_REQUEST)
                     return custom_response
+
+                # verify email using otp
+                user_otp = None
+                if otp:
+                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+                    if not user_otp:
+                        response = self.get_error_response(
+                            message="Invalid OTP", status="error",
+                            errors=[], error_code="INVALID_OTP",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                        return response
                    
 
                 user = get_user_from_email(email)

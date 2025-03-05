@@ -68,9 +68,19 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         email = request.data.get('email', None)
         group_name = request.data.get('group_name', None)
+        otp = request.data.get('otp', None)
         user = None
 
-            
+        user_otp = None
+        if otp:
+            user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+            if not user_otp:
+                response = self.get_error_response(
+                    message="Invalid OTP", status="error",
+                    errors=[], error_code="INVALID_OTP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+        
         if email:
             user = User.objects.filter(email=email).first()
 

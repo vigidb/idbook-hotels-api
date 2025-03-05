@@ -36,6 +36,7 @@ from apps.authentication.utils import db_utils as auth_db_utils
 from apps.customer.models import Customer
 
 from apps.org_resources.tasks import send_enquiry_email_task
+from IDBOOKAPI.utils import paginate_queryset
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
@@ -172,8 +173,8 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        offset = int(self.request.query_params.get('offset', 0))
-        limit = int(self.request.query_params.get('limit', 10))
+##        offset = int(self.request.query_params.get('offset', 0))
+##        limit = int(self.request.query_params.get('limit', 10))
         search = request.query_params.get('search', '')
 
         if search:
@@ -181,8 +182,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             self.queryset = self.queryset.filter(search_q_filter)
 
 
-        count = self.queryset.count()
-        self.queryset = self.queryset[offset:offset+limit]
+##        count = self.queryset.count()
+##        self.queryset = self.queryset[offset:offset+limit]
+
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
         
 
         # Perform the default listing logic

@@ -12,10 +12,15 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
 #app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
 
-email_send_queue = "email-send-queue"
+environment = settings.ENVIRONMENT
+if environment == 'dev':
+    email_send_queue = "dev-email-send-queue"
+else:
+    email_send_queue = "email-send-queue"
 #email_booking_queue = "email-booking-queue"
 app.conf.task_routes = {
     'apps.authentication.tasks.send_email_task': {'queue': email_send_queue},
+    'apps.authentication.tasks.send_mobile_otp_task': {'queue': email_send_queue},
     'apps.authentication.tasks.customer_signup_link_task': {'queue': email_send_queue},
     'apps.authentication.tasks.send_signup_email_task': {'queue': email_send_queue},
     'apps.booking.tasks.send_booking_email_task': {'queue': email_send_queue},

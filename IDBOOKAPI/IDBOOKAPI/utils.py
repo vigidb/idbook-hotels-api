@@ -198,6 +198,13 @@ def paginate_queryset(request, queryset):
 
     return count, queryset
 
+def order_ops(request, queryset):
+    ordering_params = request.query_params.get('ordering', None)
+    if ordering_params:
+        ordering_list = ordering_params.split(',')
+        queryset = queryset.order_by(*ordering_list)
+    return queryset
+
 def calculate_tax(tax_in_percent, amount):
     tax_amount = (tax_in_percent * amount) / 100
     return tax_amount
