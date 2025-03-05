@@ -784,8 +784,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if user_query:
             
             property_info_dict = self.queryset.filter(
-                Q(name__icontains=user_query) | Q(title__icontains=user_query)
-                | Q(description__icontains=user_query)).values(
+                Q(name__icontains=user_query) | Q(title__icontains=user_query)).values(
                     'id', 'name', 'title').distinct('id').order_by('id')
 
             user_suggest_dict = {"location": autosuggest_dict,
