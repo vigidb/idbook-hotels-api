@@ -130,6 +130,24 @@ def validate_google_token(id_token):
         return True, name, email
     else:
         return False, name, email
+
+def get_group_based_on_name(group_name):
+    grp, role = None, None
+    
+    if group_name == 'FRANCHISE-GRP':
+        grp = db_utils.get_group_by_name('FRANCHISE-GRP')
+        role = db_utils.get_role_by_name('FRANCH-ADMIN')
+    elif group_name == 'HOTELIER-GRP':
+        grp = db_utils.get_group_by_name('HOTELIER-GRP')
+        role = db_utils.get_role_by_name('HTLR-ADMIN')
+    elif group_name == 'CORPORATE-GRP':
+        grp = db_utils.get_group_by_name('CORPORATE-GRP')
+        role = db_utils.get_role_by_name('CORP-ADMIN')
+    elif group_name == 'B2C-GRP':
+        grp = db_utils.get_group_by_name('B2C-GRP')
+        role = db_utils.get_role_by_name('B2C-CUST')
+        
+    return grp, role
     
             
         

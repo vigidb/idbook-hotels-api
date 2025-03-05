@@ -542,6 +542,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
         name = request.data.get('name', '')
         otp = request.data.get('otp', None)
         referred_code = request.data.get('referred_code', '')
+        group_name = request.data.get("group_name", 'B2C-GRP')
 
         valid = email_validation(email)
         if not valid:
@@ -589,15 +590,33 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 error_code="EMAIL_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
+        # group and roles
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp or not role:
+            response = self.get_error_response(
+                message="Group or role doesn't exist", status="error", errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        #check whether mobile already exist or not
+        check_mobile_existing_user = User.objects.filter(mobile_number=mobile_number, groups=grp).first()
+        if check_mobile_existing_user:
+            response = self.get_error_response(
+                message="Mobile already exist", status="error", errors=[],
+                error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+            
+
         # create user
         new_user = User.objects.create(
             name=name, email=email, mobile_number=mobile_number,
-            referred_code=referred_code, default_group='B2C-GRP')
+            referred_code=referred_code, default_group=group_name,
+            email_verified=True)
         Customer.objects.create(user_id=new_user.id, active=True)
         
-        # set groups and roles
-        grp = db_utils.get_group_by_name('B2C-GRP')
-        role = db_utils.get_role_by_name('B2C-CUST')
+##        # set groups and roles
+##        grp = db_utils.get_group_by_name('B2C-GRP')
+##        role = db_utils.get_role_by_name('B2C-CUST')
 
         if grp:
             new_user.groups.add(grp)
@@ -620,10 +639,11 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
         username = request.data.get('username', '')
         user_id = request.data.get('user_id', None)
         otp = request.data.get('otp', None)
+        group_name = request.data.get("group_name", 'B2C-GRP')
 
-        if not username or not user_id:
+        if not username:
             response = self.get_error_response(
-                message="Missing username or user_id", status="error",
+                message="Missing username", status="error",
                 errors=[], error_code="INVALID_PARAM",
                 status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
@@ -648,7 +668,15 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
-        user_detail = db_utils.get_user_details(user_id, username)
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp:
+            response = self.get_error_response(
+                message="Group doesn't exist", status="error", errors=[],
+                error_code="GROUP_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+##        user_detail = db_utils.get_user_details(user_id, username)
+        user_detail = db_utils.get_group_based_user_details(grp, username)
         if not user_detail:
             response = self.get_error_response(
                 message="Invalid user details", status="error",
@@ -734,6 +762,54 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return response
+
+
+    @action(detail=False, methods=['POST'], url_path='verify-otp',
+            url_name='verify-otp')
+    def verify_otp(self, request):
+
+        username = request.data.get('username', '')
+        otp = request.data.get('otp', None)
+        otp_for = request.data.get('otp_for', None)
+
+        if not username:
+            response = self.get_error_response(message="Missing username", status="error",
+                                               errors=[], error_code="INVALID_PARAM",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        if not otp_for:
+            response = self.get_error_response(message="Missing otp_for", status="error",
+                                               errors=[], error_code="INVALID_PARAM",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+        
+        # get the otp details
+        user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for=otp_for).first()
+        if not user_otp:
+            response = self.get_error_response(
+                message="Invalid Credentials", status="error",
+                errors=[], error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+            
+        # get the time difference
+        current_time = timezone.now()
+        timediff_in_minutes = get_timediff_in_minutes(
+            user_otp.created, current_time)
+
+        if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
+            response = self.get_error_response(message="OTP Expired", status="error",
+                                               errors=[], error_code="OTP_EXPIRED",
+                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        response = self.get_response(data={}, status="success",
+                                     message="Otp Verification Success",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+        
 
     
 
