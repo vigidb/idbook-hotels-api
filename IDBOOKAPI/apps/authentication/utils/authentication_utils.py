@@ -50,6 +50,12 @@ def generate_refresh_access_token(user):
     refresh = RefreshToken.for_user(user)
     return str(refresh), str(refresh.access_token)
 
+def check_mobile_exist_for_group(mobile_number, grp):
+    check_mobile_existing_user = User.objects.filter(
+        mobile_number=mobile_number, groups=grp).first()
+
+    return check_mobile_existing_user
+
 def check_email_exist_for_group(email, group_name):
     user = User.objects.filter(email=email).first()
     if user:

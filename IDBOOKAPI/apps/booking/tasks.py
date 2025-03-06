@@ -131,7 +131,7 @@ def create_invoice_task(self, booking_id):
             try:
                 if booking.user and booking.user.referred_code:
                     if not booking.user.first_booking:
-                        set_firstbooking_reward(booking.user.referred_code)
+                        set_firstbooking_reward(booking.user.referred_code, booked_user_id=booking.user.id)
                         update_user_first_booking(booking.user.id)
             except Exception as e:
                 print("Error in setting reward points", e)

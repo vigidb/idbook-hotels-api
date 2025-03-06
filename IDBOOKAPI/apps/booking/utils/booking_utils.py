@@ -434,21 +434,34 @@ def calculate_total_amount(booking):
 
     return total_booking_amount, gst_amount, coupon_discount
     
-def set_firstbooking_reward(referred_code):
+def set_firstbooking_reward(referred_code, booked_user_id=None):
     user = get_user_by_referralcode(referred_code)
     if user:
-        reward_amount = 1000
-        company_id = user.company_id
-        if company_id:
-            status = add_company_wallet_amount(company_id, reward_amount)
-        else:
-            status = add_user_wallet_amount(user.id, reward_amount)
+        reward_amount = 250
+##        company_id = user.company_id
+##        if company_id:
+##            status = add_company_wallet_amount(company_id, reward_amount)
+##        else:
+##            status = add_user_wallet_amount(user.id, reward_amount)
+
+        company_id = None
+        status = add_user_wallet_amount(user.id, reward_amount)
 
         if status:
             transaction_details = f"Amount credited based on referral code"
+            other_details = {"referral":{"user": booked_user_id}}
             wtransact_dict = {'user_id':user.id, 'amount':reward_amount,
                               'transaction_type':'Credit', 'transaction_details':transaction_details,
-                              'company_id':company_id}
+                              'company_id':company_id, 'transaction_for':'referral_booking',
+                              'is_transaction_success':True, 'other_details':other_details}
+            update_wallet_transaction(wtransact_dict)
+        else:
+            transaction_details = f"Amount credited based on referral code (failed)"
+            other_details = {"referral":{"user": booked_user_id}}
+            wtransact_dict = {'user_id':user.id, 'amount':reward_amount,
+                              'transaction_type':'Credit', 'transaction_details':transaction_details,
+                              'company_id':company_id, 'transaction_for':'referral_booking',
+                              'is_transaction_success':False, 'other_details':other_details}
             update_wallet_transaction(wtransact_dict)
         
 
