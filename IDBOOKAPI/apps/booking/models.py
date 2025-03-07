@@ -201,6 +201,7 @@ class Booking(models.Model):
     additional_notes = models.TextField(default='', blank=True)
 
     active = models.BooleanField(default=True)
+    is_reviewed = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

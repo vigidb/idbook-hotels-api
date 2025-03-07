@@ -25,6 +25,9 @@ from apps.authentication.models import User, Role
 # from apps.org_resources.models import *
 # from payment_gateways.models import *
 
+from apps.authentication.utils import db_utils
+from IDBOOKAPI.utils import paginate_queryset
+
 from .models import available_permission_queryset
 from .serializers import UserSerializer, RoleSerializer, PermissionSerializer, UserAdminListSerializer
 
@@ -35,7 +38,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     # permission_classes = [HasRoleModelPermission]
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'put', 'patch']
-    lookup_field = 'mobile_number'
+    # lookup_field = 'mobile_number'
 
     action_serializers = {
         'retrieve': UserSerializer,
@@ -126,13 +129,25 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         user = request.user
-        company_id = user.company_id
-        category = request.GET.get('category', '')
-        if category:
-            if category == 'CL-CUST' and company_id:
-                self.queryset = self.queryset.filter(category=category, company_id=company_id)
-            else:
-                self.queryset = self.queryset.filter(category=category)
+        company_id = request.query_params.get('company_id', None)
+##        company_id = user.company_id
+##        category = request.GET.get('category', '')
+##        if category:
+##            if category == 'CL-CUST' and company_id:
+##                self.queryset = self.queryset.filter(category=category, company_id=company_id)
+##            else:
+##                self.queryset = self.queryset.filter(category=category)
+
+        role_name = request.query_params.get('role', '')
+        if role_name:
+            role = db_utils.get_role_by_name(role_name)
+            self.queryset = self.queryset.filter(roles__in=[role])
+
+        if company_id:
+            self.queryset = self.queryset.filter(company_id=company_id)
+
+
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -140,6 +155,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if response.status_code == status.HTTP_200_OK:
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
+                count=count, status="success",
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing

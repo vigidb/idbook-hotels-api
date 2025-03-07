@@ -12,6 +12,8 @@ from django.db.models import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from django.db.models import Q
 
+from functools import reduce
+
 
 def get_property_by_id(property_id):
     try:
@@ -62,6 +64,12 @@ def get_favorite_property(user_id):
     favorite_list = FavoriteList.objects.filter(
         user_id=user_id, property__isnull=False).values_list('property_id', flat=True)
     return list(favorite_list)
+
+def is_property_favorite(user_id, property_id):
+    is_favorite = FavoriteList.objects.filter(
+        user_id=user_id, property_id=property_id).exists()
+    return is_favorite
+    
 
 def get_starting_room_price(property_id):
     try:
@@ -127,9 +135,50 @@ def get_property_from_price_range(start_price, end_price):
         room_price__base_rate__lte=end_price).values_list('property_id', flat=True)
     return list(property_list)
 
-def get_price_range():
-    min_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(min=Min('val')) 
-    max_price = Room.objects.annotate(val=KT('room_price__base_rate')).aggregate(max=Max('val'))
+def get_price_range(location_list=[], slot="24 Hrs"):
+
+    property_obj = Property.objects.filter(status='Active')
+
+    if location_list:
+        query = reduce(lambda a, b: a | b,
+                       (Q(area_name__icontains=loc.strip())
+                        | Q(city_name=loc.strip())
+                        | Q(state=loc.strip())
+                        | Q(country=loc.strip())  for loc in location_list),)
+        property_obj = property_obj.filter(query)
+
+    property_ids = list(property_obj.values_list('id', flat=True))
+        
+    room_obj = Room.objects.filter(property_id__in=property_ids)
+    if slot == "4 Hrs":
+        min_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_4hrs'), IntegerField())).aggregate(
+                min=Coalesce(Min('val'), 0)) 
+        max_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_4hrs'), IntegerField())).aggregate(
+                max=Coalesce(Max('val'), 0))
+    elif slot == "8 Hrs":
+        min_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_8hrs'), IntegerField())).aggregate(
+                min=Coalesce(Min('val'), 0)) 
+        max_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_8hrs'), IntegerField())).aggregate(
+                max=Coalesce(Max('val'), 0))
+    elif slot == "12 Hrs":
+        min_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_12hrs'), IntegerField())).aggregate(
+                min=Coalesce(Min('val'), 0)) 
+        max_price = room_obj.annotate(
+            val=Cast(KT('room_price__price_12hrs'), IntegerField())).aggregate(
+                max=Coalesce(Max('val'), 0))
+    else:
+        # 24 hrs
+        min_price = room_obj.annotate(
+            val=Cast(KT('room_price__base_rate'), IntegerField())).aggregate(
+                min=Coalesce(Min('val'), 0)) 
+        max_price = room_obj.annotate(
+            val=Cast(KT('room_price__base_rate'), IntegerField())).aggregate(
+                max=Coalesce(Max('val'), 0))
         
     return min_price, max_price
 
@@ -385,6 +434,26 @@ def get_dynamic_room_pricing_list(start_date, end_date, room_ids:list):
     # print("-- query", pricing_objs.query)
 
     return pricing_objs
+
+def get_dynamic_pricing_with_date_list(room_id, date_list):
+    pricing_obj = DynamicRoomPricing.objects.filter(
+        for_room_id=room_id, active=True)
+    date_price_dict = {}
+    is_price_available = False
+    if pricing_obj.exists():
+        for date in date_list:
+            date_pricing_obj = pricing_obj.filter(
+                start_date__date__lte=date, end_date__date__gte=date).values(
+                    'room_price').first()
+            if date_pricing_obj:
+                date_price_dict[str(date)] = date_pricing_obj
+                is_price_available = True
+            else:
+                date_price_dict[str(date)] = ""
+    if not is_price_available:
+        return {}
+    return date_price_dict
+    
     
     
 

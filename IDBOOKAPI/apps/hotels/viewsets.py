@@ -10,7 +10,9 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, validate_date
+from IDBOOKAPI.utils import (
+    paginate_queryset, validate_date, get_dates_from_range,
+    get_date_from_string)
 
 from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
@@ -39,6 +41,7 @@ from django.db.models import Q
 from datetime import datetime
 
 from functools import reduce
+import traceback
 
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -139,7 +142,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                (Q(area_name__icontains=loc.strip())
                                 | Q(city_name=loc.strip())
                                 | Q(state=loc.strip())
-                                | Q(country=loc.strip())  for loc in loc_list),)
+                                | Q(country=loc.strip())
+                                | Q(name__icontains=param_value.strip())
+                                | Q(title__icontains=param_value.strip()) for loc in loc_list),)
 
 ##                query = reduce(lambda a, b: a | b,
 ##                               (Q(city_name=loc) for loc in loc_list),)
@@ -149,7 +154,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                self.queryset = self.queryset.filter(
 ##                    Q(country__icontains=param_value) | Q(state__icontains=param_value)
 ##                    | Q(city_name__icontains=param_value) | Q(area_name__icontains=param_value))
-                print("queryset::", self.queryset.query)
+
+            if key == 'property_search':
+                query = Q(name__icontains=param_value.strip()) | Q(title__icontains=param_value.strip())
+                self.queryset = self.queryset.filter(query)
+
+            if key == 'property_id':
+                self.queryset = self.queryset.filter(id=param_value)
+                
+                
             if key == 'user':
                 filter_dict['added_by'] = param_value
 
@@ -174,8 +187,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                filter_dict['review_star__gte'] = start_review_star
             if key == 'end_review_star':
                end_review_star = param_value
-               filter_dict['review_star__lt'] = end_review_star
-               
+               filter_dict['review_star__lt'] = end_review_star 
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
@@ -196,7 +208,6 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         end_price = self.request.query_params.get('end_price', None)
         if start_price is not None and end_price is not None:
             property_list = hotel_db_utils.get_property_from_price_range(int(start_price), int(end_price))
-            print("property list", property_list)
             self.queryset = self.queryset.filter(id__in=property_list)
 
         # filter based on slot based property
@@ -409,7 +420,65 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        
+        pk = kwargs.get('pk')
+        if isinstance(pk, str) and not pk.isdigit():
+            instance = Property.objects.filter(slug=pk).first()
+        else:
+            instance = Property.objects.filter(id=pk).first()
+
+        if not instance:
+            custom_response = self.get_error_response(message="Property not found", status="error",
+                                                      errors=[],error_code="PROPERTY_MISSING",
+                                                      status_code=status.HTTP_404_NOT_FOUND)
+            return custom_response
+
+        
+
+        checkin_date = self.request.query_params.get('checkin', '')
+        checkout_date = self.request.query_params.get('checkout', '')
+
+        
+        
+        if checkin_date and checkout_date:
+            checkin_date = checkin_date.replace(' ', '+')
+            checkout_date = checkout_date.replace(' ', '+')
+            
+            start_date = get_date_from_string(checkin_date)
+            end_date = get_date_from_string(checkout_date)
+            
+            if not start_date or not end_date:
+                custom_response = self.get_error_response(
+                    message="Error in Date Format", status="error",
+                    errors=[],error_code="DATE_FORMAT_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                
+            date_list = get_dates_from_range(start_date.date(), end_date.date())
+            if len(date_list) >= 2:
+                date_list.pop()
+            #date_list={"date_list": date_list}
+        else:
+            date_list=[]
+            
+            
+           
         user_id = request.user.id
+        context={"date_list": date_list, "user_id":user_id} 
+        response = PropertyRetrieveSerializer(instance,  context=context)
+
+        property_id = instance.id
+        if user_id and property_id:
+            create_or_update_property_count(property_id, user_id)
+
+        custom_response = self.get_response(
+            count=1, status="success",
+            data=response.data,  # Use the data from the default response
+            message="List Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+
+        return custom_response
 
 ##        print("-----", request.data.get('sample'))
 ##        available_rooms = self.request.query_params.get('available_rooms')
@@ -428,30 +497,30 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##            status_code=status.HTTP_200_OK,  # 200 for successful listing
 ##            )
 
-        # Perform the default retrieval logic
-        response = super().retrieve(request, *args, **kwargs)
-
-        if response.status_code == status.HTTP_200_OK:
-            # If the response status code is OK (200), it's a successful retrieval
-            custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response,
-                count=1,
-                status="success",
-                message="Item Retrieved",
-                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
-            )
-            property_id = response.data.get('id', None)
-            if user_id and property_id:
-                create_or_update_property_count(property_id, user_id)
-        else:
-            # If the response status code is not OK, it's an error
-            custom_response = self.get_error_response(message="Error Occured", status="error",
-                                                      errors=[],error_code="ERROR",
-                                                      status_code=response.status_code)
-
-        self.log_response(custom_response)  # Log the custom response before returning
-        return custom_response
+##        # Perform the default retrieval logic
+##        response = super().retrieve(request, *args, **kwargs)
+##
+##        if response.status_code == status.HTTP_200_OK:
+##            # If the response status code is OK (200), it's a successful retrieval
+##            custom_response = self.get_response(
+##                data=response.data,  # Use the data from the default response,
+##                count=1,
+##                status="success",
+##                message="Item Retrieved",
+##                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+##
+##            )
+##            property_id = response.data.get('id', None)
+##            if user_id and property_id:
+##                create_or_update_property_count(property_id, user_id)
+##        else:
+##            # If the response status code is not OK, it's an error
+##            custom_response = self.get_error_response(message="Error Occured", status="error",
+##                                                      errors=[],error_code="ERROR",
+##                                                      status_code=response.status_code)
+##
+##        self.log_response(custom_response)  # Log the custom response before returning
+##        return custom_response
 
     @action(detail=False, methods=['POST'], url_path='media',
             url_name='media', permission_classes=[IsAuthenticated])
@@ -499,7 +568,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = PropertyGallery.objects.filter(property_id=property_id)
+            count = gallery_objs.count()
+            serializer = PropertyGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count=count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
@@ -620,7 +692,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='price-range', permission_classes=[AllowAny])
     def get_price_range(self, request):
         try:
-            min_price, max_price = hotel_db_utils.get_price_range()
+            location = request.query_params.get('location', '')
+            slot = request.query_params.get('slot', '24 Hrs')
+            location_list = []
+            if location:
+                location_list = location.split(',')
+                
+            min_price, max_price = hotel_db_utils.get_price_range(
+                location_list=location_list, slot=slot)
             if min_price:
                 min_price = int(min_price.get('min', 0))
             else:
@@ -636,6 +715,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                                          status="success", message="Price range",
                                          status_code=status.HTTP_200_OK)
         except Exception as e:
+            print(traceback.format_exc())
             response = self.get_error_response(message=str(e), status="error",
                                                errors=[],error_code="PRICE_ERROR",
                                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -657,8 +737,17 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             url_name='location-autosuggest', permission_classes=[AllowAny])
     def get_location_suggestion(self, request):
         location = self.request.query_params.get('location', '')
+        user_query = self.request.query_params.get('user_query', '')
         autosuggest_list = []
         autosuggest_dict = {}
+
+        if location:
+            location = location.strip()
+
+        if user_query:
+            user_query = user_query.strip()
+            location = user_query
+            #property_info = user_query
 
 
 
@@ -686,13 +775,25 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                     autosuggest_dict = {country: {state:[city_name]}}
 
 
-                
-##                autosuggest_data = f"{obj_dict.get('city_name', '')}, {obj_dict.get('state', '')}, {obj_dict.get('country', '')}"
-##                autosuggest_list.append(autosuggest_data)
+            if not user_query:
+                response = self.get_response(
+                    data=autosuggest_dict, count=1, status="success",
+                    message="Location Autosuggest", status_code=status.HTTP_200_OK)
+                return response
+        
+        if user_query:
             
+            property_info_dict = self.queryset.filter(
+                Q(name__icontains=user_query) | Q(title__icontains=user_query)
+                | Q(description__icontains=user_query)).values(
+                    'id', 'name', 'title').distinct('id').order_by('id')
+
+            user_suggest_dict = {"location": autosuggest_dict,
+                                 "property_info": property_info_dict}
+
             response = self.get_response(
-                data=autosuggest_dict, count=1, status="success",
-                message="Location Autosuggest", status_code=status.HTTP_200_OK)
+                data=user_suggest_dict, count=1, status="success",
+                message="Location or Property Autosuggest", status_code=status.HTTP_200_OK)
             return response
         
 ##        area_queryset = self.queryset.filter(area_name__icontains=location).exclude(city_name='',state='', country='')
@@ -1137,7 +1238,10 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
             
         if media_count:
-            response = self.get_response(data={}, count = media_count,
+            gallery_objs = RoomGallery.objects.filter(room_id=room_id)
+            count = gallery_objs.count()
+            serializer = RoomGallerySerializer(gallery_objs, many=True)
+            response = self.get_response(data=serializer.data, count = count,
                                          status="success", message="Media Upload Success",
                                          status_code=status.HTTP_200_OK)
 
