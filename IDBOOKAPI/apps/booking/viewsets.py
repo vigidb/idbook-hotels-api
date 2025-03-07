@@ -17,11 +17,11 @@ from .serializers import (BookingSerializer, AppliedCouponSerializer,
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
-from apps.booking.tasks import send_booking_email_task, create_invoice_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment, check_room_booked_details, get_booking)
+    get_booking_from_payment, check_room_booked_details, get_booking, create_booking_refund_details)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -39,7 +39,7 @@ from apps.hotels.utils.hotel_utils import (
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
-from apps.log_management.utils.db_utils import create_booking_payment_log
+from apps.log_management.utils.db_utils import create_booking_payment_log, create_booking_refund_log
 
 from apps.authentication.models import UserOtp
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
@@ -63,7 +63,9 @@ import base64, json
 from django.conf import settings
 
 from datetime import datetime, timedelta
-from pytz import timezone
+# from pytz import timezone
+from django.utils import timezone
+from decimal import Decimal
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -71,7 +73,7 @@ from pytz import timezone
 
 
 class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
-                     StandardResponseMixin, LoggingMixin):
+                     StandardResponseMixin, LoggingMixin, PhonePayMixin):
     queryset = Booking.objects.all()
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated,]
@@ -406,27 +408,322 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             )
         return response
 
+    # @action(detail=True, methods=['PATCH'], url_path='cancel',
+    #         url_name='cancel', permission_classes=[IsAuthenticated])
+    # def cancel_booking(self, request, pk=None):
+    #     """customer can cancel their booking"""
+    #     user = request.user
+    #     print("Booking Id::", pk)
+    #     instance = get_user_based_booking(user.id, pk)
+    #     if instance:
+    #         instance.status = 'canceled'
+    #         instance.save()
+    #         custom_response = self.get_response(
+    #             status='success', data=None,
+    #             message="Booking Cancelled Successfully",
+    #             status_code=status.HTTP_200_OK,
+    #             )
+    #     else:
+    #             custom_response = self.get_error_response(
+    #                 message="Booking Not Found for the User", status="error",
+    #                 errors=[],error_code="BOOKING_ID_MISSING",
+    #                 status_code=status.HTTP_404_NOT_FOUND)
+    #     return custom_response
+
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
+            
     def cancel_booking(self, request, pk=None):
-        """customer can cancel their booking"""
         user = request.user
-        print("Booking Id::", pk)
         instance = get_user_based_booking(user.id, pk)
-        if instance:
-            instance.status = 'canceled'
-            instance.save()
-            custom_response = self.get_response(
-                status='success', data=None,
-                message="Booking Cancelled Successfully",
+        refund_log = {}
+        
+        if not instance:
+            return self.get_error_response(
+                message="Booking Not Found for the User", 
+                status="error",
+                errors=[],
+                error_code="BOOKING_ID_MISSING",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        refund_log['booking_id'] = instance.id
+        
+        confirmed_checkin_time = instance.hotel_booking.confirmed_checkin_time
+        current_time = timezone.now()
+        hours_before_checkin = (confirmed_checkin_time - current_time).total_seconds() / 3600
+
+
+        cancellation_policy = {
+            "policies": [
+                {
+                    "hours_before_checkin": 24,
+                    "refund_percentage": 100,
+                    "cancellation_fee": 0
+                },
+                {
+                    "hours_before_checkin": 48,
+                    "refund_percentage": 75,
+                    "cancellation_fee": 25
+                },
+                {
+                    "hours_before_checkin": 72,
+                    "refund_percentage": 50,
+                    "cancellation_fee": 50
+                },
+                {
+                    "hours_before_checkin": 0,
+                    "refund_percentage": 0,
+                    "cancellation_fee": "Full charge"
+                }
+            ]
+        }
+
+        # Sort policies by 'hours_before_checkin' in descending order
+        sorted_policies = sorted(cancellation_policy['policies'], key=lambda x: x['hours_before_checkin'], reverse=True)
+
+        applicable_policy = None
+        for policy in sorted_policies:
+            if hours_before_checkin >= policy['hours_before_checkin']:
+                applicable_policy = policy
+                break
+
+        payment_details = BookingPaymentDetail.objects.filter(
+                booking=instance, 
+                is_transaction_success=True
+            ).first()
+
+        total_payment_made = payment_details.amount
+        refund_percentage = applicable_policy['refund_percentage']
+        refund_percentage_decimal = Decimal(refund_percentage)
+        refund_amount = total_payment_made * (refund_percentage_decimal / Decimal(100))
+        # refund_amount = total_payment_made * (refund_percentage / 100)
+        cancellation_details = {
+            'total_paid': total_payment_made,
+            'refund_percentage': refund_percentage,
+            'refund_amount': refund_amount,
+            'cancellation_fee': applicable_policy['cancellation_fee'],
+            'hours_before_checkin': hours_before_checkin,
+            'policy_applied': applicable_policy
+        }
+        instance.status = 'canceled'
+        instance.save()
+        
+        send_cancelled_booking_task.apply_async(args=[instance.id])
+        
+        payment_details = BookingPaymentDetail.objects.filter(
+            booking=instance, 
+            is_transaction_success=True
+        ).first()
+
+        
+        if not payment_details:
+            return self.get_response(
+                status='success', 
+                data={'cancellation_details': cancellation_details},
+                message="Booking Cancelled Successfully (No Refund Possible)",
                 status_code=status.HTTP_200_OK,
-                )
+            )
+        
+        # If refund amount is 0, no need to initiate refund
+        if refund_amount <= 0:
+            return self.get_response(
+                status='success', 
+                data={'cancellation_details': cancellation_details},
+                message="Booking Cancelled Successfully (No Refund Required)",
+                status_code=status.HTTP_200_OK,
+            )
+        
+        merchant_id = settings.MERCHANT_ID
+        callback_url = settings.CALLBACK_URL + "/api/v1/booking/payment/phone-pay/refundcallbackurl/"
+        
+        # Generate a unique refund ID using the new refund-specific function
+        # append_id = "%s" % (instance.user.id)
+        append_id = "RF{}".format(instance.user.id)
+
+        refund_log_obj = create_booking_refund_details(
+            instance.id, 
+            payment_details.transaction_id, 
+            append_id
+        )
+        merchant_refund_id = refund_log_obj.merchant_refund_id
+        
+        refund_log['merchant_refund_id'] = merchant_refund_id
+        refund_log['original_transaction_id'] = payment_details.transaction_id
+        refund_log['refund_amount'] = refund_amount
+        
+        # Create the PhonePe refund payload
+        payload = {
+            "merchantId": merchant_id,
+            "merchantUserId": str(instance.user.id),
+            "originalTransactionId": payment_details.merchant_transaction_id,
+            "merchantTransactionId": merchant_refund_id,
+            "amount": int(refund_amount * 100),  # Convert to paisa
+            "callbackUrl": callback_url
+        }
+
+        
+        refund_log['request'] = payload
+        
+        # Get encrypted request and headers for refund
+        req, auth_header = self.get_encrypted_header_and_payload_refund(payload)
+        response = self.post_refund_request(req, auth_header)
+        if response.status_code == 200:
+            response_data = response.json()
+            refund_log['response'] = response_data
+            
+            # Extract data from response
+            if 'data' in response_data:
+                data = response_data.get('data', {})
+                refund_log['transaction_id'] = data.get('transactionId', '')
+                refund_log['response_code'] = data.get('responseCode', '')
+                refund_log['transaction_details'] = data
+            
+            refund_log['response_message'] = response_data.get('message', '')
+            
+            # Update status based on response code
+            if response_data.get('code') == "PAYMENT_PENDING":
+                refund_log['status'] = 'pending'
+            elif response_data.get('code') == "PAYMENT_SUCCESS":
+                refund_log['status'] = 'completed'
+            else:
+                refund_log['status'] = 'failed'
+                refund_log['error_message'] = response_data.get('message', '')
+            
+            # Create the refund log entry
+            create_booking_refund_log(refund_log)
+            
+            # Create the response for the client
+            custom_response = self.get_response(
+                status='success', 
+                data={
+                    'cancellation_details': cancellation_details,
+                    'refund_data': response_data,
+                    'refund_details': {
+                        'merchant_refund_id': merchant_refund_id,
+                        'refund_amount': refund_amount,
+                        'status': refund_log['status']
+                    }
+                },
+                message=f"Booking Cancelled Successfully, Refund {refund_log['status'].capitalize()}",
+                status_code=status.HTTP_200_OK,
+            )
         else:
-                custom_response = self.get_error_response(
-                    message="Booking Not Found for the User", status="error",
-                    errors=[],error_code="BOOKING_ID_MISSING",
-                    status_code=status.HTTP_404_NOT_FOUND)
+            refund_log['status'] = 'failed'
+            refund_log['error_message'] = response.text
+            refund_log['response'] = {'error': response.text}
+            
+            # Create refund log even for failures
+            create_booking_refund_log(refund_log)
+            
+            custom_response = self.get_error_response(
+                message="Booking Cancelled, but Refund Failed", 
+                status="error",
+                errors=[{"detail": response.text}],
+                error_code="REFUND_FAILED",
+                status_code=status.HTTP_206_PARTIAL_CONTENT
+            )
+        print("\n\n\n\n custom response final", custom_response)
         return custom_response
+
+        @action(detail=False, methods=['POST'], url_path='phone-pay/refundcallbackurl',
+                url_name='phone-pay-refund-callbackurl', permission_classes=[])
+        def phone_pay_refund_callbackurl(self, request):
+            try:
+                self.log_request(request)
+                refund_log = {}
+                x_verify = request.META.get('HTTP_X_VERIFY', None)
+                refund_log['x_verify'] = x_verify
+                response = request.data.get('response', None)
+                if not response:
+                    custom_response = self.get_error_response(
+                        message="Error in Response", status="error",
+                        errors=[], error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    refund_log['request'] = {"message": "empty request"}
+                    create_booking_refund_log(refund_log)
+                    return custom_response
+
+                refund_log['request'] = {"response": response}
+                data = base64.b64decode(response)
+                decoded_data = data.decode('utf-8')
+                json_data = json.loads(decoded_data)
+                refund_log['request'] = json_data
+
+                code = json_data.get('code', '')
+                message = json_data.get('message', '')
+
+                sub_json_data = json_data.get('data', {})
+                amount = sub_json_data.get('amount', 0) / 100
+                merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
+                refund_log['merchant_refund_id'] = merchant_transaction_id
+                transaction_id = sub_json_data.get('transactionId', '')
+                state = sub_json_data.get('state', '')
+                response_code = sub_json_data.get('responseCode', '')
+
+
+                refund_log_obj = get_refund_log_by_merchant_id(merchant_transaction_id)
+                
+                if refund_log_obj:
+                    refund_log['booking_id'] = refund_log_obj.booking_id if refund_log_obj.booking else None
+                    
+                    # Update the refund log with callback data
+                    refund_log_obj.transaction_id = transaction_id
+                    refund_log_obj.response_code = response_code
+                    refund_log_obj.response_message = message
+                    refund_log_obj.transaction_details = sub_json_data
+                    refund_log_obj.response = json_data
+                    
+                    # Update status based on code and state
+                    if code == "PAYMENT_SUCCESS" and state == "COMPLETED":
+                        refund_log_obj.status = 'completed'
+                    elif code == "PAYMENT_PENDING":
+                        refund_log_obj.status = 'pending'
+                    else:
+                        refund_log_obj.status = 'failed'
+                        refund_log_obj.error_message = message
+                    refund_log_obj.save()
+
+                # Construct booking_payment_details dictionary
+                booking_payment_details = {
+                    "transaction_id": transaction_id,
+                    "code": code,
+                    "message": message,
+                    "payment_type": "REFUND",
+                    "payment_medium": "PHONE PAY",
+                    "amount": amount,
+                    "transaction_details": sub_json_data,
+                    "is_transaction_success": code == "PAYMENT_SUCCESS" and state == "COMPLETED"
+                }
+                # Update the BookingPaymentDetail instance
+                update_booking_payment_details(merchant_transaction_id, booking_payment_details)
+
+                # Log the refund details
+                refund_log['status'] = 'completed' if booking_payment_details["is_transaction_success"] else 'failed'
+                refund_log['response'] = json_data
+                refund_log['transaction_id'] = transaction_id
+                create_booking_refund_log(refund_log)
+
+                custom_response = self.get_response(
+                    status="success",
+                    data=booking_payment_details,
+                    message="Refund callback processed successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+
+                return custom_response
+
+            except Exception as e:
+                refund_log['error_message'] = str(e)
+                refund_log['status'] = 'failed'
+                refund_log['response'] = {'error': str(e)}
+                create_booking_refund_log(refund_log)
+
+                custom_response = self.get_error_response(
+                    message=str(e), status="error",
+                    errors=[], error_code="INTERNAL_SERVER_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return custom_response
 
 ##    def validate_pre_confirm_booking(self):
 ##
