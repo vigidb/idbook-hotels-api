@@ -738,6 +738,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     def get_location_suggestion(self, request):
         location = self.request.query_params.get('location', '')
         user_query = self.request.query_params.get('user_query', '')
+        property_status = self.request.query_params.get('status', '')
         autosuggest_list = []
         autosuggest_dict = {}
 
@@ -749,7 +750,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             location = user_query
             #property_info = user_query
 
-
+        if property_status:
+            self.queryset = self.queryset.filter(status=property_status)
 
         # city highlighted queryset
         location_queryset = self.queryset.filter(Q(city_name__icontains=location)
