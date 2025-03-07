@@ -1142,7 +1142,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
     @action(detail=False, methods=['GET'], url_path='referral/summary',
             permission_classes=[IsAuthenticated],
             url_name='referral-summary')
-    def get_referral_link(self, request):
+    def get_referral_summary(self, request):
         user_id = request.query_params.get('user', None)
         if not user_id:
             user = request.user
