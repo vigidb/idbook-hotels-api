@@ -66,7 +66,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         self.log_request(request)  # Log the incoming request
 
         email = request.data.get('email', None)
-        group_name = request.data.get('group_name', None)
+        mobile_number = request.data.get('mobile_number', None)
+        group_name = request.data.get('group_name', 'B2C-GRP')
         otp = request.data.get('otp', None)
         user = None
 
@@ -102,6 +103,23 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                 status_code=status.HTTP_401_UNAUTHORIZED)
             self.log_response(response)  # Log the response before returning
             return response
+
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+
+        if not grp or not role:
+            response = self.get_error_response(
+                message="Group or role doesn't exist", status="error", errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        if mobile_number:
+            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
+            if check_mobile_existing_user:
+                response = self.get_error_response(
+                    message="Mobile already exist", status="error", errors=[],
+                    error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+            
                 
             
         if user:
@@ -125,14 +143,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 ##            grp = db_utils.get_group_by_name('B2C-GRP')
 ##            role = db_utils.get_role_by_name('B2C-CUST')
 ##
-##            if grp:
-##                user.groups.add(grp)
-##            if role:
-##                user.roles.add(role)
-##            user.default_group = 'B2C-GRP'
-##            user.save()
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
+            user.default_group = group_name
+            user.email_verified = True
+            user.save()
 
-            user = authentication_utils.add_group_based_on_signup(user, group_name)
+##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email
@@ -682,7 +701,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 errors=[], error_code="INVALID_CREDENTIALS",
                 status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
-       
+        user_detail.default_group = group_name
+        user_detail.save()
         data = authentication_utils.generate_refresh_token(user_detail)
         response = self.get_response(data=data, status="success",
                                      message="Login successful",
@@ -803,7 +823,22 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
-        response = self.get_response(data={}, status="success",
+        data = {}
+        if otp_for == 'VERIFY-GUEST':
+            grp, role = authentication_utils.get_group_based_on_name("B2C-GRP")
+            if not grp:
+                response = self.get_error_response(
+                    message="Group doesn't exist", status="error", errors=[],
+                    error_code="GROUP_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+
+            user_detail = db_utils.get_group_based_user_details(grp, username)
+            if user_detail:
+                data = authentication_utils.generate_refresh_token(user_detail)
+
+        
+
+        response = self.get_response(data=data, status="success",
                                      message="Otp Verification Success",
                                      status_code=status.HTTP_200_OK)
         return response
@@ -1102,6 +1137,50 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                                      message="Referral Link",
                                      status_code=status.HTTP_200_OK)
         return response
+
+    @action(detail=False, methods=['GET'], url_path='referral/summary',
+            permission_classes=[IsAuthenticated],
+            url_name='referral-summary')
+    def get_referral_link(self, request):
+        user_id = request.query_params.get('user', None)
+        user = User.objects.filter(id=user_id).first()
+
+        if not user or not user_id:
+            response = self.get_error_response(
+                message="Invalid User", status="error",
+                errors=[],error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referral = user.referral
+
+        if not referral:
+            response = self.get_error_response(
+                message="Missing referral code", status="error",
+                errors=[],error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referred_users = list(User.objects.filter(
+            referred_code=referral).values_list('id', flat=True))
+
+        no_of_referred_users = len(referred_users)
+        referred_users.append(-1)
+
+        total_amount = customer_db_utils.get_referral_bonus(referred_users, user_id)
+        if total_amount is None:
+            total_amount = 0
+        else:
+            total_amount = str(total_amount)
+
+        data = {"no_of_referred_users":no_of_referred_users,
+                "total_credited_amount": total_amount}
+
+        response = self.get_response(data=data, count=1, status="success",
+                                     message="Referral Summary",
+                                     status_code=status.HTTP_200_OK)
+        return response
+        
 
     
     @action(detail=False, methods=['POST'], url_path='default/group',
