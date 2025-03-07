@@ -64,9 +64,17 @@ def get_userid_list(username):
     return user_objs
 
 def get_user_details(user_id, username):
+    """ need to remove the user id"""
     user_detail = User.objects.filter(id=user_id).filter(
         Q(email=username)|Q(mobile_number=username)).first()
     return user_detail
+
+def get_group_based_user_details(group, username):
+    user_detail = User.objects.filter(groups=group, is_active=True).filter(
+        Q(email=username)|Q(mobile_number=username)).first()
+    return user_detail
+
+
 
 def get_user_otp_details(email, mobile_number, otp):
     user_otp_detail = UserOtp.objects.filter(
