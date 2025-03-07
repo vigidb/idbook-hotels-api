@@ -150,7 +150,6 @@ def update_wallet_recharge_details(user_id, company_id, amount):
     return user_id, company_id
 
 def get_referral_bonus(referred_users:list, user_id):
-    
     referral_transaction = WalletTransaction.objects.filter(
         is_transaction_success=True, transaction_for='referral_booking',
         transaction_type='Credit', user_id=user_id)
@@ -162,12 +161,31 @@ def get_referral_bonus(referred_users:list, user_id):
         filter_dict = {key_search: rusers}
         query_referral_transaction|= Q(**filter_dict)
     referral_transaction = referral_transaction.filter(query_referral_transaction)
+    credited_user_list = list(referral_transaction.values_list(
+        'other_details__referral__user', flat=True))
 
     # sum
     total_amount = referral_transaction.aggregate(Sum('amount'))
 
 ##    print(referral_transaction.values('id', 'amount', 'other_details'))
-    return total_amount.get('amount__sum')
+    return total_amount.get('amount__sum'), credited_user_list
+
+def get_credited_referred_user(user_id):
+    referral_transaction = WalletTransaction.objects.filter(
+        is_transaction_success=True, transaction_for='referral_booking',
+        transaction_type='Credit', user_id=user_id)
+
+    credited_user_list = referral_transaction.values(
+        'other_details__referral__user', 'amount')
+    credited_user_dict = {}
+    for credited_user in credited_user_list:
+        credited_user_dict[credited_user.get(
+            'other_details__referral__user')] = {'amount':str(credited_user.get('amount'))}
+        
+    return credited_user_dict
+
+    
+    
     
     
             
