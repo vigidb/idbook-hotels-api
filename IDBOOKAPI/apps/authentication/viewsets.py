@@ -23,7 +23,7 @@ from IDBOOKAPI.utils import get_timediff_in_minutes, validate_mobile_number
 from .models import User, UserOtp, Role
 from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
-                          UserListSerializer)
+                          UserListSerializer, UserRefferalSerializer)
 # from .emails import send_welcome_email
 
 from rest_framework.decorators import action
@@ -39,6 +39,7 @@ from apps.authentication.tasks import (
 from apps.authentication.utils import (db_utils, authentication_utils)
 
 from IDBOOKAPI.permissions import HasRoleModelPermission
+from IDBOOKAPI.utils import paginate_queryset
 
 
 User = get_user_model()
@@ -1141,9 +1142,13 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
     @action(detail=False, methods=['GET'], url_path='referral/summary',
             permission_classes=[IsAuthenticated],
             url_name='referral-summary')
-    def get_referral_link(self, request):
+    def get_referral_summary(self, request):
         user_id = request.query_params.get('user', None)
-        user = User.objects.filter(id=user_id).first()
+        if not user_id:
+            user = request.user
+            user_id = user.id
+        else:  
+            user = User.objects.filter(id=user_id).first()
 
         if not user or not user_id:
             response = self.get_error_response(
@@ -1167,21 +1172,69 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         no_of_referred_users = len(referred_users)
         referred_users.append(-1)
 
-        total_amount = customer_db_utils.get_referral_bonus(referred_users, user_id)
+        total_amount, credited_user_list = customer_db_utils.get_referral_bonus(referred_users, user_id)
         if total_amount is None:
             total_amount = 0
         else:
             total_amount = str(total_amount)
 
+        no_of_credited_users = len(credited_user_list)
+
         data = {"no_of_referred_users":no_of_referred_users,
+                "no_of_credited_user":no_of_credited_users,
                 "total_credited_amount": total_amount}
 
         response = self.get_response(data=data, count=1, status="success",
                                      message="Referral Summary",
                                      status_code=status.HTTP_200_OK)
         return response
-        
 
+    @action(detail=False, methods=['GET'], url_path='referral/users',
+            permission_classes=[IsAuthenticated],
+            url_name='referral-users')
+    def get_referral_user(self, request):
+        user_id = request.query_params.get('user', None)
+        if not user_id:
+            user = request.user
+            user_id = user.id
+        else:  
+            user = User.objects.filter(id=user_id).first()
+
+        if not user or not user_id:
+            response = self.get_error_response(
+                message="Invalid User", status="error",
+                errors=[],error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referral = user.referral
+
+        if not referral:
+            response = self.get_error_response(
+                message="Missing referral code", status="error",
+                errors=[],error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
+        referred_users = User.objects.filter(referred_code=referral)
+
+        count, referred_users = paginate_queryset(self.request, referred_users)
+
+        credited_user_dict = customer_db_utils.get_credited_referred_user(user_id)
+        context={'credited_user_dict': credited_user_dict}
+
+        serializer = UserRefferalSerializer(referred_users, many=True, context=context)
+
+##        referred_users = referred_users.values(
+##            'id','name', 'email','first_booking')
+##
+##        data = {"referred_list":}
+
+        response = self.get_response(data=serializer.data, count=count, status="success",
+                                     message="Referral User List",
+                                     status_code=status.HTTP_200_OK)
+        return response
+    
     
     @action(detail=False, methods=['POST'], url_path='default/group',
             permission_classes=[IsAuthenticated],

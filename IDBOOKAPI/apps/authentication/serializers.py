@@ -216,3 +216,23 @@ class UserListSerializer(serializers.Serializer):
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
         return ret
+
+class UserRefferalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'name', 'email','first_booking')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        credited_user_dict = self.context.get("credited_user_dict", {})
+        print(credited_user_dict)
+        if instance:
+            credited_user = credited_user_dict.get(instance.id, None)
+            if credited_user:
+                representation['is_credited'] = True
+                representation['amount'] = credited_user.get('amount', None)
+            else:
+                representation['is_credited'] = False
+                representation['amount'] = None
+
+        return representation
