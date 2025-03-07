@@ -6,7 +6,7 @@ from apps.booking.models import (
 from IDBOOKAPI.utils import get_unique_id_from_time
 from datetime import datetime
 from pytz import timezone
-
+from apps.log_management.models import BookingRefundLog
 from django.db.models import Q
 from django.db.models import FloatField
 from django.db.models.fields.json import KT
@@ -192,6 +192,34 @@ def create_booking_payment_details(booking_id, append_id):
     booking_payment_detail = BookingPaymentDetail.objects.create(
         booking_id=booking_id, merchant_transaction_id=merchant_transaction_id)
     return booking_payment_detail
+
+def create_booking_refund_details(booking_id, original_transaction_id, append_id):
+    merchant_refund_id = None
+    
+    while True:
+        merchant_refund_id = get_unique_id_from_time(append_id)
+        if not is_merchant_refundid_exist(merchant_refund_id):
+            break
+        merchant_refund_id = None
+    
+    # Create the refund log entry
+    refund_log = BookingRefundLog.objects.create(
+        booking_id=booking_id,
+        merchant_refund_id=merchant_refund_id,
+        original_transaction_id=original_transaction_id,
+        status=''
+    )
+    
+    return refund_log
+
+def is_merchant_refundid_exist(merchant_refund_id):
+    return BookingRefundLog.objects.filter(merchant_refund_id=merchant_refund_id).exists()
+
+def get_refund_log_by_merchant_id(merchant_refund_id):
+    try:
+        return BookingRefundLog.objects.get(merchant_refund_id=merchant_refund_id)
+    except BookingRefundLog.DoesNotExist:
+        return None
 
 def get_booking_from_payment(merchant_transaction_id):
     booking_payment = BookingPaymentDetail.objects.get(
