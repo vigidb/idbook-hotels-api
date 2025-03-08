@@ -425,7 +425,7 @@ class TopDestinationsSerializer(serializers.ModelSerializer):
     class Meta:
         model = TopDestinations
         fields = ('id', 'location_name','display_name',
-                  'media', 'no_of_hotels')
+                  'media', 'no_of_hotels', 'active')
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
