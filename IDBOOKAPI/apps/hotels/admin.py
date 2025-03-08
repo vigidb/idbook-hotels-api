@@ -10,7 +10,8 @@ from .models import (
     HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
     RoomGallery, PropertyGallery, BlockedProperty, PolicyDetails
 )
-from apps.hotels.submodels.related_models import DynamicRoomPricing
+from apps.hotels.submodels.related_models import (
+    DynamicRoomPricing, TopDestinations)
 
 
 class PropertyAdmin(admin.ModelAdmin):
@@ -41,3 +42,4 @@ admin.site.register(PropertyGallery)
 admin.site.register(BlockedProperty)
 admin.site.register(DynamicRoomPricing)
 admin.site.register(PolicyDetails)
+admin.site.register(TopDestinations)

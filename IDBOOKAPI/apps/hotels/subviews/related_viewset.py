@@ -88,7 +88,18 @@ class PropertyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
 class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = TopDestinations.objects.all()
     serializer_class = TopDestinationsSerializer
-    permission_classes = [IsAuthenticated]
+    #permission_classes = [IsAuthenticated]
+
+    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+                                    'partial_update': [IsAuthenticated],
+                                    'destroy': [IsAuthenticated], 'list':[AllowAny], 'retrieve':[AllowAny]}
+
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            # action is not set return default permission_classes
+            return [permission() for permission in self.permission_classes]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -152,12 +163,13 @@ class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        
-        # count = self.customer_pagination_ops()
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            self.queryset = self.queryset.filter(active=active)
         count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         top_destination_dict = self.queryset.values(
-            'id', 'location_name', 'display_name', 'media', 'no_of_hotels')        
+            'id', 'location_name', 'display_name', 'media', 'no_of_hotels', 'active')        
 
         data = {"base_url": f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/","top_destinations": top_destination_dict}
         custom_response = self.get_response(
