@@ -12,6 +12,12 @@ from apps.org_resources.serializers import CompanyDetailSerializer
 from apps.org_managements.serializers import BusinessDetailSerializer
 from apps.org_managements.utils import get_business_details
 from apps.org_resources.db_utils import get_company_details
+from apps.authentication.utils.authentication_utils import get_group_based_on_name
+from apps.authentication.utils.db_utils import get_group_based_user_details
+
+##from IDBOOKAPI.email_utils import email_validation
+##from IDBOOKAPI.utils import validate_mobile_number
+
 
 
 
@@ -90,18 +96,40 @@ class UserSignupSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_null=True)
     mobile_number = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    username = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    group_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     password = serializers.CharField(write_only=True)
 
     def validate(self, validated_data):
         email = validated_data.get('email')
+        username = validated_data.get('username')
         mobile_number = validated_data.get('mobile_number')
         password = validated_data.get('password')
-        user = ''
+        group_name = validated_data.get('group_name', 'B2C-GRP')
 
-        if email:
-            user = EmailPasswordAuthBackend().authenticate(email=email, password=password)
-        elif mobile_number:
-            user = PhonePasswordAuthBackend().authenticate(mobile_number=mobile_number, password=password)
+        if username:
+            grp, role = get_group_based_on_name(group_name)
+            if not grp or not role:
+                raise serializers.ValidationError('GROUP_ROLE_NOT_EXIST')
+
+            user = get_group_based_user_details(grp, username)
+            if user:
+                user.default_group = group_name
+                user.save()
+            
+##            is_mb_valid = validate_mobile_number(username)
+##            if is_mb_valid:
+##               # get the group name and make validation
+##               
+##                   
+##            else:
+##                is_email_valid = email_validation(username)
+
+        else:
+            if email:
+                user = EmailPasswordAuthBackend().authenticate(email=email, password=password)
+            elif mobile_number:
+                user = PhonePasswordAuthBackend().authenticate(mobile_number=mobile_number, password=password)
 
         if user:
             if not user.is_active:
@@ -188,3 +216,23 @@ class UserListSerializer(serializers.Serializer):
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
         return ret
+
+class UserRefferalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'name', 'email','first_booking')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        credited_user_dict = self.context.get("credited_user_dict", {})
+        print(credited_user_dict)
+        if instance:
+            credited_user = credited_user_dict.get(instance.id, None)
+            if credited_user:
+                representation['is_credited'] = True
+                representation['amount'] = credited_user.get('amount', None)
+            else:
+                representation['is_credited'] = False
+                representation['amount'] = None
+
+        return representation

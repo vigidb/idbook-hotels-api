@@ -4,7 +4,7 @@ from apps.org_resources.models import Address, CompanyDetail
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES,
     CUSTOMER_GROUP, TXN_TYPE_CHOICES, PAYMENT_TYPE,
-    PAYMENT_MEDIUM)
+    PAYMENT_MEDIUM, TRANSACTION_FOR)
 
 
 class Customer(models.Model):
@@ -85,8 +85,10 @@ class WalletTransaction(models.Model):
     amount = models.DecimalField(max_digits=20, decimal_places=6, default=0)
     transaction_type = models.CharField(max_length=10, choices=TXN_TYPE_CHOICES,
                                         help_text="Credit / Debit")
+    transaction_for = models.CharField(max_length=30, choices=TRANSACTION_FOR, default="others")
     transaction_id = models.CharField(max_length=350, null=True, blank=True, help_text="transaction id")
     transaction_details = models.TextField(help_text="Transaction description")
+    other_details = models.JSONField(null=True, default=dict)
     payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, default="WALLET")
     payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default="Idbook")
     is_transaction_success = models.BooleanField(default=False)
