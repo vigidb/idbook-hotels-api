@@ -66,6 +66,7 @@ from datetime import datetime, timedelta
 # from pytz import timezone
 from django.utils import timezone
 from decimal import Decimal
+import requests
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -432,7 +433,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
-            
     def cancel_booking(self, request, pk=None):
         user = request.user
         instance = get_user_based_booking(user.id, pk)
@@ -452,52 +452,130 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         confirmed_checkin_time = instance.hotel_booking.confirmed_checkin_time
         current_time = timezone.now()
         hours_before_checkin = (confirmed_checkin_time - current_time).total_seconds() / 3600
+        print("hours_before_checkin", hours_before_checkin)
+        property_id = instance.hotel_booking.confirmed_property.id if instance.hotel_booking.confirmed_property else None
+        
+        if not property_id:
+            cancellation_details = {
+                'total_paid': 0,
+                'refund_percentage': 0,
+                'refund_amount': 0,
+                'cancellation_fee': 'Full charge',
+                'hours_before_checkin': hours_before_checkin,
+                'policy_applied': {'hours_before_checkin': 0, 'refund_percentage': 0, 'cancellation_fee': 'Full charge'}
+            }
+            instance.status = 'canceled'
+            default_policy = [{'hours_before_checkin': 0, 'refund_percentage': 0, 'cancellation_fee': 'Full charge'}]
+            instance.hotel_booking.cancel_policy = default_policy
+            instance.hotel_booking.applicable_cancel_policy = default_policy[0]
+            instance.hotel_booking.save()
+            instance.save()
+            
+            send_cancelled_booking_task.apply_async(args=[instance.id])
+            
+            return self.get_response(
+                status='success', 
+                data={'cancellation_details': cancellation_details},
+                message="Booking Cancelled Successfully (Non-Refundable)",
+                status_code=status.HTTP_200_OK,
+            )
+        
+        property_policy_url = f"/api/v1/hotels/properties/policy/{property_id}/"
 
-
-        cancellation_policy = {
-            "policies": [
-                {
-                    "hours_before_checkin": 24,
-                    "refund_percentage": 100,
-                    "cancellation_fee": 0
-                },
-                {
-                    "hours_before_checkin": 48,
-                    "refund_percentage": 75,
-                    "cancellation_fee": 25
-                },
-                {
-                    "hours_before_checkin": 72,
-                    "refund_percentage": 50,
-                    "cancellation_fee": 50
-                },
+        auth_token = request.META.get('HTTP_AUTHORIZATION', '')
+        print("auth_token----",auth_token)
+        headers = {
+            'Authorization': auth_token
+        }
+        
+        response = requests.get(
+            f"{settings.CALLBACK_URL}{property_policy_url}", 
+            headers=headers
+        )
+        
+        if response.status_code != 200:
+            cancellation_details = {
+                'total_paid': 0,
+                'refund_percentage': 0,
+                'refund_amount': 0,
+                'cancellation_fee': 'Full charge',
+                'hours_before_checkin': hours_before_checkin,
+                'policy_applied': {'hours_before_checkin': 0, 'refund_percentage': 0, 'cancellation_fee': 'Full charge'}
+            }
+            instance.status = 'canceled'
+            default_policy = [{'hours_before_checkin': 0, 'refund_percentage': 0, 'cancellation_fee': 'Full charge'}]
+            instance.hotel_booking.cancel_policy = default_policy
+            instance.hotel_booking.applicable_cancel_policy = default_policy[0]
+            instance.hotel_booking.save()
+            instance.save()
+            
+            send_cancelled_booking_task.apply_async(args=[instance.id])
+            
+            return self.get_response(
+                status='success', 
+                data={'cancellation_details': cancellation_details},
+                message=f"Booking Cancelled Successfully (Non-Refundable - Policy Not Found: {response.status_code})",
+                status_code=status.HTTP_200_OK,
+            )
+        
+        policy_data = response.json()
+        print("policy_data-----",policy_data)
+        # Extract cancellation policy details
+        cancellation_policy = {"policies": []}
+        
+        if 'cancellation_policy' in policy_data.get('policy_details', {}):
+            hour_based_deductions = policy_data['policy_details']['cancellation_policy'].get('hour_based_deduction', [])
+            
+            for deduction in hour_based_deductions:
+                if all(key in deduction for key in ['hours_before_checkin', 'refund_percentage', 'cancellation_fee']):
+                    policy = {
+                        "hours_before_checkin": deduction['hours_before_checkin']['value'],
+                        "refund_percentage": deduction['refund_percentage']['value'],
+                        "cancellation_fee": deduction['cancellation_fee']['value']
+                    }
+                    cancellation_policy['policies'].append(policy)
+            
+            cancellation_policy['policies'].append({
+                "hours_before_checkin": 0,
+                "refund_percentage": 0,
+                "cancellation_fee": "Full charge"
+            })
+        
+        if not cancellation_policy['policies']:
+            cancellation_policy['policies'] = [
                 {
                     "hours_before_checkin": 0,
                     "refund_percentage": 0,
                     "cancellation_fee": "Full charge"
                 }
             ]
-        }
-
-        # Sort policies by 'hours_before_checkin' in descending order
         sorted_policies = sorted(cancellation_policy['policies'], key=lambda x: x['hours_before_checkin'], reverse=True)
-
+        print("sorted policy", sorted_policies)
         applicable_policy = None
         for policy in sorted_policies:
             if hours_before_checkin >= policy['hours_before_checkin']:
                 applicable_policy = policy
                 break
-
+        print("applicable_policy", applicable_policy)
+        if not applicable_policy:
+            applicable_policy = sorted_policies[-1] if sorted_policies else {
+                "hours_before_checkin": 0,
+                "refund_percentage": 0,
+                "cancellation_fee": "Full charge"
+            }
+        instance.hotel_booking.cancel_policy = sorted_policies
+        instance.hotel_booking.applicable_cancel_policy = applicable_policy
+        instance.hotel_booking.save()
         payment_details = BookingPaymentDetail.objects.filter(
                 booking=instance, 
                 is_transaction_success=True
             ).first()
 
-        total_payment_made = payment_details.amount
+        total_payment_made = payment_details.amount if payment_details else Decimal('0.00')
         refund_percentage = applicable_policy['refund_percentage']
         refund_percentage_decimal = Decimal(refund_percentage)
         refund_amount = total_payment_made * (refund_percentage_decimal / Decimal(100))
-        # refund_amount = total_payment_made * (refund_percentage / 100)
+
         cancellation_details = {
             'total_paid': total_payment_made,
             'refund_percentage': refund_percentage,
@@ -538,7 +616,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         callback_url = settings.CALLBACK_URL + "/api/v1/booking/payment/phone-pay/refundcallbackurl/"
         
         # Generate a unique refund ID using the new refund-specific function
-        # append_id = "%s" % (instance.user.id)
         append_id = "RF{}".format(instance.user.id)
 
         refund_log_obj = create_booking_refund_details(
