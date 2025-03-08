@@ -7,6 +7,7 @@ from apps.hotels.subviews import related_viewset
 router = routers.DefaultRouter()
 
 router.register(r'properties/policy', related_viewset.PropertyPolicyViewSet, basename='properties-policy')
+router.register(r'properties/top-destination', related_viewset.TopDestinationViewSet, basename='properties-top-destination')
 router.register(r'properties', PropertyViewSet, basename='properties')
 router.register(r'galleries', GalleryViewSet, basename='galleries')
 router.register(r'rooms', RoomViewSet, basename='rooms')
