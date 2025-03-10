@@ -12,6 +12,7 @@ from django.db.models import FloatField
 from django.db.models.fields.json import KT
 from django.db.models import Avg
 from django.db.models.functions import Cast, Coalesce
+from decimal import Decimal
 
 def get_booking(booking_id):
     try:
@@ -220,6 +221,8 @@ def get_refund_log_by_merchant_id(merchant_refund_id):
         return BookingRefundLog.objects.get(merchant_refund_id=merchant_refund_id)
     except BookingRefundLog.DoesNotExist:
         return None
+    except BookingRefundLog.MultipleObjectsReturned:
+        return BookingRefundLog.objects.filter(merchant_refund_id=merchant_refund_id).order_by('-created').first()
 
 def get_booking_from_payment(merchant_transaction_id):
     booking_payment = BookingPaymentDetail.objects.get(
@@ -232,7 +235,21 @@ def update_booking_payment_details(
     booking_payment_detail = BookingPaymentDetail.objects.filter(
         merchant_transaction_id=merchant_transaction_id).update(**booking_payment_details)
 
-        
+def refund_create_booking_payment_details(merchant_transaction_id, booking_payment_details: dict):
+
+    refund_log = BookingRefundLog.objects.filter(
+        merchant_refund_id=merchant_transaction_id
+    ).first()
+    
+    if refund_log and refund_log.booking:
+        return BookingPaymentDetail.objects.create(
+            booking=refund_log.booking,
+            merchant_transaction_id=merchant_transaction_id,
+            **booking_payment_details
+        )
+    else:
+        print(f"Error: Cannot create payment detail for {merchant_transaction_id}, booking not found in refund logs")
+        return None
   
 def get_property_based_review_count(property_id):
     total_review_count = Review.objects.filter(
@@ -306,5 +323,36 @@ def get_overall_booking_rating(property_id):
 
     return property_review_list, agency_review_list
     
+
+def calculate_refund_amount(total_payment_made, applicable_policy):
+
+    if not isinstance(total_payment_made, Decimal):
+        total_payment_made = Decimal(str(total_payment_made))
     
+    refund_percentage = applicable_policy.get('refund_percentage', 0)
+    if not isinstance(refund_percentage, Decimal):
+        refund_percentage_decimal = Decimal(str(refund_percentage))
+    else:
+        refund_percentage_decimal = refund_percentage
     
+    if applicable_policy.get('cancellation_fee') == "Full charge":
+        refund_amount = Decimal('0')
+        cancellation_fee = total_payment_made
+    else:
+        cancellation_fee_value = applicable_policy.get('cancellation_fee', 0)
+        if not isinstance(cancellation_fee_value, Decimal):
+            cancellation_fee = Decimal(str(cancellation_fee_value))
+        else:
+            cancellation_fee = cancellation_fee_value
+        
+        refund_base = total_payment_made - cancellation_fee
+        refund_amount = refund_base * (refund_percentage_decimal / Decimal('100'))
+    
+    refund_details = {
+        'total_amount': float(total_payment_made),
+        'refund_percentage': float(refund_percentage_decimal),
+        'cancellation_fee': applicable_policy.get('cancellation_fee'),
+        'amount_after_cancel_fee': float(total_payment_made - cancellation_fee) if applicable_policy.get('cancellation_fee') != "Full charge" else 0.0,
+        'refund_amount': float(refund_amount)
+    }
+    return refund_amount, refund_details
