@@ -6,12 +6,13 @@ from apps.booking.models import (
 from IDBOOKAPI.utils import get_unique_id_from_time
 from datetime import datetime
 from pytz import timezone
-
+from apps.log_management.models import BookingRefundLog
 from django.db.models import Q
 from django.db.models import FloatField
 from django.db.models.fields.json import KT
 from django.db.models import Avg
 from django.db.models.functions import Cast, Coalesce
+from decimal import Decimal
 
 def get_booking(booking_id):
     try:
@@ -193,6 +194,36 @@ def create_booking_payment_details(booking_id, append_id):
         booking_id=booking_id, merchant_transaction_id=merchant_transaction_id)
     return booking_payment_detail
 
+def create_booking_refund_details(booking_id, original_transaction_id, append_id):
+    merchant_refund_id = None
+    
+    while True:
+        merchant_refund_id = get_unique_id_from_time(append_id)
+        if not is_merchant_refundid_exist(merchant_refund_id):
+            break
+        merchant_refund_id = None
+    
+    # Create the refund log entry
+    refund_log = BookingRefundLog.objects.create(
+        booking_id=booking_id,
+        merchant_refund_id=merchant_refund_id,
+        original_transaction_id=original_transaction_id,
+        status=''
+    )
+    
+    return refund_log
+
+def is_merchant_refundid_exist(merchant_refund_id):
+    return BookingRefundLog.objects.filter(merchant_refund_id=merchant_refund_id).exists()
+
+def get_refund_log_by_merchant_id(merchant_refund_id):
+    try:
+        return BookingRefundLog.objects.get(merchant_refund_id=merchant_refund_id)
+    except BookingRefundLog.DoesNotExist:
+        return None
+    except BookingRefundLog.MultipleObjectsReturned:
+        return BookingRefundLog.objects.filter(merchant_refund_id=merchant_refund_id).order_by('-created').first()
+
 def get_booking_from_payment(merchant_transaction_id):
     booking_payment = BookingPaymentDetail.objects.get(
         merchant_transaction_id=merchant_transaction_id)
@@ -204,7 +235,21 @@ def update_booking_payment_details(
     booking_payment_detail = BookingPaymentDetail.objects.filter(
         merchant_transaction_id=merchant_transaction_id).update(**booking_payment_details)
 
-        
+def refund_create_booking_payment_details(merchant_transaction_id, booking_payment_details: dict):
+
+    refund_log = BookingRefundLog.objects.filter(
+        merchant_refund_id=merchant_transaction_id
+    ).first()
+    
+    if refund_log and refund_log.booking:
+        return BookingPaymentDetail.objects.create(
+            booking=refund_log.booking,
+            merchant_transaction_id=merchant_transaction_id,
+            **booking_payment_details
+        )
+    else:
+        print(f"Error: Cannot create payment detail for {merchant_transaction_id}, booking not found in refund logs")
+        return None
   
 def get_property_based_review_count(property_id):
     total_review_count = Review.objects.filter(
@@ -278,5 +323,36 @@ def get_overall_booking_rating(property_id):
 
     return property_review_list, agency_review_list
     
+
+def calculate_refund_amount(total_payment_made, applicable_policy):
+
+    if not isinstance(total_payment_made, Decimal):
+        total_payment_made = Decimal(str(total_payment_made))
     
+    refund_percentage = applicable_policy.get('refund_percentage', 0)
+    if not isinstance(refund_percentage, Decimal):
+        refund_percentage_decimal = Decimal(str(refund_percentage))
+    else:
+        refund_percentage_decimal = refund_percentage
     
+    if applicable_policy.get('cancellation_fee') == "Full charge":
+        refund_amount = Decimal('0')
+        cancellation_fee = total_payment_made
+    else:
+        cancellation_fee_value = applicable_policy.get('cancellation_fee', 0)
+        if not isinstance(cancellation_fee_value, Decimal):
+            cancellation_fee = Decimal(str(cancellation_fee_value))
+        else:
+            cancellation_fee = cancellation_fee_value
+        
+        refund_base = total_payment_made - cancellation_fee
+        refund_amount = refund_base * (refund_percentage_decimal / Decimal('100'))
+    
+    refund_details = {
+        'total_amount': float(total_payment_made),
+        'refund_percentage': float(refund_percentage_decimal),
+        'cancellation_fee': applicable_policy.get('cancellation_fee'),
+        'amount_after_cancel_fee': float(total_payment_made - cancellation_fee) if applicable_policy.get('cancellation_fee') != "Full charge" else 0.0,
+        'refund_amount': float(refund_amount)
+    }
+    return refund_amount, refund_details

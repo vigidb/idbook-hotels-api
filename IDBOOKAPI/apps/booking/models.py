@@ -73,6 +73,10 @@ class HotelBooking(models.Model):
         blank=True, null=True, help_text="Confirmed Check-in time for the property.")
     confirmed_checkout_time = models.DateTimeField(
         blank=True, null=True, help_text="Confirmed Check-out time for the property.")
+    cancel_policy = models.JSONField(null=True, blank=True, 
+                                    help_text="Sorted cancellation policies for the property")
+    cancellation_details = models.JSONField(null=True, blank=True, 
+                                              help_text="Applied cancellation policy for this booking")
 ##    room_subtotal = models.DecimalField(
 ##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
 ##    service_tax =  models.DecimalField(
