@@ -495,6 +495,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             if hours_before_checkin >= policy['hours_before_checkin']:
                 applicable_policy = policy
                 break
+        if applicable_policy is None:
+            applicable_policy = {
+                'hours_before_checkin': 0,
+                'refund_percentage': 0,
+                'cancellation_fee': "Full charge"
+            }
         print("applicable_policy----",applicable_policy)
         payment_details = BookingPaymentDetail.objects.filter(
                 booking=instance, 
