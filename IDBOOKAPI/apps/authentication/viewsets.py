@@ -23,7 +23,7 @@ from IDBOOKAPI.utils import get_timediff_in_minutes, validate_mobile_number
 from .models import User, UserOtp, Role
 from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
-                          UserListSerializer)
+                          UserListSerializer, UserRefferalSerializer)
 # from .emails import send_welcome_email
 
 from rest_framework.decorators import action
@@ -39,6 +39,7 @@ from apps.authentication.tasks import (
 from apps.authentication.utils import (db_utils, authentication_utils)
 
 from IDBOOKAPI.permissions import HasRoleModelPermission
+from IDBOOKAPI.utils import paginate_queryset
 
 
 User = get_user_model()
@@ -66,7 +67,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         self.log_request(request)  # Log the incoming request
 
         email = request.data.get('email', None)
-        group_name = request.data.get('group_name', None)
+        mobile_number = request.data.get('mobile_number', None)
+        group_name = request.data.get('group_name', 'B2C-GRP')
         otp = request.data.get('otp', None)
         user = None
 
@@ -102,6 +104,23 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                 status_code=status.HTTP_401_UNAUTHORIZED)
             self.log_response(response)  # Log the response before returning
             return response
+
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+
+        if not grp or not role:
+            response = self.get_error_response(
+                message="Group or role doesn't exist", status="error", errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
+        if mobile_number:
+            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
+            if check_mobile_existing_user:
+                response = self.get_error_response(
+                    message="Mobile already exist", status="error", errors=[],
+                    error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+            
                 
             
         if user:
@@ -125,14 +144,15 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 ##            grp = db_utils.get_group_by_name('B2C-GRP')
 ##            role = db_utils.get_role_by_name('B2C-CUST')
 ##
-##            if grp:
-##                user.groups.add(grp)
-##            if role:
-##                user.roles.add(role)
-##            user.default_group = 'B2C-GRP'
-##            user.save()
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
+            user.default_group = group_name
+            user.email_verified = True
+            user.save()
 
-            user = authentication_utils.add_group_based_on_signup(user, group_name)
+##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email
@@ -682,7 +702,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 errors=[], error_code="INVALID_CREDENTIALS",
                 status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
-       
+        user_detail.default_group = group_name
+        user_detail.save()
         data = authentication_utils.generate_refresh_token(user_detail)
         response = self.get_response(data=data, status="success",
                                      message="Login successful",
@@ -803,7 +824,22 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
-        response = self.get_response(data={}, status="success",
+        data = {}
+        if otp_for == 'VERIFY-GUEST':
+            grp, role = authentication_utils.get_group_based_on_name("B2C-GRP")
+            if not grp:
+                response = self.get_error_response(
+                    message="Group doesn't exist", status="error", errors=[],
+                    error_code="GROUP_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+
+            user_detail = db_utils.get_group_based_user_details(grp, username)
+            if user_detail:
+                data = authentication_utils.generate_refresh_token(user_detail)
+
+        
+
+        response = self.get_response(data=data, status="success",
                                      message="Otp Verification Success",
                                      status_code=status.HTTP_200_OK)
         return response
@@ -1103,6 +1139,102 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                                      status_code=status.HTTP_200_OK)
         return response
 
+    @action(detail=False, methods=['GET'], url_path='referral/summary',
+            permission_classes=[IsAuthenticated],
+            url_name='referral-summary')
+    def get_referral_summary(self, request):
+        user_id = request.query_params.get('user', None)
+        if not user_id:
+            user = request.user
+            user_id = user.id
+        else:  
+            user = User.objects.filter(id=user_id).first()
+
+        if not user or not user_id:
+            response = self.get_error_response(
+                message="Invalid User", status="error",
+                errors=[],error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referral = user.referral
+
+        if not referral:
+            response = self.get_error_response(
+                message="Missing referral code", status="error",
+                errors=[],error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referred_users = list(User.objects.filter(
+            referred_code=referral).values_list('id', flat=True))
+
+        no_of_referred_users = len(referred_users)
+        referred_users.append(-1)
+
+        total_amount, credited_user_list = customer_db_utils.get_referral_bonus(referred_users, user_id)
+        if total_amount is None:
+            total_amount = 0
+        else:
+            total_amount = str(total_amount)
+
+        no_of_credited_users = len(credited_user_list)
+
+        data = {"no_of_referred_users":no_of_referred_users,
+                "no_of_credited_user":no_of_credited_users,
+                "total_credited_amount": total_amount}
+
+        response = self.get_response(data=data, count=1, status="success",
+                                     message="Referral Summary",
+                                     status_code=status.HTTP_200_OK)
+        return response
+
+    @action(detail=False, methods=['GET'], url_path='referral/users',
+            permission_classes=[IsAuthenticated],
+            url_name='referral-users')
+    def get_referral_user(self, request):
+        user_id = request.query_params.get('user', None)
+        if not user_id:
+            user = request.user
+            user_id = user.id
+        else:  
+            user = User.objects.filter(id=user_id).first()
+
+        if not user or not user_id:
+            response = self.get_error_response(
+                message="Invalid User", status="error",
+                errors=[],error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+            
+        referral = user.referral
+
+        if not referral:
+            response = self.get_error_response(
+                message="Missing referral code", status="error",
+                errors=[],error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
+        referred_users = User.objects.filter(referred_code=referral)
+
+        count, referred_users = paginate_queryset(self.request, referred_users)
+
+        credited_user_dict = customer_db_utils.get_credited_referred_user(user_id)
+        context={'credited_user_dict': credited_user_dict}
+
+        serializer = UserRefferalSerializer(referred_users, many=True, context=context)
+
+##        referred_users = referred_users.values(
+##            'id','name', 'email','first_booking')
+##
+##        data = {"referred_list":}
+
+        response = self.get_response(data=serializer.data, count=count, status="success",
+                                     message="Referral User List",
+                                     status_code=status.HTTP_200_OK)
+        return response
+    
     
     @action(detail=False, methods=['POST'], url_path='default/group',
             permission_classes=[IsAuthenticated],

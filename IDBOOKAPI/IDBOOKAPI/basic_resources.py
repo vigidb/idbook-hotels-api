@@ -205,6 +205,14 @@ PAYMENT_METHOD_CHOICES = (
     ("Others", "Others"),
 )
 
+TRANSACTION_FOR = (
+    ("booking_confirmed", "booking_confirmed"),
+    ("booking_refund", "booking_refund"),
+    ("referral_booking", "referral_booking"),
+    ("booking_refund", "booking_refund"),
+    ("others", "others")
+)
+
 KYC_STATUS_CHOICES = (
     ("Pending", "Pending"),
     ("On Process", "On Process"),
@@ -1249,6 +1257,7 @@ OTP_FOR_CHOICES = (
     ('LOGIN', 'LOGIN'),
     ('SIGNUP', 'SIGNUP'),
     ('VERIFY', 'VERIFY'),
+    ('VERIFY-GUEST', 'VERIFY-GUEST'),
     ('OTHER', 'OTHER')
 )    
 
