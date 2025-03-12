@@ -457,9 +457,9 @@ def get_dynamic_pricing_with_date_list(room_id, date_list):
 def get_property_count_by_location(location_name):
 
     property_objs = Property.objects.filter(status='Active') 
-    property_objs = property_objs.filter(
-        Q(area_name__icontains=location_name.strip()) | Q(city_name=location_name.strip())
-        | Q(state=location_name.strip()) | Q(country=location_name.strip()))
+    property_objs = property_objs.filter(Q(city_name=location_name.strip())
+                                         | Q(state=location_name.strip())
+                                         | Q(country=location_name.strip()))
     total_count = property_objs.count()
     return total_count
 
