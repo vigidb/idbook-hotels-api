@@ -17,6 +17,7 @@ from apps.org_resources.db_utils import create_notification
 from apps.org_resources.utils.notification_utils import  wallet_booking_balance_notification_template
 
 from apps.org_managements.utils import get_active_business
+from decimal import Decimal
 
 
 def generate_booking_confirmation_code(booking_id, booking_type):
@@ -545,7 +546,36 @@ def check_wallet_balance_for_booking(booking, user, company_id=None):
     except Exception as e:
         print(e)
     
-            
+def calculate_refund_amount(total_payment_made, applicable_policy):
+
+    if not isinstance(total_payment_made, Decimal):
+        total_payment_made = Decimal(str(total_payment_made))
+    
+    # Get refund percentage and convert to Decimal
+    refund_percentage = applicable_policy.get('refund_percentage', 0)
+    refund_percentage_decimal = Decimal(str(refund_percentage)) if not isinstance(refund_percentage, Decimal) else refund_percentage
+    
+    # Get cancellation fee and convert to Decimal
+    cancellation_fee_value = applicable_policy.get('cancellation_fee', 0)
+    cancellation_fee = Decimal(str(cancellation_fee_value)) if not isinstance(cancellation_fee_value, Decimal) else cancellation_fee_value
+    
+    if refund_percentage_decimal == 0 and cancellation_fee == 0:
+        # Full charge case (no refund)
+        refund_amount = Decimal('0')
+        amount_after_cancel_fee = Decimal('0')
+    else:
+        # Calculate refund based on percentage and fee
+        amount_after_cancel_fee = total_payment_made - cancellation_fee
+        refund_amount = amount_after_cancel_fee * (refund_percentage_decimal / Decimal('100'))
+    
+    refund_details = {
+        'total_amount': float(total_payment_made),
+        'refund_percentage': float(refund_percentage_decimal),
+        'cancellation_fee': float(cancellation_fee),
+        'amount_after_cancel_fee': float(amount_after_cancel_fee if 'amount_after_cancel_fee' in locals() else Decimal('0')),
+        'refund_amount': float(refund_amount)
+    }
+    return refund_amount, refund_details
             
             
             
