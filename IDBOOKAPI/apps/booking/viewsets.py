@@ -484,6 +484,145 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##            
         
 
+
+    @action(detail=False, methods=['POST'], url_path='hotel/booking-caclulation',
+            url_name='hotel-booking-calculation', permission_classes=[])
+    def hotel_booking_calculation(self, request):
+
+        # validation
+        is_valid, info = self.validate_pre_confirm_booking()
+        if not is_valid:
+            message = info.get("message","")
+            error_code = info.get("error_code", "")
+            
+            custom_response = self.get_error_response(
+                message=message, status="error",
+                errors=[],error_code=error_code,
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+            return custom_response
+
+        user = self.request.user
+        
+        property_id = request.data.get('property', None)
+        company_id = request.data.get('company', None)
+        room_list = request.data.get('room_list', [])
+        requested_room_no = request.data.get('requested_room_no', 1)
+
+        adult_count = request.data.get('adult_count', 1)
+        child_count = request.data.get('child_count', 0)
+        child_age_list = request.data.get('child_age_list', [])
+        infant_count = request.data.get('infant_count', 0)
+        booking_slot = request.data.get('booking_slot', '24 Hrs')
+        booking_id = request.data.get('booking_id', 0)
+        additional_notes = request.data.get('additional_notes', '')
+        booking_status = request.data.get('status', '')
+        
+        
+        coupon_code = request.data.get('coupon_code', None)
+        coupon = None
+
+        confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
+        confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
+
+        # no_of_days = self.no_of_days
+        if self.no_of_days == 0:
+            self.no_of_days = 1
+
+        try:
+            if coupon_code:
+                coupon = get_coupon_from_code(coupon_code)
+                if not coupon:
+                    custom_response = self.get_error_response(
+                        message="Invalid coupon", status="error",
+                        errors=[],error_code="COUPON_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
+
+            self.adult_count = adult_count
+            self.child_count = child_count
+            self.child_age_list = child_age_list
+
+            self.room_list = room_list
+            self.property_id = property_id
+            self.booking_slot = booking_slot
+
+            # get dynamic pricing if applicable
+            self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+                self.checkin_datetime.date(), self.checkout_datetime.date())
+
+            is_status, custom_response = self.room_allocation()
+            if not is_status:
+                return custom_response
+
+            self.confirmed_room_details = []
+            self.final_amount, self.final_tax_amount, self.subtotal = 0, 0, 0
+
+            is_cal_status, custom_response = self.amount_calculation()
+            if not is_cal_status:
+                return custom_response
+
+            if coupon:
+                coupon_discount_type = coupon.discount_type
+                coupon_discount = coupon.discount
+                discount, subtotal_after_discount = apply_coupon_based_discount(
+                    coupon_discount, coupon_discount_type, self.subtotal)
+
+                self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
+            else:
+                discount = 0
+                self.final_amount = self.subtotal + self.final_tax_amount
+
+            hotel_booking_dict = {
+                "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
+                "confirmed_checkin_time":confirmed_checkin_time,
+                "confirmed_checkout_time":confirmed_checkout_time,
+                "booking_slot":booking_slot, "requested_room_no":requested_room_no
+            }
+
+            booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
+                            "subtotal":str(self.subtotal), "discount":str(discount),
+                            "final_amount":str(self.final_amount),
+                            "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
+                            "child_count":child_count, "infant_count":infant_count,
+                            "child_age_list":child_age_list, "additional_notes":additional_notes}
+            
+            if coupon:
+
+                booking_dict['coupon_code'] = coupon_code
+            else:
+                booking_dict['coupon_code'] = ''
+                
+
+            # provide the available room list for the property
+            room_availability_list = get_available_room(
+                confirmed_checkin_time, confirmed_checkout_time, property_id)
+
+            booking_dict['room_availability_details']=room_availability_list
+            
+            custom_response = self.get_response(
+                status='success', count=1, data=booking_dict,
+                message="Booking Calculation Details", status_code=status.HTTP_200_OK,)
+
+            self.log_response(custom_response)
+
+            return custom_response
+
+            
+        except Exception as e:
+            print(traceback.format_exc())
+            custom_response = self.get_error_response(
+                message=str(e), status="error",
+                errors=[],error_code="INERNAL_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            self.log_response(custom_response)
+
+            return custom_response
+
+        
+        
+        
     @action(detail=False, methods=['POST'], url_path='hotel/pre-confirm',
             url_name='hotel-pre-confirm', permission_classes=[])
     def hotel_pre_confirm_booking(self, request):

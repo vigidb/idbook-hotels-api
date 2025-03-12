@@ -15,3 +15,13 @@ class DynamicRoomPricing(models.Model):
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+class TopDestinations(models.Model):
+    location_name = models.CharField(max_length=60)
+    display_name = models.CharField(max_length=60)
+    media = models.FileField(upload_to='hotels/top-destination/')
+    no_of_hotels = models.PositiveIntegerField(default=0, help_text="Total Hotel count for the location")
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
