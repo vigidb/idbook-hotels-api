@@ -289,6 +289,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
 
+            city = response.data.get('city_name', '')
+            state = response.data.get('state', '')
+            country = response.data.get('country', '')
+            prop_status = response.data.get('status', '')
+            location_list = [city, state, country]
+            if prop_status=='Active' and (city or state or country):
+                hotel_db_utils.process_property_based_topdest_count(location_list)
+
             # Create a custom response
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
@@ -353,6 +361,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             # If the serializer is valid, perform the default update logic
             #response = super().partial_update(request, *args, **kwargs)
             response = self.perform_update(serializer)
+
+            city = serializer.data.get('city_name', '')
+            state = serializer.data.get('state', '')
+            country = serializer.data.get('country', '')
+            prop_status = request.data.get('status', '')
+            location_list = [city, state, country]
+            
+            if prop_status=='Active' and (city or state or country):
+                hotel_db_utils.process_property_based_topdest_count(location_list)
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response

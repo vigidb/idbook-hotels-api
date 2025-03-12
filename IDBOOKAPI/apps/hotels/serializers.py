@@ -22,6 +22,7 @@ from apps.hotels.utils.db_utils import (
     get_property_featured_image, get_rooms_by_property, get_starting_room_price,
     get_slot_based_starting_room_price, get_property_gallery,
     get_dynamic_pricing_with_date_list, is_property_favorite)
+from apps.hotels.utils.db_utils import get_property_count_by_location
 
 from django.conf import settings
 
@@ -426,6 +427,22 @@ class TopDestinationsSerializer(serializers.ModelSerializer):
         model = TopDestinations
         fields = ('id', 'location_name','display_name',
                   'media', 'no_of_hotels', 'active')
+
+    def create(self, validated_data):
+        location_name = validated_data.get('location_name')
+        total_count = get_property_count_by_location(location_name)
+        topdst_instance = TopDestinations(**validated_data)
+        topdst_instance.no_of_hotels = total_count
+        topdst_instance.save()
+        return topdst_instance
+
+    def update(self, instance, validated_data):
+        location_name = validated_data.get('location_name', '')
+        total_count = get_property_count_by_location(location_name)
+        validated_data['no_of_hotels'] = total_count
+        instance = super(TopDestinationsSerializer,self).update(
+             instance, validated_data)
+        return instance
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

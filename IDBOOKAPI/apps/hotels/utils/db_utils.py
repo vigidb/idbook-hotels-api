@@ -3,7 +3,7 @@ from apps.hotels.models import (
     RoomGallery, FavoriteList, BlockedProperty)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
-from apps.hotels.submodels.related_models import DynamicRoomPricing
+from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations
 
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -453,6 +453,45 @@ def get_dynamic_pricing_with_date_list(room_id, date_list):
     if not is_price_available:
         return {}
     return date_price_dict
+
+def get_property_count_by_location(location_name):
+
+    property_objs = Property.objects.filter(status='Active') 
+    property_objs = property_objs.filter(
+        Q(area_name__icontains=location_name.strip()) | Q(city_name=location_name.strip())
+        | Q(state=location_name.strip()) | Q(country=location_name.strip()))
+    total_count = property_objs.count()
+    return total_count
+
+def update_destination_property_count(location_name, total_count):
+    destination_objs = TopDestinations.objects.filter(
+        location_name=location_name)
+    destination_objs.update(no_of_hotels=total_count)
+
+def is_top_destination_exist(location_name, exclude_id=None):
+    top_destination = TopDestinations.objects.filter(
+        location_name__iexact=location_name)
+    if exclude_id:
+        top_destination = top_destination.exclude(id=exclude_id)
+    is_exist = top_destination.exists()
+    return is_exist
+    
+
+def check_top_destination_exist(location_list):
+    existing_list =  list(TopDestinations.objects.filter(
+        location_name__in=location_list).values_list(
+            'location_name', flat=True))
+    return existing_list
+
+def process_property_based_topdest_count(location_list):
+    try:
+        existing_list = check_top_destination_exist(location_list)
+        for location_name in existing_list:
+            total_count = get_property_count_by_location(location_name)
+            update_destination_property_count(location_name, total_count)
+    except Exception as e:
+        print(e)
+    
     
     
     
