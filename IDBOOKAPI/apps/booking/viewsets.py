@@ -21,11 +21,11 @@ from apps.booking.tasks import send_booking_email_task, create_invoice_task, sen
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment, check_room_booked_details, get_booking, create_booking_refund_details, calculate_refund_amount, get_refund_log_by_merchant_id, refund_create_booking_payment_details)
+    get_booking_from_payment, check_room_booked_details, get_booking, create_booking_refund_details, get_refund_log_by_merchant_id, refund_create_booking_payment_details)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
-    generate_booking_confirmation_code)
+    generate_booking_confirmation_code, calculate_refund_amount)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -66,6 +66,7 @@ from datetime import datetime, timedelta
 # from pytz import timezone
 from django.utils import timezone
 from decimal import Decimal
+import pytz
 
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
@@ -449,47 +450,31 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         refund_log['booking_id'] = instance.id
         
         confirmed_checkin_time = instance.hotel_booking.confirmed_checkin_time
-        current_time = timezone.now()
+        india_tz = pytz.timezone('Asia/Kolkata')
+        curr_time = timezone.now()
+
+        current_time = curr_time.astimezone(india_tz)
+
+        print("\n\n\ncurrent_time",current_time)
         hours_before_checkin = (confirmed_checkin_time - current_time).total_seconds() / 3600
 
-
-        # Get the policy details for the property
-        property_id = instance.hotel_booking.confirmed_property.id
-        property_instance = Property.objects.filter(id=property_id).first()
-        
-        if not property_instance or not property_instance.policies:
-            # Default policy if property or its policies don't exist
-            applicable_policy = {
-                'hours_before_checkin': 0,
-                'refund_percentage': 0,
-                'cancellation_fee': "Full charge"
-            }
-            policies = [applicable_policy]
-        else:
-            # Extract cancellation policies directly from property.policies
-            cancellation_policy = property_instance.policies.get('cancellation_policy', {})
-            hour_based_deduction = cancellation_policy.get('hour_based_deduction', [])
-            
-            # The policy values are already direct, no need to access a 'value' key
-            policies = []
-            for policy in hour_based_deduction:
-                policies.append({
-                    'hours_before_checkin': policy.get('hours_before_checkin', 0),
-                    'refund_percentage': policy.get('refund_percentage', 0),
-                    'cancellation_fee': policy.get('cancellation_fee', 0)
-                })
-            
-            # Add a policy for immediate cancellation (0 hours before checkin)
+        cancellation_policy = instance.hotel_booking.cancel_policy or {}
+        hour_based_deduction = cancellation_policy.get('hour_based_deduction', [])
+        policies = []
+        for policy in hour_based_deduction:
             policies.append({
-                'hours_before_checkin': 0,
-                'refund_percentage': 0,
-                'cancellation_fee': "Full charge"
+                'hours_before_checkin': policy.get('hours_before_checkin', 0),
+                'refund_percentage': policy.get('refund_percentage', 0),
+                'cancellation_fee': policy.get('cancellation_fee', 0)
             })
-        
-        # Sort policies by 'hours_before_checkin' in descending order
+
+        policies.append({
+            'hours_before_checkin': 0,
+            'refund_percentage': 0,
+            'cancellation_fee': 0
+        })
         sorted_policies = sorted(policies, key=lambda x: x['hours_before_checkin'], reverse=True)
-        
-        # Find the applicable policy based on hours before check-in
+
         applicable_policy = None
         for policy in sorted_policies:
             if hours_before_checkin >= policy['hours_before_checkin']:
@@ -499,7 +484,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             applicable_policy = {
                 'hours_before_checkin': 0,
                 'refund_percentage': 0,
-                'cancellation_fee': "Full charge"
+                'cancellation_fee': 0
             }
         print("applicable_policy----",applicable_policy)
         payment_details = BookingPaymentDetail.objects.filter(
@@ -507,24 +492,43 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 is_transaction_success=True
             ).first()
         print("\n\n\npayment_details",payment_details)
-        # need to consider the multiple payments
-        if not payment_details:
-            total_payment_made = 0
-        else:
-            total_payment_made = payment_details.amount
+
+        total_payment_made = payment_details.amount if payment_details else 0
         
-        # Save cancellation details to the booking
         refund_amount, cancellation_details = calculate_refund_amount(
             total_payment_made, 
             applicable_policy
         )
-        
-        if property_instance or property_instance.policies:
-            instance.hotel_booking.cancel_policy = sorted_policies
+
+        refund_status = 'refund_intiated'
+        if not payment_details or refund_amount <= 0:
+            refund_status = 'non_refundable'
+
+        if hours_before_checkin < 24:
+            cancellation_details['canceled_time_hours_before_checkin'] = "before_24_hours"
+        elif hours_before_checkin < 48:
+            cancellation_details['canceled_time_hours_before_checkin'] = "more_than_24_hours"
+        elif hours_before_checkin < 72:
+            cancellation_details['canceled_time_hours_before_checkin'] = "more_than_48_hours"
         else:
-            instance.hotel_booking.cancel_policy = [applicable_policy]
-        # Add additional details to cancellation_details
-        cancellation_details['canceled_time_duration_before_checkin'] = hours_before_checkin
+            cancellation_details['canceled_time_hours_before_checkin'] = "more_than_72_hours"
+
+        local_checkin = current_time.astimezone(india_tz)
+        cancellation_details['cancellation_time'] = current_time.isoformat()
+
+        if instance.hotel_booking.confirmed_checkin_time:
+            local_checkin = instance.hotel_booking.confirmed_checkin_time.astimezone(india_tz)
+            cancellation_details['checkin_time'] = local_checkin.isoformat()
+        else:
+            cancellation_details['checkin_time'] = None
+
+        if instance.hotel_booking.confirmed_checkout_time:
+            local_checkout = instance.hotel_booking.confirmed_checkout_time.astimezone(india_tz)
+            cancellation_details['checkout_time'] = local_checkout.isoformat()
+        else:
+            cancellation_details['checkout_time'] = None
+
+        cancellation_details['refund_status'] = refund_status
         cancellation_details['applied_policy'] = applicable_policy
         instance.hotel_booking.cancellation_details = cancellation_details
         instance.hotel_booking.save()
@@ -532,20 +536,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.save()
         print ("\n\n\ncancellation_details", cancellation_details)        
         
-        if not payment_details:
+        if not payment_details or refund_amount <= 0:
             return self.get_response(
                 status='success',
                 message="Booking Cancelled Successfully (No Refund Possible)",
-                data={'refund_status': 'No Refund', 'cancellation_details': cancellation_details},
-                status_code=status.HTTP_200_OK,
-            )
-        
-        # If refund amount is 0, no need to initiate refund
-        if refund_amount <= 0:
-            return self.get_response(
-                status='success',
-                message="Booking Cancelled Successfully (No Refund Possible)",
-                data={'refund_status': 'No Refund', 'cancellation_details': cancellation_details},
+                data={
+                    'cancellation_details': cancellation_details
+                },
                 status_code=status.HTTP_200_OK,
             )
         
@@ -567,13 +564,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         refund_log['original_transaction_id'] = payment_details.transaction_id
         refund_log['refund_amount'] = refund_amount
         
-        # Create the PhonePe refund payload
         payload = {
             "merchantId": merchant_id,
             "merchantUserId": str(instance.user.id),
             "originalTransactionId": payment_details.merchant_transaction_id,
             "merchantTransactionId": merchant_refund_id,
-            "amount": int(refund_amount * Decimal(100)),  # Convert to paisa
+            "amount": int(refund_amount * Decimal(100)),
             # "callbackUrl": "https://webhook-test.com/3755aad896192a6b2e0675e81761806d"
             "callbackUrl": callback_url
         }
@@ -599,14 +595,18 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             refund_status = ''
             if response_data.get('code') == "PAYMENT_PENDING":
                 refund_log['status'] = 'pending'
-                refund_status = 'Refund in progress'
+                refund_status = 'refund_in_progress'
             elif response_data.get('code') == "PAYMENT_SUCCESS":
                 refund_log['status'] = 'completed'
-                refund_status = 'Refund completed'
+                refund_status = 'refund_completed'
             else:
                 refund_log['status'] = 'failed'
-                refund_status = 'Refund failed'
+                refund_status = 'refund_failed'
                 refund_log['error_message'] = response_data.get('message', '')
+
+            cancellation_details['refund_status'] = refund_status
+            instance.hotel_booking.cancellation_details = cancellation_details
+            instance.hotel_booking.save()
             
             # Create the refund log entry
             create_booking_refund_log(refund_log)
@@ -615,7 +615,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             custom_response = self.get_response(
                 status='success',
                 message=f"Booking Cancelled Successfully, {refund_status}",
-                data={'refund_status': refund_status,'cancellation_details': cancellation_details},
+                data={'cancellation_details': cancellation_details},
                 status_code=status.HTTP_200_OK,
             )
         else:
@@ -695,6 +695,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     refund_log_obj.error_message = message
                 refund_log_obj.save()
 
+            hotel_booking = refund_log_obj.booking.hotel_booking if refund_log_obj and refund_log_obj.booking else None
+            cancellation_details = hotel_booking.cancellation_details if hotel_booking else {}
+
             # Construct booking_payment_details dictionary
             booking_payment_details = {
                 "transaction_id": transaction_id,
@@ -717,7 +720,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             custom_response = self.get_response(
                 status="success",
-                data=booking_payment_details,
+                data={
+                    "booking_payment_details": booking_payment_details,
+                    "cancellation_details": cancellation_details
+                },
                 message="Refund processed successfully",
                 status_code=status.HTTP_200_OK,
             )
@@ -1210,13 +1216,18 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     booking_objs = Booking.objects.filter(id=booking_id)
                     hotel_booking_id = booking_objs.first().hotel_booking_id
                     hotel_booking_objs = HotelBooking.objects.filter(id=hotel_booking_id)
-                    
+
+                property_obj = Property.objects.get(id=property_id)  
+                property_policies = None  
+
+                if property_obj.policies and isinstance(property_obj.policies, dict):  
+                    property_policies = property_obj.policies.get("cancellation_policy", None)
 
                 hotel_booking_dict = {
                     "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
                     "confirmed_checkin_time":confirmed_checkin_time,
                     "confirmed_checkout_time":confirmed_checkout_time,
-                    "booking_slot":booking_slot, "requested_room_no":requested_room_no
+                    "booking_slot":booking_slot, "requested_room_no":requested_room_no, "cancel_policy": property_policies
                 }
                 
                 # save hotel booking details
