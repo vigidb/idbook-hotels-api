@@ -33,7 +33,13 @@ def create_booking_refund_log(log_dict: dict):
             booking = Booking.objects.get(id=booking_id)
             log_dict['booking'] = booking
         
-        BookingRefundLog.objects.create(**log_dict)
+        # BookingRefundLog.objects.create(**log_dict)
+        merchant_refund_id = log_dict.get('merchant_refund_id')
+
+        refund_log, created = BookingRefundLog.objects.update_or_create(
+            merchant_refund_id=merchant_refund_id,
+            defaults=log_dict
+        )
     except Exception as e:
         print(traceback.format_exc())
         print(e)
