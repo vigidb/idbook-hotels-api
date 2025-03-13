@@ -555,13 +555,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         refund_log_obj = create_booking_refund_details(
             instance.id, 
-            payment_details.transaction_id, 
+            payment_details.merchant_transaction_id, 
             append_id
         )
         merchant_refund_id = refund_log_obj.merchant_refund_id
         
         refund_log['merchant_refund_id'] = merchant_refund_id
-        refund_log['original_transaction_id'] = payment_details.transaction_id
+        refund_log['original_transaction_id'] = payment_details.merchant_transaction_id
         refund_log['refund_amount'] = refund_amount
         
         payload = {
@@ -615,7 +615,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             custom_response = self.get_response(
                 status='success',
                 message=f"Booking Cancelled Successfully, {refund_status}",
-                data={'cancellation_details': cancellation_details},
+                data={
+                    'refund_merchant_transaction_id': merchant_refund_id,
+                    'booking_merchant_transaction_id': payment_details.merchant_transaction_id,
+                    'booking_transaction_id_from_phonepay': payment_details.transaction_id,
+                    'cancellation_details': cancellation_details
+                },
+                # data={'cancellation_details': cancellation_details},
                 status_code=status.HTTP_200_OK,
             )
         else:
