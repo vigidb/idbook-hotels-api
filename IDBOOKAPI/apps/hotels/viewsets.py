@@ -161,6 +161,12 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             if key == 'property_id':
                 self.queryset = self.queryset.filter(id=param_value)
+
+            if key == 'is_favorite':
+                if param_value == "True":
+                    self.queryset = self.queryset.filter(id__in=self.favorite_list)
+                elif param_value == "False":
+                    self.queryset = self.queryset.exclude(id__in=self.favorite_list)
                 
                 
             if key == 'user':
@@ -391,19 +397,19 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        favorite_list = []
+        self.favorite_list = []
 
         # update the on hold status to pending 
         change_onhold_status()
+
+        if request.user and request.user.id:
+            self.favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
         
         # apply property filter
         self.property_filter_ops()
         self.property_json_filter_ops()
         # filter for checkin checkout
         available_property_dict, nonavailable_property_list = self.checkin_checkout_based_filter()
-
-        if request.user:
-            favorite_list = hotel_db_utils.get_favorite_property(request.user.id)
 
         # self.queryset = self.queryset.distinct('id')
         # ordering
@@ -421,7 +427,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         response = PropertyListSerializer(
             self.queryset, many=True,
             context={'available_property_dict': available_property_dict,
-                     'favorite_list':favorite_list,
+                     'favorite_list':self.favorite_list,
                      'nonavailable_property_list': nonavailable_property_list})
         # response = super().list(request, *args, **kwargs)
 
@@ -651,9 +657,10 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         favorite_list = list(queryset.values_list('property_id', flat=True))
         print("favorite list::", favorite_list)
         
-        self.queryset = self.queryset.filter(id__in = favorite_list).values(
-            'id','name', 'display_name', 'area_name', 'city_name',
-            'state', 'country','rating', 'status')
+        self.queryset = self.queryset.filter(id__in = favorite_list)
+##        .values(
+##            'id','name', 'title', 'area_name', 'city_name',
+##            'state', 'country','rating', 'status')
 
         response = PropertyListSerializer(
             self.queryset, many=True)
