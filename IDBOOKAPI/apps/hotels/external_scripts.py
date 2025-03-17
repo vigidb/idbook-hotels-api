@@ -44,7 +44,7 @@ def check_property_coordinates():
     for obj in objs:
         try:
             s = float(obj.get('address__coordinates__lat'))
-            s1 = float(obj.get('address__coordinates__lat'))
+            s1 = float(obj.get('address__coordinates__lng'))
         except Exception as e:
             print(e)
             print(obj.get('id'))
