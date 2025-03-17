@@ -25,7 +25,7 @@ from apps.booking.utils.db_utils import (
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
-    generate_booking_confirmation_code, calculate_refund_amount)
+    generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -63,8 +63,7 @@ import base64, json
 from django.conf import settings
 
 from datetime import datetime, timedelta
-# from pytz import timezone
-from django.utils import timezone
+from pytz import timezone
 from decimal import Decimal
 import pytz
 
@@ -431,6 +430,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     #                 status_code=status.HTTP_404_NOT_FOUND)
     #     return custom_response
 
+    def send_cancel_task(self, instance):
+        print("email called")
+        send_cancelled_booking_task.apply_async(args=[instance.id])
+
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
     def cancel_booking(self, request, pk=None):
@@ -448,18 +451,36 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             )
         
         refund_log['booking_id'] = instance.id
+        print("booking id", instance.id)
+        payment_details = BookingPaymentDetail.objects.filter(
+                booking=instance, 
+                is_transaction_success=True
+            ).first()
+        print("\n\n\npayment_details",payment_details)
         
         confirmed_checkin_time = instance.hotel_booking.confirmed_checkin_time
         india_tz = pytz.timezone('Asia/Kolkata')
-        curr_time = timezone.now()
+        curr_time = datetime.now()
+        print("curr_time", curr_time)
 
         current_time = curr_time.astimezone(india_tz)
 
         print("\n\n\ncurrent_time",current_time)
         hours_before_checkin = (confirmed_checkin_time - current_time).total_seconds() / 3600
 
+        # Check if payment details exist and check-in time has passed
+        if payment_details and hours_before_checkin < 0:
+            return self.get_error_response(
+                message="Cancellation not allowed after check-in time has passed", 
+                status="error",
+                errors=[],
+                error_code="CANCELLATION_NOT_ALLOWED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         cancellation_policy = instance.hotel_booking.cancel_policy or {}
+        print("cancellation_policy",cancellation_policy)
         hour_based_deduction = cancellation_policy.get('hour_based_deduction', [])
+        print("hour_based_deduction",hour_based_deduction)
         policies = []
         for policy in hour_based_deduction:
             policies.append({
@@ -487,11 +508,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 'cancellation_fee': 0
             }
         print("applicable_policy----",applicable_policy)
-        payment_details = BookingPaymentDetail.objects.filter(
-                booking=instance, 
-                is_transaction_success=True
-            ).first()
-        print("\n\n\npayment_details",payment_details)
+        
 
         total_payment_made = payment_details.amount if payment_details else 0
         
@@ -537,6 +554,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         print ("\n\n\ncancellation_details", cancellation_details)        
         
         if not payment_details or refund_amount <= 0:
+            self.send_cancel_task(instance)
             return self.get_response(
                 status='success',
                 message="Booking Cancelled Successfully (No Refund Possible)",
@@ -545,103 +563,129 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 },
                 status_code=status.HTTP_200_OK,
             )
-        
-        merchant_id = settings.MERCHANT_ID
-        callback_url = settings.CALLBACK_URL + "/api/v1/booking/bookings/phone-pay/refundcallbackurl/"
-        print("\n\n\ncallback_url",callback_url)
-        
 
-        append_id = "RF{}".format(instance.user.id)
+        if payment_details and payment_details.payment_type == 'WALLET' and payment_details.payment_medium == 'Idbook':
 
-        refund_log_obj = create_booking_refund_details(
-            instance.id, 
-            payment_details.merchant_transaction_id, 
-            append_id
-        )
-        merchant_refund_id = refund_log_obj.merchant_refund_id
-        
-        refund_log['merchant_refund_id'] = merchant_refund_id
-        refund_log['original_transaction_id'] = payment_details.merchant_transaction_id
-        refund_log['refund_amount'] = refund_amount
-        
-        payload = {
-            "merchantId": merchant_id,
-            "merchantUserId": str(instance.user.id),
-            "originalTransactionId": payment_details.merchant_transaction_id,
-            "merchantTransactionId": merchant_refund_id,
-            "amount": int(refund_amount * Decimal(100)),
-            # "callbackUrl": "https://webhook-test.com/3755aad896192a6b2e0675e81761806d"
-            "callbackUrl": callback_url
-        }
-
-        
-        refund_log['request'] = payload
-        
-        # Get encrypted request and headers for refund
-        req, auth_header = self.get_encrypted_header_and_payload_refund(payload)
-        response = self.post_refund_request(req, auth_header)
-        if response.status_code == 200:
-            response_data = response.json()
-            refund_log['response'] = response_data
+            success, refund_status, refund_data = refund_wallet_payment(
+                instance, 
+                refund_amount, 
+                cancellation_details
+            )
             
-            # Extract data from response
-            if 'data' in response_data:
-                data = response_data.get('data', {})
-                refund_log['transaction_id'] = data.get('transactionId', '')
-                refund_log['response_code'] = data.get('responseCode', '')
-                refund_log['transaction_details'] = data
+            if success:
+                self.send_cancel_task(instance)
+                return self.get_response(
+                    status='success',
+                    message=f"Booking Cancelled Successfully, {refund_status}",
+                    data={
+                        'refund_merchant_transaction_id': refund_data['merchant_refund_id'],
+                        'cancellation_details': cancellation_details
+                    },
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                return self.get_error_response(
+                    message="Booking Cancelled, but Refund Failed", 
+                    status="error",
+                    errors=[{"detail": refund_data.get('error_message', 'Unknown error')}],
+                    error_code="REFUND_FAILED",
+                    status_code=status.HTTP_206_PARTIAL_CONTENT
+                )
+        else:
+            merchant_id = settings.MERCHANT_ID
+            callback_url = settings.CALLBACK_URL + "/api/v1/booking/bookings/phone-pay/refundcallbackurl/"
+            print("\n\n\ncallback_url",callback_url)
             
-            refund_log['response_message'] = response_data.get('message', '')
-            refund_status = ''
-            if response_data.get('code') == "PAYMENT_PENDING":
-                refund_log['status'] = 'pending'
-                refund_status = 'refund_in_progress'
-            elif response_data.get('code') == "PAYMENT_SUCCESS":
-                refund_log['status'] = 'completed'
-                refund_status = 'refund_completed'
+
+            append_id = "RF{}".format(instance.user.id)
+
+            refund_log_obj = create_booking_refund_details(
+                instance.id, 
+                payment_details.merchant_transaction_id, 
+                append_id
+            )
+            merchant_refund_id = refund_log_obj.merchant_refund_id
+            
+            refund_log['merchant_refund_id'] = merchant_refund_id
+            refund_log['original_transaction_id'] = payment_details.merchant_transaction_id
+            refund_log['refund_amount'] = refund_amount
+            
+            payload = {
+                "merchantId": merchant_id,
+                "merchantUserId": str(instance.user.id),
+                "originalTransactionId": payment_details.merchant_transaction_id,
+                "merchantTransactionId": merchant_refund_id,
+                "amount": int(refund_amount * Decimal(100)),
+                # "callbackUrl": "https://webhook-test.com/3755aad896192a6b2e0675e81761806d"
+                "callbackUrl": callback_url
+            }
+
+            
+            refund_log['request'] = payload
+            
+            # req, auth_header = self.get_encrypted_header_and_payload_refund(payload)
+            req, auth_header = self.get_encrypted_header_and_payload(payload, req_trigger=True)
+            response = self.post_refund_request(req, auth_header)
+            if response.status_code == 200:
+                response_data = response.json()
+                refund_log['response'] = response_data
+                
+                # Extract data from response
+                if 'data' in response_data:
+                    data = response_data.get('data', {})
+                    refund_log['transaction_id'] = data.get('transactionId', '')
+                    refund_log['response_code'] = data.get('responseCode', '')
+                    refund_log['transaction_details'] = data
+                
+                refund_log['response_message'] = response_data.get('message', '')
+                refund_status = ''
+                if response_data.get('code') == "PAYMENT_PENDING":
+                    refund_log['status'] = 'pending'
+                    refund_status = 'refund_in_progress'
+                elif response_data.get('code') == "PAYMENT_SUCCESS":
+                    refund_log['status'] = 'completed'
+                    refund_status = 'refund_completed'
+                else:
+                    refund_log['status'] = 'failed'
+                    refund_status = 'refund_failed'
+                    refund_log['error_message'] = response_data.get('message', '')
+
+                cancellation_details['refund_status'] = refund_status
+                instance.hotel_booking.cancellation_details = cancellation_details
+                instance.hotel_booking.save()
+                
+                # Create the refund log entry
+                create_booking_refund_log(refund_log)
+                self.send_cancel_task(instance)
+                
+                custom_response = self.get_response(
+                    status='success',
+                    message=f"Booking Cancelled Successfully, {refund_status}",
+                    data={
+                        'refund_merchant_transaction_id': merchant_refund_id,
+                        'booking_merchant_transaction_id': payment_details.merchant_transaction_id,
+                        'booking_transaction_id_from_phonepay': payment_details.transaction_id,
+                        'cancellation_details': cancellation_details
+                    },
+                    # data={'cancellation_details': cancellation_details},
+                    status_code=status.HTTP_200_OK,
+                )
             else:
                 refund_log['status'] = 'failed'
-                refund_status = 'refund_failed'
-                refund_log['error_message'] = response_data.get('message', '')
-
-            cancellation_details['refund_status'] = refund_status
-            instance.hotel_booking.cancellation_details = cancellation_details
-            instance.hotel_booking.save()
-            
-            # Create the refund log entry
-            create_booking_refund_log(refund_log)
-            send_cancelled_booking_task.apply_async(args=[instance.id])
-            
-            custom_response = self.get_response(
-                status='success',
-                message=f"Booking Cancelled Successfully, {refund_status}",
-                data={
-                    'refund_merchant_transaction_id': merchant_refund_id,
-                    'booking_merchant_transaction_id': payment_details.merchant_transaction_id,
-                    'booking_transaction_id_from_phonepay': payment_details.transaction_id,
-                    'cancellation_details': cancellation_details
-                },
-                # data={'cancellation_details': cancellation_details},
-                status_code=status.HTTP_200_OK,
-            )
-        else:
-            refund_log['status'] = 'failed'
-            refund_log['error_message'] = response.text
-            refund_log['response'] = {'error': response.text}
-            
-            # Create refund log even for failures
-            create_booking_refund_log(refund_log)
-            
-            custom_response = self.get_error_response(
-                message="Booking Cancelled, but Refund Failed", 
-                status="error",
-                errors=[{"detail": response.text}],
-                error_code="REFUND_FAILED",
-                data= {'refund_status': 'No Refund'},
-                status_code=status.HTTP_206_PARTIAL_CONTENT
-            )
-        print("\n\n\n\n custom response final", custom_response)
-        return custom_response
+                refund_log['error_message'] = response.text
+                refund_log['response'] = {'error': response.text}
+                
+                create_booking_refund_log(refund_log)
+                
+                custom_response = self.get_error_response(
+                    message="Booking Cancelled, but Refund Failed", 
+                    status="error",
+                    errors=[{"detail": response.text}],
+                    error_code="REFUND_FAILED",
+                    status_code=status.HTTP_206_PARTIAL_CONTENT
+                )
+            print("\n\n\n\n custom response final", custom_response)
+            return custom_response
 
     @action(detail=False, methods=['POST'], url_path='phone-pay/refundcallbackurl',
             url_name='phone-pay-refund-callbackurl', permission_classes=[])
@@ -709,8 +753,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 "transaction_id": transaction_id,
                 "code": code,
                 "message": message,
-                "payment_type": "REFUND",
+                "payment_type": "PAYMENT GATEWAY",
                 "payment_medium": "PHONE PAY",
+                "transaction_for": "booking_refund",
                 "amount": amount,
                 "transaction_details": sub_json_data,
                 "is_transaction_success": code == "PAYMENT_SUCCESS" and state == "COMPLETED"
