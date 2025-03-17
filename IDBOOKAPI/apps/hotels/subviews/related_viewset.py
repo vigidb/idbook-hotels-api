@@ -2,8 +2,8 @@ from .__init__ import *
 
 from apps.hotels.models import PolicyDetails
 from apps.hotels.serializers import PolicySerializer, TopDestinationsSerializer
-
 from apps.hotels.submodels.related_models import TopDestinations
+from apps.hotels.utils.db_utils import get_property_count_by_location, is_top_destination_exist
 
 class PropertyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = PolicyDetails.objects.all()
@@ -104,6 +104,17 @@ class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        location_name = request.data.get('location_name', '')
+        if location_name:
+            is_exist = is_top_destination_exist(location_name)
+            if is_exist:
+                response = self.get_error_response(
+                    message="Location already exist", status="error",
+                    errors=[],error_code="LOCATION_EXIST",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+           
+                return response
+
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
 
@@ -134,6 +145,17 @@ class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         # print(dir(self))
         # Get the object to be updated
         instance = self.get_object()
+
+        location_name = request.data.get('location_name', '')
+        if location_name:
+            is_exist = is_top_destination_exist(location_name, exclude_id=instance.id)
+            if is_exist:
+                response = self.get_error_response(
+                    message="Location already exist", status="error",
+                    errors=[],error_code="LOCATION_EXIST",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+           
+                return response
 
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data, partial=True)
@@ -179,6 +201,28 @@ class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
             status_code=status.HTTP_200_OK,  
         )
         return custom_response
+
+    @action(detail=False, methods=['PATCH'], url_path='total-hotels',
+            url_name='total-hotels', permission_classes=[IsAuthenticated])
+    def update_total_hotels(self, request):
+        top_destination_objs = self.queryset.filter(active=True)
+
+        for top_destination_obj in top_destination_objs:
+            location_name = top_destination_obj.location_name
+            total_count = get_property_count_by_location(location_name)
+            top_destination_obj.no_of_hotels = total_count
+            top_destination_obj.save()
+
+        custom_response = self.get_response(
+            data=[], count=0, status="success",
+            message="Total count updated",
+            status_code=status.HTTP_200_OK,  # 200 for successful update
+        )
+        return custom_response
+        
+            
+
+        
 
 
 
