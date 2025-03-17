@@ -17,7 +17,7 @@ from apps.org_resources.models import CompanyDetail
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
     ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
-    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS)
+    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS, TRANSACTION_FOR)
 
 from IDBOOKAPI.basic_resources import(
     PAYMENT_TYPE, PAYMENT_MEDIUM)
@@ -234,6 +234,7 @@ class BookingPaymentDetail(models.Model):
     payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, null=True)
     amount = models.DecimalField(null=True, max_digits=20, decimal_places=6)
     is_transaction_success = models.BooleanField(default=False)
+    transaction_for = models.CharField(max_length=30, choices=TRANSACTION_FOR, default="others")
     transaction_details = models.JSONField(null=True, default=dict)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
