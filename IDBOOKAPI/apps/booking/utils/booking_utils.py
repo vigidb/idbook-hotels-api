@@ -18,6 +18,10 @@ from apps.org_resources.utils.notification_utils import  wallet_booking_balance_
 
 from apps.org_managements.utils import get_active_business
 from decimal import Decimal
+from IDBOOKAPI.utils import get_unique_id_from_time
+from apps.customer.models import (Wallet, WalletTransaction)
+from apps.log_management.models import WalletTransactionLog
+from apps.booking.models import BookingPaymentDetail
 
 
 def generate_booking_confirmation_code(booking_id, booking_type):
@@ -577,7 +581,94 @@ def calculate_refund_amount(total_payment_made, applicable_policy):
     }
     return refund_amount, refund_details
             
-            
+def refund_wallet_payment(instance, refund_amount, cancellation_details):
+
+    refund_log = {}
+    refund_log['booking_id'] = instance.id
+
+    try:
+        # Generate unique merchant transaction ID for refund
+        append_id = "WLRF{}".format(instance.user.id)
+        merchant_refund_id = get_unique_id_from_time(append_id)
+        refund_log['merchant_refund_id'] = merchant_refund_id
+        
+        # Credit amount back to user's wallet
+        wallet = Wallet.objects.filter(user__id=instance.user.id, company__isnull=True).first()
+        wallet.balance = wallet.balance + Decimal(refund_amount)
+        wallet.save()
+        
+        # Create wallet transaction record
+        transaction_details = f"Amount credited for canceled {instance.booking_type} booking ({instance.confirmation_code})"
+        wallet_transaction = WalletTransaction.objects.create(
+            user=instance.user,
+            amount=refund_amount,
+            transaction_type='Credit',
+            transaction_for='booking_refund',
+            transaction_id=merchant_refund_id,
+            transaction_details=transaction_details,
+            payment_type='WALLET',
+            payment_medium='Idbook',
+            is_transaction_success=True,
+            code='REFUND_SUCCESS'
+        )
+        booking_payment = BookingPaymentDetail.objects.create(
+            booking=instance,
+            merchant_transaction_id=merchant_refund_id,
+            transaction_id=merchant_refund_id,
+            code='REFUND_SUCCESS',
+            message='Refund processed successfully',
+            payment_type='WALLET',
+            payment_medium='Idbook',
+            amount=refund_amount,
+            is_transaction_success=True,
+            transaction_for='booking_refund',
+            transaction_details={'refund_amount': float(refund_amount), 'refund_type': 'wallet_credit', 'transaction_details':transaction_details}
+        )
+        
+        # Log the refund transaction
+        log_data = {
+            'user': instance.user,
+            'merchant_transaction_id': merchant_refund_id,
+            'request': {
+                'booking_id': instance.id,
+                'refund_amount': float(refund_amount),
+                'transaction_type': 'Credit',
+                'payment_type': 'WALLET'
+            },
+            'response': {
+                'status': 'success',
+                'code': 'REFUND_SUCCESS',
+                'message': 'Refund processed successfully'
+            }
+        }
+        wallet_log = WalletTransactionLog.objects.create(**log_data)
+        
+        # Update cancellation details
+        refund_status = 'refund_completed'
+        cancellation_details['refund_status'] = refund_status
+        instance.hotel_booking.cancellation_details = cancellation_details
+        instance.hotel_booking.save()
+        
+        # Add to refund log for return
+        refund_log['status'] = 'completed'
+        refund_log['transaction_id'] = merchant_refund_id
+        refund_log['refund_amount'] = refund_amount
+        
+        return (True, refund_status, refund_log)
+        
+    except Exception as e:
+        print("Wallet refund error:", e)
+        # Update cancellation details for failure
+        refund_status = 'refund_failed'
+        cancellation_details['refund_status'] = refund_status
+        cancellation_details['refund_error'] = str(e)
+        instance.hotel_booking.cancellation_details = cancellation_details
+        instance.hotel_booking.save()
+        
+        refund_log['status'] = 'failed'
+        refund_log['error_message'] = str(e)
+        
+        return (False, refund_status, refund_log)
             
         
     
