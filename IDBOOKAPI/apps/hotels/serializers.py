@@ -59,6 +59,9 @@ class PropertySerializer(serializers.ModelSerializer):
         return property_instance
 
 class PropertyListSerializer(serializers.ModelSerializer):
+    # dynamic_price = serializers.ReadOnlyField()
+    lowest_price = serializers.ReadOnlyField()
+    # distance = serializers.ReadOnlyField()
 
     class Meta:
         model = Property
@@ -68,7 +71,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'city_name', 'state', 'country', 'rating',
                   'status', 'current_page', 'address', 'starting_price_details',
                   'amenity_details', 'policies', 'is_slot_price_enabled',
-                  'property_size', 'property_measurement_type', 'slug')
+                  'property_size', 'property_measurement_type', 'slug',
+                  'lowest_price')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -226,6 +230,8 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         return representation 
 
 class PropertyRetrieveSerializer(serializers.ModelSerializer):
+    # dynamic_price = serializers.ReadOnlyField()
+    lowest_price = serializers.ReadOnlyField()
     
 
 ##    property_room = PropertyRoomSerializer(many=True)

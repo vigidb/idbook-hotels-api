@@ -243,7 +243,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
 ##        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
         
-        print("checkin_date::", checkin_date)
+        self.checkin_date = checkin_date
         
         available_property_dict = {}
         nonavailable_property_list = []
@@ -263,6 +263,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             checkout_date = checkout_date.replace(' ', '+')
             checkin_date = datetime.strptime(checkin_date, '%Y-%m-%dT%H:%M%z')
             checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
+
+            self.checkin_date = checkin_date
             
 ##            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
             
@@ -408,13 +410,34 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # apply property filter
         self.property_filter_ops()
         self.property_json_filter_ops()
+
+        
+        
         # filter for checkin checkout
         available_property_dict, nonavailable_property_list = self.checkin_checkout_based_filter()
 
         # self.queryset = self.queryset.distinct('id')
+        
+        # duplicate entry created due to filter based join operation
+        # fetch distint property id
+        self.queryset = self.queryset.distinct()
+
+        # fetch the lowest price
+        booking_slot = self.request.query_params.get('booking_slot', '24 Hrs')
+        self.queryset = hotel_db_utils.get_lowest_property_pricing(self.queryset, self.checkin_date, booking_slot)
+
+        # fetch based on nearby location
+        nearby_latitude = self.request.query_params.get('nearby_latitude', '')
+        nearby_longitude = self.request.query_params.get('nearby_longitude', '')
+        if nearby_latitude and nearby_longitude:
+            self.queryset = hotel_db_utils.get_property_distance(
+                self.queryset, nearby_latitude, nearby_longitude)
+            self.queryset = self.queryset.order_by('distance')
+            
+
         # ordering
         self.property_order_ops()
-        self.queryset = self.queryset.distinct()
+        
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 ##        self.queryset = self.queryset.values('id','name', 'title', 'property_type',
@@ -446,9 +469,9 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
         pk = kwargs.get('pk')
         if isinstance(pk, str) and not pk.isdigit():
-            instance = Property.objects.filter(slug=pk).first()
+            instance = Property.objects.filter(slug=pk)
         else:
-            instance = Property.objects.filter(id=pk).first()
+            instance = Property.objects.filter(id=pk)
 
         if not instance:
             custom_response = self.get_error_response(message="Property not found", status="error",
@@ -460,6 +483,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         checkin_date = self.request.query_params.get('checkin', '')
         checkout_date = self.request.query_params.get('checkout', '')
+        booking_slot = self.request.query_params.get('booking_slot', '24 Hrs')
+        start_date = ''
 
         
         
@@ -484,7 +509,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         else:
             date_list=[]
             
-            
+        instance = hotel_db_utils.get_lowest_property_pricing(instance, start_date, booking_slot)
+        instance = instance.first()
            
         user_id = request.user.id
         context={"date_list": date_list, "user_id":user_id} 

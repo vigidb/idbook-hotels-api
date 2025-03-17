@@ -8,11 +8,20 @@ from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinat
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
 from django.db.models import Count, Sum
-from django.db.models import IntegerField
+from django.db.models import IntegerField, FloatField
 from django.db.models.functions import Cast, Coalesce
-from django.db.models import Q
+from django.db.models import Q, F
+
+from django.db.models import Subquery, OuterRef
+from django.db.models.functions import Least
+
+from datetime import datetime
 
 from functools import reduce
+
+
+from django.db.models import ExpressionWrapper, Value
+from django.db.models.functions import ACos, Cos, Radians, Sin
 
 
 def get_property_by_id(property_id):
@@ -491,6 +500,168 @@ def process_property_based_topdest_count(location_list):
             update_destination_property_count(location_name, total_count)
     except Exception as e:
         print(e)
+
+##def get_checkin_based_dynamic_pricing(checkin_date, booking_slot):
+##    try:
+##        pricing_obj = DynamicRoomPricing.objects.filter(
+##            active=True, start_date__date__lte=checkin_date,
+##            end_date__date__gte=checkin_date)
+##
+##        if slot == "4 Hrs":
+##            min_price = pricing_obj.annotate(
+##                val=Cast(KT('room_price__price_4hrs'), IntegerField())).aggregate(
+##                    min=Coalesce(Min('val'), 0)) 
+##        elif slot == "8 Hrs":
+##            min_price = pricing_obj.annotate(
+##                val=Cast(KT('room_price__price_8hrs'), IntegerField())).aggregate(
+##                    min=Coalesce(Min('val'), 0)) 
+##        elif slot == "12 Hrs":
+##            min_price = pricing_obj.annotate(
+##                val=Cast(KT('room_price__price_12hrs'), IntegerField())).aggregate(
+##                    min=Coalesce(Min('val'), 0)) 
+##        else:
+##            min_price = pricing_obj.annotate(
+##                val=Cast(KT('room_price__base_rate'), IntegerField())).aggregate(
+##                    min=Coalesce(Min('val'), 0)) 
+##    except Excpetion as e:
+##        print(e)
+
+
+
+def get_lowest_property_pricing(queryset, checkin_date, booking_slot):
+    
+    if not checkin_date:
+        checkin_date = datetime.strptime('1700-01-20T00:00+05:30', '%Y-%m-%dT%H:%M%z')
+    
+    if booking_slot == "4 Hrs":
+        dynamic_room_rate = 'room_price__price_4hrs'
+        normal_rate = 'starting_price_details__starting_4hr_price'
+    elif booking_slot == "8 Hrs":
+        dynamic_room_rate = 'room_price__price_8hrs'
+        normal_rate = 'starting_price_details__starting_8hr_price'
+    elif booking_slot == "12 Hrs":
+        dynamic_room_rate = 'room_price__price_12hrs'
+        normal_rate = 'starting_price_details__starting_12hr_price'
+    else:
+        dynamic_room_rate = 'room_price__base_rate'
+        normal_rate = 'starting_price_details__starting_base_price'
+
+    # dynamic room price as subquery
+    dynamic_pricing_subquery = DynamicRoomPricing.objects.filter(
+        for_property_id=OuterRef("pk"), active=True,
+        start_date__date__lte=checkin_date,
+        end_date__date__gte=checkin_date)
+
+    
+    # annotate for the lowest dynamic price
+    dynamic_pricing_subquery = dynamic_pricing_subquery.annotate(
+        val=Cast(KT(dynamic_room_rate),
+                 IntegerField())).values('val').order_by('val')[:1]
+     
+    # store lowest dynamic price for each property
+    queryset = queryset.annotate(dynamic_price=Coalesce(
+        Subquery(dynamic_pricing_subquery), 999999999))
+    
+    # get the lowest price by comparing dynamic lowest price
+    # and normal starting price
+    queryset = queryset.annotate(lowest_price=Least("dynamic_price", Cast(KT(normal_rate), IntegerField())))
+
+    return queryset
+
+
+
+def get_property_distance(queryset, lat, lon):
+
+    property_lat = Cast(KT('address__coordinates__lat'), FloatField())
+    property_lng = Cast(KT('address__coordinates__lng'), FloatField())
+    unit = 6371.0
+##
+##    # Trivandrum location
+##    lat1 = 8.524139
+##    lon1 = 76.936638
+
+    lat, lon = float(lat), float(lon)
+    print("latitude ------", lat, "longitude", lon)
+    # distance using great circle distance
+    expression_wrapper = ExpressionWrapper((unit * ACos(Cast((Cos(Radians(lat)) * Cos(Radians(property_lat))
+                                                              * Cos(Radians(property_lng) - Radians(lon))
+                                                              + Sin(Radians(lat)) * Sin(Radians(property_lat))), FloatField()
+                                                              ))),
+                                           output_field=FloatField(),)
+
+    
+    
+##    queryset = Property.objects.all()
+    queryset = queryset.exclude(address__coordinates__lat='', address__coordinates__lng='')
+    queryset = queryset.annotate(
+        distance=expression_wrapper)
+
+    return queryset
+    
+
+def query_annotate():
+
+##    dynamic_price_query = DynamicRoomPricing.objects.filter(
+##        for_property=OuterRef("pk")).annotate(
+##                val=Cast(KT('room_price__base_rate'), IntegerField())).aggregate(
+##                    min=Coalesce(Min('val'), 0)) 
+    property_obj = Property.objects.annotate(dynamic_price=Coalesce(Subquery(
+        DynamicRoomPricing.objects.filter(
+        for_property_id=OuterRef("pk")).annotate(
+                val=Cast(KT('room_price__base_rate'), IntegerField())).values('val').order_by('val')[:1]
+        ),999999999)).annotate(lowest_price=Least("dynamic_price", Cast(KT('starting_price_details__starting_base_price'), IntegerField())))
+    property_obj = property_obj.order_by('lowest_price')
+
+    #query= DynamicRoomPricing.objects.filter(for_property_id=21).values('id', 'for_property_id','room_price__base_rate')
+##    query= DynamicRoomPricing.objects.filter(for_property_id=21).annotate(
+##        val=Cast(KT('room_price__base_rate'), IntegerField())).values_list('val', flat=True)
+##
+##    query= DynamicRoomPricing.objects.filter(for_property_id=21).annotate(
+##        val=Cast(KT('room_price__base_rate'), IntegerField())).values('val').order_by('val')[0]
+##    print(query)
+
+
+##    property_dynamic_pricing
+
+##    property_obj = Property.objects.select_related(
+##        'property_dynamic_pricing').annotate(val=Cast(KT('property_dynamic_pricing__room_price__base_rate'),
+##                                                      IntegerField())).aggregate(
+##                                                          min=Coalesce(Min('val'), 0))
+##
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).select_related(
+##        'property_dynamic_pricing').annotate(
+##            val=Cast(KT('property_dynamic_pricing__room_price__base_rate'),
+##                     IntegerField())).aggregate(
+##                         min=Coalesce(Min('val'), 0))
+##
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).prefetch_related(
+##        'property_dynamic_pricing__room_price__base_rate').annotate(
+##            val=Cast(KT('property_dynamic_pricing__room_price__base_rate'),
+##                     IntegerField())).aggregate(
+##                         min=Coalesce(Min('val'), 0))
+
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).prefetch_related(
+##        'property_dynamic_pricing__room_price__base_rate').values('id', 'property_dynamic_pricing__id')
+
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).prefetch_related(
+##        Prefetch('property_dynamic_pricing',
+##                 queryset=DynamicRoomPricing.objects.annotate(student_count=Count('for_property_id'))
+##                 )
+##        ).values('id', 'property_dynamic_pricing')
+
+
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).annotate(dcount=Count('property_dynamic_pricing'))
+
+##    property_obj = Property.objects.exclude(property_dynamic_pricing=None).annotate(
+##        val=Min(Cast(KT('property_dynamic_pricing__room_price__base_rate'),
+##                 IntegerField())))#.aggregate(min=Coalesce(Min('val'), 0))
+    
+    print(property_obj.values('id', 'name', 'dynamic_price', 'lowest_price'))
+   
+
+##    for prop in property_obj:
+##        print("id", prop.get('id'), "student count", prop.get('property_dynamic_pricing__student_count'))
+    
     
     
     
