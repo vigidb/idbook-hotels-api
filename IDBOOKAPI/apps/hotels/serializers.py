@@ -12,7 +12,8 @@ from .models import (Property, Gallery, Room, Rule,
                      PolicyDetails)
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
-from apps.hotels.submodels.related_models import DynamicRoomPricing
+from apps.hotels.submodels.related_models import (
+    DynamicRoomPricing, TopDestinations)
 
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
@@ -419,5 +420,22 @@ class PolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = PolicyDetails
         fields = '__all__'
+
+class TopDestinationsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TopDestinations
+        fields = ('id', 'location_name','display_name',
+                  'media', 'no_of_hotels', 'active')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            representation['media'] =  f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+
+        return representation
+
+        
+
+    
 
 
