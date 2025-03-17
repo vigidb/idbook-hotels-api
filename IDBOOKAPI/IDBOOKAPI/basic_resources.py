@@ -44,6 +44,7 @@ ROOM_VIEW_CHOICES = (
     ('GARDEN VIEW', 'GARDEN VIEW'),
     ('HILL VIEW', 'HILL VIEW'),
     ('FOREST VIEW', 'FOREST VIEW'),
+    ('TERRACE VIEW', 'TERRACE VIEW'),
     ('NON VIEW', 'NON VIEW'),
     
 )
