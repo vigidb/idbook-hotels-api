@@ -1265,7 +1265,12 @@ OTP_FOR_CHOICES = (
     ('VERIFY', 'VERIFY'),
     ('VERIFY-GUEST', 'VERIFY-GUEST'),
     ('OTHER', 'OTHER')
-)    
+)
+
+SUBSCRIPTION_TYPE = (
+    ('Monthly', 'Monthly'),
+    ('Yearly', 'Yearly')
+)
 
     
     

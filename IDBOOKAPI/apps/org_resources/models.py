@@ -18,7 +18,7 @@ from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator,
 from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
 from IDBOOKAPI.basic_resources import (
     ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
-    COUNTRY_CHOICES, NOTIFICATION_TYPE)
+    COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -480,5 +480,25 @@ class UserNotification(models.Model):
 
     def __str__(self):
         return self.user.email
+
+
+class Subscription(models.Model):
+    name = models.CharField(max_length=50)
+    subscription_type = models.CharField(
+        max_length=50, choices=SUBSCRIPTION_TYPE)
+    price = models.PositiveIntegerField(default=0)
+    level = models.PositiveIntegerField()
+    details = models.JSONField(default=list)
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering=["level"]
+
+    def __str__(self):
+        return self.name
+    
+    
 
     
