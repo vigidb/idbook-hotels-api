@@ -856,6 +856,21 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
+    def subscription_filter_ops(self):
+        filter_dict = {}
+        param_dict= self.request.query_params
+        
+        for key in param_dict:
+            param_value = param_dict[key]
+            if key in ('active', 'subscription_type'):
+                filter_dict[key] = param_value
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+            
+        
+        
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -931,6 +946,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
             
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
+                status='success',
                 message="Update success",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
             )
@@ -940,17 +956,26 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
             custom_response = self.get_error_response(
                 message="Validation Error", status="error",
                 errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
-            return custom_response      
+            return custom_response
+
+    
         
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        self.subscription_filter_ops()
+        
+        # paginate the result
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+        
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
 
         # If the response status code is OK (200), it's a successful listing
         custom_response = self.get_response(
+            status='success',
+            count=count,
             data=response.data,  # Use the data from the default response
             message="List Retrieved",
             status_code=status.HTTP_200_OK,  # 200 for successful listing
