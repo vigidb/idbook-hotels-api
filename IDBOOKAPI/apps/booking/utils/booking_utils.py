@@ -21,8 +21,9 @@ from decimal import Decimal
 from IDBOOKAPI.utils import get_unique_id_from_time
 from apps.customer.models import (Wallet, WalletTransaction)
 from apps.log_management.models import WalletTransactionLog
-from apps.booking.models import BookingPaymentDetail
-
+from apps.booking.models import BookingPaymentDetail, Booking
+from datetime import datetime, timedelta
+import pytz
 
 def generate_booking_confirmation_code(booking_id, booking_type):
     random_number = generate_otp(no_digits=4)
@@ -707,7 +708,25 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
         return (False, refund_status, refund_log)
             
         
-    
+def update_no_show_status(user_id):
+    """
+    Updates 'pending' hotel bookings for a specific user with a confirmed checkout time of yesterday to 'no_show'.
+    """
+    india_tz = pytz.timezone('Asia/Kolkata')
+    curr_time = datetime.now(india_tz)
+    print("curr_time",curr_time)
+    yesterday = curr_time.replace(hour=23, minute=59, second=59) - timedelta(days=1)
+    print("yesterday", yesterday)
+
+    updated_count = Booking.objects.filter(
+        booking_type='HOTEL',
+        status='pending',
+        hotel_booking__confirmed_checkout_time__lte=yesterday,
+        user_id=user_id
+    ).update(status='no_show')
+
+    print(f"Updated {updated_count} bookings to no-show status for user ID {user_id}")
+
            
    
     
