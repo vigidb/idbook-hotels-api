@@ -25,7 +25,7 @@ from apps.booking.utils.db_utils import (
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
-    generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment)
+    generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, update_no_show_status)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -289,6 +289,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         self.log_request(request)  # Log the incoming request
 
         # filter, order and pagination
+        update_no_show_status(request.user.id)
         self.booking_filter_ops()
         self.queryset = order_ops(self.request, self.queryset)
         count, self.queryset = paginate_queryset(self.request, self.queryset) #self.booking_pagination_ops()
