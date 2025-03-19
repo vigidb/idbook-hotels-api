@@ -15,12 +15,13 @@ from .serializers import (
     AmenityCategorySerializer, AmenitySerializer, EnquirySerializer, RoomTypeSerializer, OccupancySerializer,
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
-    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer
+    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer,
+    SubscriptionSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
-    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber)
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription)
 
 from IDBOOKAPI.utils import paginate_queryset
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
@@ -801,6 +802,8 @@ class SubscriberViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     permission_classes = []
     http_method_names = ['get', 'post', 'put', 'patch']
 
+    
+
     def create(self, request, *args, **kwargs):
 
         email = self.request.data.get('email', None)
@@ -837,8 +840,161 @@ class SubscriberViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
         
+class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = Subscription.objects.all()
+    serializer_class = SubscriptionSerializer
+    # permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
+    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+                                    'list':[AllowAny], 'destroy': [IsAuthenticated]}
+
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            # action is not set return default permission_classes
+            return [permission() for permission in self.permission_classes]
+
+    def subscription_filter_ops(self):
+        filter_dict = {}
+        param_dict= self.request.query_params
+        
+        for key in param_dict:
+            param_value = param_dict[key]
+            if key in ('active', 'subscription_type'):
+                filter_dict[key] = param_value
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+            
+        
+        
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        name = self.request.data.get('name', '')
+        subscription_type = self.request.data.get('subscription_type', '')
+
+        is_name_exist = self.queryset.filter(
+            name__iexact=name, subscription_type=subscription_type,
+            active=True)
+        
+        if is_name_exist:
+            custom_response = self.get_error_response(message="Name exist", status="error",
+                                                      errors=[],error_code="DUPLICATE_NAME",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+
+        # Create an instance of your serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            response = super().create(request, *args, **kwargs)
+
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                status='success',
+                message="Subscription Created",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def partial_update(self, request, *args, **kwargs):
+
+        name = self.request.data.get('name', '')
+        subscription_type = self.request.data.get('subscription_type', '')
+        active = self.request.data.get('active', None)
+        
+        # Get the object to be updated
+        instance = self.get_object()
+        if not subscription_type:
+            subscription_type = instance.subscription_type
+
+        if not name:
+            name = instance.name
+
+        is_name_exist = self.queryset.filter(
+            name__iexact=name, subscription_type=subscription_type, active=True).exclude(
+                id=instance.id)
+            
+        if is_name_exist:
+            custom_response = self.get_error_response(message="Name exist", status="error",
+                                                      errors=[],error_code="DUPLICATE_NAME",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+                
+        
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            response = super().partial_update(request, *args, **kwargs)
+            
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                status='success',
+                message="Update success",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+            return custom_response
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
 
     
+        
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        self.subscription_filter_ops()
+        
+        # paginate the result
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+        
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        # If the response status code is OK (200), it's a successful listing
+        custom_response = self.get_response(
+            status='success',
+            count=count,
+            data=response.data,  # Use the data from the default response
+            message="List Retrieved",
+            status_code=status.HTTP_200_OK,  # 200 for successful listing
+        )
+        
+        return custom_response
+
+    def destroy(self, request, pk=None):
+
+        instance = self.get_object()
+        instance.delete()
+
+        custom_response = self.get_response(
+            status='success', data=None, count=1,
+            message="Subscription deleted",
+            status_code=status.HTTP_200_OK,
+            )
+        return custom_response
+
 
 class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = RoomType.objects.all()
