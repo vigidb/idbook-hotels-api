@@ -208,6 +208,8 @@ class Booking(models.Model):
     is_reviewed = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+    is_checkin = models.BooleanField(default=False, help_text="Check_in status")
+    is_checkout = models.BooleanField(default=False, help_text="Check_out status")
 
     # objects = BookingManager()
 

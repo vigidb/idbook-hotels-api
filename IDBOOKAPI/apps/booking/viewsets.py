@@ -14,10 +14,10 @@ from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer)
-from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer
+from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
-from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
@@ -791,6 +791,65 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 message=str(e), status="error",
                 errors=[], error_code="INTERNAL_SERVER_ERROR",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return custom_response
+
+    @swagger_auto_schema(
+        request_body=BookingCheckInOutSerializer,
+        operation_description="Update check-in/check-out status of a booking",
+        responses={200: BookingSerializer}
+    )
+    @action(detail=True, methods=['PATCH'], permission_classes=[IsAuthenticated],
+            url_path='update-checkinout', url_name='update-checkinout')
+    def update_checkin_checkout(self, request, pk=None):
+        self.log_request(request)  # Log the incoming request
+        
+        try:
+            booking = self.get_object()
+            print("booking_id", booking.id)
+            
+            serializer = BookingCheckInOutSerializer(booking, data=request.data, partial=True)
+            if not serializer.is_valid():
+                error_list = self.custom_serializer_error(serializer.errors)
+                custom_response = self.get_error_response(
+                    message="Validation Error", status="error",
+                    errors=error_list, error_code="VALIDATION_ERROR", 
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                self.log_response(custom_response)
+                return custom_response
+            
+            serializer.save()
+            
+            booking.refresh_from_db()
+            
+            if booking.is_checkin and booking.is_checkout:
+                booking.status = 'completed'
+                booking.save()
+                
+                print("Triggering send_completed_booking_task for booking_id:", booking.id)
+                send_completed_booking_task.apply_async(args=[booking.id])
+                print(f"Completed booking task queued")
+            
+            updated_booking = BookingSerializer(booking).data
+            custom_response = self.get_response(
+                status="success",
+                data=updated_booking,
+                message="Check-in/Check-out status updated successfully",
+                status_code=status.HTTP_200_OK
+            )
+            
+            self.log_response(custom_response)
+            return custom_response
+            
+        except Exception as e:
+            custom_response = self.get_error_response(
+                message=f"Error updating check-in/check-out status: {str(e)}", 
+                status="error",
+                errors=[str(e)],
+                error_code="UPDATE_ERROR", 
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            self.log_response(custom_response)
             return custom_response
 
 ##    def validate_pre_confirm_booking(self):
