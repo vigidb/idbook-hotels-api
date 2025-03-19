@@ -5,6 +5,7 @@ from apps.booking.utils.booking_utils import (
     generate_htmlcontext_search_booking,
     generate_context_confirmed_booking,
     generate_context_cancelled_booking,
+    generate_context_completed_booking,
     set_firstbooking_reward)
 
 from apps.booking.utils.invoice_utils import (
@@ -17,7 +18,7 @@ from apps.org_managements.utils import get_active_business #get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
 from apps.org_resources.utils.notification_utils import (
     wallet_minbalance_notification_template, booking_comfirmed_notification_template,
-    booking_cancelled_notification_template)
+    booking_cancelled_notification_template, booking_completed_notification_template)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
     get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
@@ -212,8 +213,36 @@ def send_cancelled_booking_task(self, booking_id):
     except Exception as e:
         print('Cancelled Email Task', e)
         
-            
+@celery_idbook.task(bind=True)
+def send_completed_booking_task(self, booking_id):
+    print("Inside completed booking task")
+    try:
+        booking = get_booking(booking_id)
+        if booking:
+            if booking.booking_type == "HOTEL":
+                subject = "Hotel Stay Completed"
+                user_email = booking.user.email
+                print("user_email", user_email)
+                email_template = get_template('email_template/booking-complete-review.html')
+                print("email_template", email_template)
+                context = generate_context_completed_booking(booking)
+                html_content = email_template.render(context)
+                send_booking_email(subject, booking, [user_email], html_content)
+                
+                bus_details = get_active_business()
+                if bus_details:
+                    send_by = bus_details.user
         
+                notification_dict = {'user': booking.user, 'send_by': send_by, 'notification_type': 'BOOKING',
+                                    'title': '', 'description': '', 'redirect_url': '',
+                                    'image_link': ''}
+                
+                notification_dict = booking_completed_notification_template(
+                    booking.id, booking.booking_type, notification_dict)
+                create_notification(notification_dict)
+            
+    except Exception as e:
+        print('Completion Email Task Error:', e)
 
 
 

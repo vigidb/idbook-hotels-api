@@ -481,4 +481,11 @@ class UserNotification(models.Model):
     def __str__(self):
         return self.user.email
 
+class MessageTemplate(models.Model):
+    temp_id = models.CharField(max_length=50, unique=True)
+    temp_description = models.CharField(max_length=255)
+    temp_message = models.TextField()
+    
+    def __str__(self):
+        return self.temp_description
     

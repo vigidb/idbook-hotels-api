@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotel Booking Completed - Idbook Hotels</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: rgb(233, 238, 250); /* Lightest blue */
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #1D498D -1.97%, #3C65A4 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+      margin: 0 auto;
+    }
+
+    .content {
+      padding: 20px;
+      text-align: center;
+    }
+
+    .content h1 {
+      font-size: 24px;
+      color: rgb(53, 91, 148);
+      margin-bottom: 20px;
+    }
+
+    .content p {
+      font-size: 16px;
+      color: #666;
+    }
+
+    .booking-details {
+      text-align: left;
+      background-color: rgb(217, 226, 245); /* Lighter blue */
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .booking-details h2 {
+      font-size: 18px;
+      color: rgb(53, 91, 148);
+      margin-bottom: 10px;
+    }
+
+    .booking-details p {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .footer {
+      background-color: rgb(233, 238, 250);
+      text-align: center;
+      padding: 20px;
+      color: rgb(53, 91, 148);
+      font-size: 14px;
+    }
+
+    .footer a {
+      color: rgb(53, 91, 148);
+      text-decoration: none;
+    }
+
+    .cta {
+      margin-top: 30px;
+    }
+
+    .cta a {
+      background-color: rgb(53, 91, 148);
+      color: white;
+      padding: 15px 30px;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+
+    .stars {
+      font-size: 24px;
+      color: gold;
+      margin: 15px 0;
+    }
+
+    .thank-you-message {
+      font-size: 18px;
+      color: rgb(53, 91, 148);
+      margin: 20px 0;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+    </div>
+
+    <div class="content">
+      <h1>Hotel Stay Completed</h1>
+      <p class="thank-you-message">Thank you for choosing Idbook Hotels!</p>
+      <p>We're delighted that you enjoyed your stay with us. Your hotel booking has been successfully completed.</p>
+      <div class="stars">★★★★★</div>
+      <p>We would be grateful if you could take a moment to share your experience with us. Your feedback helps us improve and assists other travelers in making informed decisions.</p>
+      
+      <div class="booking-details">
+        <h2>Booking Details</h2>
+        <p><strong>Booking Reference Number:</strong> {{ reference_number }}</p>
+        <p><strong>Hotel Name:</strong> {{ property_name }}</p>
+        <p><strong>Check-in Date:</strong> {{ confirmed_checkin_time }}</p>
+        <p><strong>Check-out Date:</strong> {{ confirmed_checkout_time }}</p>
+        <p><strong>Room Type:</strong> {{ room_type }}</p>
+      </div>
+      
+      <div class="booking-details">
+        <h2>Customer Details</h2>
+        <p><strong>Name:</strong> {{ name }}</p>
+        <p><strong>Email:</strong> {{ email }}</p>
+        <p><strong>Phone:</strong> {{ mobile_number }}</p>
+      </div>
+
+      <div class="cta">
+        <a href="{{ review_link }}">Rate & Review Your Experience</a>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>We look forward to welcoming you again soon!</p>
+      <p>If you have any questions or need further assistance, feel free to contact us at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>.</p>
+      <p>© 2024 Idbook Hotels. All Rights Reserved.</p>
+    </div>
+  </div>
+</body>
+</html>

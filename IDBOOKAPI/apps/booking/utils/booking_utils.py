@@ -407,7 +407,43 @@ def generate_context_cancelled_booking(booking):
     return context
     
 
+def generate_context_completed_booking(booking):
+    name = booking.user.name
+    email = booking.user.email
+    mobile_number = booking.user.mobile_number
+
+    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
+    review_link = "https://www.ambitionbox.com/overview/idbook-hotels-overview"
+
+    context = {'name': name,
+              'email': email, 
+              'mobile_number': mobile_number,
+              'reference_number': booking.reference_code,
+              'booking_link': booking_link,
+              'review_link': review_link}
+
+    property_name, room_type = '', ''
+    confirmed_checkin_time, confirmed_checkout_time = None, None
     
+    hotel_booking = booking.hotel_booking
+    if hotel_booking:
+        confirmed_checkin_time = hotel_booking.confirmed_checkin_time
+        confirmed_checkout_time = hotel_booking.confirmed_checkout_time
+
+        confirmed_property = hotel_booking.confirmed_property
+        if confirmed_property:
+            property_name = confirmed_property.name
+            
+        confirmed_room = hotel_booking.room
+        if confirmed_room:
+            room_type = confirmed_room.room_type
+    
+    context['confirmed_checkin_time'] = confirmed_checkin_time
+    context['confirmed_checkout_time'] = confirmed_checkout_time
+    context['property_name'] = property_name
+    context['room_type'] = room_type
+    
+    return context
 
 def calculate_total_amount(booking):
     total_booking_amount = 0
