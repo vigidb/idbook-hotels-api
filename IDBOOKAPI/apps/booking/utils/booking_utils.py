@@ -715,13 +715,13 @@ def update_no_show_status(user_id):
     india_tz = pytz.timezone('Asia/Kolkata')
     curr_time = datetime.now(india_tz)
     print("curr_time",curr_time)
-    yesterday = curr_time.replace(hour=23, minute=59, second=59) - timedelta(days=1)
-    print("yesterday", yesterday)
+    # yesterday = curr_time.replace(hour=23, minute=59, second=59) - timedelta(days=1)
+    # print("yesterday", yesterday)
 
     updated_count = Booking.objects.filter(
         booking_type='HOTEL',
         status='pending',
-        hotel_booking__confirmed_checkout_time__lte=yesterday,
+        hotel_booking__confirmed_checkout_time__lt=curr_time,
         user_id=user_id
     ).update(status='no_show')
 

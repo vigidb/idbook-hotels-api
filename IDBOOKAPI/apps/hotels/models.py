@@ -464,7 +464,11 @@ class PolicyDetails(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     
+class PropertyLandmark(models.Model):
+    property = models.ForeignKey("Property", on_delete=models.CASCADE, related_name="landmarks", null=True, blank=True)
+    landmark = models.CharField(max_length=255, help_text="Name of the landmark.")
+    distance = models.DecimalField(max_digits=10, decimal_places=3, help_text="Distance from the property (in meters).")
     
-    
-    
+    def __str__(self):
+        return self.landmark
 
