@@ -9,7 +9,7 @@ from .models import (Property, Gallery, Room, Rule,
                      Inclusion, FinancialDetail, HotelAmenityCategory,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery, PropertyBankDetails,
-                     PolicyDetails)
+                     PolicyDetails, PropertyLandmark)
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
@@ -76,6 +76,8 @@ class PropertyListSerializer(serializers.ModelSerializer):
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+        landmarks = instance.landmarks.values('id', 'landmark', 'distance')
+        representation['landmarks'] = list(landmarks)
         available_property_dict = self.context.get("available_property_dict", {})
         favorite_list = self.context.get("favorite_list", [])
         nonavailable_property_list = self.context.get("nonavailable_property_list", [])
@@ -263,7 +265,10 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
             # property gallery
 ##            room_details = self.fetch_rooms(instance.id)
 ##            representation['property_room'] = room_details
-            
+            landmarks = instance.landmarks.all()
+            representation["landmarks"] = PropertyLandmarkSerializer(landmarks, many=True).data
+            for landmark in representation["landmarks"]:
+                landmark.pop("property", None)
             
             if instance.gallery_property:
                 property_gallery = list(instance.gallery_property.filter(
@@ -457,8 +462,10 @@ class TopDestinationsSerializer(serializers.ModelSerializer):
 
         return representation
 
-        
-
+class PropertyLandmarkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertyLandmark
+        fields = ['id', 'property', 'landmark', 'distance']
     
 
 
