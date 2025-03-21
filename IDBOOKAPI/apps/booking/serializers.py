@@ -454,3 +454,7 @@ class PaymentMediumSerializer(serializers.Serializer):
     total_payment = serializers.DecimalField(
         allow_null=True, max_digits=15, decimal_places=6)
     
+class BookingCheckInOutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Booking
+        fields = ['is_checkin', 'is_checkout']

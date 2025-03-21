@@ -38,6 +38,21 @@ The cancellation code is: {cancellation_code}".format(booking_type=booking_type,
 
     return notification_dict
 
+def booking_completed_notification_template(booking_id, booking_type, notification_dict):
+    try:
+        # Notification
+        title = "Hotel Stay Completed"
+        description = "Thank you for choosing Idbook! Your Hotel stay has been completed. We hope you enjoyed your stay and would appreciate your feedback."
+        redirect_url = "https://www.ambitionbox.com/overview/idbook-hotels-overview"
+        
+        notification_dict['title'] = title
+        notification_dict['description'] = description
+        notification_dict['redirect_url'] = redirect_url
+        
+    except Exception as e:
+        print('Notification Error', e)
+    return notification_dict
+
 def wallet_minbalance_notification_template(wallet_balance, notification_dict):
     try:
 
