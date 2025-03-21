@@ -57,11 +57,20 @@ def create_mobile_otp(otp, mobile_number, otp_for):
         user_account=mobile_number,
          otp_for=otp_for)
 
-def get_userid_list(username):
+def get_userid_list(username, group=None):
     user_objs = User.objects.filter(
-        Q(email=username)|Q(mobile_number=username)).values(
-            'id', 'email', 'mobile_number')
+        Q(email=username)|Q(mobile_number=username))
+    if group:
+        user_objs = user_objs.filter(groups=group)
+        
+    user_objs = user_objs.values(
+        'id', 'email', 'mobile_number')
     return user_objs
+
+def is_role_exist(user_objs, role):
+    is_exist = user_objs.filter(roles=role).exists()
+    return is_exist
+    
 
 def get_user_details(user_id, username):
     """ need to remove the user id"""
