@@ -2122,7 +2122,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 # verify email using otp
                 user_otp = None
                 if otp:
-                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY-GUEST').first()
                     if not user_otp:
                         response = self.get_error_response(
                             message="Invalid OTP", status="error",
