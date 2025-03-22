@@ -17,7 +17,7 @@ from .serializers import (BookingSerializer, AppliedCouponSerializer,
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
-from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task, send_booking_cancelled_sms_task
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
@@ -431,9 +431,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     #                 status_code=status.HTTP_404_NOT_FOUND)
     #     return custom_response
 
-    def send_cancel_task(self, instance):
-        print("email called")
+    def send_cancel_task(self, instance, refund_amount=0):
+        print("email and SMS notifications called")
         send_cancelled_booking_task.apply_async(args=[instance.id])
+        send_booking_cancelled_sms_task.apply_async(args=[instance.id, float(refund_amount) if refund_amount > 0 else 0])
 
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
@@ -555,7 +556,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         print ("\n\n\ncancellation_details", cancellation_details)        
         
         if not payment_details or refund_amount <= 0:
-            self.send_cancel_task(instance)
+            self.send_cancel_task(instance, refund_amount)
             return self.get_response(
                 status='success',
                 message="Booking Cancelled Successfully (No Refund Possible)",
@@ -574,7 +575,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             )
             
             if success:
-                self.send_cancel_task(instance)
+                self.send_cancel_task(instance, refund_amount)
                 return self.get_response(
                     status='success',
                     message=f"Booking Cancelled Successfully, {refund_status}",
@@ -610,7 +611,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             refund_log['merchant_refund_id'] = merchant_refund_id
             refund_log['original_transaction_id'] = payment_details.merchant_transaction_id
             refund_log['refund_amount'] = refund_amount
-            
             payload = {
                 "merchantId": merchant_id,
                 "merchantUserId": str(instance.user.id),
@@ -657,7 +657,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 
                 # Create the refund log entry
                 create_booking_refund_log(refund_log)
-                self.send_cancel_task(instance)
+                self.send_cancel_task(instance, refund_amount)
                 
                 custom_response = self.get_response(
                     status='success',
