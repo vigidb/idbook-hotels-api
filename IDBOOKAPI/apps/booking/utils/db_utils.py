@@ -321,5 +321,15 @@ def get_overall_booking_rating(property_id):
             )
 
     return property_review_list, agency_review_list
+
+def check_booking_reference_code(reference_code):
+    is_exist = Booking.objects.filter(
+        reference_code=reference_code).exists()
+    return is_exist
+
+def check_booking_confirmation_code(confirmation_code):
+    is_exist = Booking.objects.filter(
+        confirmation_code=confirmation_code).exists()
+    return is_exist
     
 

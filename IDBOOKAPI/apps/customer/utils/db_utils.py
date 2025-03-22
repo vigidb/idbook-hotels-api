@@ -59,7 +59,7 @@ def update_wallet_transaction(wtransact):
 
 def deduct_wallet_balance(user_id, deduct_amount):
     try:
-        wallet = Wallet.objects.get(user__id=user_id)
+        wallet = Wallet.objects.get(user__id=user_id, company_id__isnull=True)
         if wallet.balance < deduct_amount:
             return False
         wallet.balance = wallet.balance - deduct_amount

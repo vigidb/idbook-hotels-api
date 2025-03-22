@@ -26,22 +26,28 @@ from datetime import datetime, timedelta
 import pytz
 
 def generate_booking_confirmation_code(booking_id, booking_type):
-    random_number = generate_otp(no_digits=4)
-    cdate = get_current_date()
-    
-    confirmation_code = "IDB{booking_type}CNF{booking_id}-{month}{year}{random_number}".format(
-        booking_type=booking_type, booking_id=booking_id,
-        random_number=random_number, month=cdate.month, year=cdate.year)
+##    random_number = generate_otp(no_digits=4)
+##    cdate = get_current_date()
+##    
+##    confirmation_code = "IDB{booking_type}CNF{booking_id}-{month}{year}{random_number}".format(
+##        booking_type=booking_type, booking_id=booking_id,
+##        random_number=random_number, month=cdate.month, year=cdate.year)
+
+    confirmation_code = "Idbook-CNF"
+    confirmation_code = get_unique_id_from_time(confirmation_code)
 
     return confirmation_code
 
 def generate_booking_reference_code(booking_id, booking_type):
-    random_number = generate_otp(no_digits=4)
-    cdate = get_current_date()
+##    random_number = generate_otp(no_digits=4)
+##    cdate = get_current_date()
 
-    reference_code = "IDB{booking_type}BKG{booking_id}-{month}{year}{random_number}".format(
-        booking_type=booking_type, booking_id=booking_id,
-        random_number=random_number, month=cdate.month, year=cdate.year)
+##    reference_code = "IDB{booking_type}BKG{booking_id}-{month}{year}{random_number}".format(
+##        booking_type=booking_type, booking_id=booking_id,
+##        random_number=random_number, month=cdate.month, year=cdate.year)
+
+    reference_code = "Idbook-"
+    reference_code = get_unique_id_from_time(reference_code)
 
     return reference_code
     

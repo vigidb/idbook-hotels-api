@@ -21,7 +21,9 @@ from apps.booking.tasks import send_booking_email_task, create_invoice_task, sen
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment, check_room_booked_details, get_booking, create_booking_refund_details, get_refund_log_by_merchant_id, refund_create_booking_payment_details)
+    get_booking_from_payment, check_room_booked_details, get_booking,
+    create_booking_refund_details, get_refund_log_by_merchant_id,
+    refund_create_booking_payment_details, check_booking_confirmation_code)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -1697,8 +1699,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         booking_id = instance.id
         booking_type = instance.booking_type
+
+        while True:
+            confirmation_code = generate_booking_confirmation_code(
+                booking_id, booking_type) # need to remove the params
+            is_exist = check_booking_confirmation_code(confirmation_code)
+            if not is_exist:
+                break
         
-        confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
         print("Confirmation Code::", confirmation_code)
         instance.confirmation_code = confirmation_code
         instance.total_payment_made = instance.final_amount
@@ -2222,7 +2230,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_id = booking.id
             booking_type = booking.booking_type
         
-            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+##            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+            while True:
+                confirmation_code = generate_booking_confirmation_code(
+                    booking_id, booking_type) # need to remove the params
+                is_exist = check_booking_confirmation_code(confirmation_code)
+                if not is_exist:
+                    break
             print("Confirmation Code::", confirmation_code)
             booking.confirmation_code = confirmation_code
             booking.total_payment_made = amount
@@ -2262,11 +2276,9 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             
             code = json_data.get('code', '')
             message = json_data.get('message', '')
-
-            
             
             sub_json_data = json_data.get('data', {})
-            amount = sub_json_data.get('amount', 0)/100
+            amount = int(sub_json_data.get('amount', 0))/100
             merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
             booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             transaction_id = sub_json_data.get('transactionId', '')        
@@ -2301,6 +2313,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                                                       errors=[],error_code="INTERNAL_SERVER_ERROR",
                                                       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             booking_payment_log['response'] = {'message': str(e)}
+            print(traceback.format_exc())
             create_booking_payment_log(booking_payment_log)
             return custom_response
             
