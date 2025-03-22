@@ -17,7 +17,7 @@ from .serializers import (BookingSerializer, AppliedCouponSerializer,
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
-from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task, send_booking_cancelled_sms_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task, send_booking_sms_task
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
@@ -68,7 +68,7 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from decimal import Decimal
 import pytz
-
+from apps.customer.models import Wallet
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -433,10 +433,32 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     #                 status_code=status.HTTP_404_NOT_FOUND)
     #     return custom_response
 
+    # Inside send_cancel_task method
     def send_cancel_task(self, instance, refund_amount=0):
         print("email and SMS notifications called")
         send_cancelled_booking_task.apply_async(args=[instance.id])
-        send_booking_cancelled_sms_task.apply_async(args=[instance.id, float(refund_amount) if refund_amount > 0 else 0])
+        send_booking_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'cancel',
+                'params': {
+                    'booking_id': instance.id,
+                    'refund_amount': float(refund_amount) if refund_amount > 0 else 0
+                }
+            }
+        )
+
+    # For refund notification
+    def send_refund_task(self, instance, refund_amount=0):
+        print("refund SMS notification called")
+        send_booking_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'refund',
+                'params': {
+                    'booking_id': instance.id,
+                    'refund_amount': float(refund_amount)
+                }
+            }
+        )
 
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
@@ -578,6 +600,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             
             if success:
                 self.send_cancel_task(instance, refund_amount)
+                self.send_refund_task(instance, refund_amount)
                 return self.get_response(
                     status='success',
                     message=f"Booking Cancelled Successfully, {refund_status}",
@@ -645,9 +668,11 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 if response_data.get('code') == "PAYMENT_PENDING":
                     refund_log['status'] = 'pending'
                     refund_status = 'refund_in_progress'
+                    self.send_refund_task(instance, refund_amount)
                 elif response_data.get('code') == "PAYMENT_SUCCESS":
                     refund_log['status'] = 'completed'
                     refund_status = 'refund_completed'
+                    self.send_refund_task(instance, refund_amount)
                 else:
                     refund_log['status'] = 'failed'
                     refund_status = 'refund_failed'
@@ -1683,6 +1708,25 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         # merchant_transaction_id = booking_payment_detail.merchant_transaction_id
       
         deduct_status = deduct_booking_amount(instance, instance.company_id)
+        if deduct_status:
+            wallet_balance = 0
+            wallet = Wallet.objects.filter(user__id=instance.user.id, company_id__isnull=True).first()
+            if wallet:
+                wallet_balance = wallet.balance
+            try:
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'wallet_deduction',
+                        'params': {
+                            'user_id': instance.user.id,
+                            'deduct_amount': float(instance.final_amount),
+                            'wallet_balance': float(wallet_balance)
+                        }
+                    }
+                )
+                print(f"Wallet deduction SMS scheduled for user {instance.user.id}")
+            except Exception as sms_error:
+                print(f"Error scheduling wallet deduction SMS: {sms_error}")
         if not deduct_status:
             booking_payment_detail.code = "PAYMENT_ERROR"
             booking_payment_detail.message = "Insufficient fund in wallet balance"
@@ -2297,6 +2341,15 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_payment_log['booking_id'] = booking_id
             if code == "PAYMENT_SUCCESS":
                 self.set_booking_as_confirmed(booking_id, amount)
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'booking_confirmation',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
+                print(f"Booking confirmation SMS scheduled for booking {booking_id}")
 
 
             custom_response = self.get_response(
