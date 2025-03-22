@@ -46,7 +46,7 @@ def send_template_sms(mobile_number, template_code, variables_values):
             print(f"Failed to get message_id for template_code {template_code}")
             return None
             
-        obj = Fast2SmsMixin()
+        sms_url = "https://www.fast2sms.com/dev/bulkV2"
         
         api_key = settings.FAST2SMS_APIKEY
         dlt_sender_id = settings.FAST_DLT_SENDER_ID
@@ -58,7 +58,7 @@ def send_template_sms(mobile_number, template_code, variables_values):
             'Cache-Control': "no-cache",
         }
         
-        response = requests.request("POST", obj.sms_url, data=payload, headers=headers)
+        response = requests.request("POST", sms_url, data=payload, headers=headers)
         print(f"Template SMS status code: {response.status_code}")
         print("response",response.json())
         
