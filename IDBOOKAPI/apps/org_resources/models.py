@@ -482,12 +482,12 @@ class UserNotification(models.Model):
         return self.user.email
 
 class MessageTemplate(models.Model):
-    temp_id = models.CharField(max_length=50, unique=True)
-    temp_description = models.CharField(max_length=255)
-    temp_message = models.TextField()
+    message_id = models.CharField(max_length=50, unique=True)
+    template_code = models.CharField(max_length=255)
+    template_message = models.TextField()
     
     def __str__(self):
-        return self.temp_description
+        return self.template_code
 
 class Subscription(models.Model):
     name = models.CharField(max_length=50)

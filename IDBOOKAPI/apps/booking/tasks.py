@@ -23,7 +23,7 @@ from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
     get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
 from apps.authentication.utils.db_utils import update_user_first_booking
-
+from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
     print("Initiated Booking Email Process")
@@ -244,5 +244,19 @@ def send_completed_booking_task(self, booking_id):
     except Exception as e:
         print('Completion Email Task Error:', e)
 
+@celery_idbook.task(bind=True)
+def send_booking_cancelled_sms_task(self, booking_id, refund_amount=0):
+    """Send SMS notification for cancelled booking"""
+    print("Inside booking cancelled SMS task")
+    try:
+        booking = get_booking(booking_id)
+        if booking and booking.user.mobile_number:
+            mobile_number = booking.user.mobile_number
+            template_code = "BOOKING_CANCEL"
 
+            variables_values = f"User|{booking.reference_code}|{refund_amount}"
+            print ("variables_values", variables_values)
+            send_template_sms(mobile_number, template_code, variables_values)
+    except Exception as e:
+        print(f'Booking Cancelled SMS Task Error: {e}')
 
