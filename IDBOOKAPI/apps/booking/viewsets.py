@@ -2174,7 +2174,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     "merchantId": merchant_id,
                     "merchantTransactionId": merchant_transaction_id,
                     "merchantUserId": user_id,
-                    "amount": amount * 100,
+                    "amount": int(amount) * 100,
                     "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
                     "redirectMode": "REDIRECT",
                     "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
