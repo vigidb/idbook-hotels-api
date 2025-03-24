@@ -114,8 +114,12 @@ class LoginSerializer(serializers.Serializer):
 
             user = get_group_based_user_details(grp, username)
             if user:
+                if not user.check_password(password):
+                    raise serializers.ValidationError('credentials_error')
+                
                 user.default_group = group_name
                 user.save()
+                
             
 ##            is_mb_valid = validate_mobile_number(username)
 ##            if is_mb_valid:
