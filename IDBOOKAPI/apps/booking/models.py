@@ -293,8 +293,9 @@ class Review(models.Model):
     property_review = models.JSONField(default=default_property_review_json)
     overall_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the booked service.")
 
-    agency_review = models.JSONField(default=default_agency_review_json)
-    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the agency.")
+    agency_review = models.JSONField(null=True, default=default_agency_review_json)
+    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2,
+                                                null=True, help_text="Overall rating for the agency.")
 
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the review was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the review was last updated.")
