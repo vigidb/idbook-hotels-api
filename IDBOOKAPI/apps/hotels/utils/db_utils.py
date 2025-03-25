@@ -49,8 +49,10 @@ def get_property_gallery(property_id):
     property_gallery = PropertyGallery.objects.filter(property_id=property_id, active=True)
     return property_gallery
 
-def get_room_gallery(room_id):
-    room_gallery = RoomGallery.objects.filter(room_id=room_id, active=True)
+def get_room_gallery(room_id, active=True):
+    room_gallery = RoomGallery.objects.filter(room_id=room_id)
+    if active is not None:
+        room_gallery = room_gallery.filter(active=active)
     return room_gallery
 
 def get_property_featured_image(property_id):

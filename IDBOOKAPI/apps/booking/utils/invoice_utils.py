@@ -49,6 +49,7 @@ def invoice_json_hotel_booking(hotel_booking):
         no_of_rooms = confirmed_room.get('no_of_rooms', 0)
         tax_in_percent = confirmed_room.get("tax_in_percent", None)
         total_room_amount = confirmed_room.get("total_room_amount", None)
+        total_tax_amount = confirmed_room.get("total_tax_amount", None)
         no_of_days = confirmed_room.get("no_of_days", None)
 
         name = f"{room_type}, {property_name}"
@@ -56,7 +57,8 @@ def invoice_json_hotel_booking(hotel_booking):
 No of Days:: {no_of_days} "
     
         item = { "name": name, "description": description, "quantity": no_of_rooms,
-                 "price": price, "amount": total_room_amount, "gst":tax_in_percent}
+                 "price": price, "amount": total_room_amount, "gst":tax_in_percent,
+                 "tax":total_tax_amount}
         items.append(item)
         
 
@@ -177,13 +179,13 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             
         
     elif customer_details:
-        address = customer_details.address if customer_details.address else 'NA'
-        country = customer_details.country if customer_details.country else 'NA'
-        state = customer_details.state if customer_details.state else 'NA'
-        pan = customer_details.pan_card_number if customer_details.pan_card_number else 'NA'
+        address = customer_details.address if customer_details.address else ''
+        country = customer_details.country if customer_details.country else ''
+        state = customer_details.state if customer_details.state else ''
+        pan = customer_details.pan_card_number if customer_details.pan_card_number else ''
         
         billed_to = { "name": customer_details.user.name, "address": address,
-                      "GSTIN": "NA", "PAN": customer_details.pan_card_number}
+                      "GSTIN": "", "PAN": customer_details.pan_card_number}
         supply_details = { "countryOfSupply": country,
                            "placeOfSupply": state}
 
@@ -197,8 +199,12 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
         if booking_type == 'HOTEL':
             if booking.hotel_booking:
                 item = invoice_json_hotel_booking(booking.hotel_booking)
+                if item and item[0]:
+                    gst = item[0].get('gst',0)
+                else:
+                    gst = 0
                 # below code need to change
-                gst =  18 #float(booking.gst_percentage)
+                #gst =  18 #float(booking.gst_percentage)
                 # set gst type
                 if is_same_state:
                     gst_type = "CGST/SGST"

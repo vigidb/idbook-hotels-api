@@ -1266,8 +1266,9 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     def list_media(self, request):
         self.log_request(request)
         room_id = self.request.query_params.get('room', None)
+        active = self.request.query_params.get('active', True)
         
-        room_gallery = hotel_db_utils.get_room_gallery(room_id)
+        room_gallery = hotel_db_utils.get_room_gallery(room_id, active=active)
         count, room_gallery = paginate_queryset(self.request,  room_gallery)
         serializer = RoomGallerySerializer(room_gallery, many=True)
         
@@ -1319,6 +1320,7 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             
         custom_response = self.get_response(
             data={},  # Use the data from the default response
+            status="success",
             message="Success",
             count=update_status,
             status_code=status.HTTP_200_OK,  # 200 for successful update
