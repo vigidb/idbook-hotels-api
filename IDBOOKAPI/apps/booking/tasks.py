@@ -23,6 +23,9 @@ from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
     get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
 from apps.authentication.utils.db_utils import update_user_first_booking
+from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
+from apps.authentication.models import User
+
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -244,5 +247,97 @@ def send_completed_booking_task(self, booking_id):
     except Exception as e:
         print('Completion Email Task Error:', e)
 
+@celery_idbook.task(bind=True)
+def send_booking_sms_task(self, notification_type='', params=None):
+    """
+    Send SMS notification for different types of events
+    
+    Args:
+        notification_type (str): Type of notification ('cancel', 'refund', 'wallet_recharge', etc.)
+        params (dict): Dictionary containing all parameters needed for the specific notification type
+    """
+    if params is None:
+        params = {}
 
+    print(f"Inside {notification_type} SMS task")
 
+    try:
+        if notification_type == 'cancel':
+            booking_id = params.get('booking_id')
+            refund_amount = params.get('refund_amount', 0)
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "BOOKING_CANCEL"
+                variables_values = f"User|{booking.reference_code}|{refund_amount}"
+                # variables_values = f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
+
+                print("variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+
+        elif notification_type == 'refund':
+            booking_id = params.get('booking_id')
+            refund_amount = params.get('refund_amount', 0)
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "PAYMENT_REFUND"
+                variables_values = f"User|{refund_amount}|{booking.reference_code}"
+                # variables_values = f"{booking.user.name}|{refund_amount}|{booking.reference_code}"
+
+                print("variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+
+        elif notification_type == 'wallet_recharge':
+            user_id = params.get('user_id')
+            recharge_amount = params.get('recharge_amount', 0)
+            wallet_balance = params.get('wallet_balance', 0)
+
+            if user_id:
+                user = User.objects.get(id=user_id)
+                if user and user.mobile_number:
+                    mobile_number = user.mobile_number
+                    template_code = "WALLET_RECHARGE_CONFIRMATION"
+                    variables_values = f"User|{recharge_amount}|{wallet_balance}"
+                    # variables_values = f"{user.name}|{recharge_amount}|{wallet_balance}"
+
+                    print("wallet recharge variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+
+        elif notification_type == 'wallet_deduction':
+            user_id = params.get('user_id')
+            deduct_amount = params.get('deduct_amount', 0)
+            wallet_balance = params.get('wallet_balance', 0)
+
+            if user_id:
+                user = User.objects.get(id=user_id)
+                if user and user.mobile_number:
+                    mobile_number = user.mobile_number
+                    template_code = "WALLET_DEDUCTION_CONFIRMATION"
+                    variables_values = f"User|{deduct_amount}|{wallet_balance}"
+
+                    print("wallet deduction variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+
+        elif notification_type == 'booking_confirmation':
+            booking_id = params.get('booking_id')
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "BOOKING_CONFIRMATION"
+
+                property_name = ""
+                if booking.hotel_booking and booking.hotel_booking.confirmed_property:
+                    property_name = booking.hotel_booking.confirmed_property.name
+
+                variables_values = f"User|{property_name}|{booking.reference_code}"
+                # variables_values = f"{booking.user.name}|{property_name}|{booking.reference_code}"
+
+                print("booking confirmation variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+
+    except Exception as e:
+        print(f'{notification_type} SMS Task Error: {e}')

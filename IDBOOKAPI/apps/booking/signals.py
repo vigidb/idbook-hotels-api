@@ -20,7 +20,8 @@ from apps.org_resources.utils.notification_utils import  wallet_booking_balance_
 from apps.org_managements.utils import get_active_business #get_business_by_name
 
 from apps.booking.utils.db_utils import(
-        get_property_based_review_count, get_property_rating_average)
+        get_property_based_review_count, get_property_rating_average,
+        check_booking_reference_code)
 from apps.hotels.utils.db_utils import update_property_review_details
 
 import time
@@ -95,12 +96,17 @@ def check_booking_status(sender, instance:Booking, **kwargs):
 	final_amount = instance.final_amount
 
 	# booking reference code
+	reference_code = ""
 	if not instance.reference_code:
-                instance.reference_code = generate_booking_reference_code(
-                        instance.id, instance.booking_type)
+                while True:
+                        reference_code = generate_booking_reference_code(
+                                instance.id, instance.booking_type)
+                        is_exist = check_booking_reference_code(reference_code)
+                        if not is_exist:
+                                break
+                instance.reference_code = reference_code
                 instance.save()
-	print("Booking Status::", booking_status)
-	print("cached status::", instance.cached_status)
+	
 	if booking_status != instance.cached_status:
 ##                if booking_status == 'confirmed' and not instance.confirmation_code:
 ##                        confirmation_code = generate_booking_confirmation_code(

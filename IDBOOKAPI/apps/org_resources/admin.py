@@ -70,9 +70,9 @@ admin.site.register(BankDetail, BankDetailAdmin)
 
 
 class MessageTemplateAdmin(admin.ModelAdmin):
-    list_display = ('temp_id', 'temp_description', 'temp_message')
-    search_fields = ('temp_id', 'temp_description')
-    list_editable = ('temp_description', 'temp_message')
+    list_display = ('message_id', 'template_code', 'template_message')
+    search_fields = ('message_id', 'template_code')
+    # list_editable = ('template_code', 'temp_message')
 
 admin.site.register(MessageTemplate, MessageTemplateAdmin) 
 
