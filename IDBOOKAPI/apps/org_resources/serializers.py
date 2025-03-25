@@ -6,7 +6,7 @@ from apps.authentication.models import User
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
-    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber
+    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription
 )
 from apps.org_resources import db_utils as org_res_db_utils
 from apps.org_managements import utils as org_mng_utils
@@ -212,4 +212,9 @@ class UserNotificationSerializer(serializers.ModelSerializer):
             ret['send_by'] = {'name':send_user.name, 'email':send_user.email,
                               'profile_pic':sender_profile_pic}
         return ret
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subscription
+        fields = '__all__'
 

@@ -36,6 +36,18 @@ def update_property_confirmed_booking():
     property_ids = list(Property.objects.values_list('id', flat=True))
     for pid in property_ids:
         process_property_confirmed_booking_total(pid)
+
+def check_property_coordinates():
+    objs = Property.objects.values(
+        'id','address__coordinates__lat', 'address__coordinates__lng').exclude(
+            address__coordinates__lat='', address__coordinates__lng='')
+    for obj in objs:
+        try:
+            s = float(obj.get('address__coordinates__lat'))
+            s1 = float(obj.get('address__coordinates__lng'))
+        except Exception as e:
+            print(e)
+            print(obj.get('id'))
         
     
     

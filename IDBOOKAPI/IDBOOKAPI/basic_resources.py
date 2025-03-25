@@ -44,6 +44,10 @@ ROOM_VIEW_CHOICES = (
     ('GARDEN VIEW', 'GARDEN VIEW'),
     ('HILL VIEW', 'HILL VIEW'),
     ('FOREST VIEW', 'FOREST VIEW'),
+    ('TERRACE VIEW', 'TERRACE VIEW'),
+    ('BALCONY VIEW', 'BALCONY VIEW'),
+    ('JUNGLE VIEW', 'JUNGLE VIEW'),
+    ('COURTYARD VIEW', 'COURTYARD VIEW'),
     ('NON VIEW', 'NON VIEW'),
     
 )
@@ -1261,7 +1265,12 @@ OTP_FOR_CHOICES = (
     ('VERIFY', 'VERIFY'),
     ('VERIFY-GUEST', 'VERIFY-GUEST'),
     ('OTHER', 'OTHER')
-)    
+)
+
+SUBSCRIPTION_TYPE = (
+    ('Monthly', 'Monthly'),
+    ('Yearly', 'Yearly')
+)
 
     
     

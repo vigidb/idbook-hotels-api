@@ -9,7 +9,7 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, RoomType, Occupancy, Enquiry, BankDetail,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
     TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
-    Subscriber
+    Subscriber, MessageTemplate
 )
 
 
@@ -67,6 +67,14 @@ class BankDetailAdmin(admin.ModelAdmin):
 
 
 admin.site.register(BankDetail, BankDetailAdmin)
+
+
+class MessageTemplateAdmin(admin.ModelAdmin):
+    list_display = ('temp_id', 'temp_description', 'temp_message')
+    search_fields = ('temp_id', 'temp_description')
+    list_editable = ('temp_description', 'temp_message')
+
+admin.site.register(MessageTemplate, MessageTemplateAdmin) 
 
 admin.site.register(Enquiry)
 admin.site.register(Subscriber)
