@@ -446,6 +446,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                                             'city_name', 'state', 'country',
 ##                                             'rating', 'status', 'current_page',
 ##                    is_slot_price_enabled                         'address')
+        if count == 0:
+            hotel_db_utils.save_unavailable_property_search(request.query_params)
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,

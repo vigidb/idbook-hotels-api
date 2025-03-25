@@ -3,8 +3,8 @@ from apps.hotels.models import (
     RoomGallery, FavoriteList, BlockedProperty)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
-from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations
-
+from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations, UnavailableProperty
+# from apps.hotels.serializers import UnavailablePropertySerializer
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
 from django.db.models import Count, Sum
@@ -663,11 +663,20 @@ def query_annotate():
 
 ##    for prop in property_obj:
 ##        print("id", prop.get('id'), "student count", prop.get('property_dynamic_pricing__student_count'))
+
     
+def save_unavailable_property_search(query_params):    
+    location = query_params.get('location', '')
+    property_search = query_params.get('property_search', '')
+
+    search_term = location or property_search
+    search_term = search_term.strip()
     
-    
-    
-    
+    if search_term:
+        UnavailableProperty.objects.create(
+            search_term=search_term,
+            full_params=dict(query_params)
+        )
 
     
 

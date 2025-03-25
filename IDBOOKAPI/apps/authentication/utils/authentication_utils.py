@@ -116,9 +116,20 @@ def email_generate_otp_process(otp, to_email, otp_for):
     send_email_task.apply_async(args=[otp, [to_email]])
 
 def mobile_generate_otp_process(otp, mobile_number, otp_for):
+    from apps.booking.tasks import send_booking_sms_task
     # otp create
     db_utils.create_mobile_otp(otp, mobile_number, otp_for)
-    send_mobile_otp_task.apply_async(args=[otp, mobile_number])
+    # send_mobile_otp_task.apply_async(args=[otp, mobile_number])
+    send_booking_sms_task.apply_async(
+        kwargs={
+            'notification_type': 'otp',
+            'params': {
+                'mobile_number': mobile_number,
+                'otp': otp,
+                'otp_for': otp_for
+            }
+        }
+    )
 
 
 def validate_google_token(id_token):
