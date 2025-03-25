@@ -25,3 +25,7 @@ class TopDestinations(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     
+class UnavailableProperty(models.Model):
+    search_term = models.CharField(max_length=255)
+    full_params = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

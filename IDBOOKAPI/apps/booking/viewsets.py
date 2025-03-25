@@ -1734,6 +1734,16 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             booking_payment_detail.payment_medium = "Idbook"
             booking_payment_detail.is_transaction_success = False
             booking_payment_detail.save()
+            send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'payment_failed',
+                        'params': {
+                            'booking_id': instance.id,
+                            'failed_amount': float(instance.final_amount),
+                            'payment_purpose': 'Hotel Booking'
+                        }
+                    }
+                )
             
             custom_response = self.get_error_response(
                 message="Error in wallet deduction; Please make sure wallet has sufficient fund",
@@ -1769,6 +1779,15 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         process_property_confirmed_booking_total(property_id)
         
         create_invoice_task.apply_async(args=[booking_id])
+        send_booking_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'booking_confirmation',
+                'params': {
+                    'booking_id': booking_id
+                }
+            }
+        )
+        print(f"Booking confirmation SMS scheduled for booking {booking_id}")
             
         custom_response = self.get_response(
             status='success', data=None,
@@ -2252,6 +2271,17 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                                                               errors=[],error_code="PAYMENT_ERROR",
                                                           status_code=status.HTTP_400_BAD_REQUEST)
                     create_booking_payment_log(booking_payment_log)
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'payment_failed',
+                            'params': {
+                                'booking_id': booking_id,
+                                'failed_amount': float(amount),
+                                'payment_purpose': 'Hotel Booking'  # Dynamic based on context
+                            }
+                        }
+                    )
+                    print(f"Payment failed SMS scheduled for booking {booking_id}")
                     return custom_response
 
 
@@ -2339,6 +2369,19 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             update_booking_payment_details(merchant_transaction_id, booking_payment_details)
             booking_id = get_booking_from_payment(merchant_transaction_id)
             booking_payment_log['booking_id'] = booking_id
+
+            if code == "PAYMENT_ERROR":
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'payment_failed',
+                        'params': {
+                            'booking_id': booking_id,
+                            'failed_amount': amount,
+                            'payment_purpose': 'Hotel Booking'
+                        }
+                    }
+                )
+
             if code == "PAYMENT_SUCCESS":
                 self.set_booking_as_confirmed(booking_id, amount)
                 send_booking_sms_task.apply_async(
@@ -2350,6 +2393,18 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     }
                 )
                 print(f"Booking confirmation SMS scheduled for booking {booking_id}")
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'payment_processed',
+                        'params': {
+                            'booking_id': booking_id,
+                            'amount': float(amount),
+                            'payment_purpose': 'Hotel Booking',
+                            'transaction_id': transaction_id
+                        }
+                    }
+                )
+                print(f"Payment processed SMS scheduled for booking {booking_id}")
 
 
             custom_response = self.get_response(

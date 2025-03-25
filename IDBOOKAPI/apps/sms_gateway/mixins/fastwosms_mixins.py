@@ -31,7 +31,7 @@ def get_message_template_by_code(template_code):
 
     try:
         template = MessageTemplate.objects.get(template_code=template_code)
-        return template.message_id, template.template_message
+        return template.message_id
     except MessageTemplate.DoesNotExist:
         print(f"Message template with code {template_code} not found")
         return None, None
@@ -40,8 +40,8 @@ def send_template_sms(mobile_number, template_code, variables_values):
 
     try:
         # Get message_id from template code
-        message_id, _ = get_message_template_by_code(template_code)
-        
+        message_id = get_message_template_by_code(template_code)
+        print("message_id", message_id)
         if not message_id:
             print(f"Failed to get message_id for template_code {template_code}")
             return None
@@ -61,11 +61,13 @@ def send_template_sms(mobile_number, template_code, variables_values):
         response = requests.request("POST", sms_url, data=payload, headers=headers)
         print(f"Template SMS status code: {response.status_code}")
         print("response",response.json())
+        otp_related_templates = ['LOGIN_OTP', 'VERIFY_OTP', 'SIGNUP_OTP']
         
-        # SmsOtpLog.objects.create(
-        #     mobile_number=mobile_number,
-        #     response=response.json()
-        # )
+        if template_code in otp_related_templates and response.status_code != 200:
+            SmsOtpLog.objects.create(
+                mobile_number=mobile_number,
+                response=response.json()
+            )
         
         return response
     except Exception as e:

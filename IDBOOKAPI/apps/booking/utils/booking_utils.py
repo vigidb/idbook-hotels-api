@@ -657,7 +657,7 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
         booking_payment = BookingPaymentDetail.objects.create(
             booking=instance,
             merchant_transaction_id=merchant_refund_id,
-            transaction_id=merchant_refund_id,
+            transaction_id='',
             code='REFUND_SUCCESS',
             message='Refund processed successfully',
             payment_type='WALLET',
