@@ -33,13 +33,11 @@ from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status
 from apps.analytics.utils.db_utils import create_or_update_property_count
-
 from rest_framework.decorators import action
 
 from django.db.models import Q
 
 from datetime import datetime
-
 from functools import reduce
 import traceback
 
@@ -884,7 +882,6 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             message="Location List", status_code=status.HTTP_200_OK)
         return response
         
-
 
 class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Gallery.objects.all()

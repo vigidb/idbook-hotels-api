@@ -1733,6 +1733,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             booking_payment_detail.payment_type = "WALLET"
             booking_payment_detail.payment_medium = "Idbook"
             booking_payment_detail.is_transaction_success = False
+            booking_payment_detail.transaction_for = "booking_confirmed"
             booking_payment_detail.save()
             send_booking_sms_task.apply_async(
                     kwargs={
@@ -1773,6 +1774,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         booking_payment_detail.payment_medium = "Idbook"
         booking_payment_detail.amount = instance.final_amount
         booking_payment_detail.is_transaction_success = True
+        booking_payment_detail.transaction_for = "booking_confirmed"
         booking_payment_detail.save()
 
         # update total no of confirmed booking for a property
@@ -2361,7 +2363,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_payment_details = {
                 "transaction_id": transaction_id, "code": code,
                 "message":message, "payment_type": "PAYMENT GATEWAY",
-                "payment_medium": "PHONE PAY", "amount": amount, "transaction_details": sub_json_data}
+                "payment_medium": "PHONE PAY", "amount": amount, "transaction_details": sub_json_data, "transaction_for": "booking_confirmed"}
 
             if code == "PAYMENT_SUCCESS":
                 booking_payment_details["is_transaction_success"] = True
