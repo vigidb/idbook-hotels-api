@@ -33,14 +33,11 @@ from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status
 from apps.analytics.utils.db_utils import create_or_update_property_count
-from apps.booking.models import HotelBooking
 from rest_framework.decorators import action
 
 from django.db.models import Q
 
-from datetime import datetime, timedelta
-import pytz
-from django.db.models import Count, Sum
+from datetime import datetime
 from functools import reduce
 import traceback
 
@@ -885,113 +882,6 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             message="Location List", status_code=status.HTTP_200_OK)
         return response
         
-    @action(detail=True, methods=['GET'], url_path='stats',
-            url_name='stats', permission_classes=[IsAuthenticated])
-    def get_property_stats(self, request, pk=None):
-        # Validate input parameters
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-        print(f"Property ID: {pk}")
-        print(f"Start Date: {start_date}, End Date: {end_date}")
-        
-        if not start_date or not end_date:
-            return Response({'error': 'Start date and end date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            india_tz = pytz.timezone('Asia/Kolkata')
-            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-            
-            # Convert dates to datetime with timezone
-            start_datetime = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=india_tz)
-            end_datetime = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=india_tz)
-            
-            print("start_date, end_date", start_date, end_date)
-        except ValueError:
-            return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        today = datetime.now(india_tz).date()
-        print("___today", today)
-        week_start = today - timedelta(days=today.weekday())
-        month_start = today.replace(day=1)
-        
-        # Fetch bookings with flexible date filtering
-        bookings = HotelBooking.objects.filter(
-            confirmed_property_id=pk,
-            confirmed_checkin_time__range=(start_datetime, end_datetime)
-        )
-        
-        # Detailed logging
-        print(f"Filtered Bookings Count: {bookings.count()}")
-        
-        # # Print out booking details to understand filtering
-        # for booking in bookings:
-        #     print(f"Booking ID: {booking.id}")
-        #     print(f"Confirmed Checkin Time (Original): {booking.confirmed_checkin_time}")
-        #     print(f"Confirmed Checkin Time (Localized): {booking.confirmed_checkin_time.astimezone(india_tz)}")
-        #     print(f"Property ID: {booking.confirmed_property_id}")
-        #     print("---")
-        
-        # Prepare filters
-        property_id = pk
-        date_range_filter = Q(confirmed_checkin_time__date__gte=start_date, 
-                              confirmed_checkin_time__date__lte=end_date)
-        today_filter = Q(confirmed_checkin_time__date=today)
-        week_filter = Q(confirmed_checkin_time__date__gte=week_start, 
-                        confirmed_checkin_time__date__lte=today)
-        month_filter = Q(confirmed_checkin_time__date__gte=month_start, 
-                         confirmed_checkin_time__date__lte=today)
-        
-        # Compile statistics
-        stats = {
-            'date_range_stats': self._get_booking_stats(bookings, date_range_filter),
-            'today_stats': self._get_booking_stats(bookings, today_filter),
-            'week_stats': self._get_booking_stats(bookings, week_filter),
-            'month_stats': self._get_booking_stats(bookings, month_filter)
-        }
-        
-        return Response(stats)
-
-    def _get_booking_stats(self, bookings, filter_condition):
-        filtered_bookings = bookings.filter(filter_condition)
-        status_counts = filtered_bookings.values('booking__status').annotate(count=Count('id'))
-        status_dict = {item['booking__status']: item['count'] for item in status_counts}
-        
-        room_stats = {
-            'total_bookings': filtered_bookings.count(),
-            'booked_rooms': filtered_bookings.aggregate(total_rooms=Sum('requested_room_no'))['total_rooms'] or 0,
-            'booking_status': {
-                'pending': status_dict.get('pending', 0),
-                'confirmed': status_dict.get('confirmed', 0),
-                'cancelled': status_dict.get('cancelled', 0),
-                'completed': status_dict.get('completed', 0)
-            }
-        }
-        
-        checkin_stats = filtered_bookings.filter(booking__is_checkin=True).count()
-        checkout_stats = filtered_bookings.filter(booking__is_checkout=True).count()
-        revenue_stats = filtered_bookings.aggregate(total_revenue=Sum('booking__final_amount'))
-        
-        complete_stats = {
-            **room_stats,
-            'checkins': checkin_stats,
-            'checkouts': checkout_stats,
-            'total_revenue': float(revenue_stats['total_revenue'] or 0),
-            'occupancy_rate': self._calculate_occupancy_rate(filtered_bookings)
-        }
-        
-        return complete_stats
-
-    def _calculate_occupancy_rate(self, bookings):
-        try:
-            property_obj = Property.objects.get(id=bookings.first().confirmed_property_id)
-            total_rooms = property_obj.total_rooms
-            booked_rooms = bookings.aggregate(total_booked=Sum('requested_room_no'))['total_booked'] or 0
-            occupancy_rate = (booked_rooms / total_rooms) * 100 if total_rooms > 0 else 0
-            return round(occupancy_rate, 2)
-        except:
-            return 0
-
 
 class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Gallery.objects.all()
