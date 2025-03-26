@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from django.db.models import Count, Sum, Q
 import pytz
-from apps.booking.models import Booking
+from apps.booking.models import Booking, BookingMetaInfo
 from apps.hotels.models import Property
 
 def property_checkin_count(property_id, date=None, start_date=None, end_date=None):
@@ -62,17 +62,45 @@ def get_property_revenue(property_id, date=None, start_date=None, end_date=None)
         
 def get_booking_stats(property_id, filter_condition, start_date=None, end_date=None):
     bookings = Booking.objects.filter(hotel_booking__confirmed_property_id=property_id).filter(filter_condition)
+    
+    # Status counts from Booking model
     status_counts = bookings.values('status').annotate(count=Count('id'))
     status_dict = {item['status']: item['count'] for item in status_counts}
     
+    # Get meta info for bookings within the filter condition
+    meta_bookings = BookingMetaInfo.objects.filter(
+        booking__hotel_booking__confirmed_property_id=property_id,
+        booking_created_date__date__gte=start_date,
+        booking_created_date__date__lte=end_date
+    )
+
+    # Counting meta info bookings by their states
+    meta_status_counts = {
+        'booking_created': meta_bookings.filter(booking_created_date__isnull=False).count(),
+        'booking_confirmed': meta_bookings.filter(booking_confirmed_date__isnull=False).count(),
+        'booking_cancelled': meta_bookings.filter(booking_cancelled_date__isnull=False).count(),
+        'booking_completed': meta_bookings.filter(booking_completed_date__isnull=False).count(),
+    }
+
+    # Construct room stats
     room_stats = {
         'total_bookings': bookings.count(),
         'booked_rooms': bookings.aggregate(total_rooms=Sum('hotel_booking__requested_room_no'))['total_rooms'] or 0,
+        
+        # Booking status from Booking model
         'booking_status': {
             'pending': status_dict.get('pending', 0),
             'confirmed': status_dict.get('confirmed', 0),
             'cancelled': status_dict.get('canceled', 0),
             'completed': status_dict.get('completed', 0)
+        },
+        
+        # Additional meta info booking counts
+        'booking_done_status': {
+            'booking_created': meta_status_counts['booking_created'],
+            'booking_confirmed': meta_status_counts['booking_confirmed'],
+            'booking_cancelled': meta_status_counts['booking_cancelled'],
+            'booking_completed': meta_status_counts['booking_completed'],
         }
     }
 

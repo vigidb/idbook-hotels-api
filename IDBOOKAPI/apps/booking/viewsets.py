@@ -15,7 +15,7 @@ from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
-from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
+from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail, BookingMetaInfo)
 
 from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task, send_booking_sms_task
 from apps.booking.utils.db_utils import (
@@ -577,6 +577,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.hotel_booking.save()
         instance.status = 'canceled'
         instance.save()
+        instance.meta_info.booking_cancelled_date = datetime.now()
+        instance.meta_info.save()
         print ("\n\n\ncancellation_details", cancellation_details)        
         
         if not payment_details or refund_amount <= 0:
@@ -852,6 +854,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             
             if booking.is_checkin and booking.is_checkout:
                 booking.status = 'completed'
+                booking.meta_info.booking_completed_date = datetime.now()
+                booking.meta_info.save()
                 booking.save()
                 
                 print("Triggering send_completed_booking_task for booking_id:", booking.id)
@@ -1535,7 +1539,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
-            
+                BookingMetaInfo.objects.create(booking=booking, booking_created_date=datetime.now())
                 booking_status_message = ""
                 if booking_id and booking_status == "on_hold":
                     # check the room availability before locking
@@ -1767,6 +1771,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.total_payment_made = instance.final_amount
         instance.status = 'confirmed'      
         instance.save()
+        instance.meta_info.booking_confirmed_date = datetime.now()
+        instance.meta_info.save()
 
         booking_payment_detail.code = "PAYMENT_SUCCESS"
         booking_payment_detail.message = "Your payment is successful."
@@ -2318,6 +2324,8 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking.total_payment_made = amount
             booking.status = 'confirmed'
             booking.save()
+            booking.meta_info.booking_confirmed_date = datetime.now()
+            booking.meta_info.save()
 
             # update property confirmed booking count
             property_id = booking.hotel_booking.confirmed_property_id
