@@ -13,7 +13,7 @@ from .models import (Property, Gallery, Room, Rule,
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
-    DynamicRoomPricing, TopDestinations)
+    DynamicRoomPricing, TopDestinations, TrendingPlaces)
 
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
@@ -467,5 +467,31 @@ class PropertyLandmarkSerializer(serializers.ModelSerializer):
         model = PropertyLandmark
         fields = ['id', 'property', 'landmark', 'distance']
     
+class TrendingPlacesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrendingPlaces
+        fields = ('id', 'location_name', 'display_name', 
+                  'media', 'no_of_hotels', 'active')
+    
+    def create(self, validated_data):
+        location_name = validated_data.get('location_name')
+        total_count = get_property_count_by_location(location_name)
+        trending_place_instance = TrendingPlaces(**validated_data)
+        trending_place_instance.no_of_hotels = total_count
+        trending_place_instance.save()
+        return trending_place_instance
+    
+    def update(self, instance, validated_data):
+        location_name = validated_data.get('location_name', '')
+        total_count = get_property_count_by_location(location_name)
+        validated_data['no_of_hotels'] = total_count
+        instance = super(TrendingPlacesSerializer, self).update(
+             instance, validated_data)
+        return instance
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance:
+            representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        return representation
 
