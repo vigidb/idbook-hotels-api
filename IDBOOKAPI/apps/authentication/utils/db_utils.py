@@ -90,6 +90,18 @@ def get_user_otp_details(email, mobile_number, otp):
         otp=otp, otp_for='SIGNUP').filter(
             Q(user_account=email)|Q(user_account=mobile_number)).first()
     return user_otp_detail
+
+def check_email_otp(email, otp, otp_for):
+    user_otp = UserOtp.objects.filter(
+        user_account=email, otp=otp,
+        otp_for=otp_for).first()
+    return user_otp
+
+def check_mobile_otp(mobile_number, otp, otp_for):
+    user_otp = UserOtp.objects.filter(
+        user_account=mobile_number, otp=otp,
+        otp_for=otp_for).first()
+    return user_otp
     
     
     

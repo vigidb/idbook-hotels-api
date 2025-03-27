@@ -32,7 +32,9 @@ from apps.booking.utils.booking_utils import (
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
 
-from apps.hotels.utils.db_utils import get_property_room_for_booking # need to remove
+from apps.hotels.utils.db_utils import (
+    get_property_room_for_booking, # need to remove
+    get_property_by_id)
 from apps.hotels.utils.hotel_utils import (
     check_room_count, total_room_count,
     process_property_confirmed_booking_total,
@@ -977,6 +979,25 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
         confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
 
+        property_obj = get_property_by_id(property_id)
+        if not property_obj:
+            custom_response = self.get_error_response(
+                message="Invalid property", status="error",
+                errors=[],error_code="PROPERTY_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+##        min_nights = property_obj.minimum_no_of_nights
+##        max_nights = property_obj.maximum_no_of_nights
+##
+##        if min_nights > no_days or no_days > max_nights:
+##            custom_response = self.get_error_response(
+##                message="Minimum or Maximum night constraint failed", status="error",
+##                errors=[],error_code="MIN_MAX_NIGHT_ERROR",
+##                status_code=status.HTTP_400_BAD_REQUEST)
+##            return custom_response
+            
+            
         # no_of_days = self.no_of_days
         if self.no_of_days == 0:
             self.no_of_days = 1
@@ -1121,6 +1142,24 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         
         confirmed_checkin_time = request.data.get('confirmed_checkin_time', None)
         confirmed_checkout_time = request.data.get('confirmed_checkout_time', None)
+
+        property_obj = get_property_by_id(property_id)
+        if not property_obj:
+            custom_response = self.get_error_response(
+                message="Invalid property", status="error",
+                errors=[],error_code="PROPERTY_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+##        min_nights = property_obj.minimum_no_of_nights
+##        max_nights = property_obj.maximum_no_of_nights
+##
+##        if min_nights > no_days or no_days > max_nights:
+##            custom_response = self.get_error_response(
+##                message="Minimum or Maximum night constraint failed", status="error",
+##                errors=[],error_code="MIN_MAX_NIGHT_ERROR",
+##                status_code=status.HTTP_400_BAD_REQUEST)
+##            return custom_response
 
         # no_of_days = self.no_of_days
         if self.no_of_days == 0:
