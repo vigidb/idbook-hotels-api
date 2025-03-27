@@ -1,9 +1,9 @@
 from .__init__ import *
 
 from apps.hotels.models import PolicyDetails, Property, PropertyLandmark
-from apps.hotels.serializers import PolicySerializer, TopDestinationsSerializer, PropertyLandmarkSerializer
-from apps.hotels.submodels.related_models import TopDestinations
-from apps.hotels.utils.db_utils import get_property_count_by_location, is_top_destination_exist
+from apps.hotels.serializers import PolicySerializer, TopDestinationsSerializer, PropertyLandmarkSerializer, TrendingPlacesSerializer
+from apps.hotels.submodels.related_models import TopDestinations, TrendingPlaces
+from apps.hotels.utils.db_utils import get_property_count_by_location, is_top_destination_exist, is_trending_place_exist
 from decimal import Decimal
 
 class PropertyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -429,4 +429,104 @@ class PropertyLandmarkViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
             )
             
         self.log_response(custom_response)
+        return custom_response
+
+class TrendingPlacesViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = TrendingPlaces.objects.all()
+    serializer_class = TrendingPlacesSerializer
+    
+    permission_classes_by_action = {
+        'create': [IsAuthenticated], 
+        'update': [IsAuthenticated],
+        'partial_update': [IsAuthenticated],
+        'destroy': [IsAuthenticated], 
+        'list': [AllowAny], 
+        'retrieve': [AllowAny]
+    }
+
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            return [permission() for permission in self.permission_classes]
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+
+        location_name = request.data.get('location_name', '')
+        if location_name:
+            is_exist = is_trending_place_exist(location_name)
+            if is_exist:
+                response = self.get_error_response(
+                    message="Location already exists", status="error",
+                    errors=[], error_code="LOCATION_EXIST",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return response
+
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            response = super().create(request, *args, **kwargs)
+            custom_response = self.get_response(
+                data=response.data,
+                count=1,
+                status="success",
+                message="Trending Place Created",
+                status_code=status.HTTP_201_CREATED,
+            )
+        else:
+            serializer_errors = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=serializer_errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.log_response(custom_response)
+        return custom_response
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            self.queryset = self.queryset.filter(active=active)
+        
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
+
+        trending_places_dict = self.queryset.values(
+            'id', 'location_name', 'display_name', 'media', 
+            'no_of_hotels', 'active'
+        )        
+
+        data = {
+            "base_url": f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/",
+            "trending_places": trending_places_dict
+        }
+        
+        custom_response = self.get_response(
+            count=count,
+            data=data,
+            message="Trending Places Retrieved",
+            status_code=status.HTTP_200_OK,  
+        )
+        return custom_response
+
+    @action(detail=False, methods=['PATCH'], url_path='total-hotels', 
+        url_name='total-hotels', permission_classes=[IsAuthenticated])
+    def update_total_hotels(self, request):
+        trending_places_objs = self.queryset.filter(active=True)
+
+        for trending_place_obj in trending_places_objs:
+            location_name = trending_place_obj.location_name
+            total_count = get_property_count_by_location(location_name)  # Fetch hotel count
+            trending_place_obj.no_of_hotels = total_count
+            trending_place_obj.save()
+
+        custom_response = self.get_response(
+            data=[], count=0, status="success",
+            message="Total count updated",
+            status_code=status.HTTP_200_OK,
+        )
         return custom_response
