@@ -4,8 +4,8 @@ from IDBOOKAPI.email_utils import (
     send_otp_email, send_signup_link_email, send_welcome_email)
 from django.template.loader import get_template
 from apps.sms_gateway.mixins.fastwosms_mixins import Fast2SmsMixin
-from apps.log_management.models import SmsOtpLog
-
+from apps.log_management.models import SmsOtpLog, SmsNotificationLog
+from IDBOOKAPI.basic_resources import SMS_TYPES_CHOICES
 
 @celery_idbook.task(bind=True)
 def send_email_task(self, otp, to_emails):
@@ -17,15 +17,22 @@ def send_email_task(self, otp, to_emails):
     send_otp_email(otp, to_emails, template=html_content)
 
 @celery_idbook.task(bind=True)
-def send_mobile_otp_task(self, otp, mobile_number):
+def send_mobile_otp_task(self, otp, mobile_number, otp_for=''):
     try:
         print("otp::", otp, "mobile_number::", mobile_number)
+        template_code = 'VERIFY' if otp_for == 'VERIFY-GUEST' else otp_for
         obj = Fast2SmsMixin()
-        response = obj.post_dlt_otpsms(mobile_number, otp)
-        SmsOtpLog.objects.create(mobile_number=mobile_number, response=response.json())
+        response = obj.post_dlt_otpsms(mobile_number, otp, template_code)
+        if response.status_code != 200:
+            SmsOtpLog.objects.create(mobile_number=mobile_number, response=response.json())
+            SmsNotificationLog.objects.create(
+                mobile_number=mobile_number, 
+                sms_for=template_code if template_code in dict(SMS_TYPES_CHOICES) else 'other',
+                response=response.json()
+            )
     except Exception as e:
         print(e)
-    
+
 
 @celery_idbook.task(bind=True)
 def customer_signup_link_task(self, signup_link, name, to_emails):

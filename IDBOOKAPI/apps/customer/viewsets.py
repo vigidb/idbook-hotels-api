@@ -497,7 +497,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                     create_wallet_payment_log(payment_log)
                     send_booking_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'payment_failed',
+                            'notification_type': 'PAYMENT_FAILED_INFO',
                             'params': {
                                 'user_id': user.id,
                                 'failed_amount': float(amount),
@@ -584,7 +584,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                             print("recharge_amount, mobile_number,user_id ", amount, user.mobile_number, user_id)
                             send_booking_sms_task.apply_async(
                                 kwargs={
-                                    'notification_type': 'wallet_recharge',
+                                    'notification_type': 'WALLET_RECHARGE_CONFIRMATION',
                                     'params': {
                                         'user_id': user_id,
                                         'recharge_amount': amount,
@@ -607,7 +607,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                 if code == "PAYMENT_ERROR" and user_id:
                     send_booking_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'payment_failed',
+                            'notification_type': 'PAYMENT_FAILED_INFO',
                             'params': {
                                 'user_id': user_id,
                                 'failed_amount': float(amount),
