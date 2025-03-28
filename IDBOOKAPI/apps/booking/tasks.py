@@ -262,35 +262,35 @@ def send_booking_sms_task(self, notification_type='', params=None):
     print(f"Inside {notification_type} SMS task")
 
     try:
-        if notification_type == 'cancel':
+        if notification_type == 'HOTEL_BOOKING_CANCEL':
             booking_id = params.get('booking_id')
             refund_amount = params.get('refund_amount', 0)
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
                 mobile_number = booking.user.mobile_number
-                template_code = "BOOKING_CANCEL"
+                template_code = "HOTEL_BOOKING_CANCEL"
                 # variables_values = f"User|{booking.reference_code}|{refund_amount}"
                 variables_values = f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'refund':
+        elif notification_type == 'HOTEL_PAYMENT_REFUND':
             booking_id = params.get('booking_id')
             refund_amount = params.get('refund_amount', 0)
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
                 mobile_number = booking.user.mobile_number
-                template_code = "PAYMENT_REFUND"
+                template_code = "HOTEL_PAYMENT_REFUND"
                 # variables_values = f"User|{refund_amount}|{booking.reference_code}"
                 variables_values = f"{booking.user.name}|{refund_amount}|{booking.reference_code}"
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'wallet_recharge':
+        elif notification_type == 'WALLET_RECHARGE_CONFIRMATION':
             user_id = params.get('user_id')
             recharge_amount = params.get('recharge_amount', 0)
             wallet_balance = params.get('wallet_balance', 0)
@@ -306,7 +306,7 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     print("wallet recharge variables_values", variables_values)
                     send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'wallet_deduction':
+        elif notification_type == 'WALLET_DEDUCTION_CONFIRMATION':
             user_id = params.get('user_id')
             deduct_amount = params.get('deduct_amount', 0)
             wallet_balance = params.get('wallet_balance', 0)
@@ -317,18 +317,18 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     mobile_number = user.mobile_number
                     template_code = "WALLET_DEDUCTION_CONFIRMATION"
                     # variables_values = f"User|{deduct_amount}|{wallet_balance}"
-                    variables_values = f"{user.name}|{recharge_amount}|{wallet_balance}"
+                    variables_values = f"{user.name}|{deduct_amount}|{wallet_balance}"
 
                     print("wallet deduction variables_values", variables_values)
                     send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'booking_confirmation':
+        elif notification_type == 'HOTEL_BOOKING_CONFIRMATION':
             booking_id = params.get('booking_id')
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
                 mobile_number = booking.user.mobile_number
-                template_code = "BOOKING_CONFIRMATION"
+                template_code = "HOTEL_BOOKING_CONFIRMATION"
 
                 property_name = ""
                 if booking.hotel_booking and booking.hotel_booking.confirmed_property:
@@ -340,7 +340,7 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 print("booking confirmation variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'payment_failed':
+        elif notification_type == 'PAYMENT_FAILED_INFO':
             booking_id = params.get('booking_id', None)
             user_id = params.get('user_id', None)
             failed_amount = params.get('failed_amount', 0)
@@ -374,7 +374,7 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 print("payment failed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'payment_processed':
+        elif notification_type == 'PAYMENT_PROCEED_INFO':
             booking_id = params.get('booking_id', None)
             user_id = params.get('user_id', None)
             amount = params.get('amount', 0)
@@ -407,23 +407,17 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 print("payment processed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
 
-        elif notification_type == 'otp':
-            mobile_number = params.get('mobile_number')
-            otp = params.get('otp')
-            otp_for = params.get('otp_for')
+        # elif notification_type == 'otp':
+        #     mobile_number = params.get('mobile_number')
+        #     otp = params.get('otp')
+        #     otp_for = params.get('otp_for')
 
-            template_codes = {
-                'VERIFY': 'VERIFY_OTP',
-                'SIGNUP': 'SIGNUP_OTP',
-                'LOGIN': 'LOGIN_OTP'
-            }
-            
-            template_code = template_codes.get(otp_for, '')
+        #     template_code = 'VERIFY' if otp_for == 'VERIFY-GUEST' else otp_for
 
-            variables_values = f"User|{otp}"
+        #     variables_values = f"User|{otp}"
 
-            print(f"OTP {otp_for} variables_values", variables_values)
-            send_template_sms(mobile_number, template_code, variables_values)
+        #     print(f"OTP {otp_for} variables_values", variables_values)
+        #     send_template_sms(mobile_number, template_code, variables_values)
 
     except Exception as e:
         print(f'{notification_type} SMS Task Error: {e}')

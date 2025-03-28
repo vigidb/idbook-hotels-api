@@ -1274,5 +1274,17 @@ SUBSCRIPTION_TYPE = (
     ('Yearly', 'Yearly')
 )
 
-    
+SMS_TYPES_CHOICES = [
+    ('HOTEL_BOOKING_CANCEL', 'Hotel Booking Cancellation'),
+    ('HOTEL_PAYMENT_REFUND', 'Hotel Payment Refund'),
+    ('WALLET_RECHARGE_CONFIRMATION', 'Wallet Recharge Confirmation'),
+    ('WALLET_DEDUCTION_CONFIRMATION', 'Wallet Deduction Confirmation'),
+    ('HOTEL_BOOKING_CONFIRMATION', 'Hotel Booking Confirmation'),
+    ('PAYMENT_FAILED_INFO', 'Payment Failed Information'),
+    ('PAYMENT_PROCEED_INFO', 'Payment Proceed Information'),
+    ('VERIFY', 'Verify OTP'),
+    ('SIGNUP', 'Signup OTP'),
+    ('LOGIN', 'Login OTP'),
+    ('other', 'Other Notification')
+] 
     

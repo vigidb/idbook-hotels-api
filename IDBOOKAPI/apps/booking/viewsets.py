@@ -439,7 +439,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         send_cancelled_booking_task.apply_async(args=[instance.id])
         send_booking_sms_task.apply_async(
             kwargs={
-                'notification_type': 'cancel',
+                'notification_type': 'HOTEL_BOOKING_CANCEL',
                 'params': {
                     'booking_id': instance.id,
                     'refund_amount': float(refund_amount) if refund_amount > 0 else 0
@@ -452,7 +452,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         print("refund SMS notification called")
         send_booking_sms_task.apply_async(
             kwargs={
-                'notification_type': 'refund',
+                'notification_type': 'HOTEL_PAYMENT_REFUND',
                 'params': {
                     'booking_id': instance.id,
                     'refund_amount': float(refund_amount)
@@ -1720,7 +1720,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             try:
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'wallet_deduction',
+                        'notification_type': 'WALLET_DEDUCTION_CONFIRMATION',
                         'params': {
                             'user_id': instance.user.id,
                             'deduct_amount': float(instance.final_amount),
@@ -1741,7 +1741,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             booking_payment_detail.save()
             send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'payment_failed',
+                        'notification_type': 'PAYMENT_FAILED_INFO',
                         'params': {
                             'booking_id': instance.id,
                             'failed_amount': float(instance.final_amount),
@@ -1789,7 +1789,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         create_invoice_task.apply_async(args=[booking_id])
         send_booking_sms_task.apply_async(
             kwargs={
-                'notification_type': 'booking_confirmation',
+                'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
                 'params': {
                     'booking_id': booking_id
                 }
@@ -2281,7 +2281,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     create_booking_payment_log(booking_payment_log)
                     send_booking_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'payment_failed',
+                            'notification_type': 'PAYMENT_FAILED_INFO',
                             'params': {
                                 'booking_id': booking_id,
                                 'failed_amount': float(amount),
@@ -2383,7 +2383,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             if code == "PAYMENT_ERROR":
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'payment_failed',
+                        'notification_type': 'PAYMENT_FAILED_INFO',
                         'params': {
                             'booking_id': booking_id,
                             'failed_amount': amount,
@@ -2396,7 +2396,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 self.set_booking_as_confirmed(booking_id, amount)
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'booking_confirmation',
+                        'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
                         'params': {
                             'booking_id': booking_id
                         }
@@ -2405,7 +2405,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 print(f"Booking confirmation SMS scheduled for booking {booking_id}")
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'payment_processed',
+                        'notification_type': 'PAYMENT_PROCEED_INFO',
                         'params': {
                             'booking_id': booking_id,
                             'amount': float(amount),

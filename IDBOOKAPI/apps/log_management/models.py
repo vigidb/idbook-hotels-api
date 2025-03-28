@@ -3,6 +3,7 @@ from apps.booking.models import Booking
 
 from apps.authentication.models import User
 from apps.org_resources.models import CompanyDetail
+from IDBOOKAPI.basic_resources import SMS_TYPES_CHOICES
 
 # Create your models here.
 
@@ -91,5 +92,13 @@ class SmsOtpLog(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     
-    
+class SmsNotificationLog(models.Model):
+    mobile_number = models.CharField(max_length=20)
+    response = models.JSONField(blank=True, null=True)
+    sms_for = models.CharField(max_length=50, choices=SMS_TYPES_CHOICES, default='other')
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.sms_for} - {self.mobile_number}" 
     
