@@ -13,7 +13,7 @@ from .models import (Property, Gallery, Room, Rule,
 from .models import BlockedProperty
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
-    DynamicRoomPricing, TopDestinations)
+    DynamicRoomPricing, TopDestinations, PropertyCommission)
 
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
@@ -466,6 +466,12 @@ class PropertyLandmarkSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyLandmark
         fields = ['id', 'property', 'landmark', 'distance']
+
+class PropertyCommissionSerializer(serializers.ModelSerializer):
+    commission = serializers.FloatField()
+    class Meta:
+        model = PropertyCommission
+        fields = '__all__'
     
 
 

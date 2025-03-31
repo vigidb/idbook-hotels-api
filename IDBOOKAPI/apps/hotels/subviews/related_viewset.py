@@ -1,9 +1,12 @@
 from .__init__ import *
 
 from apps.hotels.models import PolicyDetails, Property, PropertyLandmark
-from apps.hotels.serializers import PolicySerializer, TopDestinationsSerializer, PropertyLandmarkSerializer
-from apps.hotels.submodels.related_models import TopDestinations
-from apps.hotels.utils.db_utils import get_property_count_by_location, is_top_destination_exist
+from apps.hotels.serializers import (
+    PolicySerializer, TopDestinationsSerializer,
+    PropertyLandmarkSerializer, PropertyCommissionSerializer)
+from apps.hotels.submodels.related_models import TopDestinations, PropertyCommission
+from apps.hotels.utils.db_utils import (
+    get_property_count_by_location, is_top_destination_exist, is_property_commission_active)
 from decimal import Decimal
 
 class PropertyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -430,3 +433,140 @@ class PropertyLandmarkViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
             
         self.log_response(custom_response)
         return custom_response
+
+
+class PropertyCommissionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = PropertyCommission.objects.all()
+    serializer_class = PropertyCommissionSerializer
+    permission_classes = [IsAuthenticated]
+
+##    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+##                                    'partial_update': [IsAuthenticated],
+##                                    'destroy': [IsAuthenticated], 'list':[AllowAny], 'retrieve':[AllowAny]}
+##
+##    def get_permissions(self):
+##        try: 
+##            return [permission() for permission in self.permission_classes_by_action[self.action]]
+##        except KeyError: 
+##            # action is not set return default permission_classes
+##            return [permission() for permission in self.permission_classes]
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        property_comm = request.data.get('property_comm', None)
+        active = request.data.get('active', None)
+        if active and property_comm:
+            is_comm_active = is_property_commission_active(property_comm)
+            if is_comm_active:
+                custom_response = self.get_error_response(
+                    message="Only one property commission can be active at a time",
+                    status="error", errors=[],error_code="ACTIVE_DUPLICATE",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+            
+
+        # Create an instance of your serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            response = super().create(request, *args, **kwargs)
+
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                count=1,
+                status="success",
+                message="Property Commission Created",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            serializer_errors = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                      errors=serializer_errors,error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        active = instance.active
+
+        active = request.data.get('active', None)
+        property_comm = request.data.get('property_comm', None)
+        current_property = instance.property_comm_id
+
+        if property_comm and (current_property != property_comm):
+            custom_response = self.get_error_response(
+                message="Property cannot be updated. You should delete the existing and add new.",
+                status="error", errors=[],error_code="PROPERT_UPDATE_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        if active:
+            is_comm_active = is_property_commission_active(current_property, instance.id)
+            if is_comm_active:
+                custom_response = self.get_error_response(
+                    message="Only one property commission can be active at a time",
+                    status="error", errors=[],error_code="ACTIVE_DUPLICATE",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+
+    # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default update logic
+            response = super().partial_update(request, *args, **kwargs)
+            #response = self.perform_update(serializer)
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                count=1,
+                status="success",
+                message="Commission updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful update
+
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            serializer_errors = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=serializer_errors,error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+        return custom_response
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+
+        instance = self.get_object()
+        if instance.active:
+            custom_response = self.get_error_response(
+                message="Active property commission cannot be deleted",
+                status="error", errors=[],error_code="COMMISSION_ACTIVE",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+            
+        self.perform_destroy(instance)
+        
+        custom_response = self.get_response(
+            data={},
+            count=0,
+            status="success",
+            message="Property Commission Deleted Successfully",
+            status_code=status.HTTP_200_OK,
+        )
+
+        return custom_response
+                
+            
+            
+            
+            
+
+        
