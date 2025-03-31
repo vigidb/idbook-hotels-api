@@ -169,7 +169,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 
                 
             if key == 'user':
-                filter_dict['added_by'] = param_value
+                user_filter = Q(added_by=param_value) | Q(managed_by=param_value)
+                self.queryset = self.queryset.filter(user_filter)
 
             if key == 'rating':
                 rating_list = param_value.split(',')
