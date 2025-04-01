@@ -5,7 +5,8 @@ from apps.hotels.models import (
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
     DynamicRoomPricing, TopDestinations, UnavailableProperty,
-    PropertyCommission)
+    PropertyCommission, TrendingPlaces)
+
 # from apps.hotels.serializers import UnavailablePropertySerializer
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -504,6 +505,12 @@ def process_property_based_topdest_count(location_list):
             update_destination_property_count(location_name, total_count)
     except Exception as e:
         print(e)
+
+def is_trending_place_exist(location_name, exclude_id=None):
+    query = TrendingPlaces.objects.filter(location_name__iexact=location_name.strip())
+    if exclude_id:
+        query = query.exclude(id=exclude_id)
+    return query.exists()
 
 ##def get_checkin_based_dynamic_pricing(checkin_date, booking_slot):
 ##    try:

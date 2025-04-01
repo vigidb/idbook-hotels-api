@@ -48,6 +48,8 @@ ROOM_VIEW_CHOICES = (
     ('BALCONY VIEW', 'BALCONY VIEW'),
     ('JUNGLE VIEW', 'JUNGLE VIEW'),
     ('COURTYARD VIEW', 'COURTYARD VIEW'),
+    ('PALACE VIEW', 'PALACE VIEW'),
+    ('DESERT VIEW', 'DESERT VIEW'),
     ('NON VIEW', 'NON VIEW'),
     
 )
@@ -1277,5 +1279,17 @@ SUBSCRIPTION_TYPE = (
     ('Yearly', 'Yearly')
 )
 
-    
+SMS_TYPES_CHOICES = [
+    ('HOTEL_BOOKING_CANCEL', 'Hotel Booking Cancellation'),
+    ('HOTEL_PAYMENT_REFUND', 'Hotel Payment Refund'),
+    ('WALLET_RECHARGE_CONFIRMATION', 'Wallet Recharge Confirmation'),
+    ('WALLET_DEDUCTION_CONFIRMATION', 'Wallet Deduction Confirmation'),
+    ('HOTEL_BOOKING_CONFIRMATION', 'Hotel Booking Confirmation'),
+    ('PAYMENT_FAILED_INFO', 'Payment Failed Information'),
+    ('PAYMENT_PROCEED_INFO', 'Payment Proceed Information'),
+    ('VERIFY', 'Verify OTP'),
+    ('SIGNUP', 'Signup OTP'),
+    ('LOGIN', 'Login OTP'),
+    ('other', 'Other Notification')
+] 
     

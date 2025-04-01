@@ -31,6 +31,7 @@ class UnavailableProperty(models.Model):
     full_params = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+
 class PropertyCommission(models.Model):
     code = models.CharField(max_length=6, unique=True)
     property_comm = models.ForeignKey(
@@ -39,6 +40,15 @@ class PropertyCommission(models.Model):
     commission_type = models.CharField(max_length=20, choices=COMMISSION_TYPE)
     commission = models.DecimalField(
         max_digits=20, decimal_places=6)
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+class TrendingPlaces(models.Model):
+    location_name = models.CharField(max_length=60)
+    display_name = models.CharField(max_length=60)
+    media = models.FileField(upload_to='hotels/trending-places/')
+    no_of_hotels = models.PositiveIntegerField(default=0, help_text="Total Hotel count for the location")
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)

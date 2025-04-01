@@ -33,16 +33,15 @@ from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status
 from apps.analytics.utils.db_utils import create_or_update_property_count
-
 from rest_framework.decorators import action
-
-from django.db.models import Q
-
+from apps.booking.models import Booking, HotelBooking
+from django.db.models import Q, Sum
+from django.contrib.auth import get_user_model
 from datetime import datetime
-
 from functools import reduce
 import traceback
 
+User = get_user_model()
 
 class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Property.objects.all()
@@ -170,7 +169,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 
                 
             if key == 'user':
-                filter_dict['added_by'] = param_value
+                user_filter = Q(added_by=param_value) | Q(managed_by=param_value)
+                self.queryset = self.queryset.filter(user_filter)
 
             if key == 'rating':
                 rating_list = param_value.split(',')
@@ -884,7 +884,68 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             message="Location List", status_code=status.HTTP_200_OK)
         return response
         
+    @action(detail=True, methods=['GET'], url_path='insights',
+        url_name='property_insights', permission_classes=[IsAuthenticated])
+    def property_insights(self, request, pk=None):
+        try:
+            property_obj = self.get_object()
 
+            # Get total rooms for this property
+            total_rooms = Room.objects.filter(property=property_obj).count()
+
+            # Get total unique customers for this property
+            total_customers = HotelBooking.objects.filter(
+                confirmed_property=property_obj
+            ).values('booking__user').distinct().count()
+
+            # Get total transaction amount for this property
+            total_transactions = Booking.objects.filter(
+                hotel_booking__confirmed_property=property_obj,
+                status__in=['confirmed']
+            ).aggregate(
+                total_amount=Sum('final_amount')
+            )['total_amount'] or 0
+
+            # Get total concierges for this property
+            total_concierges = User.objects.filter(
+                property_manager__id=property_obj.id
+            ).count()
+
+            statistics = {
+                'total_rooms': total_rooms,
+                'total_customers': total_customers,
+                'total_transactions': float(total_transactions),
+                'total_concierges': total_concierges
+            }
+
+            custom_response = self.get_response(
+                data=statistics,
+                count=1,
+                status="success",
+                message="Property Insights Retrieved",
+                status_code=status.HTTP_200_OK
+            )
+
+            return custom_response
+
+        except Property.DoesNotExist:
+            custom_response = self.get_error_response(
+                message="Property not found",
+                status="error",
+                errors=[],
+                error_code="PROPERTY_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            return custom_response
+        except Exception as e:
+            custom_response = self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            return custom_response
 
 class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Gallery.objects.all()
