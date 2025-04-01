@@ -70,6 +70,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         mobile_number = request.data.get('mobile_number', None)
         group_name = request.data.get('group_name', 'B2C-GRP')
         otp = request.data.get('otp', None)
+        otp_mobile = request.data.get('otp_mobile', None)
         user = None
 
         user_otp = None
@@ -78,10 +79,22 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='SIGNUP').first()
             if not user_otp:
                 response = self.get_error_response(
-                    message="Invalid OTP", status="error",
+                    message="Invalid Email OTP", status="error",
                     errors=[], error_code="INVALID_OTP",
                     status_code=status.HTTP_406_NOT_ACCEPTABLE)
                 return response
+
+        if otp_mobile:
+            mob_otp = UserOtp.objects.filter(
+                user_account=mobile_number, otp=otp_mobile, otp_for='SIGNUP').first()
+            if not mob_otp:
+                response = self.get_error_response(
+                    message="Invalid Mobile OTP", status="error",
+                    errors=[], error_code="INVALID_OTP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                return response
+
+        
         
         if email:
             user = User.objects.filter(email=email).first()
@@ -803,9 +816,9 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
             elif otp_for == 'SIGNUP':
-                if medium_type == 'email' and is_role_exist:
+                if is_role_exist:
                     response = self.get_error_response(
-                        message="User email is already associated with the account!",
+                        message=f"User {medium_type} is already associated with the account!",
                         status="error", errors=[], error_code="USERNAME_DUPLICATE",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response

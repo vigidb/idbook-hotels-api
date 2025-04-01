@@ -317,7 +317,7 @@ class BookingMixins:
             room_price = room_detail.get('room_price')
             if not room_price:
                 custom_response = self.get_error_response(
-                    message=f"The room price details for {room_id} is missing", status="error",
+                    message=f"The room price details for the room {room_type} is missing", status="error",
                     errors=[],error_code="ROOM_PRICE_MISSING",
                     status_code=status.HTTP_400_BAD_REQUEST)
                 is_status = False
@@ -327,7 +327,7 @@ class BookingMixins:
             base_price = room_price.get('base_rate', None)
             if not base_price:
                 custom_response = self.get_error_response(
-                    message=f"The room price details for room id {room_id} is missing", status="error",
+                    message=f"The room price details for the room {room_type} is missing", status="error",
                     errors=[],error_code="ROOM_PRICE_MISSING",
                     status_code=status.HTTP_400_BAD_REQUEST)
                 is_status = False
@@ -338,7 +338,7 @@ class BookingMixins:
                 
             if not slot_price and not self.booking_slot == '24 Hrs':
                 custom_response = self.get_error_response(
-                    message=f"The {self.booking_slot} hrs room price for room id {room_id} is missing", status="error",
+                    message=f"The {self.booking_slot} hrs room price for the room {room_type} is missing", status="error",
                     errors=[],error_code="ROOM_PRICE_MISSING",
                     status_code=status.HTTP_400_BAD_REQUEST)
                 is_status = False

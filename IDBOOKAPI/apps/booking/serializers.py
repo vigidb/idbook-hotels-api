@@ -304,6 +304,13 @@ class BookingSerializer(serializers.ModelSerializer):
         booking_type = instance.booking_type
         
         if instance:
+            payment_details = instance.booking_payment.values(
+                'transaction_id', 'merchant_transaction_id', 'code',
+                'payment_type', 'payment_medium', 'amount',
+                'is_transaction_success', 'transaction_for'
+            )
+            
+            representation['payment_details'] = list(payment_details)
             booking_payment = list(instance.booking_payment.values_list('merchant_transaction_id', flat=True))
             representation['merchant_transaction_ids'] = booking_payment
             

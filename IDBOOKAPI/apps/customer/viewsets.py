@@ -461,7 +461,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                     "merchantId": merchant_id,
                     "merchantTransactionId": merchant_transaction_id,
                     "merchantUserId": user.id,
-                    "amount": amount * 100,
+                    "amount": int(amount) * 100,
                     "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
                     "redirectMode": "REDIRECT",
                     "callbackUrl": callback_url, #https://webhook-test.com/6d8aac024b00f1e22e38f927a29a6522
@@ -495,6 +495,16 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                                                           status_code=status.HTTP_400_BAD_REQUEST)
                     # logs
                     create_wallet_payment_log(payment_log)
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'PAYMENT_FAILED_INFO',
+                            'params': {
+                                'user_id': user.id,
+                                'failed_amount': float(amount),
+                                'payment_purpose': 'Wallet Recharge'  # Different purpose
+                            }
+                        }
+                    )
                     return custom_response
 
             else:
@@ -574,7 +584,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                             print("recharge_amount, mobile_number,user_id ", amount, user.mobile_number, user_id)
                             send_booking_sms_task.apply_async(
                                 kwargs={
-                                    'notification_type': 'wallet_recharge',
+                                    'notification_type': 'WALLET_RECHARGE_CONFIRMATION',
                                     'params': {
                                         'user_id': user_id,
                                         'recharge_amount': amount,
@@ -594,6 +604,17 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                     payment_log['user_id'] = user_id
                 if company_id:
                     payment_log['company_id'] = company_id
+                if code == "PAYMENT_ERROR" and user_id:
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'PAYMENT_FAILED_INFO',
+                            'params': {
+                                'user_id': user_id,
+                                'failed_amount': float(amount),
+                                'payment_purpose': 'Wallet Recharge'
+                            }
+                        }
+                    )
                 
                 
 
