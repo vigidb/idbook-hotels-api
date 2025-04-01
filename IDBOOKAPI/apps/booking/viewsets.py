@@ -17,11 +17,13 @@ from .serializers import (BookingSerializer, AppliedCouponSerializer,
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail)
 
-from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task
+from apps.booking.tasks import send_booking_email_task, create_invoice_task, send_cancelled_booking_task, send_completed_booking_task, send_booking_sms_task
 from apps.booking.utils.db_utils import (
     get_user_based_booking, create_booking_payment_details,
     update_booking_payment_details, check_booking_and_transaction,
-    get_booking_from_payment, check_room_booked_details, get_booking, create_booking_refund_details, get_refund_log_by_merchant_id, refund_create_booking_payment_details)
+    get_booking_from_payment, check_room_booked_details, get_booking,
+    create_booking_refund_details, get_refund_log_by_merchant_id,
+    refund_create_booking_payment_details, check_booking_confirmation_code)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -66,7 +68,7 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from decimal import Decimal
 import pytz
-
+from apps.customer.models import Wallet
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -431,9 +433,32 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     #                 status_code=status.HTTP_404_NOT_FOUND)
     #     return custom_response
 
-    def send_cancel_task(self, instance):
-        print("email called")
+    # Inside send_cancel_task method
+    def send_cancel_task(self, instance, refund_amount=0):
+        print("email and SMS notifications called")
         send_cancelled_booking_task.apply_async(args=[instance.id])
+        send_booking_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'cancel',
+                'params': {
+                    'booking_id': instance.id,
+                    'refund_amount': float(refund_amount) if refund_amount > 0 else 0
+                }
+            }
+        )
+
+    # For refund notification
+    def send_refund_task(self, instance, refund_amount=0):
+        print("refund SMS notification called")
+        send_booking_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'refund',
+                'params': {
+                    'booking_id': instance.id,
+                    'refund_amount': float(refund_amount)
+                }
+            }
+        )
 
     @action(detail=True, methods=['PATCH'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
@@ -555,7 +580,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         print ("\n\n\ncancellation_details", cancellation_details)        
         
         if not payment_details or refund_amount <= 0:
-            self.send_cancel_task(instance)
+            self.send_cancel_task(instance, refund_amount)
             return self.get_response(
                 status='success',
                 message="Booking Cancelled Successfully (No Refund Possible)",
@@ -574,7 +599,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             )
             
             if success:
-                self.send_cancel_task(instance)
+                self.send_cancel_task(instance, refund_amount)
+                self.send_refund_task(instance, refund_amount)
                 return self.get_response(
                     status='success',
                     message=f"Booking Cancelled Successfully, {refund_status}",
@@ -610,7 +636,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             refund_log['merchant_refund_id'] = merchant_refund_id
             refund_log['original_transaction_id'] = payment_details.merchant_transaction_id
             refund_log['refund_amount'] = refund_amount
-            
             payload = {
                 "merchantId": merchant_id,
                 "merchantUserId": str(instance.user.id),
@@ -643,9 +668,11 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 if response_data.get('code') == "PAYMENT_PENDING":
                     refund_log['status'] = 'pending'
                     refund_status = 'refund_in_progress'
+                    self.send_refund_task(instance, refund_amount)
                 elif response_data.get('code') == "PAYMENT_SUCCESS":
                     refund_log['status'] = 'completed'
                     refund_status = 'refund_completed'
+                    self.send_refund_task(instance, refund_amount)
                 else:
                     refund_log['status'] = 'failed'
                     refund_status = 'refund_failed'
@@ -657,7 +684,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 
                 # Create the refund log entry
                 create_booking_refund_log(refund_log)
-                self.send_cancel_task(instance)
+                self.send_cancel_task(instance, refund_amount)
                 
                 custom_response = self.get_response(
                     status='success',
@@ -1681,6 +1708,25 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         # merchant_transaction_id = booking_payment_detail.merchant_transaction_id
       
         deduct_status = deduct_booking_amount(instance, instance.company_id)
+        if deduct_status:
+            wallet_balance = 0
+            wallet = Wallet.objects.filter(user__id=instance.user.id, company_id__isnull=True).first()
+            if wallet:
+                wallet_balance = wallet.balance
+            try:
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'wallet_deduction',
+                        'params': {
+                            'user_id': instance.user.id,
+                            'deduct_amount': float(instance.final_amount),
+                            'wallet_balance': float(wallet_balance)
+                        }
+                    }
+                )
+                print(f"Wallet deduction SMS scheduled for user {instance.user.id}")
+            except Exception as sms_error:
+                print(f"Error scheduling wallet deduction SMS: {sms_error}")
         if not deduct_status:
             booking_payment_detail.code = "PAYMENT_ERROR"
             booking_payment_detail.message = "Insufficient fund in wallet balance"
@@ -1697,8 +1743,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         booking_id = instance.id
         booking_type = instance.booking_type
+
+        while True:
+            confirmation_code = generate_booking_confirmation_code(
+                booking_id, booking_type) # need to remove the params
+            is_exist = check_booking_confirmation_code(confirmation_code)
+            if not is_exist:
+                break
         
-        confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
         print("Confirmation Code::", confirmation_code)
         instance.confirmation_code = confirmation_code
         instance.total_payment_made = instance.final_amount
@@ -2123,7 +2175,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 # verify email using otp
                 user_otp = None
                 if otp:
-                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+                    user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY-GUEST').first()
                     if not user_otp:
                         response = self.get_error_response(
                             message="Invalid OTP", status="error",
@@ -2166,7 +2218,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     "merchantId": merchant_id,
                     "merchantTransactionId": merchant_transaction_id,
                     "merchantUserId": user_id,
-                    "amount": amount * 100,
+                    "amount": int(amount) * 100,
                     "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
                     "redirectMode": "REDIRECT",
                     "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
@@ -2222,7 +2274,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_id = booking.id
             booking_type = booking.booking_type
         
-            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+##            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+            while True:
+                confirmation_code = generate_booking_confirmation_code(
+                    booking_id, booking_type) # need to remove the params
+                is_exist = check_booking_confirmation_code(confirmation_code)
+                if not is_exist:
+                    break
             print("Confirmation Code::", confirmation_code)
             booking.confirmation_code = confirmation_code
             booking.total_payment_made = amount
@@ -2262,11 +2320,9 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             
             code = json_data.get('code', '')
             message = json_data.get('message', '')
-
-            
             
             sub_json_data = json_data.get('data', {})
-            amount = sub_json_data.get('amount', 0)/100
+            amount = int(sub_json_data.get('amount', 0))/100
             merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
             booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             transaction_id = sub_json_data.get('transactionId', '')        
@@ -2285,6 +2341,15 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking_payment_log['booking_id'] = booking_id
             if code == "PAYMENT_SUCCESS":
                 self.set_booking_as_confirmed(booking_id, amount)
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'booking_confirmation',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
+                print(f"Booking confirmation SMS scheduled for booking {booking_id}")
 
 
             custom_response = self.get_response(
@@ -2301,6 +2366,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                                                       errors=[],error_code="INTERNAL_SERVER_ERROR",
                                                       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             booking_payment_log['response'] = {'message': str(e)}
+            print(traceback.format_exc())
             create_booking_payment_log(booking_payment_log)
             return custom_response
             

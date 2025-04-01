@@ -30,7 +30,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 import traceback
 from rest_framework.parsers import MultiPartParser
-
+from apps.booking.tasks import send_booking_sms_task
+from apps.authentication.models import User
 from django.conf import settings
 
 import base64, json
@@ -542,7 +543,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             message = json_data.get('message', '')
 
             sub_json_data = json_data.get('data', {})
-            amount = sub_json_data.get('amount', 0)/100
+            amount = int(sub_json_data.get('amount', 0))/100
             merchant_transaction_id = sub_json_data.get('merchantTransactionId', '')
             payment_log['merchant_transaction_id'] = merchant_transaction_id
             transaction_id = sub_json_data.get('transactionId', '')        
@@ -560,6 +561,27 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                 user_id, company_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details)
                 update_wallet_recharge_details(user_id, company_id, amount)
+
+                if user_id:
+                    wallet_balance = 0
+                    wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                    if wallet:
+                        wallet_balance = wallet.balance
+                        print('wallet_balance', wallet_balance)
+
+                        user = User.objects.get(id=user_id)
+                        if user and user.mobile_number:
+                            print("recharge_amount, mobile_number,user_id ", amount, user.mobile_number, user_id)
+                            send_booking_sms_task.apply_async(
+                                kwargs={
+                                    'notification_type': 'wallet_recharge',
+                                    'params': {
+                                        'user_id': user_id,
+                                        'recharge_amount': amount,
+                                        'wallet_balance': wallet_balance
+                                    }
+                                }
+                            )
                 if user_id:
                     payment_log['user_id'] = user_id
                 if company_id:

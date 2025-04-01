@@ -74,7 +74,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         user_otp = None
         if otp:
-            user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='VERIFY').first()
+            # VERIFY
+            user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='SIGNUP').first()
             if not user_otp:
                 response = self.get_error_response(
                     message="Invalid OTP", status="error",
@@ -85,16 +86,33 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if email:
             user = User.objects.filter(email=email).first()
 
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp or not role:
+            response = self.get_error_response(
+                message="Group or role doesn't exist", status="error", errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            return response
+
         # check whether existing group and email exist for the sign up type
         if user and group_name:
-            grp_user = authentication_utils.check_email_exist_for_group(email, group_name)
-            if grp_user:
-                error_list = [{"field":"email", "message": "Email already exists."}]
-                response = self.get_error_response(message="Signup Failed", status="error",
-                                                    errors=error_list,error_code="VALIDATION_ERROR",
-                                                    status_code=status.HTTP_401_UNAUTHORIZED)
-                self.log_response(response)  # Log the response before returning
-                return response
+##            grp_user = authentication_utils.check_email_exist_for_group(email, group_name)
+            email_grp_users= db_utils.get_userid_list(email, group=grp)
+            if email_grp_users:
+                is_role_exist = False
+                if group_name == 'B2C-GRP':
+                    # check if B2C-CUST role exist for guest user
+                    #is_role_exist = usr.roles.filter(id=role.id).exists()
+                    is_role_exist = db_utils.is_role_exist(email_grp_users, role)
+                else:
+                    is_role_exist = True
+
+                if is_role_exist:
+                    error_list = [{"field":"email", "message": "Email already exists"}]
+                    response = self.get_error_response(message="Signup Failed", status="error",
+                                                        errors=error_list,error_code="VALIDATION_ERROR",
+                                                        status_code=status.HTTP_401_UNAUTHORIZED)
+                    self.log_response(response)  # Log the response before returning
+                    return response
 
         # check email exist for missing group name
         if user and not group_name:
@@ -105,21 +123,30 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             self.log_response(response)  # Log the response before returning
             return response
 
-        grp, role = authentication_utils.get_group_based_on_name(group_name)
+##        grp, role = authentication_utils.get_group_based_on_name(group_name)
 
-        if not grp or not role:
-            response = self.get_error_response(
-                message="Group or role doesn't exist", status="error", errors=[],
-                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-            return response
+##        if not grp or not role:
+##            response = self.get_error_response(
+##                message="Group or role doesn't exist", status="error", errors=[],
+##                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+##            return response
 
         if mobile_number:
-            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
-            if check_mobile_existing_user:
-                response = self.get_error_response(
-                    message="Mobile already exist", status="error", errors=[],
-                    error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-                return response
+##            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
+            mobile_grp_users = db_utils.get_userid_list(mobile_number, group=grp)
+            if mobile_grp_users:
+                is_role_exist = False
+                if group_name == 'B2C-GRP':
+                    # check if B2C-CUST role exist for guest user
+                    is_role_exist = db_utils.is_role_exist(mobile_grp_users, role)
+                else:
+                    is_role_exist = True
+
+                if is_role_exist:
+                    response = self.get_error_response(
+                        message="Mobile already exist", status="error", errors=[],
+                        error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    return response
             
                 
             
@@ -338,6 +365,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
     @action(detail=False, methods=['POST'], url_path='email/generate-otp',
             url_name='generate-email-otp')
     def generate_email_otp(self, request):
+        """Need to delete the code"""
         try:
             to_email = request.data.get('email', '')
             valid = email_validation(to_email)
@@ -716,6 +744,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
         try:
             username = request.data.get('username', None)
             otp_for = request.data.get('otp_for', None)
+            group_name = request.data.get('group_name', '')
             
             if not username:
                 response = self.get_error_response(message="Missing username", status="error",
@@ -744,8 +773,28 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                    errors=[], error_code="INVALID_USERNAME",
                                                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
+            grp = None
+            if group_name:
+                # group and roles
+                grp, role = authentication_utils.get_group_based_on_name(group_name)
+                if not grp or not role:
+                    response = self.get_error_response(
+                        message="Group or role doesn't exist", status="error", errors=[],
+                        error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    return response
 
-            user_objs = db_utils.get_userid_list(username)
+            user_objs = db_utils.get_userid_list(username, group=grp)
+            
+            # allow B2C-GRP sign up for guest user
+            is_role_exist = False
+            if group_name == 'B2C-GRP':
+                # check if B2C-CUST role exist for guest user
+                is_role_exist = db_utils.is_role_exist(user_objs, role)
+            else:
+                if user_objs:
+                    is_role_exist = True
+                
+                
             if otp_for == 'LOGIN':
                 if not user_objs:
                     response = self.get_error_response(
@@ -754,7 +803,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
             elif otp_for == 'SIGNUP':
-                if medium_type == 'email' and user_objs:
+                if medium_type == 'email' and is_role_exist:
                     response = self.get_error_response(
                         message="User email is already associated with the account!",
                         status="error", errors=[], error_code="USERNAME_DUPLICATE",
