@@ -34,9 +34,12 @@ from django.db.models import Q
 from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
+from apps.authentication.utils.authentication_utils import get_group_based_on_name
 from apps.customer.models import Customer
 
 from apps.org_resources.tasks import send_enquiry_email_task
+from apps.org_resources.utils.db_utils import (
+    is_corporate_email_exist, is_corporate_number_exist)
 from IDBOOKAPI.utils import paginate_queryset
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -58,8 +61,228 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
+    def contact_verification(self):
+        error_list = []
+        
+        company_email = self.request.data.get('company_email', '')
+        company_phone = self.request.data.get('company_phone', '')
+        contact_number = self.request.data.get('contact_number', '')
+        contact_email_address = self.request.data.get('contact_email_address', '')
+
+        # otp for company email
+        otp_cmp_email = self.request.data.get('otp_cmp_email', None)
+        # otp for contact mobile
+        otp_cnt_mob = self.request.data.get('otp_cnt_mob', None)
+        otp_cnt_email = self.request.data.get('otp_cnt_email', None)
+        
+        if otp_cmp_email and otp_cnt_mob and otp_cnt_email:
+            # company email verify
+            cmpobj_emailotp = auth_db_utils.check_email_otp(
+                company_email, otp_cmp_email, 'VERIFY')
+            if not cmpobj_emailotp:
+                error_list.append({"field":"company_email",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Email OTP"})
+
+            # contact number verify    
+            cntobj_mobotp = auth_db_utils.check_mobile_otp(
+                contact_number, otp_cnt_mob, 'SIGNUP')
+            if not cntobj_mobotp:
+                error_list.append({"field":"contact_number",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Mobile OTP"})
+
+            # contact email verify
+            cntobj_emailotp = auth_db_utils.check_email_otp(
+                contact_email_address, otp_cnt_email, 'SIGNUP')
+            if not cntobj_emailotp:
+                error_list.append({"field":"contact_email_address",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Email OTP"})
+
+        if error_list:
+            return error_list
+
+        group_name = "CORPORATE-GRP"
+        self.grp, self.role = get_group_based_on_name(group_name)
+        if not self.grp or not self.role:
+            error_list.append({"field":"",
+                           "error_code":"INVALID_GRP",
+                           "message": "Invalid Group"})
+            return error_list
+
+        # check corporate email exist
+        is_exist = is_corporate_email_exist(company_email)
+        if is_exist:
+            error_list.append({"field":"company_email",
+                           "error_code":"CMP_EMAIL_EXIST",
+                           "message": "Company email already exist"})
+
+        # check corporate number exist
+        is_number_exist = is_corporate_number_exist(company_phone)
+        if is_number_exist:
+            error_list.append({"field":"company_phone",
+                           "error_code":"CMP_NUMBER_EXIST",
+                           "message": "Company number already exist"})
+
+        # check contact email exist
+        cntemail_grp_users = auth_db_utils.get_userid_list(
+            contact_email_address, group=self.grp)
+        if cntemail_grp_users:
+            error_list.append({"field":"contact_email_address",
+                           "error_code":"CNT_EMAIL_EXIST",
+                           "message": "Contact email already exist"})
+            
+        # check contact number exist
+        mobile_grp_users = auth_db_utils.get_userid_list(
+            contact_number, group=self.grp)
+        if mobile_grp_users:
+            error_list.append({"field":"contact_number",
+                           "error_code":"CNT_MOB_EXIST",
+                           "message": "Contact number already exist"})
+
+        return error_list
+
+    def update_corporate_verification(self, instance):
+        error_list = []
+        # daneshvar.khot@sandnetwork.in
+        company_email = self.request.data.get('company_email', '')
+        company_phone = self.request.data.get('company_phone', '')
+        contact_number = self.request.data.get('contact_number', '')
+        contact_email_address = self.request.data.get('contact_email_address', '')
+
+        if company_email and instance.company_email != company_email:
+            error_list.append({"field":"company_email",
+                               "error_code":"UPDATE_NOT_PERMITTED",
+                               "message": "company email update not allowed"})
+
+        if company_phone and instance.company_phone != company_phone:
+            error_list.append({"field":"company_phone",
+                               "error_code":"UPDATE_NOT_PERMITTED",
+                               "message": "company_phone update not allowed"})
+            
+
+        if contact_number and instance.contact_number != contact_number:
+            error_list.append({"field":"contact_number",
+                               "error_code":"UPDATE_NOT_PERMITTED",
+                               "message": "contact_number update not allowed"})
+
+        if contact_email_address and instance.contact_email_address != contact_email_address:
+            error_list.append({"field":"contact_email_address",
+                               "error_code":"UPDATE_NOT_PERMITTED",
+                               "message": "contact_email_address update not allowed"})
+
+        return error_list
+                 
+        
+
+    def update_contact_verification(self, instance):
+        error_list = []
+        
+        company_email = self.request.data.get('company_email', '')
+        company_phone = self.request.data.get('company_phone', '')
+        contact_number = self.request.data.get('contact_number', '')
+        contact_email_address = self.request.data.get('contact_email_address', '')
+
+        # otp for company email
+        otp_cmp_email = self.request.data.get('otp_cmp_email', None)
+        # otp for contact mobile
+        otp_cnt_mob = self.request.data.get('otp_cnt_mob', None)
+        otp_cnt_email = self.request.data.get('otp_cnt_email', None)
+
+        
+        # company email verify
+        if company_email and instance.company_email != company_email:
+            cmpobj_emailotp = auth_db_utils.check_email_otp(
+                company_email, otp_cmp_email, 'VERIFY')
+            if not cmpobj_emailotp:
+                error_list.append({"field":"company_email",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Email OTP"})
+
+            # check corporate email exist
+            is_exist = is_corporate_email_exist(company_email)
+            if is_exist:
+                error_list.append({"field":"company_email",
+                               "error_code":"CMP_EMAIL_EXIST",
+                               "message": "Company email already exist"})
+
+        # check corporate number exist
+        if company_phone and instance.company_phone != company_phone:
+            is_number_exist = is_corporate_number_exist(company_phone)
+            if is_number_exist:
+                error_list.append({"field":"company_phone",
+                               "error_code":"CMP_NUMBER_EXIST",
+                               "message": "Company number already exist"})
+
+        # contact number verify
+        if contact_number and instance.contact_number != contact_number:
+            cntobj_mobotp = auth_db_utils.check_mobile_otp(
+                contact_number, otp_cnt_mob, 'SIGNUP')
+            if not cntobj_mobotp:
+                error_list.append({"field":"contact_number",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Mobile OTP"})
+
+        # contact email verify
+        if contact_email_address and instance.contact_email_address != contact_email_address:
+            cntobj_emailotp = auth_db_utils.check_email_otp(
+                contact_email_address, otp_cnt_email, 'SIGNUP')
+            if not cntobj_emailotp:
+                error_list.append({"field":"contact_email_address",
+                               "error_code":"INVALID_OTP",
+                               "message": "Invalid Email OTP"})
+
+        if error_list:
+            return error_list
+
+        group_name = "CORPORATE-GRP"
+        self.grp, self.role = get_group_based_on_name(group_name)
+        if not self.grp or not self.role:
+            error_list.append({"field":"",
+                           "error_code":"INVALID_GRP",
+                           "message": "Invalid Group"})
+            return error_list
+
+        # check corporate email exist
+        if company_email and instance.company_email != company_email:
+            is_exist = is_corporate_email_exist(company_email)
+            if is_exist:
+                error_list.append({"field":"company_email",
+                               "error_code":"CMP_EMAIL_EXIST",
+                               "message": "Company email already exist"})
+
+        # check contact email exist
+        if contact_email_address and instance.contact_email_address != contact_email_address:
+            cntemail_grp_users = auth_db_utils.get_userid_list(
+                contact_email_address, group=self.grp)
+            if cntemail_grp_users:
+                error_list.append({"field":"contact_email_address",
+                               "error_code":"CNT_EMAIL_EXIST",
+                               "message": "Contact email already exist"})
+            
+        # check contact number exist
+        if contact_number and instance.contact_number != contact_number:
+            mobile_grp_users = auth_db_utils.get_userid_list(
+                contact_number, group=self.grp)
+            if mobile_grp_users:
+                error_list.append({"field":"contact_number",
+                               "error_code":"CNT_MOB_EXIST",
+                               "message": "Contact number already exist"})
+                
+        return error_list
+        
+
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        error_list = self.contact_verification()
+        if error_list:
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
 
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
@@ -70,19 +293,20 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             
             #response = super().create(request, *args, **kwargs)
 
-            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
-            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
+##            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
+##            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
 
             # create or update user based on company email
             user = User.objects.filter(email=company_detail.contact_email_address).first()
             if not user:
                 user = User.objects.create(name=company_detail.contact_person_name,
                                            email=company_detail.contact_email_address,
-                                           category='CL-ADMIN', company_id=company_detail.id,
+                                           mobile_number=company_detail.contact_number,
+                                           company_id=company_detail.id,
                                            default_group='CORPORATE-GRP')
                 Customer.objects.create(user_id=user.id, active=True)
             else:
-                user.category='CL-ADMIN'
+                #user.category='CL-ADMIN'
                 user.default_group='CORPORATE-GRP'
                 user.company_id=company_detail.id
                 user.save()
@@ -92,10 +316,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                     
             if user:
                 # add group and roles
-                if grp:
-                    user.groups.add(grp)
-                if role:
-                    user.roles.add(role)
+                if self.grp:
+                    user.groups.add(self.grp)
+                if self.role:
+                    user.roles.add(self.role)
                     
                 refresh = RefreshToken.for_user(user)
 
@@ -146,6 +370,15 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         # Get the object to be updated
         instance = self.get_object()
+
+        error_list = self.update_corporate_verification(instance)
+        if error_list:
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+        
 
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data)
@@ -245,6 +478,14 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             url_name='create-company', permission_classes=[IsAuthenticated])
     def create_company_by_badmin(self, request):
         buser_id = request.user.id
+
+        error_list = self.contact_verification()
+        if error_list:
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
         
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
@@ -261,11 +502,11 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if not user:
                 user = User.objects.create(name=company_detail.contact_person_name,
                                            email=company_detail.contact_email_address,
-                                           category='CL-ADMIN', company_id=company_detail.id,
+                                           mobile_number=company_detail.contact_number,
+                                           company_id=company_detail.id,
                                            default_group='CORPORATE-GRP')
                 Customer.objects.create(user_id=user.id, active=True)
             else:
-                user.category='CL-ADMIN'
                 user.company_id=company_detail.id
                 user.default_group='CORPORATE-GRP'
                 user.save()
@@ -295,6 +536,76 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=True, methods=['PATCH'], url_path='update/contact',
+            url_name='update-contact', permission_classes=[IsAuthenticated])
+    def update_contact(self, request, pk):
+
+        company_email = self.request.data.get('company_email', '')
+        company_phone = self.request.data.get('company_phone', '')
+        contact_number = self.request.data.get('contact_number', '')
+        contact_email_address = self.request.data.get('contact_email_address', '')
+        contact_person_name = self.request.data.get('contact_person_name','')
+
+        contact_user_update = False
+        
+        instance = self.get_object()
+        
+        error_list = self.update_contact_verification(instance)
+        if error_list:
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
+        if company_email and instance.company_email != company_email:
+            instance.company_email = company_email
+        if company_phone and instance.company_phone != company_phone:
+            instance.company_phone = company_phone
+        if contact_number and instance.contact_number != contact_number:
+            instance.contact_number = contact_number
+        if contact_email_address and instance.contact_email_address != contact_email_address:
+            instance.contact_email_address = contact_email_address
+            contact_user_update = True
+        if contact_person_name and instance.contact_person_name != contact_person_name:
+            instance.contact_person_name = contact_person_name
+
+        instance.save()
+        if contact_user_update:
+            user = User.objects.filter(email=instance.contact_email_address).first()
+            if not user:
+                user = User.objects.create(name=instance.contact_person_name,
+                                           email=instance.contact_email_address,
+                                           mobile_number=instance.contact_number,
+                                           company_id=instance.id,
+                                           default_group='CORPORATE-GRP')
+                Customer.objects.create(user_id=user.id, active=True)
+            else:
+                user.company_id=instance.id
+                user.default_group='CORPORATE-GRP'
+                user.save()
+
+                customer = Customer.objects.filter(user_id=user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=user.id, active=True)
+
+            if self.grp and not user.groups.filter(name='CORPORATE-GRP'):
+                user.groups.add(self.grp)
+            if self.role and not user.roles.filter(name='CORP-ADMIN'):
+                user.roles.add(self.role)
+
+        serializer = CompanyDetailSerializer(instance)
+
+        custom_response = self.get_response(
+            status='success',
+            data=serializer.data,  # Use the data from the default response
+            message="Company contact details updated",
+            status_code=status.HTTP_200_OK,  # 201 for successful creation
+        )
+        return custom_response
+        
+        
 
     def destroy(self, request, pk=None):
 
