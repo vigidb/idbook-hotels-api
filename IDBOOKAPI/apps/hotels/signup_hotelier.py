@@ -8,7 +8,7 @@ from apps.customer.models import Customer
 from apps.authentication.utils import db_utils, authentication_utils
 from apps.hotels.models import Property
 from rest_framework_simplejwt.tokens import RefreshToken
-from apps.hotels.tasks import send_hotel_sms_task
+from apps.hotels.tasks import send_hotel_sms_task, send_hotel_email_task
 
 
 def generate_existing_contact_report():
@@ -175,41 +175,62 @@ def create_accounts_for_properties():
     
     return properties, users_by_email
 
-def send_activation_sms_to_properties():
+def send_activation_notifications_to_properties():
     """
-    Send activation SMS notifications to all active properties with valid phone numbers
+    Send activation SMS and email notifications to all active properties with valid contact details
     """
     properties = generate_existing_contact_report()
     
     if not properties:
         return
     
-    print("\n\nSending activation SMS to properties...")
+    print("\n\nSending activation notifications to properties...")
     print("-" * 60)
     
-    success_count = 0
-    for prop in properties:
-        try:
-            # Call the background task to send SMS
-            send_hotel_sms_task.apply_async(
-                kwargs={
-                    'notification_type': 'HOTEL_PROPERTY_ACTIVATION',
-                    'params': {
-                        'property_id': prop.id
-                    }
-                }
-            )
-            print(f"✓ Queued activation SMS for property: {prop.name} (ID: {prop.id})")
-            success_count += 1
-        except Exception as e:
-            print(f"✗ Failed to queue SMS for property: {prop.name} (ID: {prop.id}). Error: {e}")
+    sms_success_count = 0
+    email_success_count = 0
     
-    print("\nSMS Notification Summary:")
+    for prop in properties:
+        # Send SMS notification
+        if prop.phone_no:
+            try:
+                # Call the background task to send SMS
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTEL_PROPERTY_ACTIVATION',
+                        'params': {
+                            'property_id': prop.id
+                        }
+                    }
+                )
+                print(f"✓ Queued activation SMS for property: {prop.name} (ID: {prop.id})")
+                sms_success_count += 1
+            except Exception as e:
+                print(f"✗ Failed to queue SMS for property: {prop.name} (ID: {prop.id}). Error: {e}")
+        
+        if prop.email:
+            try:
+                send_hotel_email_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTEL_PROPERTY_ACTIVATION',
+                        'params': {
+                            'property_id': prop.id
+                        }
+                    }
+                )
+                print(f"✓ Queued activation email for property: {prop.name} (ID: {prop.id})")
+                email_success_count += 1
+            except Exception as e:
+                print(f"✗ Failed to queue email for property: {prop.name} (ID: {prop.id}). Error: {e}")
+    
+    print("\nNotification Summary:")
     print(f"Total properties processed: {len(properties)}")
-    print(f"Successfully queued SMS: {success_count}")
-    print(f"Failed to queue SMS: {len(properties) - success_count}")
+    print(f"Successfully queued SMS: {sms_success_count}")
+    print(f"Failed to queue SMS: {len(properties) - sms_success_count}")
+    print(f"Successfully queued emails: {email_success_count}")
+    print(f"Failed to queue emails: {len(properties) - email_success_count}")
 
 if __name__ == "__main__":
     properties, users_by_email = create_accounts_for_properties()
     
-    send_activation_sms_to_properties()
+    send_activation_notifications_to_properties()
