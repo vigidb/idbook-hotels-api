@@ -5,6 +5,7 @@ from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from django.template.loader import get_template
 from django.conf import settings
 from IDBOOKAPI.email_utils import send_booking_email
+from IDBOOKAPI.utils import shorten_url
 
 
 @celery_idbook.task(bind=True)
@@ -31,9 +32,11 @@ def send_hotel_sms_task(self, notification_type='', params=None):
                     hotelier_name = "Hotelier"
                     
                     property_name = property.name
-                    website_link = "IDBOOK Official Site"
+                    # website_link = "IDBOOK Official Site"
+                    website_link = f"{settings.FRONTEND_URL}/login"
+                    short_login_link = shorten_url(website_link)
                     
-                    variables_values = f"{hotelier_name}|{property_name}|{website_link}"
+                    variables_values = f"{hotelier_name}|{property_name}|{short_login_link}"
                     print("variables_values", variables_values)
                     
                     response = send_template_sms(mobile_number, template_code, variables_values)
@@ -82,11 +85,12 @@ def send_hotel_email_task(self, notification_type='', params=None):
                     hotelier_name = "Hotelier"
                     property_name = property.name
                     login_link = f"{settings.FRONTEND_URL}/login"
+                    short_login_link = shorten_url(login_link)
                     
                     context = {
                         'hotelier_name': hotelier_name,
                         'property_name': property_name,
-                        'login_link': login_link
+                        'login_link': short_login_link
                     }
                     
                     email_template = get_template('email_template/hotelier-active-property.html')

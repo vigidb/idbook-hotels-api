@@ -7,7 +7,7 @@ from django.utils import timezone
 from decimal import Decimal
 import calendar
 from django.core.validators import RegexValidator
-
+import requests
 import time
 
 
@@ -296,7 +296,25 @@ def validate_mobile_number(mobile_number):
     except Exception as e:
         return False
 
-
+def shorten_url(original_url):
+    try:
+        res = requests.post(
+            'https://api.short.io/links',
+            json={
+                'domain': 'idbook.short.gy',
+                'originalURL': original_url,
+            },
+            headers={
+                'authorization': 'sk_TePXTbqYT3izjZpc',
+                'content-type': 'application/json'
+            },
+        )
+        res.raise_for_status()
+        data = res.json()
+        return data.get('shortURL', original_url)  # Return shortened URL or original if failed
+    except Exception as e:
+        print(f"Error shortening URL: {e}")
+        return original_url
 
 # Example usage
 # state_name = "madhya Pradesh"
