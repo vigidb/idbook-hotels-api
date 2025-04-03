@@ -40,6 +40,7 @@ from django.contrib.auth import get_user_model
 from datetime import datetime
 from functools import reduce
 import traceback
+from .tasks import send_hotel_sms_task, send_hotel_email_task
 
 User = get_user_model()
 
@@ -378,6 +379,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             
             if prop_status=='Active' and (city or state or country):
                 hotel_db_utils.process_property_based_topdest_count(location_list)
+
+            if prop_status == 'Active':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}
+                )
+
+                send_hotel_email_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}
+                )
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response
