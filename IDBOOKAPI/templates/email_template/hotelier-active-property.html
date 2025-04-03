@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Post-Stay Review Request</title>
+  <title>Property Activation Notification</title>
   <style>
     /* General Styles */
     body {
@@ -14,7 +14,6 @@
       padding: 0;
       color: #333;
     }
-
     .container {
       max-width: 600px;
       margin: 0 auto;
@@ -22,35 +21,29 @@
       border-radius: 8px;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     }
-
     .header {
       background-color: #1D498D;
       padding: 20px;
       text-align: center;
       color: white;
     }
-
     .header img {
       max-width: 150px;
       margin: 0 auto;
     }
-
     .content {
       padding: 30px;
       text-align: center;
     }
-
     .content h1 {
       font-size: 24px;
       color: #354F8C;
     }
-
     .content p {
       font-size: 16px;
       color: #666;
       margin: 20px 0;
     }
-
     .content a {
       display: inline-block;
       background-color: #3C65A4;
@@ -61,11 +54,9 @@
       font-weight: bold;
       margin-top: 20px;
     }
-
     .content a:hover {
       background-color: #29477D;
     }
-
     .footer {
       background-color: #F2F5FB;
       padding: 20px;
@@ -73,51 +64,41 @@
       font-size: 14px;
       color: #333;
     }
-
     .footer a {
       color: #354F8C;
       text-decoration: none;
     }
-
     /* Dark Mode Styles */
     @media (prefers-color-scheme: dark) {
       body {
         background-color: #1E1E1E;
         color: #E2E2E2;
       }
-
       .container {
         background-color: #2A2A2A;
         box-shadow: none;
       }
-
       .header {
         background-color: #3C65A4;
         color: white;
       }
-
       .content h1 {
         color: #A3C4F1;
       }
-
       .content p {
         color: #CCCCCC;
       }
-
       .content a {
         background-color: #5E81C4;
         color: white;
       }
-
       .content a:hover {
         background-color: #476AA3;
       }
-
       .footer {
         background-color: #2A2A2A;
         color: #E2E2E2;
       }
-
       .footer a {
         color: #A3C4F1;
       }
@@ -130,17 +111,16 @@
     <div class="header">
       <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
     </div>
-
-    <!-- Review Request Content -->
+    <!-- Activation Notification Content -->
     <div class="content">
-      <h1>We Hope You Enjoyed Your Stay!</h1>
-      <p>Thank you for choosing <strong>{{ property_name }}</strong> for your recent stay. We would love to hear your feedback and learn more about your experience.</p>
-      <p>Your opinion helps us improve our services and ensure all our guests have the best experience possible.</p>
+      <h1>Congratulations!</h1>
+      <p>Dear {{ hotelier_name }},</p>
+      <p>Your property <strong>{{ property_name }}</strong> is now ACTIVE on Idbook.</p>
+      <p>You can now manage your inventory & bookings through our platform.</p>
       
       <!-- Call to Action -->
-      <a href="{{ review_link }}">Leave a Review</a> <!-- Replace with actual review link -->
+      <a href="{{ login_link }}">Manage Your Property</a>
     </div>
-
     <!-- Footer Section -->
     <div class="footer">
       <p>If you have any questions or need further assistance, feel free to contact us at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>.</p>

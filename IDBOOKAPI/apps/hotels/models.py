@@ -176,6 +176,11 @@ class Property(models.Model):
     chain_name = models.CharField(max_length=50, blank=True, default='')
     build_year = models.PositiveIntegerField(null=True)
     no_of_restaurant = models.PositiveIntegerField(default=0)
+    no_of_kitchen = models.PositiveIntegerField(default=0)
+    no_of_banquets = models.PositiveIntegerField(default=0)
+
+    minimum_no_of_nights = models.PositiveIntegerField(default=0)
+    maximum_no_of_nights = models.PositiveIntegerField(default=0)
 
     currency = models.CharField(max_length=50, blank=True, default='')
     vcc_currency = models.CharField(max_length=50, blank=True, default='')
