@@ -1,7 +1,8 @@
 # booking
 from apps.booking.models import (
     Booking, HotelBooking, TaxRule,
-    Review, BookingPaymentDetail, Review)
+    Review, BookingPaymentDetail, Review,
+    BookingCommission)
 
 from IDBOOKAPI.utils import get_unique_id_from_time
 from datetime import datetime
@@ -331,5 +332,23 @@ def check_booking_confirmation_code(confirmation_code):
     is_exist = Booking.objects.filter(
         confirmation_code=confirmation_code).exists()
     return is_exist
+
+def add_or_update_booking_commission(booking_id, commission_detail):
+    try:
+        booking_commission = BookingCommission.objects.filter(booking=booking_id)
+        if booking_commission:
+            booking_commission.update(**commission_detail)
+        else:
+            commission_detail['booking_id'] = booking_id
+            booking_commission = BookingCommission(**commission_detail)
+            booking_commission.save()
+    except Exception as e:
+        print(e)
+
+def get_booking_commission(booking_id):
+     booking_commission = BookingCommission.objects.filter(
+         booking=booking_id).first()
+     return booking_commission
+    
     
 
