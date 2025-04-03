@@ -241,6 +241,20 @@ class BookingPaymentDetail(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     
+class BookingMetaInfo(models.Model):
+    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='meta_info')
+    booking_created_date = models.DateTimeField(auto_now_add=True)
+    booking_confirmed_date = models.DateTimeField(null=True, blank=True)
+    booking_cancelled_date = models.DateTimeField(null=True, blank=True)
+    booking_completed_date = models.DateTimeField(null=True, blank=True)
+    date_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Meta Info for Booking {self.booking_id}"
+
+    class Meta:
+        verbose_name = 'Booking Meta Info'
+        verbose_name_plural = 'Booking Meta Infos'
 
 class AppliedCoupon(models.Model):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='coupon_applied')
@@ -293,8 +307,9 @@ class Review(models.Model):
     property_review = models.JSONField(default=default_property_review_json)
     overall_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the booked service.")
 
-    agency_review = models.JSONField(default=default_agency_review_json)
-    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2, help_text="Overall rating for the agency.")
+    agency_review = models.JSONField(null=True, default=default_agency_review_json)
+    overall_agency_rating = models.DecimalField(max_digits=3, decimal_places=2,
+                                                null=True, help_text="Overall rating for the agency.")
 
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the review was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the review was last updated.")

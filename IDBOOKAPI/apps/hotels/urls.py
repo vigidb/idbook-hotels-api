@@ -8,6 +8,7 @@ router = routers.DefaultRouter()
 
 router.register(r'properties/policy', related_viewset.PropertyPolicyViewSet, basename='properties-policy')
 router.register(r'properties/top-destination', related_viewset.TopDestinationViewSet, basename='properties-top-destination')
+router.register(r'properties/trending-places', related_viewset.TrendingPlacesViewSet, basename='properties-trending-places')
 router.register(r'landmarks', related_viewset.PropertyLandmarkViewSet, basename='landmarks')
 router.register(r'properties', PropertyViewSet, basename='properties')
 router.register(r'galleries', GalleryViewSet, basename='galleries')

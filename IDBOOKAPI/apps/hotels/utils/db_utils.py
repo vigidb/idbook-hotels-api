@@ -3,8 +3,8 @@ from apps.hotels.models import (
     RoomGallery, FavoriteList, BlockedProperty)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
-from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations
-
+from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations, UnavailableProperty, TrendingPlaces
+# from apps.hotels.serializers import UnavailablePropertySerializer
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
 from django.db.models import Count, Sum
@@ -49,8 +49,10 @@ def get_property_gallery(property_id):
     property_gallery = PropertyGallery.objects.filter(property_id=property_id, active=True)
     return property_gallery
 
-def get_room_gallery(room_id):
-    room_gallery = RoomGallery.objects.filter(room_id=room_id, active=True)
+def get_room_gallery(room_id, active=True):
+    room_gallery = RoomGallery.objects.filter(room_id=room_id)
+    if active is not None:
+        room_gallery = room_gallery.filter(active=active)
     return room_gallery
 
 def get_property_featured_image(property_id):
@@ -501,6 +503,12 @@ def process_property_based_topdest_count(location_list):
     except Exception as e:
         print(e)
 
+def is_trending_place_exist(location_name, exclude_id=None):
+    query = TrendingPlaces.objects.filter(location_name__iexact=location_name.strip())
+    if exclude_id:
+        query = query.exclude(id=exclude_id)
+    return query.exists()
+
 ##def get_checkin_based_dynamic_pricing(checkin_date, booking_slot):
 ##    try:
 ##        pricing_obj = DynamicRoomPricing.objects.filter(
@@ -661,11 +669,20 @@ def query_annotate():
 
 ##    for prop in property_obj:
 ##        print("id", prop.get('id'), "student count", prop.get('property_dynamic_pricing__student_count'))
+
     
+def save_unavailable_property_search(query_params):    
+    location = query_params.get('location', '')
+    property_search = query_params.get('property_search', '')
+
+    search_term = location or property_search
+    search_term = search_term.strip()
     
-    
-    
-    
+    if search_term:
+        UnavailableProperty.objects.create(
+            search_term=search_term,
+            full_params=dict(query_params)
+        )
 
     
 

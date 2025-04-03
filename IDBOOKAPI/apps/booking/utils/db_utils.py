@@ -190,7 +190,7 @@ def create_booking_payment_details(booking_id, append_id):
         merchant_transaction_id = None
             
     booking_payment_detail = BookingPaymentDetail.objects.create(
-        booking_id=booking_id, merchant_transaction_id=merchant_transaction_id)
+        booking_id=booking_id, merchant_transaction_id=merchant_transaction_id, transaction_for= "booking_confirmed")
     return booking_payment_detail
 
 def create_booking_refund_details(booking_id, original_transaction_id, append_id):

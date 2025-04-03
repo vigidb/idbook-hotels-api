@@ -11,7 +11,7 @@ from .models import (
     RoomGallery, PropertyGallery, BlockedProperty, PolicyDetails
 )
 from apps.hotels.submodels.related_models import (
-    DynamicRoomPricing, TopDestinations)
+    DynamicRoomPricing, TopDestinations, UnavailableProperty)
 
 
 class PropertyAdmin(admin.ModelAdmin):
@@ -27,6 +27,11 @@ class RoomAdmin(admin.ModelAdmin):
     list_filter = ('room_type',)
     # search_fields = ('property__name', 'room_type__name')
 
+class UnavailablePropertyAdmin(admin.ModelAdmin):
+    list_display = ('search_term', 'full_params', 'created_at')
+    search_fields = ('search_term',)
+
+admin.site.register(UnavailableProperty, UnavailablePropertyAdmin)
 
 admin.site.register(Room, RoomAdmin)
 
