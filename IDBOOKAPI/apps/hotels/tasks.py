@@ -33,8 +33,10 @@ def send_hotel_sms_task(self, notification_type='', params=None):
                     
                     property_name = property.name
                     # website_link = "IDBOOK Official Site"
-                    website_link = f"{settings.FRONTEND_URL}/login"
+                    website_link = f"https://www.idbookhotels.com/hotelier/login?utm_source=sms&utm_medium=notification&utm_campaign=property_activation&ref={property.slug}"
+                    print("website_link", website_link)
                     short_login_link = shorten_url(website_link)
+                    print("short_login_link", short_login_link)
                     
                     variables_values = f"{hotelier_name}|{property_name}|{short_login_link}"
                     print("variables_values", variables_values)
@@ -84,9 +86,11 @@ def send_hotel_email_task(self, notification_type='', params=None):
                     # hotelier_name = user.name if user else "Hotelier"
                     hotelier_name = "Hotelier"
                     property_name = property.name
-                    login_link = f"{settings.FRONTEND_URL}/login"
+                    # login_link = f"{settings.FRONTEND_URL}/login"
+                    login_link = f"https://www.idbookhotels.com/hotelier/login?utm_source=email&utm_medium=notification&utm_campaign=property_activation&ref={property.slug}"
+                    print("login_link", login_link)
                     short_login_link = shorten_url(login_link)
-                    
+                    print("short_login_link", short_login_link)
                     context = {
                         'hotelier_name': hotelier_name,
                         'property_name': property_name,
