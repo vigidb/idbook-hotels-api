@@ -8,9 +8,10 @@ from rest_framework.permissions import BasePermission
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, AppliedCoupon,
-    Review, BookingPaymentDetail)
+    Review, BookingPaymentDetail, BookingCommission)
 from apps.customer.models import Customer
 from apps.hotels.utils.db_utils import get_property_gallery
+from apps.booking.utils.db_utils import get_booking_commission
 
 from django.conf import settings
 
@@ -29,8 +30,23 @@ from django.conf import settings
 
 import pytz
 
+class BookingCommissionSerializer(serializers.ModelSerializer):
+    commission = serializers.FloatField()
+    tax_percentage = serializers.FloatField()
+    tax_amount = serializers.FloatField()
+    com_amnt = serializers.FloatField()
+    com_amnt_withtax = serializers.FloatField()
+    tcs = serializers.FloatField()
+    tds = serializers.FloatField()
+    hotelier_amount = serializers.FloatField()
+    
+    class Meta:
+        model = BookingCommission
+        fields = '__all__'
+
 
 class BookingSerializer(serializers.ModelSerializer):
+    commission_info = BookingCommissionSerializer()
     class Meta:
         model = Booking
         fields = '__all__'
@@ -349,13 +365,15 @@ class HotelBookingSerializer(serializers.ModelSerializer):
         model = HotelBooking
         fields = ('confirmed_room_details', 'confirmed_checkin_time', 'confirmed_checkout_time')
 
+
 class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
     hotel_booking = HotelBookingSerializer()
+    commission_info = BookingCommissionSerializer()
     class Meta:
         model = Booking
         fields = ('id', 'booking_type', 'hotel_booking',
                   'final_amount', 'gst_amount', 'discount',
-                  'subtotal', 'status')
+                  'subtotal', 'status', 'commission_info')
     
 
 class QueryFilterBookingSerializer(serializers.ModelSerializer):
@@ -452,6 +470,20 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
                   'invoice_id', 'confirmed_checkin_time', 'confirmed_checkout_time',
                   'merchant_transaction_id', 'payment_type', 'payment_medium',
                   'payment_amount', 'is_transaction_success')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation['commission_info'] = None
+
+        if instance:
+            booking_id = instance.get('id', None)
+            booking_commission = get_booking_commission(booking_id)
+            if booking_commission:
+                comm_serailizer = BookingCommissionSerializer(booking_commission)
+                representation['commission_info'] = comm_serailizer.data 
+
+        return representation
+        
 
 class PaymentMediumSerializer(serializers.Serializer):
     payment_type = serializers.CharField(

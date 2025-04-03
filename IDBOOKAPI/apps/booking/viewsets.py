@@ -23,7 +23,8 @@ from apps.booking.utils.db_utils import (
     update_booking_payment_details, check_booking_and_transaction,
     get_booking_from_payment, check_room_booked_details, get_booking,
     create_booking_refund_details, get_refund_log_by_merchant_id,
-    refund_create_booking_payment_details, check_booking_confirmation_code)
+    refund_create_booking_payment_details, check_booking_confirmation_code,
+    add_or_update_booking_commission)
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
@@ -1057,12 +1058,27 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 "booking_slot":booking_slot, "requested_room_no":requested_room_no
             }
 
+##            com_amnt, com_tax_amount, com_tax_in_percent = self.commission_calculation()
+##            com_amnt_withtax = com_amnt + com_tax_amount
+##            commission_details = {"com_amount":com_amnt, "tax_amount":com_tax_amount,
+##                                  "tax_percent":com_tax_in_percent,
+##                                  "total_com_amnt":com_amnt_withtax}
+##            self.final_amount = self.final_amount + float(com_amnt_withtax)
+
+            commission_details = self.commission_calculation()
+            if commission_details:
+                self.final_amount = self.final_amount + float(
+                    commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                commission_details['hotelier_amount'] = hotelier_amount
+
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
                             "subtotal":str(self.subtotal), "discount":str(discount),
                             "final_amount":str(self.final_amount),
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
-                            "child_age_list":child_age_list, "additional_notes":additional_notes}
+                            "child_age_list":child_age_list, "additional_notes":additional_notes,
+                            "commission_info":commission_details}
             
             if coupon:
 
@@ -1557,7 +1573,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     hotel_booking = HotelBooking(**hotel_booking_dict)
                     hotel_booking.save()
                     hotel_booking_id = hotel_booking.id
-                    
+
+                commission_details = self.commission_calculation()
+                if commission_details:
+                    self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                    commission_details['hotelier_amount'] = hotelier_amount
 
                 booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
@@ -1578,7 +1599,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
-                BookingMetaInfo.objects.create(booking=booking, booking_created_date=datetime.now())
+
+                if commission_details:
+                    add_or_update_booking_commission(booking.id, commission_details)
+
+                if not booking_id:
+                    BookingMetaInfo.objects.create(booking=booking, booking_created_date=datetime.now())
                 booking_status_message = ""
                 if booking_id and booking_status == "on_hold":
                     # check the room availability before locking

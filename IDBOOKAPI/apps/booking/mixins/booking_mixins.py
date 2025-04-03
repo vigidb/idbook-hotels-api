@@ -1,12 +1,16 @@
 from apps.hotels.utils.db_utils import (
-    get_property_room_for_booking, get_dynamic_room_pricing_list)
+    get_property_room_for_booking, get_dynamic_room_pricing_list,
+    get_property_commission)
 from apps.booking.utils.booking_utils import (
     get_tax_rate, calculate_xbed_amount, calculate_room_booking_amount)
+
 from rest_framework import status
 
 from IDBOOKAPI.utils import (
     calculate_tax, get_dates_from_range,
     get_date_from_string)
+
+import traceback
 
 class BookingMixins:
 
@@ -446,8 +450,38 @@ class BookingMixins:
 
         #print("confirmed room details::", self.confirmed_room_details)
 
-        return True, None        
-        
+        return True, None
+
+    def commission_calculation(self):
+        com_amnt = 0
+        tax_amount, tax_in_percent = 0, 0
+        commission_details = None
+        try:
+            prop_comm = get_property_commission(self.property_id)
+            if prop_comm:
+                comm_type = prop_comm.commission_type
+                commission = prop_comm.commission
+                if comm_type == "PERCENT":
+                    com_amnt = (commission * self.subtotal) / 100
+                elif comm_type == "AMOUNT":
+                    com_amnt = commission
+
+                tax_in_percent = get_tax_rate(com_amnt, self.tax_rules_dict)
+                tax_amount = calculate_tax(tax_in_percent, com_amnt)
+
+                com_amnt_withtax = com_amnt + tax_amount
+                commission_details = {"com_amnt":com_amnt, "tax_amount":tax_amount,
+                                      "tax_percentage":tax_in_percent,
+                                      "com_amnt_withtax":com_amnt_withtax,
+                                      "commission": commission,
+                                      "tcs":0.0, "tds":0.0,
+                                      "commission_type": comm_type}
+        except Exception as e:
+            print(traceback.format_exc())
+            print(e)
+            
+              
+        return commission_details 
         
 
 ##    def amount_calculations(self):

@@ -256,6 +256,20 @@ class BookingMetaInfo(models.Model):
         verbose_name = 'Booking Meta Info'
         verbose_name_plural = 'Booking Meta Infos'
 
+
+class BookingCommission(models.Model):
+    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='commission_info')
+    commission = models.DecimalField(max_digits=20, decimal_places=6)
+    commission_type = models.CharField(max_length=20)
+    tax_percentage = models.DecimalField(max_digits=20, decimal_places=6)
+    tax_amount = models.DecimalField(max_digits=20, decimal_places=6)
+    com_amnt = models.DecimalField(max_digits=20, decimal_places=6)
+    com_amnt_withtax = models.DecimalField(max_digits=20, decimal_places=6)
+    tcs = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    tds = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    hotelier_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    
+
 class AppliedCoupon(models.Model):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='coupon_applied')
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_applied_coupon')
