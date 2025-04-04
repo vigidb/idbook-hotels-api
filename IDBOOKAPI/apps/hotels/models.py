@@ -208,9 +208,9 @@ class Property(models.Model):
     # objects = models.Manager()  # The default manager.
     # published = PropertyManager()  # Our custom manager.
 
-    def save(self, *args, **kwargs):
-        self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
+##    def save(self, *args, **kwargs):
+##        self.slug = slugify(self.name)
+##        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
