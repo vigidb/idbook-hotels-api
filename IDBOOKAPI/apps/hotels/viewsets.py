@@ -285,12 +285,47 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##            if nonavailable_property_list:
 ##                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
 
-        return available_property_dict, nonavailable_property_list      
+        return available_property_dict, nonavailable_property_list
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"slug": self.slug})
+        return context
             
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        #self.get_serializer_context()
+        
+        city_name = request.data.get('city_name', '')
+        name = request.data.get('name', '')
+        slug = request.data.get('slug', '')
+        
+        if slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(slug)
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response       
+            
+        if name and not slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(name)
+            if slug_exist and city_name:
+                slug = f"{name}-{city_name}"
+                slug_exist, slug = hotel_db_utils.check_property_slug(slug)
+
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                    
+                
+        self.slug = slug
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
 
@@ -330,7 +365,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         # Get the object to be updated
         instance = self.get_object()
-
+        
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data)
 
@@ -362,7 +397,19 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # print(dir(self))
         # Get the object to be updated
         instance = self.get_object()
-
+        
+        slug = request.data.get('slug', '')
+        if slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(
+                slug, exclude=instance.id)
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response 
+        
+        self.slug = ""
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data, partial=True)
 
