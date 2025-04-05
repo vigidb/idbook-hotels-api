@@ -41,6 +41,7 @@ from datetime import datetime
 from functools import reduce
 import traceback
 from .tasks import send_hotel_sms_task, send_hotel_email_task
+from .mixins.validation_mixins import ValidationMixin
 
 User = get_user_model()
 
@@ -1126,7 +1127,7 @@ class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         return custom_response
 
 
-class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, ValidationMixin):
     queryset = Room.objects.all()
     serializer_class = RoomSerializer
     # permission_classes = [AnonymousCanViewOnlyPermission,]
@@ -1156,7 +1157,20 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         
 
         # Create an instance of your serializer with the request data
-        serializer = self.get_serializer(data=request.data)
+        # serializer = self.get_serializer(data=request.data)
+        data = request.data.copy()
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+
+        serializer = self.get_serializer(data=data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
@@ -1194,13 +1208,29 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         # Get the object to be updated
         instance = self.get_object()
+        data = request.data.copy()
+
+        # Validate and convert data
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+
+        serializer = self.get_serializer(instance, data=data)
 
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data)
+        # serializer = self.get_serializer(instance, data=request.data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic
-            response = super().update(request, *args, **kwargs)
+            response = super().update(request._request.__class__(data=data), *args, **kwargs)
+            # response = super().update(request, *args, **kwargs)
 
             # Create a custom response
             custom_response = self.get_response(
@@ -1229,9 +1259,23 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         # Get the object to be updated
         instance = self.get_object()
+        data = request.data.copy()
+
+        # Validate and convert partial data
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
 
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(instance, data=data, partial=True)
+        # serializer = self.get_serializer(instance, data=request.data, partial=True)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic
