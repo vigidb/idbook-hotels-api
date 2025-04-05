@@ -13,11 +13,13 @@ from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
 from apps.vehicle_management.models import VehicleDetail
 from apps.org_resources.models import CompanyDetail
+from apps.org_managements.models import BusinessDetail
 
 from IDBOOKAPI.basic_resources import (
     BOOKING_STATUS_CHOICES, TIME_SLOTS,
     ROOM_CHOICES, BOOKING_TYPE, VEHICLE_TYPE,
-    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS, TRANSACTION_FOR)
+    FLIGHT_TRIP, FLIGHT_CLASS, GST_TYPE, MATH_COMPARE_SYMBOLS, TRANSACTION_FOR,
+    STATUS_CHOICES, PAYMENT_MODES)
 
 from IDBOOKAPI.basic_resources import(
     PAYMENT_TYPE, PAYMENT_MEDIUM)
@@ -225,6 +227,39 @@ class HolidayPackageHotelDetail(models.Model):
                                  null=True, blank=True,
                                  verbose_name="holiday_package_booking")
 
+class Invoice(models.Model):
+
+    logo = models.CharField(max_length=255, default='', blank=True)
+    header = models.CharField(max_length=255, default='', blank=True)
+    footer = models.CharField(max_length=255, default='', blank=True)
+    invoice_number = models.CharField(max_length=50, unique=True, db_index=True, default='')
+    invoice_date = models.DateField()
+    due_date = models.DateField(null=True)
+    notes = models.CharField(max_length=255, default='', blank=True)
+
+    billed_by = models.ForeignKey(BusinessDetail, on_delete=models.CASCADE, related_name='invoices_billed_by')
+    billed_by_details = models.JSONField(default=dict, null=True)
+
+    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    billed_to_details = models.JSONField(default=dict, null=True)
+
+    supply_details = models.JSONField(default=dict, null=True)
+    items = models.JSONField(default=list, null=True)
+
+    GST = models.PositiveIntegerField(default=0)
+    GST_type = models.CharField(max_length=20, default='CGST/SGST', blank=True)
+    total = models.PositiveIntegerField(default=0)
+    total_amount = models.PositiveIntegerField(default=0)
+    total_tax = models.PositiveIntegerField(default=0)
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
+    next_schedule_date = models.DateField(null=True)
+    tags = models.CharField(max_length=255, blank=True)
+
+    created_by = models.CharField(max_length=50, default='', blank=True)
+    updated_by = models.CharField(max_length=50, default='', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 class BookingPaymentDetail(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_payment')
@@ -238,6 +273,9 @@ class BookingPaymentDetail(models.Model):
     is_transaction_success = models.BooleanField(default=False)
     transaction_for = models.CharField(max_length=30, choices=TRANSACTION_FOR, default="others")
     transaction_details = models.JSONField(null=True, default=dict)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODES, default='Cash')
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, null=True, related_name='payment_history')
+    reference = models.CharField(max_length=100, blank=True, default='')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     

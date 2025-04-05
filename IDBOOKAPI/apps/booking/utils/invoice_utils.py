@@ -1,30 +1,52 @@
 # invoice
 import requests
 import json
-
-
+from apps.booking.models import Invoice
+from datetime import datetime
 from IDBOOKAPI.utils import (
     get_current_date, last_calendar_month_day)
 
 invoice_url = "https://invoice-api.idbookhotels.com"
 
+# def get_invoice_number():
+
+#     url = "{invoice_url}/api/invoices/generate-invoice-number".format(
+#         invoice_url=invoice_url)
+
+#     payload = {}
+#     headers = {}
+#     invoice_number = ""
+
+#     response = requests.request("GET", url, headers=headers, data=payload)
+#     print(response.status_code)
+#     if response.status_code == 200:
+#         data = response.json()
+#         if data:
+#             invoice_number = data.get('invoiceNumber', '')
+#     else:
+#         print(response.json())
+#     return invoice_number
 def get_invoice_number():
+    current_year = datetime.now().year
+    current_month = str(datetime.now().month).zfill(2)
 
-    url = "{invoice_url}/api/invoices/generate-invoice-number".format(
-        invoice_url=invoice_url)
+    initial_invoice_number = 50239
 
-    payload = {}
-    headers = {}
-    invoice_number = ""
+    last_invoice = Invoice.objects.filter(invoice_number__startswith=f"Idb-{current_year}-{current_month}-") \
+                                  .order_by('-invoice_number') \
+                                  .first()
 
-    response = requests.request("GET", url, headers=headers, data=payload)
-    print(response.status_code)
-    if response.status_code == 200:
-        data = response.json()
-        if data:
-            invoice_number = data.get('invoiceNumber', '')
-    else:
-        print(response.json())
+    if not last_invoice or not last_invoice.invoice_number:
+        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+
+    try:
+        last_number = int(last_invoice.invoice_number.split('-')[-1])
+    except ValueError:
+        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+
+    new_invoice_number = last_number + 1
+
+    invoice_number = f"Idb-{current_year}-{current_month}-{new_invoice_number}"
     return invoice_number
 
 def invoice_json_hotel_booking(hotel_booking):
