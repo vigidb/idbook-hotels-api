@@ -2,6 +2,8 @@ import json
 from django.core.serializers.json import DjangoJSONEncoder
 from apps.hotels.models import Room, Property
 from apps.hotels.submodels.related_models import DynamicRoomPricing
+from apps.hotels.utils import db_utils as hotel_db_utils
+from django.db import transaction
 
 
 def is_numeric_string(value):
@@ -294,3 +296,30 @@ def generate_conversion_report():
         "converted_rooms": converted_rooms,
         "converted_dynamic_pricings": converted_pricings
     }
+
+def update_all_properties_starting_prices():
+    all_properties = Property.objects.all()
+    updated_count = 0
+
+    for prop in all_properties:
+        property_id = prop.id
+        has_active_rooms = Room.objects.filter(property_id=property_id, active=True).exists()
+        if not has_active_rooms:
+            continue  # Skip if no active rooms for this property
+
+        try:
+            with transaction.atomic():
+                previous_price_details = prop.starting_price_details or {}
+                
+                starting_price_details = hotel_db_utils.get_slot_based_starting_room_price(property_id)
+                is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(property_id)
+                hotel_db_utils.room_based_property_update(property_id, starting_price_details, is_slot_price_enabled)
+
+                updated_count += 1
+                print(f"Updated Property ID {property_id}\nFROM: {json.dumps(previous_price_details, sort_keys=True)}\nTO:   {json.dumps(starting_price_details, sort_keys=True)}\n")
+        except Exception as e:
+            print(f"Failed to update Property ID {property_id}: {e}")
+
+    print(f"\nTotal Properties Updated: {updated_count}")
+
+
