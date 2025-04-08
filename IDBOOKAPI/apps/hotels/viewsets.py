@@ -1379,8 +1379,10 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, Va
             self.perform_destroy(instance)
             custom_response = self.get_response(
                 data=None,
+                count=0,
+                status="success",
                 message="Room Deleted Successfully",
-                status_code=status.HTTP_204_NO_CONTENT
+                status_code=status.HTTP_200_OK,
             )
 
         self.log_response(custom_response)
