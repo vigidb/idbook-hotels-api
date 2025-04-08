@@ -1135,7 +1135,7 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, Va
 ##    filterset_fields = ['room_type', "carpet_area", "bed_count", "person_capacity", "child_capacity", "price_per_night",
 ##                        "price_for_4_hours", "price_for_8_hours", "price_for_12_hours", "price_for_24_hours",
 ##                        "discount", "availability", "property", "amenities", "room_type", "room_view", "bed_type", ]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     # lookup_field = 'custom_id'
 
     permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated], 'partial_update':[IsAuthenticated],
@@ -1360,6 +1360,30 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, Va
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        room_id = kwargs.get("pk")
+        instance = Room.objects.filter(id=room_id).first()
+
+        if not instance:
+            custom_response = self.get_response(
+                data=None,
+                message="No Room Details Found",
+                status_code=status.HTTP_404_NOT_FOUND,
+                is_error=True
+            )
+        else:
+            self.perform_destroy(instance)
+            custom_response = self.get_response(
+                data=None,
+                message="Room Deleted Successfully",
+                status_code=status.HTTP_204_NO_CONTENT
+            )
+
+        self.log_response(custom_response)
         return custom_response
 
     
