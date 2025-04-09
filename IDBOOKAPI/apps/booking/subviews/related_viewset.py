@@ -7,6 +7,7 @@ from apps.booking.utils.db_utils import (
     update_payment_details)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.booking.utils.invoice_utils import create_invoice_number
+from apps.hotels.tasks import send_hotel_sms_task
 
 class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Review.objects.all()
@@ -60,6 +61,16 @@ class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             response = super().create(request, *args, **kwargs)
             # update review created for booking
             Booking.objects.filter(id=booking_id).update(is_reviewed=True)
+            review_id = response.data.get("id")
+            if review_id:
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELIER_PROPERTY_REVIEW_NOTIFICATION',
+                        'params': {
+                            'review_id': review_id
+                        }
+                    }
+                )
             # Create a custom response
             custom_response = self.get_response(
                 status="success",

@@ -66,7 +66,7 @@ import traceback
 import base64, json
 
 from django.conf import settings
-
+from apps.hotels.tasks import send_hotel_sms_task
 from datetime import datetime, timedelta
 from pytz import timezone
 from decimal import Decimal
@@ -582,7 +582,18 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.save()
         instance.meta_info.booking_cancelled_date = datetime.now()
         instance.meta_info.save()
-        print ("\n\n\ncancellation_details", cancellation_details)        
+        print ("\n\n\ncancellation_details", cancellation_details)
+
+        if payment_details and payment_details.payment_type == 'WALLET' and payment_details.payment_medium == 'Idbook':
+            print("payment_details")
+            send_hotel_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'HOTELER_BOOKING_CANCEL_NOTIFICATION',
+                    'params': {
+                        'booking_id': instance.id
+                    }
+                }
+            ) 
         
         if not payment_details or refund_amount <= 0:
             self.send_cancel_task(instance, refund_amount)
@@ -690,6 +701,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 # Create the refund log entry
                 create_booking_refund_log(refund_log)
                 self.send_cancel_task(instance, refund_amount)
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELER_BOOKING_CANCEL_NOTIFICATION',
+                        'params': {
+                            'booking_id': instance.id
+                        }
+                    }
+                )
                 
                 custom_response = self.get_response(
                     status='success',
@@ -1793,6 +1812,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         }
                     }
                 )
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELER_PAYMENT_NOTIFICATION',
+                        'params': {
+                            'booking_id': instance.id
+                        }
+                    }
+                )
                 print(f"Wallet deduction SMS scheduled for user {instance.user.id}")
             except Exception as sms_error:
                 print(f"Error scheduling wallet deduction SMS: {sms_error}")
@@ -1855,6 +1882,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         send_booking_sms_task.apply_async(
             kwargs={
                 'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                'params': {
+                    'booking_id': booking_id
+                }
+            }
+        )
+        send_hotel_sms_task.apply_async(
+            kwargs={
+                'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
                 'params': {
                     'booking_id': booking_id
                 }
@@ -2467,6 +2502,14 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         }
                     }
                 )
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
                 print(f"Booking confirmation SMS scheduled for booking {booking_id}")
                 send_booking_sms_task.apply_async(
                     kwargs={
@@ -2480,6 +2523,14 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     }
                 )
                 print(f"Payment processed SMS scheduled for booking {booking_id}")
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELER_PAYMENT_NOTIFICATION',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
 
 
             custom_response = self.get_response(

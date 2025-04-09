@@ -436,6 +436,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 send_hotel_email_task.apply_async(
                     kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}
                 )
+            elif prop_status == 'In-Active':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_DEACTIVATION', 'params': {'property_id': instance.id}}
+                )
+
+            elif prop_status == 'Completed':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_SUBMISSION', 'params': {'property_id': instance.id}}
+                )
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response
