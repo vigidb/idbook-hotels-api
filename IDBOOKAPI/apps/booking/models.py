@@ -22,7 +22,7 @@ from IDBOOKAPI.basic_resources import (
     STATUS_CHOICES, PAYMENT_MODES)
 
 from IDBOOKAPI.basic_resources import(
-    PAYMENT_TYPE, PAYMENT_MEDIUM)
+    PAYMENT_TYPE, PAYMENT_MEDIUM, REFERENCE_CHOICES)
 
 
 # class BookingManager(models.Manager):
@@ -255,6 +255,7 @@ class Invoice(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
     next_schedule_date = models.DateField(null=True)
     tags = models.CharField(max_length=255, blank=True)
+    reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
 
     created_by = models.CharField(max_length=50, default='', blank=True)
     updated_by = models.CharField(max_length=50, default='', blank=True)
@@ -273,9 +274,9 @@ class BookingPaymentDetail(models.Model):
     is_transaction_success = models.BooleanField(default=False)
     transaction_for = models.CharField(max_length=30, choices=TRANSACTION_FOR, default="others")
     transaction_details = models.JSONField(null=True, default=dict)
-    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODES, default='Cash')
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODES, default='Other')
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, null=True, related_name='payment_history')
-    reference = models.CharField(max_length=100, blank=True, default='')
+    reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     

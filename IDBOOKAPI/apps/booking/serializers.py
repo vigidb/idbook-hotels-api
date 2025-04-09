@@ -8,7 +8,8 @@ from rest_framework.permissions import BasePermission
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, AppliedCoupon,
-    Review, BookingPaymentDetail, BookingCommission)
+    Review, BookingPaymentDetail, BookingCommission,
+    Invoice)
 from apps.customer.models import Customer
 from apps.hotels.utils.db_utils import get_property_gallery
 from apps.booking.utils.db_utils import get_booking_commission
@@ -497,3 +498,74 @@ class BookingCheckInOutSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ['is_checkin', 'is_checkout']
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Invoice
+        fields = '__all__'
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        # Set created_by field if user is available
+        if user and user.is_authenticated:
+            validated_data['created_by'] = str(user.id)
+        
+        return super().create(validated_data)
+    
+    def update(self, instance, validated_data):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        # Set updated_by field if user is available
+        if user and user.is_authenticated:
+            validated_data['updated_by'] = str(user.id)
+        
+        return super().update(instance, validated_data)
+    
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # Get associated booking details
+        bookings = Booking.objects.filter(invoice_id=instance.invoice_number)
+        
+        if bookings.exists():
+            booking = bookings.first()
+            representation['booking'] = {
+                'id': booking.id,
+                'booking_type': booking.booking_type if hasattr(booking, 'booking_type') else "",
+                }
+        # Get associated payment details
+        payment_details = BookingPaymentDetail.objects.filter(invoice=instance)
+        if payment_details.exists():
+            representation['payment_details'] = []
+            for payment in payment_details:
+                payment_data = {
+                    'id': payment.id,
+                    'merchant_transaction_id': payment.merchant_transaction_id,
+                    'transaction_id': payment.transaction_id,
+                    'amount': float(payment.amount) if payment.amount else 0,
+                    'payment_type': payment.payment_type,
+                    'payment_medium': payment.payment_medium,
+                    'is_transaction_success': payment.is_transaction_success,
+                    'reference': payment.reference,
+                    'created': payment.created.strftime('%Y-%m-%d %H:%M:%S'),
+                }
+                representation['payment_details'].append(payment_data)
+        
+        return representation
+
+    def validate(self, data):
+        if self.instance is None and not data.get('invoice_number'):
+            raise serializers.ValidationError({"invoice_number": "Invoice number is required"})
+        
+        if not self.instance and not data.get('invoice_date'):
+            raise serializers.ValidationError({"invoice_date": "Invoice date is required"})
+        
+        if not self.instance and not data.get('billed_by'):
+            raise serializers.ValidationError({"billed_by": "Billed by is required"})
+        
+        if not self.instance and not data.get('billed_to'):
+            raise serializers.ValidationError({"billed_to": "Billed to is required"})
+        
+        return data

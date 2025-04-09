@@ -1307,3 +1307,9 @@ PAYMENT_MODES = (
     ('Cheque', 'Cheque'),
     ('Other', 'Other'),
 )
+
+REFERENCE_CHOICES = (
+    ('Booking', 'Booking'),
+    ('Subscription', 'Subscription'),
+    ('Other', 'Other'),
+)
