@@ -2,7 +2,7 @@
 from apps.booking.models import (
     Booking, HotelBooking, TaxRule,
     Review, BookingPaymentDetail, Review,
-    BookingCommission)
+    BookingCommission, Invoice)
 
 from IDBOOKAPI.utils import get_unique_id_from_time
 from datetime import datetime
@@ -13,6 +13,8 @@ from django.db.models import FloatField
 from django.db.models.fields.json import KT
 from django.db.models import Avg
 from django.db.models.functions import Cast, Coalesce
+from apps.org_managements.utils import get_active_business
+import json
 
 def get_booking(booking_id):
     try:
@@ -350,5 +352,149 @@ def get_booking_commission(booking_id):
          booking=booking_id).first()
      return booking_commission
     
-    
+def save_invoice_to_database(booking, payload_json, invoice_number):
+    """
+    Save invoice data to the Invoice model
+    """
+    try:
+        payload = json.loads(payload_json)
+        billed_by = get_active_business()
+        
+        if booking.user:
+            billed_to = booking.user
+        else:
+            return None
+        
+        items = payload.get('items', [])
+        
+        # Calculate total_tax and total from items
+        total_tax = 0
+        total = 0
+        gst_percentage = 0
+        
+        for item in items:
+            if 'tax' in item and item['tax']:
+                total_tax += float(item['tax'])
+            if 'amount' in item and item['amount']:
+                total += float(item['amount'])
+            if 'gst' in item and item['gst'] and not gst_percentage:
+                gst_percentage = float(item['gst'])
+        
+        # Create Invoice object
+        invoice = Invoice(
+            logo=payload.get('logo', ''),
+            header=payload.get('header', ''),
+            footer=payload.get('footer', ''),
+            invoice_number=invoice_number,
+            invoice_date=datetime.fromisoformat(payload.get('invoiceDate')),
+            due_date=datetime.fromisoformat(payload.get('dueDate')) if payload.get('dueDate') else None,
+            notes=payload.get('notes', ''),
+            billed_by=billed_by,
+            billed_by_details=payload.get('billedBy', {}),
+            billed_to=billed_to,
+            billed_to_details=payload.get('billedTo', {}),
+            supply_details=payload.get('supplyDetails', {}),
+            items=items,
+            GST=gst_percentage,
+            GST_type=payload.get('GSTType', 'CGST/SGST'),
+            total=total,
+            total_amount=total + total_tax,
+            total_tax=total_tax,
+            status=payload.get('status', 'Pending'),
+            next_schedule_date=datetime.fromisoformat(payload.get('nextScheduleDate')) if payload.get('nextScheduleDate') else None,
+            tags=','.join(payload.get('tags', [])),
+            reference='Booking',
+            created_by=str(booking.user.id) if booking.user else '',  # Use user ID
+        )
+        
+        invoice.save()
+        
+        return invoice
+    except Exception as e:
+        print(f"Error saving invoice to database: {e}")
+        return None
 
+def update_invoice_in_database(invoice_number, payload, booking):
+    """
+    Update an existing invoice in the database
+    """
+    try:
+        # If payload is a string, parse it
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        
+        # Find the invoice
+        invoice = Invoice.objects.filter(invoice_number=invoice_number).first()
+        if not invoice:
+            return None
+        
+        # Update fields
+        invoice.logo = payload.get('logo', invoice.logo)
+        invoice.notes = payload.get('notes', invoice.notes)
+        invoice.billed_by_details = payload.get('billedBy', invoice.billed_by_details)
+        invoice.billed_to_details = payload.get('billedTo', invoice.billed_to_details)
+        invoice.supply_details = payload.get('supplyDetails', invoice.supply_details)
+
+        if 'items' in payload:
+            items = payload.get('items', [])
+            invoice.items = items
+
+            # Recalculate total and tax
+            total = 0
+            total_tax = 0
+            gst_percentage = 0
+
+            for item in items:
+                try:
+                    if 'amount' in item:
+                        total += float(item['amount'])
+                    if 'tax' in item:
+                        total_tax += float(item['tax'])
+                    if 'gst' in item and not gst_percentage:
+                        gst_percentage = float(item['gst'])
+                except (ValueError, TypeError):
+                    pass
+
+            invoice.total = total
+            invoice.total_tax = total_tax
+            invoice.total_amount = total + total_tax
+            invoice.GST = gst_percentage
+
+        invoice.GST_type = payload.get('GSTType', invoice.GST_type)
+        invoice.status = payload.get('status', invoice.status)
+        
+        if 'nextScheduleDate' in payload:
+            invoice.next_schedule_date = datetime.fromisoformat(payload['nextScheduleDate']) if payload['nextScheduleDate'] else None
+
+        if 'tags' in payload:
+            invoice.tags = ','.join(payload['tags'])
+        invoice.reference = 'Booking'
+        invoice.updated_by = str(booking.user.id) if booking.user else ''
+        invoice.save()
+
+        return invoice
+
+    except Exception as e:
+        print(f"Error updating invoice in database: {e}")
+        return None
+
+
+def update_payment_details(booking, invoice):
+    """
+    Update booking payment details with invoice reference
+    """
+    try:
+        payment_details = BookingPaymentDetail.objects.filter(booking=booking)
+        
+        for payment in payment_details:
+            if not payment.invoice:
+                payment.invoice = invoice
+                payment.reference = 'Booking'
+
+                payment.save()
+            else:
+                print("Invoice already exists. Skipping.")      
+        return True
+    except Exception as e:
+        print(f"Error updating payment details: {e}")
+        return False

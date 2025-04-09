@@ -1,6 +1,6 @@
 from IDBOOKAPI.celery import app as celery_idbook
 from IDBOOKAPI.email_utils import send_booking_email, send_booking_email_with_attachment
-from apps.booking.utils.db_utils import get_booking
+from apps.booking.utils.db_utils import get_booking, save_invoice_to_database, update_payment_details, update_invoice_in_database
 from apps.booking.utils.booking_utils import (
     generate_htmlcontext_search_booking,
     generate_context_confirmed_booking,
@@ -9,7 +9,7 @@ from apps.booking.utils.booking_utils import (
     set_firstbooking_reward)
 
 from apps.booking.utils.invoice_utils import (
-    invoice_json_data, create_invoice, get_invoice_number, update_invoice)
+    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, create_invoice_response_data)
 
 from django.template.loader import get_template
 from django.conf import settings
@@ -142,7 +142,7 @@ def create_invoice_task(self, booking_id):
             
             # business_name = "Idbook"
             bus_details = get_active_business() #get_business_by_name(business_name)
-
+            print("booking.invoice_id", booking.invoice_id)
             if booking.user:
                 company_id = booking.company_id
                 if company_id:
@@ -151,32 +151,65 @@ def create_invoice_task(self, booking_id):
                     customer_details = get_user_based_customer(booking.user.id)
 
             if not booking.invoice_id:
-                invoice_number = get_invoice_number()
-                print(invoice_number)
+                # invoice_number = get_invoice_number()
+                invoice_number = create_invoice_number()
+                print("invoice_number", invoice_number)
                 payload = invoice_json_data(booking, bus_details,
                                             company_details, customer_details, invoice_number)
+
+                invoice = save_invoice_to_database(booking, payload, invoice_number)
+                
+                if invoice:
+                    booking = get_booking(booking_id)
+                    booking.invoice_id = invoice_number
+                    booking.save()
+                    
+                    update_payment_details(booking, invoice)
+                # Create full response data similar to external API format
+                response_data = create_invoice_response_data(invoice, payload)
+                
+                invoice_log = {
+                    'booking': booking, 
+                    'status_code': 201 if invoice else 400,
+                    'response': response_data
+                }
+                create_booking_invoice_log(invoice_log)
+
                 response = create_invoice(payload)
 
-                print(response.status_code)
-                if response.status_code == 201:
-                    data = response.json()
-                    invoice_data = data.get('data', '')
-                    invoice_id = invoice_data.get('_id', '')
-                    if invoice_id:
-                        booking = get_booking(booking_id)
-                        booking.invoice_id = invoice_number
-                        booking.save()
+                # print(response.status_code)
+                # if response.status_code == 201:
+                #     data = response.json()
+                #     invoice_data = data.get('data', '')
+                #     invoice_id = invoice_data.get('_id', '')
+                #     if invoice_id:
+                #         booking = get_booking(booking_id)
+                #         booking.invoice_id = invoice_number
+                #         booking.save()
+
            
-                invoice_log = {'booking':booking, 'status_code':response.status_code,
-                               'response': response.json()}
-                create_booking_invoice_log(invoice_log)
+                # invoice_log = {'booking':booking, 'status_code':response.status_code,
+                #                'response': response.json()}
+                # create_booking_invoice_log(invoice_log)
                     
             else:
                 payload = invoice_json_data(booking, bus_details, company_details,
                                             customer_details, None, invoice_action='update')
+                invoice = update_invoice_in_database(booking.invoice_id, payload, booking)
+                print("invoice", invoice)
+
+                if invoice:
+                    update_payment_details(booking, invoice)
+
+                response_data = create_invoice_response_data(invoice, payload)
                 response = update_invoice(booking.invoice_id, payload)
-                invoice_log = {'booking':booking, 'status_code':response.status_code,
-                               'response': response.json()}
+                # invoice_log = {'booking':booking, 'status_code':response.status_code,
+                #                'response': response.json()}
+                invoice_log = {
+                    'booking': booking, 
+                    'status_code': 200 if invoice else 400,
+                    'response': response_data
+                }
                 create_booking_invoice_log(invoice_log)
 
             send_booking_email_task.apply_async(args=[booking_id, 'confirmed-booking'])
