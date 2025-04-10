@@ -61,6 +61,7 @@ urlpatterns = [
     re_path('api/v1/vehcile-management/', include(vehicle_router.urls)),
     re_path('api/v1/log-management/', include(log_router.urls)),
     re_path('api/v1/analytics/', include(analytics_router.urls)),
+    re_path('api/v1/socket-com/', include('apps.socket_com.urls')),
 
     # JWT token authentication
     # order is important
