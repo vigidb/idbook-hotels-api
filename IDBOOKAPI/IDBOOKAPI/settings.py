@@ -32,7 +32,7 @@ IMAGEKIT_ENDPOINT = env('IMAGEKIT_ENDPOINT')
 # Application definition
 
 INSTALLED_APPS = [
-    'daphne',
+##    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
