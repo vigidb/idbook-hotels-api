@@ -201,7 +201,7 @@ class Property(models.Model):
     is_slot_price_enabled = models.BooleanField(default=False)
     property_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
     property_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
-                                         
+    pay_at_hotel = models.BooleanField(default=False, help_text="If true, customer can pay at the hotel.")
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
 
@@ -477,3 +477,25 @@ class PropertyLandmark(models.Model):
     def __str__(self):
         return self.landmark
 
+class PayAtHotelSpendLimit(models.Model):
+    start_limit = models.PositiveIntegerField(default=0, help_text="Start range of bookings for paying at hotel")
+    end_limit = models.PositiveIntegerField(default=0, help_text="End range of bookings for paying at hotel")
+    spend_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Max allowed spend for this booking range")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('created',)
+
+class MonthlyPayAtHotelEligibility(models.Model):
+    is_eligible = models.BooleanField(default=False, help_text="Is the user eligible for Pay at Hotel this month?")
+    eligible_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, help_text="Eligible spend limit for this month")
+    total_booking_count = models.PositiveIntegerField(default=0, null=True, help_text="Total bookings made by the user this month")
+    month = models.CharField(max_length=20, blank=True, default='', help_text="Month name like January, February etc.")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='monthly_pay_at_hotel_eligibility')
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'month')
+        ordering = ('-created',)
