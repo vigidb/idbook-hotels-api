@@ -3,7 +3,10 @@ from apps.hotels.models import (
     RoomGallery, FavoriteList, BlockedProperty)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
-from apps.hotels.submodels.related_models import DynamicRoomPricing, TopDestinations, UnavailableProperty, TrendingPlaces
+from apps.hotels.submodels.related_models import (
+    DynamicRoomPricing, TopDestinations, UnavailableProperty,
+    PropertyCommission, TrendingPlaces)
+
 # from apps.hotels.serializers import UnavailablePropertySerializer
 from django.db.models.fields.json import KT
 from django.db.models import Min, Max
@@ -685,8 +688,14 @@ def save_unavailable_property_search(query_params):
         )
 
     
-
+def is_property_commission_active(property_id, exclude_comm_id=None):
+    prop_comm = PropertyCommission.objects.filter(
+        property_comm=property_id, active=True)
     
+    if exclude_comm_id:
+        prop_comm = prop_comm.exclude(id=exclude_comm_id)
+
+    return prop_comm.exists()
 
     
 
