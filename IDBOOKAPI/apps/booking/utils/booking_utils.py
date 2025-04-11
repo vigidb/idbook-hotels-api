@@ -24,6 +24,7 @@ from apps.log_management.models import WalletTransactionLog
 from apps.booking.models import BookingPaymentDetail, Booking
 from datetime import datetime, timedelta
 import pytz
+from apps.hotels.models import MonthlyPayAtHotelEligibility
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -733,9 +734,29 @@ def update_no_show_status(user_id):
 
     print(f"Updated {updated_count} bookings to no-show status for user ID {user_id}")
 
-           
-   
+def check_pay_at_hotel_eligibility(user, amount):
+    """
+    Check if user is eligible for pay-at-hotel based on their monthly limit
+    """
+    # Get current month
+    current_month = datetime.now().strftime('%B')
     
+    # Check if user has a monthly pay-at-hotel eligibility record
+    eligibility = MonthlyPayAtHotelEligibility.objects.filter(
+        user=user,
+        month=current_month
+    ).first()
+    
+    if not eligibility:
+        return False, "No pay-at-hotel eligibility found for this month"
+    
+    if not eligibility.is_eligible:
+        return False, "You are not eligible for pay-at-hotel this month"
+    
+    if float(amount) > float(eligibility.eligible_limit):
+        return False, f"Booking amount exceeds your pay-at-hotel limit of {eligibility.eligible_limit}"
+    
+    return True, "Eligible for pay-at-hotel"
     
          
          

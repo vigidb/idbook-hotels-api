@@ -160,7 +160,7 @@ Return Time - {return_from} departure {return_date} and \
     return item
 
 def invoice_json_data(booking, bus_details, company_details, customer_details,
-                      invoice_number, invoice_action='create'):
+                      invoice_number, invoice_action='create', pay_at_hotel=False):
     logo = ""
     billed_by =  { "name": "", "address": "",
                    "GSTIN": "", "PAN": "",
@@ -175,7 +175,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
     notes = ''
     is_same_state = False
     business_state = None
-
+    status = "Pending" if pay_at_hotel else "Paid"
     
     if bus_details:
         if bus_details.business_logo:
@@ -286,7 +286,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
             "items": item,
-            "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
+            "GST": gst, "GSTType": gst_type, "total": total, "status": status,
             "nextScheduleDate": "",
             "tags": [""] })
     elif invoice_action == 'update':
@@ -295,7 +295,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
             "items": item,
-            "GST": gst, "GSTType": gst_type, "total": total, "status": "Paid",
+            "GST": gst, "GSTType": gst_type, "total": total, "status": status,
             "nextScheduleDate": "",
             "tags": [""] })
     else:

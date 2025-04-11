@@ -19,14 +19,14 @@ from .serializers import (
     FinancialDetailSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
     PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer)
-from .serializers import BlockedPropertySerializer, RoomNameSerializer
+from .serializers import BlockedPropertySerializer, RoomNameSerializer, PayAtHotelSpendLimitSerializer
 
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, HotelAmenityCategory,
                      RoomAmenityCategory, FavoriteList,
                      PropertyBankDetails, BlockedProperty)
 
-from .models import RoomGallery, PropertyGallery
+from .models import RoomGallery, PropertyGallery, PayAtHotelSpendLimit
 
 from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
@@ -199,6 +199,12 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             if key in ('country', 'state', 'city_name', 'area_name', 'status'):
                 filter_dict[key] = param_value
+
+            if key == 'pay_at_hotel':
+                if param_value.lower() == 'true':
+                    filter_dict['pay_at_hotel'] = True
+                elif param_value.lower() == 'false':
+                    filter_dict['pay_at_hotel'] = False
 
             if key.startswith('policies__'):
                 policies_value_list = param_value.split(',')
@@ -1013,6 +1019,48 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='set/spend-limit', 
+        url_name='set-spend-limit', permission_classes=[IsAuthenticated])
+    def set_pay_at_hotel_spend_limit(self, request):
+        is_many = isinstance(request.data, list)
+        
+        serializer = PayAtHotelSpendLimitSerializer(data=request.data, many=is_many)
+        
+        if serializer.is_valid():
+            serializer.save()
+
+            all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
+            response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+
+            return self.get_response(
+                data=response_data,
+                count=len(response_data),
+                message="Spend limit saved successfully",
+                status_code=status.HTTP_201_CREATED
+            )
+
+        return self.get_error_response(
+            message="Validation Failed",
+            status="error",
+            errors=serializer.errors,
+            error_code="VALIDATION_ERROR",
+            status_code=status.HTTP_400_BAD_REQUEST
+    )
+
+    @action(detail=False, methods=['GET'], url_path='get/spend-limit',
+        url_name='get-spend-limits', permission_classes=[IsAuthenticated])
+    def get_pay_at_hotel_spend_limits(self, request):
+        all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
+        response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+
+        return self.get_response(
+            data=response_data,
+            count=len(response_data),
+            message="Spend limit list retrieved successfully",
+            status_code=status.HTTP_200_OK
+        )
+
 
 class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Gallery.objects.all()

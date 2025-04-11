@@ -124,7 +124,7 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
     #send_otp_email(otp, to_emails)
 
 @celery_idbook.task(bind=True)
-def create_invoice_task(self, booking_id):
+def create_invoice_task(self, booking_id, pay_at_hotel=False):
     company_details = None
     customer_details = None
     print("Inside Invoice Task")
@@ -155,7 +155,7 @@ def create_invoice_task(self, booking_id):
                 invoice_number = create_invoice_number()
                 print("invoice_number", invoice_number)
                 payload = invoice_json_data(booking, bus_details,
-                                            company_details, customer_details, invoice_number)
+                                            company_details, customer_details, invoice_number, pay_at_hotel=pay_at_hotel)
 
                 invoice = save_invoice_to_database(booking, payload, invoice_number)
                 

@@ -28,7 +28,8 @@ from apps.booking.utils.db_utils import (
 from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
-    generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, update_no_show_status)
+    generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
+    update_no_show_status, check_pay_at_hotel_eligibility)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -72,6 +73,7 @@ from pytz import timezone
 from decimal import Decimal
 import pytz
 from apps.customer.models import Wallet
+from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -1615,6 +1617,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 if not booking_id:
                     booking = Booking(**booking_dict)
                     booking.save()
+                    booking_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    update_monthly_pay_at_hotel_eligibility_task.apply_async(args=[user.id, booking_date])
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
@@ -1740,6 +1744,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
     def confirm_booking(self, request, pk):
         instance = self.get_object()
         user = self.request.user
+
+        # Add check for pay_at_hotel parameter
+        pay_at_hotel = request.data.get('pay_at_hotel', False)
         
         if not instance.hotel_booking:
             custom_response = self.get_error_response(
@@ -1794,6 +1801,64 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         append_id = "%s" % (user.id)
         booking_payment_detail = create_booking_payment_details(instance.id, append_id)
         # merchant_transaction_id = booking_payment_detail.merchant_transaction_id
+
+        # Handling for pay_at_hotel case with eligibility check
+        if pay_at_hotel:
+            is_eligible, eligibility_message = check_pay_at_hotel_eligibility(user, instance.final_amount)
+            
+            if not is_eligible:
+                print(f"Pay-at-hotel not eligible: {eligibility_message}. Proceeding with wallet payment.")
+            else:
+                print("inside pay at hotel booking")
+                booking_id = instance.id
+                booking_type = instance.booking_type
+                
+                while True:
+                    confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+                    is_exist = check_booking_confirmation_code(confirmation_code)
+                    if not is_exist:
+                        break
+                        
+                print("Confirmation Code::", confirmation_code)
+                instance.confirmation_code = confirmation_code
+                instance.total_payment_made = 0  # No payment made yet
+                instance.status = 'confirmed'      
+                instance.save()
+                instance.meta_info.booking_confirmed_date = datetime.now()
+                instance.meta_info.save()
+                
+                # Save basic booking payment details without payment specific fields
+                booking_payment_detail.amount = instance.final_amount
+                booking_payment_detail.transaction_for = "booking_confirmed"
+                booking_payment_detail.save()
+                
+                # Update total no of confirmed booking for a property
+                process_property_confirmed_booking_total(property_id)
+                
+                create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
+                        'params': {
+                            'booking_id': booking_id
+                        }
+                    }
+                )
+                print(f"Booking confirmation SMS scheduled for booking {booking_id}")
+                
+                custom_response = self.get_response(
+                    status='success', data=None,
+                    message="Booking Confirmed with Pay-At-Hotel option", status_code=status.HTTP_200_OK,)
+                
+                return custom_response
       
         deduct_status = deduct_booking_amount(instance, instance.company_id)
         if deduct_status:
@@ -1937,6 +2002,140 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 errors=[],error_code="ROOM_UNAVAILABLE",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
+
+    @action(detail=True, methods=['POST'], url_path='update-payment',
+        url_name='update-payment', permission_classes=[IsAuthenticated])
+    def update_hotel_payment(self, request, pk):
+        """
+        Update payment details for a booking that was marked as pay-at-hotel.
+        This API is for hoteliers to update payment information after receiving payment.
+        """
+        instance = self.get_object()
+        
+        # Check if booking exists and is eligible for payment update
+        if not instance or instance.status != 'confirmed':
+            custom_response = self.get_error_response(
+                message="Invalid booking or booking is not in confirmed status",
+                status="error", errors=[], error_code="BOOKING_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        # Check if booking was marked as pay-at-hotel
+        if instance.total_payment_made > 0:
+            custom_response = self.get_error_response(
+                message="This booking has already been paid for",
+                status="error", errors=[], error_code="PAYMENT_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        # Validate required fields
+        required_fields = ['amount', 'is_transaction_success', 'payment_mode']
+        missing_fields = [field for field in required_fields if field not in request.data]
+        
+        if missing_fields:
+            custom_response = self.get_error_response(
+                message=f"Missing required fields: {', '.join(missing_fields)}",
+                status="error", errors=missing_fields, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        # Get payment details from request
+        is_transaction_success = request.data.get('is_transaction_success')
+        amount = Decimal(str(request.data.get('amount')))
+        payment_mode = request.data.get('payment_mode')
+        transaction_details = request.data.get('transaction_details', {})
+        transaction_id = request.data.get('transaction_id', '')
+        
+        # Validate amount matches booking final_amount
+        if amount != instance.final_amount:
+            custom_response = self.get_error_response(
+                message=f"The payment amount must be equal to the booking final amount: {float(instance.final_amount)}",
+                status="error", errors=["amount"], error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        # Find the booking payment detail that was created during booking confirmation
+        booking_payment_detail = BookingPaymentDetail.objects.filter(
+            booking=instance,
+            transaction_for="booking_confirmed"
+        ).first()
+
+        if is_transaction_success:
+            booking_payment_detail.code = "PAYMENT_SUCCESS"
+            booking_payment_detail.message = "Payment received at hotel"
+            instance.total_payment_made = amount
+            instance.save()
+            
+            # Send payment success notification
+            try:
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'PAYMENT_SUCCESS_INFO',
+                        'params': {
+                            'booking_id': instance.id,
+                            'amount': float(amount),
+                            'payment_purpose': 'Hotel Booking'
+                        }
+                    }
+                )
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELER_PAYMENT_NOTIFICATION',
+                        'params': {
+                            'booking_id': instance.id
+                        }
+                    }
+                )
+                create_invoice_task.apply_async(args=[instance.id])
+            except Exception as sms_error:
+                print(f"Error scheduling payment success SMS: {sms_error}")
+        else:
+            booking_payment_detail.code = "PAYMENT_ERROR"
+            booking_payment_detail.message = request.data.get('message', "Payment failed at hotel")
+            
+            # Send payment failure notification
+            try:
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'PAYMENT_FAILED_INFO',
+                        'params': {
+                            'booking_id': instance.id,
+                            'failed_amount': float(amount),
+                            'payment_purpose': 'Hotel Booking'
+                        }
+                    }
+                )
+            except Exception as sms_error:
+                print(f"Error scheduling payment failed SMS: {sms_error}")
+        
+        # Common updates for both success and failure
+        booking_payment_detail.payment_type = "DIRECT"
+        booking_payment_detail.payment_medium = "Hotel"
+        booking_payment_detail.payment_mode = payment_mode
+        booking_payment_detail.amount = amount
+        booking_payment_detail.is_transaction_success = is_transaction_success
+        booking_payment_detail.transaction_details = transaction_details
+        
+        # Update transaction_id only if provided
+        if transaction_id:
+            booking_payment_detail.transaction_id = transaction_id
+        
+        booking_payment_detail.save()
+
+        custom_response = self.get_response(
+            status='success', 
+            data={
+                'booking_id': instance.id,
+                'payment_status': 'success' if is_transaction_success else 'failed',
+                'amount': amount,
+                'payment_mode': payment_mode,
+                'transaction_id': transaction_id if transaction_id else None
+            },
+            message="Payment details updated successfully", 
+            status_code=status.HTTP_200_OK,
+        )
+        
+        return custom_response
             
         
 
@@ -2239,6 +2438,10 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             
             booking_id = request.data.get('booking', None)
             booking_payment_log['booking_id'] = booking_id
+
+            # Check for pay_at_hotel parameter
+            pay_at_hotel = request.data.get('pay_at_hotel', False)
+
 ##            merchant_transaction_id = request.data.get('merchant_transaction_id', None)
 ##            booking_payment_log['merchant_transaction_id'] = merchant_transaction_id
             
@@ -2335,7 +2538,68 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             if not booking.user:
                 booking.user_id = user.id
                 booking.save()
+            
+            # Handling for pay_at_hotel case
+            if pay_at_hotel:
+                is_eligible, eligibility_message = check_pay_at_hotel_eligibility(user, amount)
                 
+                if not is_eligible:
+                    print(f"Pay-at-hotel not eligible: {eligibility_message}. Proceeding with PhonePay payment.")
+                else:
+                    print("inside pay at hotel")
+                    booking_id = booking.id
+                    booking_type = booking.booking_type
+                    
+                    # Generate confirmation code
+                    while True:
+                        confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
+                        is_exist = check_booking_confirmation_code(confirmation_code)
+                        if not is_exist:
+                            break
+                            
+                    print("Confirmation Code::", confirmation_code)
+                    booking.confirmation_code = confirmation_code
+                    booking.total_payment_made = 0
+                    booking.status = 'confirmed'
+                    booking.save()
+                    booking.meta_info.booking_confirmed_date = datetime.now()
+                    booking.meta_info.save()
+                    
+                    # Save basic booking payment details without payment specific fields
+                    booking_payment_detail.amount = float(amount)
+                    booking_payment_detail.transaction_for = "booking_confirmed"
+                    booking_payment_detail.save()
+                    
+                    # Update property confirmed booking count
+                    property_id = booking.hotel_booking.confirmed_property_id
+                    process_property_confirmed_booking_total(property_id)
+                    
+                    create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                            'params': {
+                                'booking_id': booking_id
+                            }
+                        }
+                    )
+                    send_hotel_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
+                            'params': {
+                                'booking_id': booking_id
+                            }
+                        }
+                    )
+                    print(f"Booking confirmation SMS scheduled for booking {booking_id}")
+                    
+                    custom_response = self.get_response(
+                        status="success",
+                        data={"message": "Booking confirmed with Pay-At-Hotel option"},
+                        message="Booking Confirmed",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    return custom_response
             # payment_channel = 'PHONE PAY'
             if payment_channel == 'PHONE PAY':
                 merchant_id = settings.MERCHANT_ID
