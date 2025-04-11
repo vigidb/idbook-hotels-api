@@ -144,7 +144,7 @@ class Property(models.Model):
 
     name = models.CharField(max_length=70, db_index=True, help_text="Name of the property.")
     title = models.CharField(max_length=200, blank=True, default='', help_text="Display name of the property.")
-    slug = models.SlugField(max_length=200, db_index=True, blank=True, null=True, help_text="Slug for the property URL.")
+    slug = models.SlugField(max_length=200, unique=True, db_index=True, blank=True, help_text="Slug for the property URL.")
     property_type = models.CharField(max_length=50, choices=PROPERTY_TYPE, default='Hotel')
     rental_form = models.CharField(max_length=50, choices=RENTAL_FORM, default='Private room')
 
@@ -208,9 +208,9 @@ class Property(models.Model):
     # objects = models.Manager()  # The default manager.
     # published = PropertyManager()  # Our custom manager.
 
-    def save(self, *args, **kwargs):
-        self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
+##    def save(self, *args, **kwargs):
+##        self.slug = slugify(self.name)
+##        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

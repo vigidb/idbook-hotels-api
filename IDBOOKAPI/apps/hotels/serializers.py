@@ -55,10 +55,20 @@ class PropertySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = self.context['request'].user
+        slug = self.context['slug']
         property_instance = Property(**validated_data)
         property_instance.added_by = user
+        property_instance.slug = slug
         property_instance.save()
         return property_instance
+
+##    def update(self, instance, validated_data):
+##        slug = self.context['slug']
+##        if slug:
+##            validated_data['slug'] = slug
+##        instance = super(PropertySerializer,self).update(
+##             instance, validated_data)
+##        return instance
 
 class PropertyListSerializer(serializers.ModelSerializer):
     # dynamic_price = serializers.ReadOnlyField()

@@ -8,9 +8,11 @@ from rest_framework.permissions import BasePermission
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, AppliedCoupon,
-    Review, BookingPaymentDetail)
+    Review, BookingPaymentDetail, BookingCommission,
+    Invoice)
 from apps.customer.models import Customer
 from apps.hotels.utils.db_utils import get_property_gallery
+from apps.booking.utils.db_utils import get_booking_commission
 
 from django.conf import settings
 
@@ -29,8 +31,23 @@ from django.conf import settings
 
 import pytz
 
+class BookingCommissionSerializer(serializers.ModelSerializer):
+    commission = serializers.FloatField()
+    tax_percentage = serializers.FloatField()
+    tax_amount = serializers.FloatField()
+    com_amnt = serializers.FloatField()
+    com_amnt_withtax = serializers.FloatField()
+    tcs = serializers.FloatField()
+    tds = serializers.FloatField()
+    hotelier_amount = serializers.FloatField()
+    
+    class Meta:
+        model = BookingCommission
+        fields = '__all__'
+
 
 class BookingSerializer(serializers.ModelSerializer):
+    commission_info = BookingCommissionSerializer()
     class Meta:
         model = Booking
         fields = '__all__'
@@ -349,13 +366,15 @@ class HotelBookingSerializer(serializers.ModelSerializer):
         model = HotelBooking
         fields = ('confirmed_room_details', 'confirmed_checkin_time', 'confirmed_checkout_time')
 
+
 class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
     hotel_booking = HotelBookingSerializer()
+    commission_info = BookingCommissionSerializer()
     class Meta:
         model = Booking
         fields = ('id', 'booking_type', 'hotel_booking',
                   'final_amount', 'gst_amount', 'discount',
-                  'subtotal', 'status')
+                  'subtotal', 'status', 'commission_info')
     
 
 class QueryFilterBookingSerializer(serializers.ModelSerializer):
@@ -453,6 +472,20 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
                   'merchant_transaction_id', 'payment_type', 'payment_medium',
                   'payment_amount', 'is_transaction_success')
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation['commission_info'] = None
+
+        if instance:
+            booking_id = instance.get('id', None)
+            booking_commission = get_booking_commission(booking_id)
+            if booking_commission:
+                comm_serailizer = BookingCommissionSerializer(booking_commission)
+                representation['commission_info'] = comm_serailizer.data 
+
+        return representation
+        
+
 class PaymentMediumSerializer(serializers.Serializer):
     payment_type = serializers.CharField(
         source='booking_payment__payment_type', allow_null=True)
@@ -465,3 +498,74 @@ class BookingCheckInOutSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ['is_checkin', 'is_checkout']
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Invoice
+        fields = '__all__'
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        # Set created_by field if user is available
+        if user and user.is_authenticated:
+            validated_data['created_by'] = str(user.id)
+        
+        return super().create(validated_data)
+    
+    def update(self, instance, validated_data):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        # Set updated_by field if user is available
+        if user and user.is_authenticated:
+            validated_data['updated_by'] = str(user.id)
+        
+        return super().update(instance, validated_data)
+    
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # Get associated booking details
+        bookings = Booking.objects.filter(invoice_id=instance.invoice_number)
+        
+        if bookings.exists():
+            booking = bookings.first()
+            representation['booking'] = {
+                'id': booking.id,
+                'booking_type': booking.booking_type if hasattr(booking, 'booking_type') else "",
+                }
+        # Get associated payment details
+        payment_details = BookingPaymentDetail.objects.filter(invoice=instance)
+        if payment_details.exists():
+            representation['payment_details'] = []
+            for payment in payment_details:
+                payment_data = {
+                    'id': payment.id,
+                    'merchant_transaction_id': payment.merchant_transaction_id,
+                    'transaction_id': payment.transaction_id,
+                    'amount': float(payment.amount) if payment.amount else 0,
+                    'payment_type': payment.payment_type,
+                    'payment_medium': payment.payment_medium,
+                    'is_transaction_success': payment.is_transaction_success,
+                    'reference': payment.reference,
+                    'created': payment.created.strftime('%Y-%m-%d %H:%M:%S'),
+                }
+                representation['payment_details'].append(payment_data)
+        
+        return representation
+
+    def validate(self, data):
+        if self.instance is None and not data.get('invoice_number'):
+            raise serializers.ValidationError({"invoice_number": "Invoice number is required"})
+        
+        if not self.instance and not data.get('invoice_date'):
+            raise serializers.ValidationError({"invoice_date": "Invoice date is required"})
+        
+        if not self.instance and not data.get('billed_by'):
+            raise serializers.ValidationError({"billed_by": "Billed by is required"})
+        
+        if not self.instance and not data.get('billed_to'):
+            raise serializers.ValidationError({"billed_to": "Billed to is required"})
+        
+        return data

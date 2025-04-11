@@ -33,7 +33,7 @@ class UnavailableProperty(models.Model):
 
 
 class PropertyCommission(models.Model):
-    code = models.CharField(max_length=6, unique=True)
+    code = models.CharField(max_length=20, unique=True)
     property_comm = models.ForeignKey(
         Property, on_delete=models.CASCADE,
         related_name='property_commission')

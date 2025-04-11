@@ -11,7 +11,8 @@ from .models import (
     RoomGallery, PropertyGallery, BlockedProperty, PolicyDetails
 )
 from apps.hotels.submodels.related_models import (
-    DynamicRoomPricing, TopDestinations, UnavailableProperty)
+    DynamicRoomPricing, TopDestinations, UnavailableProperty,
+    PropertyCommission)
 
 
 class PropertyAdmin(admin.ModelAdmin):
@@ -48,3 +49,4 @@ admin.site.register(BlockedProperty)
 admin.site.register(DynamicRoomPricing)
 admin.site.register(PolicyDetails)
 admin.site.register(TopDestinations)
+admin.site.register(PropertyCommission)

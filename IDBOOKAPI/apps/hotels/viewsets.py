@@ -40,6 +40,8 @@ from django.contrib.auth import get_user_model
 from datetime import datetime
 from functools import reduce
 import traceback
+from .tasks import send_hotel_sms_task, send_hotel_email_task
+from .mixins.validation_mixins import ValidationMixin
 
 User = get_user_model()
 
@@ -284,12 +286,47 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##            if nonavailable_property_list:
 ##                self.queryset = self.queryset.exclude(id__in=nonavailable_property_list)
 
-        return available_property_dict, nonavailable_property_list      
+        return available_property_dict, nonavailable_property_list
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"slug": self.slug})
+        return context
             
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        #self.get_serializer_context()
+        
+        city_name = request.data.get('city_name', '')
+        name = request.data.get('name', '')
+        slug = request.data.get('slug', '')
+        
+        if slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(slug)
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response       
+            
+        if name and not slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(name)
+            if slug_exist and city_name:
+                slug = f"{name}-{city_name}"
+                slug_exist, slug = hotel_db_utils.check_property_slug(slug)
+
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+                    
+                
+        self.slug = slug
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
 
@@ -329,7 +366,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         # Get the object to be updated
         instance = self.get_object()
-
+        
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data)
 
@@ -361,7 +398,19 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         # print(dir(self))
         # Get the object to be updated
         instance = self.get_object()
-
+        
+        slug = request.data.get('slug', '')
+        if slug:
+            slug_exist, slug = hotel_db_utils.check_property_slug(
+                slug, exclude=instance.id)
+            if slug_exist:
+                custom_response = self.get_error_response(
+                    message="Duplicate slug", status="error",
+                    errors=[],error_code="DUPLICATE_SLUG",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response 
+        
+        self.slug = ""
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data, partial=True)
 
@@ -378,6 +427,24 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             
             if prop_status=='Active' and (city or state or country):
                 hotel_db_utils.process_property_based_topdest_count(location_list)
+
+            if prop_status == 'Active':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}
+                )
+
+                send_hotel_email_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}
+                )
+            elif prop_status == 'In-Active':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_DEACTIVATION', 'params': {'property_id': instance.id}}
+                )
+
+            elif prop_status == 'Completed':
+                send_hotel_sms_task.apply_async(
+                    kwargs={'notification_type': 'HOTEL_PROPERTY_SUBMISSION', 'params': {'property_id': instance.id}}
+                )
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response
@@ -1069,7 +1136,7 @@ class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         return custom_response
 
 
-class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, ValidationMixin):
     queryset = Room.objects.all()
     serializer_class = RoomSerializer
     # permission_classes = [AnonymousCanViewOnlyPermission,]
@@ -1077,7 +1144,7 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 ##    filterset_fields = ['room_type', "carpet_area", "bed_count", "person_capacity", "child_capacity", "price_per_night",
 ##                        "price_for_4_hours", "price_for_8_hours", "price_for_12_hours", "price_for_24_hours",
 ##                        "discount", "availability", "property", "amenities", "room_type", "room_view", "bed_type", ]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     # lookup_field = 'custom_id'
 
     permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated], 'partial_update':[IsAuthenticated],
@@ -1099,7 +1166,20 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         
 
         # Create an instance of your serializer with the request data
-        serializer = self.get_serializer(data=request.data)
+        # serializer = self.get_serializer(data=request.data)
+        data = request.data.copy()
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+
+        serializer = self.get_serializer(data=data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
@@ -1137,13 +1217,29 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         # Get the object to be updated
         instance = self.get_object()
+        data = request.data.copy()
+
+        # Validate and convert data
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+
+        serializer = self.get_serializer(instance, data=data)
 
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data)
+        # serializer = self.get_serializer(instance, data=request.data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic
-            response = super().update(request, *args, **kwargs)
+            response = super().update(request._request.__class__(data=data), *args, **kwargs)
+            # response = super().update(request, *args, **kwargs)
 
             # Create a custom response
             custom_response = self.get_response(
@@ -1172,9 +1268,23 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         # Get the object to be updated
         instance = self.get_object()
+        data = request.data.copy()
+
+        # Validate and convert partial data
+        is_valid, response = self.validate_room_fields(data)
+        if not is_valid:
+            custom_response = self.get_error_response(
+                message=response.get("message", "Validation failed."),
+                status="error",
+                errors=[response],
+                error_code=response.get("error_code", "VALIDATION_ERROR"),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
 
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(instance, data=data, partial=True)
+        # serializer = self.get_serializer(instance, data=request.data, partial=True)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic
@@ -1259,6 +1369,32 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        room_id = kwargs.get("pk")
+        instance = Room.objects.filter(id=room_id).first()
+
+        if not instance:
+            custom_response = self.get_response(
+                data=None,
+                message="No Room Details Found",
+                status_code=status.HTTP_404_NOT_FOUND,
+                is_error=True
+            )
+        else:
+            self.perform_destroy(instance)
+            custom_response = self.get_response(
+                data=None,
+                count=0,
+                status="success",
+                message="Room Deleted Successfully",
+                status_code=status.HTTP_200_OK,
+            )
+
+        self.log_response(custom_response)
         return custom_response
 
     

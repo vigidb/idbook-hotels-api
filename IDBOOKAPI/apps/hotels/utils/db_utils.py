@@ -5,7 +5,7 @@ from apps.hotels.models import (
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
     DynamicRoomPricing, TopDestinations, UnavailableProperty,
-    PropertyCommission, TrendingPlaces)
+    PropertyCommission, TrendingPlaces, PropertyCommission)
 
 # from apps.hotels.serializers import UnavailablePropertySerializer
 from django.db.models.fields.json import KT
@@ -17,6 +17,7 @@ from django.db.models import Q, F
 
 from django.db.models import Subquery, OuterRef
 from django.db.models.functions import Least
+from django.utils.text import slugify
 
 from datetime import datetime
 
@@ -696,6 +697,20 @@ def is_property_commission_active(property_id, exclude_comm_id=None):
         prop_comm = prop_comm.exclude(id=exclude_comm_id)
 
     return prop_comm.exists()
+
+def get_property_commission(property_id):
+    prop_comm = PropertyCommission.objects.filter(
+        property_comm=property_id, active=True)
+    return prop_comm.first()
+
+def check_property_slug(slug_value, exclude=None):
+    slug = slugify(slug_value)
+    property_obj = Property.objects.filter(slug=slug)
+    if exclude:
+        property_obj = property_obj.exclude(id=exclude)
+
+    slug_exist = property_obj.exists()
+    return slug_exist, slug
 
     
 

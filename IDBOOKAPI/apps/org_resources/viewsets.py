@@ -410,10 +410,17 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 ##        offset = int(self.request.query_params.get('offset', 0))
 ##        limit = int(self.request.query_params.get('limit', 10))
         search = request.query_params.get('search', '')
+        approved = request.query_params.get('approved', None)
 
         if search:
             search_q_filter = Q(company_name__icontains=search) | Q(brand_name__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
+
+        if approved is not None:
+            if approved.lower() == 'true':
+                self.queryset = self.queryset.filter(approved=True)
+            elif approved.lower() == 'false':
+                self.queryset = self.queryset.filter(approved=False)
 
 
 ##        count = self.queryset.count()
