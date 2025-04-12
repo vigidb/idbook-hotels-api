@@ -10,7 +10,7 @@ from .models import (Property, Gallery, Room, Rule,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery, PropertyBankDetails,
                      PolicyDetails, PropertyLandmark)
-from .models import BlockedProperty
+from .models import BlockedProperty, PayAtHotelSpendLimit
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
   DynamicRoomPricing, TopDestinations, PropertyCommission, 
@@ -84,7 +84,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
                   'status', 'current_page', 'address', 'starting_price_details',
                   'amenity_details', 'policies', 'is_slot_price_enabled',
                   'property_size', 'property_measurement_type', 'slug',
-                  'lowest_price')
+                  'lowest_price', 'pay_at_hotel')
         
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -512,4 +512,31 @@ class TrendingPlacesSerializer(serializers.ModelSerializer):
         if instance:
             representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
         return representation
+
+class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
+    start_limit = serializers.IntegerField(required=True)
+    end_limit = serializers.IntegerField(required=True)
+    spend_limit = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+
+    class Meta:
+        model = PayAtHotelSpendLimit
+        fields = ['id', 'start_limit', 'end_limit', 'spend_limit']
+
+    def validate(self, data):
+        start = data.get('start_limit')
+        end = data.get('end_limit')
+
+        if start is None or end is None or data.get('spend_limit') is None:
+            raise serializers.ValidationError("start_limit, end_limit, and spend_limit are required")
+
+        if end < start:
+            raise serializers.ValidationError("End limit cannot be less than start limit")
+
+        if PayAtHotelSpendLimit.objects.filter(
+            start_limit__lte=end,
+            end_limit__gte=start
+        ).exists():
+            raise serializers.ValidationError("Overlapping booking range already exists")
+
+        return data
 

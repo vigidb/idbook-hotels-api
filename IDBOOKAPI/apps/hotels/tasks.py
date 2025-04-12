@@ -1,5 +1,5 @@
 from IDBOOKAPI.celery import app as celery_idbook
-from .models import Property
+from .models import Property, MonthlyPayAtHotelEligibility
 from apps.authentication.models import User
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from django.template.loader import get_template
@@ -7,6 +7,7 @@ from django.conf import settings
 from IDBOOKAPI.email_utils import send_booking_email
 from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
+from .utils.db_utils import get_user_booking_data
 
 @celery_idbook.task(bind=True)
 def send_hotel_sms_task(self, notification_type='', params=None):
@@ -166,3 +167,41 @@ def send_hotel_email_task(self, notification_type='', params=None):
     except Exception as e:
         print(f'{notification_type} Email Task Error: {e}')
         return None
+
+@celery_idbook.task(bind=True)
+def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
+    """
+    Update monthly pay at hotel eligibility based on confirmed bookings count
+    """
+    print("Inside update monthly pay at hotel eligibility task")
+    try:
+        data = get_user_booking_data(user_id, booking_date)
+
+        monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.update_or_create(
+            user_id=user_id,
+            month=data['month_name'],
+            defaults={
+                'total_booking_count': data['booking_count'],
+                'eligible_limit': data['eligible_limit'],
+                'is_eligible': data['is_eligible']
+            }
+        )
+
+        print(f"Updated monthly pay at hotel eligibility for user {user_id}, month: {data['month_name']}")
+        print(f"Booking count: {data['booking_count']}, Eligible limit: {data['eligible_limit']}, Is eligible: {data['is_eligible']}")
+
+        return {
+            'user_id': user_id,
+            'month': data['month_name'],
+            'booking_count': data['booking_count'],
+            'eligible_limit': data['eligible_limit'],
+            'is_eligible': data['is_eligible']
+        }
+
+    except Exception as e:
+        print('Update Monthly Pay At Hotel Eligibility Task Error:', e)
+        print(traceback.format_exc())
+        return {
+            'status': 'error',
+            'message': str(e)
+        }

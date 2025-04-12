@@ -7,7 +7,7 @@ from apps.hotels.serializers import (
 from apps.hotels.submodels.related_models import TopDestinations, PropertyCommission, TrendingPlaces
 from apps.hotels.utils.db_utils import (
     get_property_count_by_location, is_top_destination_exist, is_property_commission_active, is_trending_place_exist)
-
+from django.db.models import Q
 from decimal import Decimal
 
 class PropertyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -193,6 +193,11 @@ class TopDestinationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         active = self.request.query_params.get('active', None)
         if active is not None:
             self.queryset = self.queryset.filter(active=active)
+        search = request.query_params.get('search')
+        if search:
+            self.queryset = self.queryset.filter(
+                Q(location_name__icontains=search) | Q(display_name__icontains=search)
+            )
         count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         top_destination_dict = self.queryset.values(
@@ -626,6 +631,12 @@ class TrendingPlacesViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         active = self.request.query_params.get('active', None)
         if active is not None:
             self.queryset = self.queryset.filter(active=active)
+
+        search = request.query_params.get('search', None)
+        if search:
+            self.queryset = self.queryset.filter(
+                Q(location_name__icontains=search) | Q(display_name__icontains=search)
+            )
         
         count, self.queryset = paginate_queryset(self.request, self.queryset)
 

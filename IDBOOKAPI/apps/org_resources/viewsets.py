@@ -1064,6 +1064,13 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        offset = request.query_params.get('offset')
+        limit = request.query_params.get('limit')
+        
+        if offset is not None and limit is not None:
+            count, self.queryset = paginate_queryset(request, self.queryset)
+        else:
+            count = self.queryset.count()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -1072,6 +1079,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
+                count=count,
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
 

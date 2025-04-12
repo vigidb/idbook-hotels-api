@@ -139,6 +139,11 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 ##                self.queryset = self.queryset.filter(category=category)
 
         role_name = request.query_params.get('role', '')
+        name = request.query_params.get('name', '').strip()
+
+        if name:
+            self.queryset = self.queryset.filter(name__icontains=name)
+
         if role_name:
             role = db_utils.get_role_by_name(role_name)
             self.queryset = self.queryset.filter(roles__in=[role])

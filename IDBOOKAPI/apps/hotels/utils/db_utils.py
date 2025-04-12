@@ -1,6 +1,7 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
-    RoomGallery, FavoriteList, BlockedProperty)
+    RoomGallery, FavoriteList, BlockedProperty,
+    PayAtHotelSpendLimit)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
@@ -22,7 +23,7 @@ from django.utils.text import slugify
 from datetime import datetime
 
 from functools import reduce
-
+from apps.booking.models import Booking
 
 from django.db.models import ExpressionWrapper, Value
 from django.db.models.functions import ACos, Cos, Radians, Sin
@@ -713,6 +714,36 @@ def check_property_slug(slug_value, exclude=None):
     return slug_exist, slug
 
     
+def get_user_booking_data(user_id, booking_date):
+    """
+    Fetch confirmed bookings count and eligible spend limit for a user in a given month.
+    """
+    booking_datetime = datetime.strptime(booking_date, '%Y-%m-%d %H:%M:%S')
+    current_month_name = booking_datetime.strftime('%B')
+    current_month = booking_datetime.month
+    current_year = booking_datetime.year
+
+    confirmed_bookings_count = Booking.objects.filter(
+        user_id=user_id,
+        status__in=['confirmed', 'completed'],
+        created__month=current_month,
+        created__year=current_year
+    ).count()
+
+    spend_limit_obj = PayAtHotelSpendLimit.objects.filter(
+        start_limit__lte=confirmed_bookings_count,
+        end_limit__gte=confirmed_bookings_count
+    ).first()
+
+    eligible_limit = spend_limit_obj.spend_limit if spend_limit_obj else 0
+    is_eligible = eligible_limit > 0
+
+    return {
+        'month_name': current_month_name,
+        'booking_count': confirmed_bookings_count,
+        'eligible_limit': eligible_limit,
+        'is_eligible': is_eligible
+    }
 
 
 
