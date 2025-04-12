@@ -23,7 +23,7 @@ asgi_application = get_asgi_application()
 from apps.socket_com.routing import websocket_urlpatterns
 
 application = ProtocolTypeRouter({
-##    "https": asgi_application,
+    "https": asgi_application,
     "websocket": AllowedHostsOriginValidator(
             AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
     ),
