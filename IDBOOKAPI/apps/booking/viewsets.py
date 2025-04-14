@@ -1849,6 +1849,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     # Save basic booking payment details without payment specific fields
                     booking_payment_detail.amount = instance.final_amount
                     booking_payment_detail.transaction_for = "booking_confirmed"
+                    booking_payment_detail.payment_type = "DIRECT"
+                    booking_payment_detail.payment_medium = "Hotel"
+                    booking_payment_detail.code = "PAYMENT_PENDING"
                     booking_payment_detail.save()
                     
                     # Update total no of confirmed booking for a property
@@ -2590,6 +2593,9 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         # Save basic booking payment details without payment specific fields
                         booking_payment_detail.amount = float(amount)
                         booking_payment_detail.transaction_for = "booking_confirmed"
+                        booking_payment_detail.payment_type = "DIRECT"
+                        booking_payment_detail.payment_medium = "Hotel"
+                        booking_payment_detail.code = "PAYMENT_PENDING"
                         booking_payment_detail.save()
                         
                         # Update property confirmed booking count
