@@ -8,6 +8,7 @@ from apps.hotels.serializers import (
 from apps.hotels.utils.hotel_utils import get_room_for_calendar
 from apps.hotels.utils.db_utils import (
     check_is_room_dynamic_price_set, get_dynamic_pricing)
+from apps.hotels.mixins.validation_mixins import ValidationMixin
 
 class PropertyCalendarViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CalendarRoom.objects.all()
@@ -43,7 +44,7 @@ class PropertyCalendarViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
         return custom_response
 
 
-class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, ValidationMixin):
     queryset = DynamicRoomPricing.objects.all()
     serializer_class = DynamicRoomPricingSerializer
     permission_classes = [IsAuthenticated,]
@@ -52,11 +53,18 @@ class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, L
         error_list = []
         dynamic_pricing_dict = {}
         
-        for_property = self.request.data.get('for_property', None)
-        for_room = self.request.data.get('for_room', None)
-        room_price = self.request.data.get('room_price', None)
-        start_date = self.request.data.get('start_date', None)
-        end_date = self.request.data.get('end_date', None)
+        data = self.request.data.copy()
+        
+        is_valid, response = self.validate_dynamic_pricing_fields(data)
+        if not is_valid:
+            error_list.append(response)
+            return error_list, dynamic_pricing_dict
+        
+        for_property = data.get('for_property', None)
+        for_room = data.get('for_room', None)
+        room_price = data.get('room_price', None)
+        start_date = data.get('start_date', None)
+        end_date = data.get('end_date', None)
 
         if not for_property:
             error_list.append({"field":"for_property", "message": "Missing property",
@@ -95,9 +103,18 @@ class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, L
     def validate_update_parameters(self, instance):
         error_list = []
         
-        room_price = self.request.data.get('room_price', None)
-        start_date = self.request.data.get('start_date', None)
-        end_date = self.request.data.get('end_date', None)
+        data = self.request.data.copy()
+        
+        # Apply validation and conversion for numeric fields
+        is_valid, response = self.validate_dynamic_pricing_fields(data)
+        if not is_valid:
+            error_list.append(response)
+            return error_list, instance
+        
+        # Use the converted data values
+        room_price = data.get('room_price', None)
+        start_date = data.get('start_date', None)
+        end_date = data.get('end_date', None)
 
         if not room_price:
             error_list.append({"field":"room_price", "message": "Missing room price",
@@ -128,6 +145,7 @@ class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, L
         return error_list, instance
 
     def create(self, request, *args, **kwargs):
+        original_data = request.data
         
         error_list, dynamic_pricing_dict = self.validate_create_parameters()
         if error_list:
@@ -147,6 +165,7 @@ class RoomPricingCalendarViewset(viewsets.ModelViewSet, StandardResponseMixin, L
         return response
 
     def partial_update(self, request, *args, **kwargs):
+        original_data = request.data
 
         # Get the object to be updated
         instance = self.get_object()

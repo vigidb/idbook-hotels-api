@@ -1293,3 +1293,23 @@ SMS_TYPES_CHOICES = [
     ('other', 'Other Notification')
 ] 
     
+STATUS_CHOICES = (
+    ('Pending', 'Pending'),
+    ('Paid', 'Paid'),
+    ('Overdue', 'Overdue'),
+)
+
+PAYMENT_MODES = (
+    ('Cash', 'Cash'),
+    ('Card', 'Card'),
+    ('Bank Transfer', 'Bank Transfer'),
+    ('UPI', 'UPI'),
+    ('Cheque', 'Cheque'),
+    ('Other', 'Other'),
+)
+
+REFERENCE_CHOICES = (
+    ('Booking', 'Booking'),
+    ('Subscription', 'Subscription'),
+    ('Other', 'Other'),
+)

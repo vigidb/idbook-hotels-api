@@ -43,93 +43,67 @@ def create_user_without_otp(email, name, mobile_number, password="Idbook@123", g
     """
     Create a user account without OTP verification and set email_verified to False
     """
-    print(f"\nCreating user for: {name}")
-    print(f"Email: {email}, Phone: {mobile_number}")
-    
-    # First check if user exists
-    user = User.objects.filter(email=email).first()
-    
-    # Get group and role
-    grp, role = authentication_utils.get_group_based_on_name(group_name)
-    if not grp or not role:
-        print(f"Group or role for {group_name} doesn't exist.")
-        return None
-    
-    # Check if email exists for this group
-    if user and group_name:
-        email_grp_users = db_utils.get_userid_list(email, group=grp)
-        if email_grp_users:
-            is_role_exist = False
-            if group_name == 'B2C-GRP':
-                is_role_exist = db_utils.is_role_exist(email_grp_users, role)
-            else:
-                is_role_exist = True
-                
-            if is_role_exist:
+    try:
+        print(f"\nCreating user for: {name}")
+        print(f"Email: {email}, Phone: {mobile_number}")
+        
+        user = User.objects.filter(email=email).first()
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp or not role:
+            print(f"Group or role for {group_name} doesn't exist.")
+            return None
+        
+        if user and group_name:
+            email_grp_users = db_utils.get_userid_list(email, group=grp)
+            if email_grp_users and (group_name != 'B2C-GRP' or db_utils.is_role_exist(email_grp_users, role)):
                 print(f"Email {email} already exists for this group.")
-                return user  # Return existing user instead of None
-    
-    # Check if mobile exists for this group
-    if mobile_number:
-        mobile_grp_users = db_utils.get_userid_list(mobile_number, group=grp)
-        if mobile_grp_users:
-            is_role_exist = False
-            if group_name == 'B2C-GRP':
-                is_role_exist = db_utils.is_role_exist(mobile_grp_users, role)
-            else:
-                is_role_exist = True
-                
-            if is_role_exist:
+                return user
+        
+        if mobile_number:
+            mobile_grp_users = db_utils.get_userid_list(mobile_number, group=grp)
+            if mobile_grp_users and (group_name != 'B2C-GRP' or db_utils.is_role_exist(mobile_grp_users, role)):
                 print(f"Mobile number {mobile_number} already exists for this group.")
-                # Don't return None here, continue to create or update the user based on email
-    
-    formatted_name = f"Hotelier {name[:10]}..." if len(name) > 10 else f"Hotelier {name}"
-    # Create or update user
-    if user:
-        # Update existing user
-        user.mobile_number = mobile_number
-        user.name = formatted_name
-        user.set_password(password)
-        user.save()
-        print(f"↻ Updating existing user: {email}")
-    else:
-        # Create new user
-        user = User(
-            email=email,
-            mobile_number=mobile_number,
-            name=formatted_name
-        )
-        user.set_password(password)
+                
+        formatted_name = f"Hotelier {name[:10]}..." if len(name) > 10 else f"Hotelier {name}"
+        
+        if user:
+            user.mobile_number = mobile_number
+            user.name = formatted_name
+            user.set_password(password)
+            user.save()
+            print(f"↻ Updating existing user: {email}")
+        else:
+            user = User(
+                email=email,
+                mobile_number=mobile_number,
+                name=formatted_name
+            )
+            user.set_password(password)
+            user.save()
+            Customer.objects.create(user_id=user.id, active=True)
+            print(f"Created new user: {email}")
+        
+        if grp:
+            user.groups.add(grp)
+        if role:
+            user.roles.add(role)
+        
+        user.default_group = group_name
+        user.email_verified = False
         user.save()
         
-        # Create customer profile
-        customer_id = user.id
-        Customer.objects.create(user_id=customer_id, active=True)
-        print(f"Created new user: {email}")
-    
-    # Set groups, roles and other attributes
-    if grp:
-        user.groups.add(grp)
-    if role:
-        user.roles.add(role)
-    
-    user.default_group = group_name
-    user.email_verified = False  # Explicitly setting to False
-    user.save()
-    
-    # Generate token
-    refresh = RefreshToken.for_user(user)
-    data = authentication_utils.user_representation(user, refresh_token=refresh)
-    
-    print(f"User setup successfully: {email}")
-    print(f"Email verified status: {user.email_verified}")
-    print(f"Token data: {json.dumps(data, indent=2)}")
-    
-    return user
+        refresh = RefreshToken.for_user(user)
+        data = authentication_utils.user_representation(user, refresh_token=refresh)
+        
+        print(f"User setup successfully: {email}")
+        return user
+    except Exception as e:
+        print(f"❌ Error creating user for {email}: {e}")
+        return None
 
 def create_accounts_for_properties():
     """
-    Create user accounts for each property in the contact report and update all properties with the same email
+    Create user accounts for each property in the contact report and update all properties with the same email.
     """
     properties = generate_existing_contact_report()
     
@@ -140,44 +114,48 @@ def create_accounts_for_properties():
     print("-" * 60)
     
     users_by_email = {}
-    success_count = 0
+    success_list = []
+    failed_list = []
     
-    # Create users for unique emails
     for prop in properties:
-        if prop.email not in users_by_email:
-            user = create_user_without_otp(
-                email=prop.email,
-                name=prop.name,
-                mobile_number=prop.phone_no
-            )
-            
-            if user:
-                users_by_email[prop.email] = user
-                # Update manage_by_id field for this property
-                prop.managed_by_id = user.id
-                prop.save()
-                success_count += 1
-    
-    # Update all properties with same email to use the same manager
-    updated_count = 0
-    for prop in properties:
-        if prop.email in users_by_email and prop.managed_by_id != users_by_email[prop.email].id:
-            prop.managed_by_id = users_by_email[prop.email].id
-            prop.save()
-            updated_count += 1
-            print(f"Updated property {prop.id} ({prop.name}) to be managed by user {prop.managed_by_id}")
+        try:
+            if prop.email not in users_by_email:
+                user = create_user_without_otp(
+                    email=prop.email,
+                    name=prop.name,
+                    mobile_number=prop.phone_no
+                )
+                
+                if user:
+                    users_by_email[prop.email] = user
+                    prop.managed_by_id = user.id
+                    prop.save()
+                    success_list.append((prop.email, prop.name, prop.phone_no))
+                else:
+                    failed_list.append((prop.email, prop.name, prop.phone_no))
+        except Exception as e:
+            print(f"❌ Error processing property {prop.name} ({prop.email}): {e}")
+            failed_list.append((prop.email, prop.name, prop.phone_no))
     
     print("\nSummary:")
     print(f"Total properties processed: {len(properties)}")
-    print(f"Unique email accounts created: {len(users_by_email)}")
-    print(f"Additional properties updated with same manager: {updated_count}")
-    print(f"Total properties with manager assigned: {success_count + updated_count}")
+    print(f"Successfully created accounts: {len(success_list)}")
+    print(f"Failed to create accounts: {len(failed_list)}")
+    
+    print("\nAccounts Created:")
+    for email, name, phone in success_list:
+        print(f"✔ {name} | {email} | {phone}")
+    
+    print("\nFailed Accounts:")
+    for email, name, phone in failed_list:
+        print(f"❌ {name} | {email} | {phone}")
     
     return properties, users_by_email
 
 def send_activation_notifications_to_properties():
     """
-    Send activation SMS and email notifications to all active properties with valid contact details
+    Send activation SMS and email notifications to all active properties with valid contact details,
+    only if the user ID matches the managed_by_id in the Property table.
     """
     properties = generate_existing_contact_report()
     
@@ -191,10 +169,21 @@ def send_activation_notifications_to_properties():
     email_success_count = 0
     
     for prop in properties:
+        # Check if the property has a valid manager assigned
+        if not prop.managed_by_id:
+            print(f"✗ Skipping property {prop.name} (ID: {prop.id}) - No manager assigned.")
+            continue
+        
+        # Get the user associated with the property
+        user = User.objects.filter(id=prop.managed_by_id).first()
+        
+        if not user:
+            print(f"✗ Skipping property {prop.name} (ID: {prop.id}) - Managed user not found.")
+            continue
+        
         # Send SMS notification
         if prop.phone_no:
             try:
-                # Call the background task to send SMS
                 send_hotel_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'HOTEL_PROPERTY_ACTIVATION',
@@ -208,6 +197,7 @@ def send_activation_notifications_to_properties():
             except Exception as e:
                 print(f"✗ Failed to queue SMS for property: {prop.name} (ID: {prop.id}). Error: {e}")
         
+        # Send Email notification
         if prop.email:
             try:
                 send_hotel_email_task.apply_async(
@@ -222,13 +212,7 @@ def send_activation_notifications_to_properties():
                 email_success_count += 1
             except Exception as e:
                 print(f"✗ Failed to queue email for property: {prop.name} (ID: {prop.id}). Error: {e}")
-    
-    print("\nNotification Summary:")
-    print(f"Total properties processed: {len(properties)}")
-    print(f"Successfully queued SMS: {sms_success_count}")
-    print(f"Failed to queue SMS: {len(properties) - sms_success_count}")
-    print(f"Successfully queued emails: {email_success_count}")
-    print(f"Failed to queue emails: {len(properties) - email_success_count}")
+
 
 if __name__ == "__main__":
     properties, users_by_email = create_accounts_for_properties()

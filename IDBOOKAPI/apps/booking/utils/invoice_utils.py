@@ -1,8 +1,8 @@
 # invoice
 import requests
 import json
-
-
+from apps.booking.models import Invoice, BookingPaymentDetail
+from datetime import datetime
 from IDBOOKAPI.utils import (
     get_current_date, last_calendar_month_day)
 
@@ -25,6 +25,29 @@ def get_invoice_number():
             invoice_number = data.get('invoiceNumber', '')
     else:
         print(response.json())
+    return invoice_number
+
+def create_invoice_number():
+    current_year = datetime.now().year
+    current_month = str(datetime.now().month).zfill(2)
+
+    initial_invoice_number = 50239
+
+    last_invoice = Invoice.objects.filter(invoice_number__startswith=f"Idb-{current_year}-{current_month}-") \
+                                  .order_by('-invoice_number') \
+                                  .first()
+
+    if not last_invoice or not last_invoice.invoice_number:
+        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+
+    try:
+        last_number = int(last_invoice.invoice_number.split('-')[-1])
+    except ValueError:
+        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+
+    new_invoice_number = last_number + 1
+
+    invoice_number = f"Idb-{current_year}-{current_month}-{new_invoice_number}"
     return invoice_number
 
 def invoice_json_hotel_booking(hotel_booking):
@@ -325,3 +348,69 @@ def mark_invoice_as_paid(invoice_id):
     if response.status_code == 200:
         data = response.json()
         print(data)
+
+def create_invoice_response_data(invoice, payload_json):
+    """
+    Create a response object similar to the external API format.
+    """
+    try:
+        if not invoice:
+            return {"success": False, "error": "No invoice found"}
+
+        payload = json.loads(payload_json)
+
+        # Get payment history
+        payment_history = []
+        payments = BookingPaymentDetail.objects.filter(invoice=invoice)
+        for payment in payments:
+            payment_history.append({
+                "_id": str(payment.id),
+                "amount": float(payment.amount) if payment.amount else 0,
+                "paymentMode": payment.payment_mode or "",
+                "reference": payment.reference or "",
+                "transactionId": payment.transaction_id or "",
+                "date": payment.created.isoformat() if payment.created else None
+            })
+
+        # Calculate total amount (excluding tax)
+        total_amount = 0
+        items = invoice.items or []
+        for item in items:
+            try:
+                total_amount += float(item.get("amount", 0))
+            except (ValueError, TypeError):
+                continue
+
+        response = {
+            "success": True,
+            "data": {
+                "_id": str(invoice.id),
+                "invoiceNumber": invoice.invoice_number,
+                "invoiceDate": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+                "dueDate": invoice.due_date.isoformat() if invoice.due_date else None,
+                "logo": invoice.logo or "",
+                "header": invoice.header or "",
+                "footer": invoice.footer or "",
+                "notes": invoice.notes or "",
+                "billedBy": invoice.billed_by_details or {},
+                "billedTo": invoice.billed_to_details or {},
+                "supplyDetails": invoice.supply_details or {},
+                "items": items,
+                "GST": float(invoice.GST or 0),
+                "GSTType": invoice.GST_type or "",
+                "total": float(invoice.total or 0),
+                "totalAmount": float(invoice.total_amount or (invoice.total + invoice.total_tax)),
+                "status": invoice.status or "Pending",
+                "nextScheduleDate": invoice.next_schedule_date.isoformat() if invoice.next_schedule_date else None,
+                "tags": invoice.tags.split(',') if invoice.tags else [],
+                "paymentHistory": payment_history,
+                "createdAt": invoice.created_at.isoformat() if invoice.created_at else None,
+                "updatedAt": invoice.updated_at.isoformat() if invoice.updated_at else None,
+                "__v": 0
+            }
+        }
+
+        return response
+    except Exception as e:
+        print(f"Error creating invoice response data: {e}")
+        return {"success": False, "error": str(e)}
