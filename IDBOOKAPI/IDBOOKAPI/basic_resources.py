@@ -190,11 +190,13 @@ PAYMENT_TYPE = (
     ('PAYMENT GATEWAY', 'PAYMENT GATEWAY'),
     ('WALLET', 'WALLET'),
     ('NBFC', 'NBFC'),
+    ('DIRECT', 'DIRECT'),
 )
 
 PAYMENT_MEDIUM = (
     ('PHONE PAY', 'PHONE PAY'),
     ('Idbook', 'Idbook'),
+    ('Hotel', 'Hotel'),
 )
 
 PAYMENT_STATUS_CHOICES = (
