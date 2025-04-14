@@ -41,7 +41,7 @@ from apps.hotels.utils.hotel_utils import (
     check_room_count, total_room_count,
     process_property_confirmed_booking_total,
     get_available_room)
-from apps.hotels.models import Property
+from apps.hotels.models import Property, MonthlyPayAtHotelEligibility
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
@@ -1665,6 +1665,19 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                                 'room_availability_details':room_availability_list,
                                 'booking_status_message': booking_status_message}
                 booking_dict.update(serializer.data)
+
+                india_timezone = timezone('Asia/Kolkata')
+                current_month = datetime.now(india_timezone).strftime('%B')
+
+                eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
+
+                if eligibility:
+                    booking_dict['pay_at_hotel_eligibility'] = {
+                        "is_eligible": eligibility.is_eligible,
+                        # "eligible_limit": float(eligibility.eligible_limit or 0),
+                        # "total_booking_count": eligibility.total_booking_count or 0,
+                        # "month": eligibility.month,
+                    }
                 
                 custom_response = self.get_response(
                     status='success', count=1, data=booking_dict,
