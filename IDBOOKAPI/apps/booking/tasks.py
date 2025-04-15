@@ -9,7 +9,8 @@ from apps.booking.utils.booking_utils import (
     set_firstbooking_reward)
 
 from apps.booking.utils.invoice_utils import (
-    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, create_invoice_response_data)
+    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, 
+    create_invoice_response_data, generate_invoice_pdf)
 
 from django.template.loader import get_template
 from django.conf import settings
@@ -157,9 +158,16 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 payload = invoice_json_data(booking, bus_details,
                                             company_details, customer_details, invoice_number, pay_at_hotel=pay_at_hotel)
 
+
                 invoice = save_invoice_to_database(booking, payload, invoice_number)
                 
                 if invoice:
+                    # Generate the PDF invoice
+                    try:
+                        print("inside generate invoice")
+                        generate_invoice_pdf(payload, booking_id=booking_id)
+                    except Exception as e:
+                        print(f"Error generating invoice PDF: {str(e)}")
                     booking = get_booking(booking_id)
                     booking.invoice_id = invoice_number
                     booking.save()
@@ -175,7 +183,7 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 }
                 create_booking_invoice_log(invoice_log)
 
-                response = create_invoice(payload)
+                # response = create_invoice(payload)
 
                 # print(response.status_code)
                 # if response.status_code == 201:
@@ -194,7 +202,7 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                     
             else:
                 payload = invoice_json_data(booking, bus_details, company_details,
-                                            customer_details, None, invoice_action='update')
+                                            customer_details, None, invoice_action='update', pay_at_hotel=pay_at_hotel)
                 invoice = update_invoice_in_database(booking.invoice_id, payload, booking)
                 print("invoice", invoice)
 
