@@ -379,7 +379,7 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
                 total += float(item['amount'])
             if 'gst' in item and item['gst'] and not gst_percentage:
                 gst_percentage = float(item['gst'])
-        
+
         # Create Invoice object
         invoice = Invoice(
             logo=payload.get('logo', ''),
@@ -395,6 +395,7 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
             billed_to_details=payload.get('billedTo', {}),
             supply_details=payload.get('supplyDetails', {}),
             items=items,
+            discount=payload.get('discount', 0),
             GST=gst_percentage,
             GST_type=payload.get('GSTType', 'CGST/SGST'),
             total=total,
@@ -459,7 +460,7 @@ def update_invoice_in_database(invoice_number, payload, booking):
             invoice.total_tax = total_tax
             invoice.total_amount = total + total_tax
             invoice.GST = gst_percentage
-
+        invoice.discount = payload.get('discount', invoice.discount)
         invoice.GST_type = payload.get('GSTType', invoice.GST_type)
         invoice.status = payload.get('status', invoice.status)
         

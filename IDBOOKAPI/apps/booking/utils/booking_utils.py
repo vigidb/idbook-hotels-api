@@ -21,7 +21,7 @@ from decimal import Decimal
 from IDBOOKAPI.utils import get_unique_id_from_time
 from apps.customer.models import (Wallet, WalletTransaction)
 from apps.log_management.models import WalletTransactionLog
-from apps.booking.models import BookingPaymentDetail, Booking
+from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
@@ -152,7 +152,12 @@ def generate_context_confirmed_booking(booking):
         refresh, access = generate_refresh_access_token(booking.user)
     
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?token={access}"
-    invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
+    try:
+        invoice = Invoice.objects.get(invoice_number=invoice_id)
+        invoice_link = invoice.invoice_pdf.url if invoice.invoice_pdf else ''
+    except Invoice.DoesNotExist:
+        invoice_link = ''
+    # invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
         occupancy = occupancy + "{child_count} Child".format(

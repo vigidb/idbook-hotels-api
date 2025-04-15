@@ -6,8 +6,9 @@ from apps.booking.utils.db_utils import (
     get_overall_booking_rating, check_review_exist_for_booking,
     update_payment_details)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
-from apps.booking.utils.invoice_utils import create_invoice_number
+from apps.booking.utils.invoice_utils import create_invoice_number, manual_generate_invoice_pdf
 from apps.hotels.tasks import send_hotel_sms_task
+import json
 
 class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Review.objects.all()
@@ -254,76 +255,115 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         self.log_request(request)
         
         data = request.data.copy()
-        
+
         # Check if invoice_number is provided, if not generate one
         if not data.get('invoice_number'):
             data['invoice_number'] = create_invoice_number()
-        
+
+        items = data.get('items', [])
+        total = 0
+        total_tax = 0
+        total_amount = 0
+
+        for item in items:
+            # Calculate the price excluding GST
+            base_price = item['rate'] * item['quantity']
+            
+            # Calculate GST
+            gst_amount = (item['rate'] * item['gst'] / 100) * item['quantity']
+            
+            # Calculate the total amount (price + GST)
+            item_total = base_price + gst_amount
+            
+            # Add item totals to the overall totals
+            total += base_price
+            total_tax += gst_amount
+            total_amount += item_total
+            
+            # Update the item with correct calculated values
+            item['amount'] = item_total  # Update with GST included amount
+
+        # Add discount if applicable (keeping discount separate)
+        additional_options = data.get('additional_options', {})
+        discount_value = additional_options.get('discountValue')
+        discount_type = additional_options.get('discountType')
+        final_discount = 0
+
+        if additional_options.get('totalDiscount') and discount_value:
+            try:
+                discount_value = float(discount_value)
+                if discount_type == 'AMOUNT':
+                    final_discount = discount_value
+                elif discount_type == 'PERCENT':
+                    final_discount = (discount_value / 100) * total_amount
+
+                data['discount'] = round(final_discount, 2)
+            except Exception as e:
+                print(f"Discount Calculation Error: {str(e)}")
+
+        # Save the calculated totals in the data dictionary
+        data['total'] = total
+        data['total_tax'] = total_tax
+        data['total_amount'] = total_amount
+
+        # Booking check
         booking_id = data.get('booking_id')
         if booking_id:
             try:
                 booking = Booking.objects.get(id=booking_id)
-                
                 if booking.invoice_id:
-                    custom_response = self.get_error_response(
+                    return self.get_error_response(
                         message="Invoice already exists for this booking",
                         status="error",
                         errors=[],
                         error_code="DUPLICATE_INVOICE",
                         status_code=status.HTTP_400_BAD_REQUEST
                     )
-                    return custom_response
-                
                 data['reference'] = 'Booking'
-                
             except Booking.DoesNotExist:
-                custom_response = self.get_error_response(
+                return self.get_error_response(
                     message="Booking not found",
                     status="error",
                     errors=[],
                     error_code="BOOKING_NOT_FOUND",
                     status_code=status.HTTP_404_NOT_FOUND
                 )
-                return custom_response
-        
+
         # Create invoice
         serializer = self.get_serializer(data=data)
         
         if serializer.is_valid():
             invoice = serializer.save()
-            
+
             if booking_id:
                 booking.invoice_id = invoice.invoice_number
                 booking.save()
-                
                 update_payment_details(booking, invoice)
-            
-            custom_response = self.get_response(
+
+            try:
+                pdf_payload = data.copy()
+                pdf_payload['invoiceNumber'] = invoice.invoice_number
+                pdf_payload['discount'] = data.get('discount', 0)
+                pdf_payload['billed_mob_num'] = data.get('billed_mob_num', '') 
+                manual_generate_invoice_pdf(pdf_payload, booking_id)
+                invoice.refresh_from_db()
+            except Exception as e:
+                print(f"PDF Generation Error: {str(e)}")
+
+            return self.get_response(
                 status="success",
                 data=serializer.data,
                 message="Invoice Created",
-                status_code=status.HTTP_201_CREATED,
+                status_code=status.HTTP_201_CREATED
             )
-        else:
-            custom_response = self.get_error_response(
-                message="Validation Error",
-                status="error",
-                errors=serializer.errors,
-                error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
-        self.log_response(custom_response)
-        
-        if booking_id and 'booking' in locals():
-            invoice_log = {
-                'booking': booking,
-                'status_code': custom_response.status_code,
-                'response': custom_response.data
-            }
-            create_booking_invoice_log(invoice_log)
-            
-        return custom_response
+
+        return self.get_error_response(
+            message="Validation Error",
+            status="error",
+            errors=serializer.errors,
+            error_code="VALIDATION_ERROR",
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)
@@ -381,64 +421,124 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)
 
-        instance = self.get_object()
+        try:
+            instance = self.get_object()  # This might raise ValueError if the invoice is not found
+        except ValueError as e:
+            return self.get_error_response(
+                message="Invoice not found with the given ID or invoice number",
+                status="error",
+                errors=[],
+                error_code="INVOICE_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         # Prevent updating invoice_number
         if 'invoice_number' in request.data and request.data['invoice_number'] != instance.invoice_number:
-            custom_response = self.get_error_response(
+            return self.get_error_response(
                 message="Invoice number cannot be updated",
                 status="error",
                 errors=[],
                 error_code="INVOICE_NUMBER_IMMUTABLE",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-            return custom_response
 
-        booking_id = request.data.get('booking_id')
+        data = request.data.copy()
+
+        # Load existing items if not provided in the update payload
+        items = data.get('items') or instance.items  # Use existing items if not updating them
+        total = 0
+        total_tax = 0
+        total_amount = 0
+
+        for item in items:
+            rate = item['rate']
+            quantity = item['quantity']
+            gst = item['gst']
+
+            base_price = rate * quantity
+            gst_amount = (rate * gst / 100) * quantity
+            item_total = base_price + gst_amount
+
+            total += base_price
+            total_tax += gst_amount
+            total_amount += item_total
+
+            item['amount'] = item_total  # Update item amount in place
+
+        # Add discount if applicable
+        additional_options = data.get('additional_options') or instance.additional_options
+        discount_value = additional_options.get('discountValue') if additional_options else None
+        discount_type = additional_options.get('discountType') if additional_options else None
+        final_discount = 0
+
+        if additional_options and additional_options.get('totalDiscount') and discount_value:
+            try:
+                discount_value = float(discount_value)
+                if discount_type == 'AMOUNT':
+                    final_discount = discount_value
+                elif discount_type == 'PERCENT':
+                    final_discount = (discount_value / 100) * total_amount
+
+                data['discount'] = round(final_discount, 2)
+            except Exception as e:
+                print(f"Discount Calculation Error: {str(e)}")
+
+        # Save recalculated values into the update data
+        data['total'] = total
+        data['total_tax'] = total_tax
+        data['total_amount'] = total_amount
+        data['items'] = items 
+
+        # Handle booking reference if booking is present
+        booking_id = data.get('booking_id')
         booking = None
 
         if booking_id:
             try:
                 booking = Booking.objects.get(id=booking_id)
             except Booking.DoesNotExist:
-                custom_response = self.get_error_response(
+                return self.get_error_response(
                     message="Booking not found",
                     status="error",
                     errors=[],
                     error_code="BOOKING_NOT_FOUND",
                     status_code=status.HTTP_404_NOT_FOUND
                 )
-                return custom_response
 
             if booking.invoice_id != instance.invoice_number:
-                custom_response = self.get_error_response(
+                return self.get_error_response(
                     message="Invoice does not belong to the specified booking",
                     status="error",
                     errors=[],
                     error_code="INVOICE_MISMATCH",
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
-                return custom_response
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        # Update invoice
+        serializer = self.get_serializer(instance, data=data, partial=True)
 
         if serializer.is_valid():
             invoice = serializer.save()
 
-            # If booking is provided, update reference and payment details
             if booking:
                 invoice.reference = 'Booking'
-                invoice.save()  # Save reference change
+                invoice.save()
                 update_payment_details(booking, invoice)
 
-            custom_response = self.get_response(
+            # if invoice.invoice_pdf:
+            #     invoice.invoice_pdf.delete(save=False)
+            #     print("json.dumps(data)", json.dumps(data))
+
+            #     manual_generate_invoice_pdf(json.dumps(data), booking_id=booking_id)
+
+            response = self.get_response(
                 status="success",
                 data=serializer.data,
                 message="Invoice Updated",
-                status_code=status.HTTP_200_OK,
+                status_code=status.HTTP_200_OK
             )
         else:
-            custom_response = self.get_error_response(
+            response = self.get_error_response(
                 message="Validation Error",
                 status="error",
                 errors=serializer.errors,
@@ -446,17 +546,16 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
-        self.log_response(custom_response)
+        self.log_response(response)
 
         if booking:
-            invoice_log = {
+            create_booking_invoice_log({
                 'booking': booking,
-                'status_code': custom_response.status_code,
-                'response': custom_response.data
-            }
-            create_booking_invoice_log(invoice_log)
+                'status_code': response.status_code,
+                'response': response.data
+            })
 
-        return custom_response
+        return response
 
     def destroy(self, request, *args, **kwargs):
         self.log_request(request)
