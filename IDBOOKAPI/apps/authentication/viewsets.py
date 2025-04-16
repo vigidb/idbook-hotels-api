@@ -191,6 +191,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             user.default_group = group_name
             user.email_verified = True
             user.save()
+            authentication_utils.add_signup_bonus(user, group_name, role)
+
 
 ##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
@@ -1533,6 +1535,9 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             new_user.groups.add(grp)
         if role:
             new_user.roles.add(role)
+
+        authentication_utils.add_signup_bonus(new_user, 'B2C-GRP', role)
+
         
         data = authentication_utils.generate_refresh_token(new_user)
         
