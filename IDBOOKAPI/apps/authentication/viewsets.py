@@ -510,6 +510,9 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 
     def post(self, request):
         self.log_request(request)  # Log the incoming request
+        # Normalizing email to lowercase before passing to the serializer
+        email = request.data.get('email', '').lower()
+        request.data['email'] = email
         serializer = self.get_serializer(data=request.data)
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
