@@ -67,6 +67,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         self.log_request(request)  # Log the incoming request
 
         email = request.data.get('email', None)
+        if email:
+            email = email.lower().strip()
         mobile_number = request.data.get('mobile_number', None)
         group_name = request.data.get('group_name', 'B2C-GRP')
         otp = request.data.get('otp', None)
@@ -97,6 +99,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         
         
         if email:
+            email = email.lower().strip()
             user = User.objects.filter(email=email).first()
 
         grp, role = authentication_utils.get_group_based_on_name(group_name)
@@ -507,6 +510,9 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 
     def post(self, request):
         self.log_request(request)  # Log the incoming request
+        # Normalizing email to lowercase before passing to the serializer
+        email = request.data.get('email', '').lower()
+        request.data['email'] = email
         serializer = self.get_serializer(data=request.data)
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
@@ -760,6 +766,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             username = request.data.get('username', None)
             otp_for = request.data.get('otp_for', None)
             group_name = request.data.get('group_name', '')
+            if username and '@' in username:
+                username = username.lower()
             
             if not username:
                 response = self.get_error_response(message="Missing username", status="error",
