@@ -8,6 +8,8 @@ from apps.authentication.tasks import (
 from django.conf import settings
 
 from rest_framework_simplejwt.tokens import RefreshToken
+from apps.customer.utils.db_utils import (
+    update_wallet_transaction,add_user_wallet_amount)
 
 def user_representation(user, refresh_token=None):
     
@@ -169,5 +171,26 @@ def get_group_based_on_name(group_name):
         
     return grp, role
     
-            
+
+def add_signup_bonus(user, group_name, role):
+    if group_name == 'B2C-GRP' and role and role.name == 'B2C-CUST':
+        reward_amount = 250
+        company_id = None  # No company context at signup
+        status = add_user_wallet_amount(user.id, reward_amount)
+
+        transaction_details = "Signup reward for B2C-CUST"
+        other_details = {"signup_reward": True}
+
+        wallet_transact_dict = {
+            'user_id': user.id,
+            'amount': reward_amount,
+            'transaction_type': 'Credit',
+            'transaction_details': transaction_details,
+            'company_id': company_id,
+            'transaction_for': 'signup_reward',
+            'is_transaction_success': status,
+            'other_details': other_details
+        }
+        update_wallet_transaction(wallet_transact_dict)
+       
         
