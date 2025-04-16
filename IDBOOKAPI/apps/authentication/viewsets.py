@@ -707,6 +707,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
     def otp_based_user_login(self, request):
 
         username = request.data.get('username', '')
+        if "@" in username:
+            username = username.lower()
         user_id = request.data.get('user_id', None)
         otp = request.data.get('otp', None)
         group_name = request.data.get("group_name", 'B2C-GRP')
