@@ -9,7 +9,7 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, RoomType, Occupancy, Enquiry, BankDetail,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
     TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
-    Subscriber, MessageTemplate
+    Subscriber, MessageTemplate, BasicAdminConfig
 )
 
 
@@ -75,6 +75,12 @@ class MessageTemplateAdmin(admin.ModelAdmin):
     # list_editable = ('template_code', 'temp_message')
 
 admin.site.register(MessageTemplate, MessageTemplateAdmin) 
+
+class BasicAdminConfigAdmin(admin.ModelAdmin):
+    list_display = ('id', 'code', 'value')
+    search_fields = ('code', 'value')
+
+admin.site.register(BasicAdminConfig, BasicAdminConfigAdmin)
 
 admin.site.register(Enquiry)
 admin.site.register(Subscriber)
