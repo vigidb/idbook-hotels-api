@@ -122,7 +122,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
             if avail_prop:
                 representation['available_room_after_booking'] = avail_prop
             else:
-                representation['available_room_after_booking'] = {}
+                representation['available_room_after_booking'] = []
 
             if property_id in favorite_list:
                 representation['favorite'] = True
