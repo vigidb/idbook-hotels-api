@@ -263,6 +263,9 @@ class Invoice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ('-created_at',)
+
 class BookingPaymentDetail(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_payment')
     merchant_transaction_id = models.CharField(max_length=150, unique=True)

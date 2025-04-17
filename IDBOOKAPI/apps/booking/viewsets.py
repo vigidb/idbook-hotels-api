@@ -1715,15 +1715,16 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 india_timezone = timezone('Asia/Kolkata')
                 current_month = datetime.now(india_timezone).strftime('%B')
 
-                eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
+                if user.is_authenticated:
+                    eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
 
-                if eligibility:
-                    booking_dict['pay_at_hotel_eligibility'] = {
-                        "is_eligible": eligibility.is_eligible,
-                        # "eligible_limit": float(eligibility.eligible_limit or 0),
-                        # "total_booking_count": eligibility.total_booking_count or 0,
-                        # "month": eligibility.month,
-                    }
+                    if eligibility:
+                        booking_dict['pay_at_hotel_eligibility'] = {
+                            "is_eligible": eligibility.is_eligible,
+                            # "eligible_limit": float(eligibility.eligible_limit or 0),
+                            # "total_booking_count": eligibility.total_booking_count or 0,
+                            # "month": eligibility.month,
+                        }
                 if property_policies:
                     booking_dict['cancel_policy'] = {
                         "cancellation_policy": property_policies
