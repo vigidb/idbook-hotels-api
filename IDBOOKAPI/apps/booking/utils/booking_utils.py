@@ -25,6 +25,7 @@ from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
+from apps.org_resources.models import BasicAdminConfig 
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -491,7 +492,9 @@ def calculate_total_amount(booking):
 def set_firstbooking_reward(referred_code, booked_user_id=None):
     user = get_user_by_referralcode(referred_code)
     if user:
-        reward_amount = 250
+        # reward_amount = 250
+        reward_config = BasicAdminConfig.objects.get(code='referral_bonus')
+        reward_amount = float(reward_config.value)
 ##        company_id = user.company_id
 ##        if company_id:
 ##            status = add_company_wallet_amount(company_id, reward_amount)
@@ -767,7 +770,18 @@ def check_pay_at_hotel_eligibility(user, amount):
          
 def handle_pay_at_hotel_payment_cancellation(instance, cancellation_details, applicable_policy):
     try:
+        # Checking for Non-Refundable policy
+        cancellation_policy = instance.hotel_booking.cancel_policy or {}
+        policies = cancellation_policy.get('cancellation_policy', [])
+        
+        payment_details = BookingPaymentDetail.objects.filter(booking=instance).first()
+        
         cancellation_fee = applicable_policy.get('cancellation_fee', 0)
+        
+        if "Non-Refundable" in policies:
+            if payment_details:
+                cancellation_fee = payment_details.amount
+            print(f"Non-Refundable policy applied. Fee set to full amount: {cancellation_fee}")
         
         if cancellation_fee <= 0:
             # No cancellation fee to charge
