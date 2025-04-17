@@ -188,13 +188,18 @@ def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
         )
 
         print(f"Updated monthly pay at hotel eligibility for user {user_id}, month: {data['month_name']}")
-        print(f"Booking count: {data['booking_count']}, Eligible limit: {data['eligible_limit']}, Is eligible: {data['is_eligible']}")
+        print(f"Booking count: {data['booking_count']}, Eligible limit: {data['eligible_limit']}, "
+        f"Spent amount: {data['spent_amount']}, Remaining limit: {data['remaining_limit']}, "
+        f"Is eligible: {data['is_eligible']}")
+
 
         return {
             'user_id': user_id,
             'month': data['month_name'],
             'booking_count': data['booking_count'],
             'eligible_limit': data['eligible_limit'],
+            'spent_amount': float(data['spent_amount']),
+            'remaining_limit': float(data['remaining_limit']),
             'is_eligible': data['is_eligible']
         }
 

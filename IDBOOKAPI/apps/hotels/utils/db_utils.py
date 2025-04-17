@@ -1,7 +1,7 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
     RoomGallery, FavoriteList, BlockedProperty,
-    PayAtHotelSpendLimit)
+    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
@@ -726,6 +726,7 @@ def get_user_booking_data(user_id, booking_date):
     confirmed_bookings_count = Booking.objects.filter(
         user_id=user_id,
         status__in=['confirmed', 'completed'],
+        booking_payment__is_transaction_success=True,
         created__month=current_month,
         created__year=current_year
     ).count()
@@ -736,12 +737,23 @@ def get_user_booking_data(user_id, booking_date):
     ).first()
 
     eligible_limit = spend_limit_obj.spend_limit if spend_limit_obj else 0
-    is_eligible = eligible_limit > 0
+    # is_eligible = eligible_limit > 0
+    monthly_eligibility = MonthlyPayAtHotelEligibility.objects.filter(
+        user_id=user_id,
+        month=current_month_name
+    ).first()
+    
+    spent_amount = monthly_eligibility.spent_amount if monthly_eligibility else Decimal('0.00')
+    
+    remaining_limit = eligible_limit - spent_amount
+    is_eligible = remaining_limit > 0
 
     return {
         'month_name': current_month_name,
         'booking_count': confirmed_bookings_count,
         'eligible_limit': eligible_limit,
+        'spent_amount': spent_amount,
+        'remaining_limit': remaining_limit,
         'is_eligible': is_eligible
     }
 

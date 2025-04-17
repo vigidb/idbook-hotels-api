@@ -29,7 +29,8 @@ from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
-    update_no_show_status, check_pay_at_hotel_eligibility)
+    update_no_show_status, check_pay_at_hotel_eligibility,
+    handle_pay_at_hotel_payment_cancellation)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -586,6 +587,51 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.meta_info.save()
         print ("\n\n\ncancellation_details", cancellation_details)
 
+        pay_at_hotel_pymt = BookingPaymentDetail.objects.filter(booking=instance).first()
+        if pay_at_hotel_pymt and pay_at_hotel_pymt.payment_type == 'DIRECT' and pay_at_hotel_pymt.payment_medium == 'Hotel':
+            print ("inside pay at hotel payment cancellation")
+            success, fee_status, fee_data = handle_pay_at_hotel_payment_cancellation(
+                instance, 
+                cancellation_details, 
+                applicable_policy
+            )
+            
+            # Send cancellation notifications regardless of fee status
+            self.send_cancel_task(instance, 0)
+            
+            # Send notification to hotel about cancellation
+            send_hotel_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'HOTELER_BOOKING_CANCEL_NOTIFICATION',
+                    'params': {
+                        'booking_id': instance.id
+                    }
+                }
+            )
+            
+            if success:
+                message = "Booking Cancelled Successfully"
+                if fee_data.get('fee_amount', 0) > 0:
+                    message += f", Cancellation fee of {fee_data.get('fee_amount')} charged"
+                
+                return self.get_response(
+                    status='success',
+                    message=message,
+                    data={
+                        'cancellation_details': cancellation_details,
+                        'fee_details': fee_data
+                    },
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                return self.get_error_response(
+                    message="Booking Cancelled, but Fee Charging Failed", 
+                    status="error",
+                    errors=[{"detail": fee_data.get('error_message', 'Unknown error')}],
+                    error_code="FEE_CHARGE_FAILED",
+                    status_code=status.HTTP_206_PARTIAL_CONTENT
+                )
+
         if payment_details and payment_details.payment_type == 'WALLET' and payment_details.payment_medium == 'Idbook':
             print("payment_details")
             send_hotel_sms_task.apply_async(
@@ -595,8 +641,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         'booking_id': instance.id
                     }
                 }
-            ) 
-        
+            )
+
         if not payment_details or refund_amount <= 0:
             self.send_cancel_task(instance, refund_amount)
             return self.get_response(
@@ -1678,6 +1724,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         # "total_booking_count": eligibility.total_booking_count or 0,
                         # "month": eligibility.month,
                     }
+                if property_policies:
+                    booking_dict['cancel_policy'] = {
+                        "cancellation_policy": property_policies
+                    }
                 
                 custom_response = self.get_response(
                     status='success', count=1, data=booking_dict,
@@ -2087,7 +2137,16 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             booking_payment_detail.message = "Payment received at hotel"
             instance.total_payment_made = amount
             instance.save()
+
+            current_month = datetime.now().strftime('%B')
             
+            # Get or create monthly eligibility for the user
+            monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.get_or_create(
+                user=instance.user,
+                month=current_month
+            )
+            monthly_eligibility.spent_amount += amount
+            monthly_eligibility.save()
             # Send payment success notification
             try:
                 send_booking_sms_task.apply_async(
