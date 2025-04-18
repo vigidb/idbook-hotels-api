@@ -395,7 +395,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
         if company_id:
             instance = self.queryset.filter(company_id=company_id).first()
         else:    
-            instance = self.queryset.filter(user_id=user_id).first()
+            instance = self.queryset.filter(user_id=user_id, company_id__isnull=True).first()
             
         if instance:
             balance = instance.balance

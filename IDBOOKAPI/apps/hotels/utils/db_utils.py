@@ -24,7 +24,7 @@ from datetime import datetime
 
 from functools import reduce
 from apps.booking.models import Booking
-
+from decimal import Decimal
 from django.db.models import ExpressionWrapper, Value
 from django.db.models.functions import ACos, Cos, Radians, Sin
 

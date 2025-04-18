@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
 from apps.org_resources.models import BasicAdminConfig 
+from IDBOOKAPI.utils import shorten_url
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -428,7 +429,7 @@ def generate_context_completed_booking(booking):
 
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
     review_link = "https://www.ambitionbox.com/overview/idbook-hotels-overview"
-
+    review_link = shorten_url(review_link)
     context = {'name': name,
               'email': email, 
               'mobile_number': mobile_number,
