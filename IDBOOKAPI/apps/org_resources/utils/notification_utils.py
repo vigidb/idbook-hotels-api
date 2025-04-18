@@ -1,4 +1,4 @@
-
+from IDBOOKAPI.utils import shorten_url
 
 def booking_comfirmed_notification_template(booking_id, booking_type, confirmation_code, notification_dict):
     try:
@@ -44,6 +44,7 @@ def booking_completed_notification_template(booking_id, booking_type, notificati
         title = "Hotel Stay Completed"
         description = "Thank you for choosing Idbook! Your Hotel stay has been completed. We hope you enjoyed your stay and would appreciate your feedback."
         redirect_url = "https://www.ambitionbox.com/overview/idbook-hotels-overview"
+        redirect_url = shorten_url(redirect_url)
         
         notification_dict['title'] = title
         notification_dict['description'] = description

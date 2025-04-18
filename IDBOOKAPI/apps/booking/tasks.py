@@ -72,10 +72,10 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                 if bus_details:
                     send_by = bus_details.user
 
-                    
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
                                      'title':'', 'description':'', 'redirect_url':'',
-                                     'image_link':''}
+                                     'image_link':'', 'group_name': group_name}
                 
                 notification_dict = booking_comfirmed_notification_template(
                     booking.id, booking.booking_type, booking.confirmation_code,
@@ -109,10 +109,10 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                         bus_details = get_active_business() #get_business_by_name(business_name)
                         if bus_details:
                             send_by = bus_details.user
-                            
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                         notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'GENERAL',
                                              'title':'', 'description':'', 'redirect_url':'',
-                                             'image_link':''}
+                                             'image_link':'', 'group_name': group_name}
                         notification_dict = wallet_minbalance_notification_template(balance, notification_dict)
                         create_notification(notification_dict)
             except Exception as e:
@@ -244,13 +244,13 @@ def send_cancelled_booking_task(self, booking_id):
             bus_details =  get_active_business() #get_business_by_name(business_name)
             if bus_details:
                 send_by = bus_details.user
-    
+            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
             notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
                                  'title':'', 'description':'', 'redirect_url':'',
-                                 'image_link':''}
+                                 'image_link':'', 'group_name': group_name}
             
             notification_dict = booking_cancelled_notification_template(
-                booking.id, booking.booking_type, 'DUMMY',
+                booking.id, booking.booking_type, f'CNCL-{booking.id}',
                 notification_dict)
             create_notification(notification_dict)
             
@@ -276,10 +276,10 @@ def send_completed_booking_task(self, booking_id):
                 bus_details = get_active_business()
                 if bus_details:
                     send_by = bus_details.user
-        
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 notification_dict = {'user': booking.user, 'send_by': send_by, 'notification_type': 'BOOKING',
                                     'title': '', 'description': '', 'redirect_url': '',
-                                    'image_link': ''}
+                                    'image_link': '', 'group_name': group_name}
                 
                 notification_dict = booking_completed_notification_template(
                     booking.id, booking.booking_type, notification_dict)

@@ -1523,7 +1523,7 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
             
-            
+        email = email.lower()
         check_existing_user = User.objects.filter(email=email).first()
         if check_existing_user:
             data = authentication_utils.generate_refresh_token(check_existing_user)
