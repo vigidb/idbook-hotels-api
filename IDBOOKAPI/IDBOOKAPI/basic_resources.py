@@ -215,6 +215,11 @@ PAYMENT_METHOD_CHOICES = (
     ("Others", "Others"),
 )
 
+AUTH_WORKFLOW = (
+    ("PENNY_DROP", "PENNY_DROP"),
+    ("TRANSACTION", "TRANSACTION")
+)
+    
 TRANSACTION_FOR = (
     ("booking_confirmed", "booking_confirmed"),
     ("booking_refund", "booking_refund"),

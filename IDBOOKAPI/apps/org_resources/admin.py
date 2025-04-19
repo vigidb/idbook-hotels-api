@@ -9,7 +9,8 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, RoomType, Occupancy, Enquiry, BankDetail,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
     TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
-    Subscriber, MessageTemplate
+    Subscriber, MessageTemplate, UserSubscription, Subscription,
+    SubRecurringTransaction
 )
 
 
@@ -88,4 +89,7 @@ admin.site.register(Career)
 admin.site.register(FAQs)
 admin.site.register(CountryDetails)
 admin.site.register(UserNotification)
+admin.site.register(Subscription)
+admin.site.register(UserSubscription)
+admin.site.register(SubRecurringTransaction)
 

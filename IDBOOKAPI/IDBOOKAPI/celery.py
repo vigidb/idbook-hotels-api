@@ -35,19 +35,19 @@ app.conf.task_routes = {
 }
 
 
-# TASK = os.getenv('TASK')
+TASK = os.getenv('TASK')
 
-##
-##BEAT_CONFIG = {
-##    multiupload_task_name: {
-##        'add-every-3-minutes': {
-##            'task': 'apps.authenteication.tasks.email_task',
-##            'schedule': crontab(minute="*/3"),
-##            'options': {'queue': queue_name}
-##        },
-##    },
-##}
-##
-##
-##if TASK:
-##    app.conf.beat_schedule = BEAT_CONFIG[f'{TASK}_group']
+
+BEAT_CONFIG = {
+    'recpay-task_group': {
+        'add-every-3-minutes': {
+            'task': 'apps.org_resources.tasks.initiate_recurring_payment',
+            'schedule': crontab(minute="*/1"),
+            'options': {'queue': "recpay-initiate-queue"}
+        },
+    },
+}
+
+
+if TASK:
+    app.conf.beat_schedule = BEAT_CONFIG[f'{TASK}_group']

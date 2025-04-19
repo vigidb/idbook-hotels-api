@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
     BookingInvoiceLog, BookingPaymentLog,
-    WalletTransactionLog, SmsOtpLog, BookingRefundLog)
+    WalletTransactionLog, SmsOtpLog, BookingRefundLog,
+    UserSubscriptionLogs)
 
 # Register your models here.
 
@@ -22,4 +23,5 @@ admin.site.register(BookingPaymentLog, BookingPaymentLogAdmin)
 admin.site.register(WalletTransactionLog, WalletTransactionLogAdmin)
 admin.site.register(SmsOtpLog)
 admin.site.register(BookingRefundLog, BookingRefundLogAdmin)  # Register the refund log model
+admin.site.register(UserSubscriptionLogs)
 

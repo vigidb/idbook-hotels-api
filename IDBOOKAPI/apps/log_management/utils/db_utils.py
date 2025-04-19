@@ -1,6 +1,7 @@
 from apps.log_management.models import (
     BookingInvoiceLog, BookingPaymentLog,
-    WalletTransactionLog, BookingRefundLog)
+    WalletTransactionLog, BookingRefundLog,
+    UserSubscriptionLogs)
 from apps.booking.models import Booking
 import traceback
 
@@ -43,3 +44,6 @@ def create_booking_refund_log(log_dict: dict):
     except Exception as e:
         print(traceback.format_exc())
         print(e)
+
+def create_user_subscription_logs(log_dict:dict):
+    UserSubscriptionLogs.objects.create(**log_dict)
