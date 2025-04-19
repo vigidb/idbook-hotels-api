@@ -13,7 +13,8 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
-                          BookingPaymentDetailSerializer)
+                          BookingPaymentDetailSerializer, HotelBookingSerializer,
+                          InvoiceSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail, BookingMetaInfo)
 
@@ -2218,7 +2219,64 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         )
         
         return custom_response
+    
+    @action(detail=False, methods=['GET'], url_path='hotel-transactions', 
+        url_name='hotel-transactions', permission_classes=[])
+    def pay_at_hotel_transactions(self, request):
+
+        queryset = Booking.objects.filter(
+            booking_payment__payment_type='DIRECT',
+            booking_payment__payment_medium='Hotel'
+        ).distinct()
+        
+        booking_id = request.query_params.get('booking_id', None)
+        user_id = request.query_params.get('user_id', None)
+
+        is_transaction_success = request.query_params.get('is_transaction_success', None)
+        
+        if booking_id:
+            queryset = queryset.filter(id=booking_id)
+        
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        if is_transaction_success is not None:
+            is_success = is_transaction_success.lower() == 'true'
+            queryset = queryset.filter(booking_payment__is_transaction_success=is_success)
+        
+        count, queryset = paginate_queryset(request, queryset)
+        
+        result = []
+        for booking in queryset:
+            pay_at_hotel_payment = BookingPaymentDetail.objects.filter(
+                booking=booking,
+                payment_type='DIRECT',
+                payment_medium='Hotel'
+            ).first()
             
+            booking_details = {
+                "id": booking.id,
+                "user_id": booking.user_id,
+                "user_name": booking.user.name
+            }
+            
+            booking_data = {
+                "booking_details": booking_details,
+                "hotel_booking": HotelBookingSerializer(booking.hotel_booking).data if booking.hotel_booking else None,
+                "payment_details": BookingPaymentDetailSerializer(pay_at_hotel_payment).data if pay_at_hotel_payment else None,
+                "invoice": InvoiceSerializer(pay_at_hotel_payment.invoice).data if pay_at_hotel_payment and pay_at_hotel_payment.invoice else None
+            }
+            
+            result.append(booking_data)
+        
+        response_data = {
+            "status": "success",
+            "message": "Pay at hotel transactions retrieved successfully",
+            "count": count,
+            "data": result
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
         
 
 ##class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
