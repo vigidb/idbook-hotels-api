@@ -10,7 +10,7 @@ from .models import (Property, Gallery, Room, Rule,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery, PropertyBankDetails,
                      PolicyDetails, PropertyLandmark)
-from .models import BlockedProperty, PayAtHotelSpendLimit
+from .models import BlockedProperty, PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
   DynamicRoomPricing, TopDestinations, PropertyCommission, 
@@ -540,3 +540,7 @@ class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
 
         return data
 
+class MonthlyPayAtHotelEligibilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonthlyPayAtHotelEligibility
+        fields = '__all__'
