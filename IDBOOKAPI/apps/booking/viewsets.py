@@ -49,7 +49,7 @@ from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.utils.db_utils import create_booking_payment_log, create_booking_refund_log
 
-from apps.authentication.models import UserOtp
+from apps.authentication.models import UserOtp, User
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
 from apps.authentication.utils.authentication_utils import (
     add_group_based_on_signup, add_group_for_guest_user)
@@ -76,6 +76,7 @@ from decimal import Decimal
 import pytz
 from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
+from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -2277,7 +2278,106 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
-        
+
+    @action(detail=False, methods=['POST'], permission_classes=[IsAuthenticated],
+        url_path='create-customer-eligibility', url_name='create-customer-eligibility')
+    def create_customer_eligibility(self, request):
+        """
+        Admin API to create Pay At Hotel eligibility record (only create, not update)
+        """
+        data = request.data
+        required_fields = ['user_id', 'month', 'is_eligible', 'is_blacklisted', 'eligible_limit']
+        missing = [f for f in required_fields if f not in data]
+
+        if missing:
+            return self.get_response(
+                message=f"Missing required fields: {', '.join(missing)}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(id=data['user_id'])
+        except User.DoesNotExist:
+            return self.get_response(
+                message="Invalid user_id provided. No User Found with provided user id.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        month = data['month'].capitalize()
+
+        if MonthlyPayAtHotelEligibility.objects.filter(user=user, month=month).exists():
+            return self.get_response(
+                message=f"Already record exists for user {user.id} and month '{month}'.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the record
+        eligibility = MonthlyPayAtHotelEligibility.objects.create(
+            user=user,
+            month=month,
+            is_eligible=data['is_eligible'],
+            is_blacklisted=data['is_blacklisted'],
+            eligible_limit=data['eligible_limit'],
+            updated_by='Admin'
+        )
+
+        serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        return self.get_response(
+            data=serializer.data,
+            message="Eligibility record created successfully.",
+            status_code=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=['PATCH'], permission_classes=[IsAuthenticated],
+        url_path='update-customer-eligibility', url_name='update-customer-eligibility')
+    def update_customer_eligibility(self, request):
+        """
+        Admin API to update Pay At Hotel eligibility record for a user and month
+        """
+        data = request.data
+        required_fields = ['user_id', 'month', 'is_eligible', 'is_blacklisted', 'eligible_limit']
+        missing = [f for f in required_fields if f not in data]
+
+        if missing:
+            return self.get_response(
+                message=f"Missing required fields: {', '.join(missing)}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(id=data['user_id'])
+        except User.DoesNotExist:
+            return self.get_response(
+                message="Invalid user_id provided. No User Found with provided user id.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        month = data['month'].capitalize()
+
+        # Check if the record exists
+        eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=month).first()
+
+        if not eligibility:
+            return self.get_response(
+                message=f"No eligibility record found for user {user.id} and month '{month}'.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        # Update the eligibility record
+        eligibility.is_eligible = data['is_eligible']
+        eligibility.is_blacklisted = data['is_blacklisted']
+        eligibility.eligible_limit = data['eligible_limit']
+        eligibility.updated_by = 'Admin'  # Assuming admin is updating it
+        eligibility.save()
+
+        # Serialize the updated record
+        serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+
+        return self.get_response(
+            data=serializer.data,
+            message="Eligibility record updated successfully.",
+            status_code=status.HTTP_200_OK
+        )
 
 ##class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 ##    queryset = Review.objects.all()

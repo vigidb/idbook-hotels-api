@@ -514,13 +514,9 @@ class TrendingPlacesSerializer(serializers.ModelSerializer):
         return representation
 
 class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
-    start_limit = serializers.IntegerField(required=True)
-    end_limit = serializers.IntegerField(required=True)
-    spend_limit = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
-
     class Meta:
         model = PayAtHotelSpendLimit
-        fields = ['id', 'start_limit', 'end_limit', 'spend_limit']
+        fields = '__all__'
 
     def validate(self, data):
         start = data.get('start_limit')

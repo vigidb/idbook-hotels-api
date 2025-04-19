@@ -168,6 +168,7 @@ def send_hotel_email_task(self, notification_type='', params=None):
         print(f'{notification_type} Email Task Error: {e}')
         return None
 
+
 @celery_idbook.task(bind=True)
 def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
     """
@@ -177,30 +178,69 @@ def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
     try:
         data = get_user_booking_data(user_id, booking_date)
 
-        monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.update_or_create(
+        existing_eligibility = MonthlyPayAtHotelEligibility.objects.filter(
             user_id=user_id,
-            month=data['month_name'],
-            defaults={
-                'total_booking_count': data['booking_count'],
-                'eligible_limit': data['eligible_limit'],
-                'is_eligible': data['is_eligible']
-            }
-        )
+            month=data['month_name']
+        ).first()
+
+        if existing_eligibility and existing_eligibility.updated_by == "Admin":
+
+            remaining_limit = existing_eligibility.eligible_limit - data['spent_amount']
+            
+            monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.update_or_create(
+                user_id=user_id,
+                month=data['month_name'],
+                defaults={
+                    'total_booking_count': data['booking_count'],
+                    'total_cancel_count': data['total_cancel_count'],
+                    'spent_amount': data['spent_amount'],
+                    'is_eligible': existing_eligibility.is_eligible and remaining_limit > 0,
+                    'eligible_limit': existing_eligibility.eligible_limit,
+                    'cancel_limit': existing_eligibility.cancel_limit,
+                    'is_blacklisted': existing_eligibility.is_blacklisted,
+                    'updated_by': existing_eligibility.updated_by
+                }
+            )
+            
+            data['remaining_limit'] = remaining_limit
+            data['eligible_limit'] = existing_eligibility.eligible_limit
+            data['is_eligible'] = existing_eligibility.is_eligible and remaining_limit > 0
+            data['is_blacklisted'] = existing_eligibility.is_blacklisted
+            
+        else:
+            monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.update_or_create(
+                user_id=user_id,
+                month=data['month_name'],
+                defaults={
+                    'total_booking_count': data['booking_count'],
+                    'eligible_limit': data['eligible_limit'],
+                    'is_eligible': data['is_eligible'],
+                    'total_cancel_count': data['total_cancel_count'],
+                    'cancel_limit': data['cancel_limit'],
+                    'is_blacklisted': data['is_blacklisted'],
+                    'spent_amount': data['spent_amount'],
+                    'updated_by': "Automatic"
+                }
+            )
 
         print(f"Updated monthly pay at hotel eligibility for user {user_id}, month: {data['month_name']}")
-        print(f"Booking count: {data['booking_count']}, Eligible limit: {data['eligible_limit']}, "
-        f"Spent amount: {data['spent_amount']}, Remaining limit: {data['remaining_limit']}, "
-        f"Is eligible: {data['is_eligible']}")
-
+        print(
+            f"Booking count: {data['booking_count']}, Eligible limit: {data['eligible_limit']}, "
+            f"Spent amount: {data['spent_amount']}, Remaining limit: {data['remaining_limit']}, "
+            f"Cancel count: {data['total_cancel_count']}, Cancel limit: {data['cancel_limit']}, "
+            f"Is eligible: {data['is_eligible']}, Is blacklisted: {data['is_blacklisted']}"
+        )
 
         return {
             'user_id': user_id,
             'month': data['month_name'],
             'booking_count': data['booking_count'],
-            'eligible_limit': data['eligible_limit'],
+            'eligible_limit': float(data['eligible_limit']),
             'spent_amount': float(data['spent_amount']),
             'remaining_limit': float(data['remaining_limit']),
-            'is_eligible': data['is_eligible']
+            'is_eligible': data['is_eligible'],
+            'is_blacklisted': data['is_blacklisted'],
+            'updated_by': monthly_eligibility.updated_by
         }
 
     except Exception as e:

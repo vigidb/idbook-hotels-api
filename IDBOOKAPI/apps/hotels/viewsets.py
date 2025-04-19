@@ -1070,12 +1070,17 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         queryset = MonthlyPayAtHotelEligibility.objects.all()
         
         is_eligible = request.query_params.get('is_eligible')
+        is_blacklisted = request.query_params.get('is_blacklisted')
         month = request.query_params.get('month')
         user_id = request.query_params.get('user_id')
         
         if is_eligible is not None:
             is_eligible_bool = is_eligible.lower() == 'true'
             queryset = queryset.filter(is_eligible=is_eligible_bool)
+
+        if is_blacklisted is not None:
+            is_blacklisted_bool = is_blacklisted.lower() == 'true'
+            queryset = queryset.filter(is_blacklisted=is_blacklisted_bool)
         
         if month:
             queryset = queryset.filter(month__iexact=month)
