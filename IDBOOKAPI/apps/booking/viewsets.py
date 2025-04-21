@@ -13,7 +13,8 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
-                          BookingPaymentDetailSerializer)
+                          BookingPaymentDetailSerializer, HotelBookingSerializer,
+                          InvoiceSerializer)
 from .serializers import QueryFilterBookingSerializer, QueryFilterUserBookingSerializer, BookingCheckInOutSerializer
 from .models import (Booking, HotelBooking, AppliedCoupon, Review, BookingPaymentDetail, BookingMetaInfo)
 
@@ -29,7 +30,8 @@ from apps.booking.utils.booking_utils import (
     calculate_room_booking_amount, get_tax_rate, calculate_xbed_amount,
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
-    update_no_show_status, check_pay_at_hotel_eligibility)
+    update_no_show_status, check_pay_at_hotel_eligibility,
+    handle_pay_at_hotel_payment_cancellation)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -41,13 +43,13 @@ from apps.hotels.utils.hotel_utils import (
     check_room_count, total_room_count,
     process_property_confirmed_booking_total,
     get_available_room)
-from apps.hotels.models import Property
+from apps.hotels.models import Property, MonthlyPayAtHotelEligibility
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.utils.db_utils import create_booking_payment_log, create_booking_refund_log
 
-from apps.authentication.models import UserOtp
+from apps.authentication.models import UserOtp, User
 from apps.authentication.utils.db_utils import get_user_from_email, create_user
 from apps.authentication.utils.authentication_utils import (
     add_group_based_on_signup, add_group_for_guest_user)
@@ -74,6 +76,7 @@ from decimal import Decimal
 import pytz
 from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
+from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -586,6 +589,51 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.meta_info.save()
         print ("\n\n\ncancellation_details", cancellation_details)
 
+        pay_at_hotel_pymt = BookingPaymentDetail.objects.filter(booking=instance).first()
+        if pay_at_hotel_pymt and pay_at_hotel_pymt.payment_type == 'DIRECT' and pay_at_hotel_pymt.payment_medium == 'Hotel':
+            print ("inside pay at hotel payment cancellation")
+            success, fee_status, fee_data = handle_pay_at_hotel_payment_cancellation(
+                instance, 
+                cancellation_details, 
+                applicable_policy
+            )
+            
+            # Send cancellation notifications regardless of fee status
+            self.send_cancel_task(instance, 0)
+            
+            # Send notification to hotel about cancellation
+            send_hotel_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'HOTELER_BOOKING_CANCEL_NOTIFICATION',
+                    'params': {
+                        'booking_id': instance.id
+                    }
+                }
+            )
+            
+            if success:
+                message = "Booking Cancelled Successfully"
+                if fee_data.get('fee_amount', 0) > 0:
+                    message += f", Cancellation fee of {fee_data.get('fee_amount')} charged"
+                
+                return self.get_response(
+                    status='success',
+                    message=message,
+                    data={
+                        'cancellation_details': cancellation_details,
+                        'fee_details': fee_data
+                    },
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                return self.get_error_response(
+                    message="Booking Cancelled, but Fee Charging Failed", 
+                    status="error",
+                    errors=[{"detail": fee_data.get('error_message', 'Unknown error')}],
+                    error_code="FEE_CHARGE_FAILED",
+                    status_code=status.HTTP_206_PARTIAL_CONTENT
+                )
+
         if payment_details and payment_details.payment_type == 'WALLET' and payment_details.payment_medium == 'Idbook':
             print("payment_details")
             send_hotel_sms_task.apply_async(
@@ -595,8 +643,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         'booking_id': instance.id
                     }
                 }
-            ) 
-        
+            )
+
         if not payment_details or refund_amount <= 0:
             self.send_cancel_task(instance, refund_amount)
             return self.get_response(
@@ -1665,6 +1713,24 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                                 'room_availability_details':room_availability_list,
                                 'booking_status_message': booking_status_message}
                 booking_dict.update(serializer.data)
+
+                india_timezone = timezone('Asia/Kolkata')
+                current_month = datetime.now(india_timezone).strftime('%B')
+
+                if user.is_authenticated:
+                    eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
+
+                    if eligibility:
+                        booking_dict['pay_at_hotel_eligibility'] = {
+                            "is_eligible": eligibility.is_eligible,
+                            # "eligible_limit": float(eligibility.eligible_limit or 0),
+                            # "total_booking_count": eligibility.total_booking_count or 0,
+                            # "month": eligibility.month,
+                        }
+                if property_policies:
+                    booking_dict['cancel_policy'] = {
+                        "cancellation_policy": property_policies
+                    }
                 
                 custom_response = self.get_response(
                     status='success', count=1, data=booking_dict,
@@ -1836,6 +1902,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     # Save basic booking payment details without payment specific fields
                     booking_payment_detail.amount = instance.final_amount
                     booking_payment_detail.transaction_for = "booking_confirmed"
+                    booking_payment_detail.payment_type = "DIRECT"
+                    booking_payment_detail.payment_medium = "Hotel"
+                    booking_payment_detail.code = "PAYMENT_PENDING"
                     booking_payment_detail.save()
                     
                     # Update total no of confirmed booking for a property
@@ -2071,7 +2140,16 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             booking_payment_detail.message = "Payment received at hotel"
             instance.total_payment_made = amount
             instance.save()
+
+            current_month = datetime.now().strftime('%B')
             
+            # Get or create monthly eligibility for the user
+            monthly_eligibility, created = MonthlyPayAtHotelEligibility.objects.get_or_create(
+                user=instance.user,
+                month=current_month
+            )
+            monthly_eligibility.spent_amount += amount
+            monthly_eligibility.save()
             # Send payment success notification
             try:
                 send_booking_sms_task.apply_async(
@@ -2142,8 +2220,164 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         )
         
         return custom_response
-            
+    
+    @action(detail=False, methods=['GET'], url_path='hotel-transactions', 
+        url_name='hotel-transactions', permission_classes=[])
+    def pay_at_hotel_transactions(self, request):
+
+        queryset = Booking.objects.filter(
+            booking_payment__payment_type='DIRECT',
+            booking_payment__payment_medium='Hotel'
+        ).distinct()
         
+        booking_id = request.query_params.get('booking_id', None)
+        user_id = request.query_params.get('user_id', None)
+
+        is_transaction_success = request.query_params.get('is_transaction_success', None)
+        
+        if booking_id:
+            queryset = queryset.filter(id=booking_id)
+        
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        if is_transaction_success is not None:
+            is_success = is_transaction_success.lower() == 'true'
+            queryset = queryset.filter(booking_payment__is_transaction_success=is_success)
+        
+        count, queryset = paginate_queryset(request, queryset)
+        
+        result = []
+        for booking in queryset:
+            pay_at_hotel_payment = BookingPaymentDetail.objects.filter(
+                booking=booking,
+                payment_type='DIRECT',
+                payment_medium='Hotel'
+            ).first()
+            
+            booking_details = {
+                "id": booking.id,
+                "user_id": booking.user_id,
+                "user_name": booking.user.name
+            }
+            
+            booking_data = {
+                "booking_details": booking_details,
+                "hotel_booking": HotelBookingSerializer(booking.hotel_booking).data if booking.hotel_booking else None,
+                "payment_details": BookingPaymentDetailSerializer(pay_at_hotel_payment).data if pay_at_hotel_payment else None,
+                "invoice": InvoiceSerializer(pay_at_hotel_payment.invoice).data if pay_at_hotel_payment and pay_at_hotel_payment.invoice else None
+            }
+            
+            result.append(booking_data)
+        
+        response_data = {
+            "status": "success",
+            "message": "Pay at hotel transactions retrieved successfully",
+            "count": count,
+            "data": result
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['POST'], permission_classes=[IsAuthenticated],
+        url_path='create-customer-eligibility', url_name='create-customer-eligibility')
+    def create_customer_eligibility(self, request):
+        """
+        Admin API to create Pay At Hotel eligibility record (only create, not update)
+        """
+        data = request.data
+        required_fields = ['user_id', 'month', 'is_eligible', 'is_blacklisted', 'eligible_limit']
+        missing = [f for f in required_fields if f not in data]
+
+        if missing:
+            return self.get_response(
+                message=f"Missing required fields: {', '.join(missing)}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(id=data['user_id'])
+        except User.DoesNotExist:
+            return self.get_response(
+                message="Invalid user_id provided. No User Found with provided user id.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        month = data['month'].capitalize()
+
+        if MonthlyPayAtHotelEligibility.objects.filter(user=user, month=month).exists():
+            return self.get_response(
+                message=f"Already record exists for user {user.id} and month '{month}'.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the record
+        eligibility = MonthlyPayAtHotelEligibility.objects.create(
+            user=user,
+            month=month,
+            is_eligible=data['is_eligible'],
+            is_blacklisted=data['is_blacklisted'],
+            eligible_limit=data['eligible_limit'],
+            updated_by='Admin'
+        )
+
+        serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        return self.get_response(
+            data=serializer.data,
+            message="Eligibility record created successfully.",
+            status_code=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=['PATCH'], permission_classes=[IsAuthenticated],
+        url_path='update-customer-eligibility', url_name='update-customer-eligibility')
+    def update_customer_eligibility(self, request):
+        """
+        Admin API to update Pay At Hotel eligibility record for a user and month
+        """
+        data = request.data
+        required_fields = ['user_id', 'month', 'is_eligible', 'is_blacklisted', 'eligible_limit']
+        missing = [f for f in required_fields if f not in data]
+
+        if missing:
+            return self.get_response(
+                message=f"Missing required fields: {', '.join(missing)}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(id=data['user_id'])
+        except User.DoesNotExist:
+            return self.get_response(
+                message="Invalid user_id provided. No User Found with provided user id.",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        month = data['month'].capitalize()
+
+        # Check if the record exists
+        eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=month).first()
+
+        if not eligibility:
+            return self.get_response(
+                message=f"No eligibility record found for user {user.id} and month '{month}'.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        # Update the eligibility record
+        eligibility.is_eligible = data['is_eligible']
+        eligibility.is_blacklisted = data['is_blacklisted']
+        eligibility.eligible_limit = data['eligible_limit']
+        eligibility.updated_by = 'Admin'  # Assuming admin is updating it
+        eligibility.save()
+
+        # Serialize the updated record
+        serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+
+        return self.get_response(
+            data=serializer.data,
+            message="Eligibility record updated successfully.",
+            status_code=status.HTTP_200_OK
+        )
 
 ##class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 ##    queryset = Review.objects.all()
@@ -2577,6 +2811,9 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         # Save basic booking payment details without payment specific fields
                         booking_payment_detail.amount = float(amount)
                         booking_payment_detail.transaction_for = "booking_confirmed"
+                        booking_payment_detail.payment_type = "DIRECT"
+                        booking_payment_detail.payment_medium = "Hotel"
+                        booking_payment_detail.code = "PAYMENT_PENDING"
                         booking_payment_detail.save()
                         
                         # Update property confirmed booking count

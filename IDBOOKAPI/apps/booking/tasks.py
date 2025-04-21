@@ -9,7 +9,8 @@ from apps.booking.utils.booking_utils import (
     set_firstbooking_reward)
 
 from apps.booking.utils.invoice_utils import (
-    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, create_invoice_response_data)
+    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, 
+    create_invoice_response_data, generate_invoice_pdf)
 
 from django.template.loader import get_template
 from django.conf import settings
@@ -71,10 +72,10 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                 if bus_details:
                     send_by = bus_details.user
 
-                    
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
                                      'title':'', 'description':'', 'redirect_url':'',
-                                     'image_link':''}
+                                     'image_link':'', 'group_name': group_name}
                 
                 notification_dict = booking_comfirmed_notification_template(
                     booking.id, booking.booking_type, booking.confirmation_code,
@@ -108,10 +109,10 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                         bus_details = get_active_business() #get_business_by_name(business_name)
                         if bus_details:
                             send_by = bus_details.user
-                            
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                         notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'GENERAL',
                                              'title':'', 'description':'', 'redirect_url':'',
-                                             'image_link':''}
+                                             'image_link':'', 'group_name': group_name}
                         notification_dict = wallet_minbalance_notification_template(balance, notification_dict)
                         create_notification(notification_dict)
             except Exception as e:
@@ -157,9 +158,16 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 payload = invoice_json_data(booking, bus_details,
                                             company_details, customer_details, invoice_number, pay_at_hotel=pay_at_hotel)
 
+
                 invoice = save_invoice_to_database(booking, payload, invoice_number)
                 
                 if invoice:
+                    # Generate the PDF invoice
+                    try:
+                        print("inside generate invoice")
+                        generate_invoice_pdf(payload, booking_id=booking_id)
+                    except Exception as e:
+                        print(f"Error generating invoice PDF: {str(e)}")
                     booking = get_booking(booking_id)
                     booking.invoice_id = invoice_number
                     booking.save()
@@ -175,7 +183,7 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 }
                 create_booking_invoice_log(invoice_log)
 
-                response = create_invoice(payload)
+                # response = create_invoice(payload)
 
                 # print(response.status_code)
                 # if response.status_code == 201:
@@ -194,7 +202,7 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                     
             else:
                 payload = invoice_json_data(booking, bus_details, company_details,
-                                            customer_details, None, invoice_action='update')
+                                            customer_details, None, invoice_action='update', pay_at_hotel=pay_at_hotel)
                 invoice = update_invoice_in_database(booking.invoice_id, payload, booking)
                 print("invoice", invoice)
 
@@ -236,13 +244,13 @@ def send_cancelled_booking_task(self, booking_id):
             bus_details =  get_active_business() #get_business_by_name(business_name)
             if bus_details:
                 send_by = bus_details.user
-    
+            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
             notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
                                  'title':'', 'description':'', 'redirect_url':'',
-                                 'image_link':''}
+                                 'image_link':'', 'group_name': group_name}
             
             notification_dict = booking_cancelled_notification_template(
-                booking.id, booking.booking_type, 'DUMMY',
+                booking.id, booking.booking_type, f'CNCL-{booking.id}',
                 notification_dict)
             create_notification(notification_dict)
             
@@ -268,10 +276,10 @@ def send_completed_booking_task(self, booking_id):
                 bus_details = get_active_business()
                 if bus_details:
                     send_by = bus_details.user
-        
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 notification_dict = {'user': booking.user, 'send_by': send_by, 'notification_type': 'BOOKING',
                                     'title': '', 'description': '', 'redirect_url': '',
-                                    'image_link': ''}
+                                    'image_link': '', 'group_name': group_name}
                 
                 notification_dict = booking_completed_notification_template(
                     booking.id, booking.booking_type, notification_dict)
