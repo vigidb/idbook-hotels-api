@@ -242,6 +242,10 @@ class BookingSerializer(serializers.ModelSerializer):
             state = confirmed_property.state
             country = confirmed_property.country
             slug = confirmed_property.slug
+
+            policies = getattr(confirmed_property, 'policies', None)
+            phone_no = getattr(confirmed_property, 'phone_no', None)
+            email = getattr(confirmed_property, 'email', None)
             
             # get property gallery
             gallery_property = get_property_gallery(confirmed_property.id)
@@ -263,7 +267,10 @@ class BookingSerializer(serializers.ModelSerializer):
                 "name":name,
                 "title":title,
                 "gallery":gallery_list,
-                "slug":slug
+                "slug":slug,
+                "policies": policies,
+                "hotelier_phone_no": phone_no,
+                "hotelier_email": email
             }
             
 ##        room = hotel_booking.room

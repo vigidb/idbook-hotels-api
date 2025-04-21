@@ -169,6 +169,9 @@ def get_group_based_on_name(group_name):
     elif group_name == 'B2C-GRP':
         grp = db_utils.get_group_by_name('B2C-GRP')
         role = db_utils.get_role_by_name('B2C-CUST')
+    elif group_name == 'BUSINESS-GRP':
+        grp = db_utils.get_group_by_name('BUSINESS-GRP')
+        role = db_utils.get_role_by_name('BUS-ADMIN')
         
     return grp, role
     
