@@ -107,7 +107,7 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                 instance.reference_code = reference_code
                 instance.save()
 	
-	if booking_status != instance.cached_status:
+	# if booking_status != instance.cached_status:
 ##                if booking_status == 'confirmed' and not instance.confirmation_code:
 ##                        confirmation_code = generate_booking_confirmation_code(
 ##                                booking_id, instance.booking_type)
@@ -121,8 +121,8 @@ def check_booking_status(sender, instance:Booking, **kwargs):
 ##                        create_invoice_task.apply_async(args=[booking_id])
 
                         
-                if booking_status == 'canceled':
-                        send_cancelled_booking_task.apply_async(args=[booking_id])
+                # if booking_status == 'canceled':
+                #         send_cancelled_booking_task.apply_async(args=[booking_id])
 	
 
 

@@ -42,6 +42,13 @@ class UserSignupSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'message': 'User role with multiple choice not allowed.'})
         return value
 
+    def validate_email(self, value):
+        if value:
+            value = value.lower()
+            if User.objects.filter(email=value).exists():
+                raise serializers.ValidationError("Email already exists.")
+        return value
+
     def validate(self, attrs):
         email = attrs.get("email", '')
         mobile_number = attrs.get("mobile_number", '')

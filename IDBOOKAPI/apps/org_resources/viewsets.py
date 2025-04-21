@@ -2987,6 +2987,10 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
         if is_read:
             filter_dict['is_read'] = is_read
 
+        group_name = self.request.query_params.get('group_name', '')
+        if group_name:
+            filter_dict['group_name'] = group_name
+
         self.queryset = self.queryset.filter(**filter_dict)
 
 

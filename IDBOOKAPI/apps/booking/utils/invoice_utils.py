@@ -5,6 +5,11 @@ from apps.booking.models import Invoice, BookingPaymentDetail
 from datetime import datetime
 from IDBOOKAPI.utils import (
     get_current_date, last_calendar_month_day)
+from django.template.loader import render_to_string
+from django.template import Context, Template
+import pdfkit
+import os, io
+from django.core.files.base import ContentFile
 
 invoice_url = "https://invoice-api.idbookhotels.com"
 
@@ -172,6 +177,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
              "price": 0, "amount": 0 }
     total, gst = 0, 0
     subtotal = 0
+    discount = 0
     notes = ''
     is_same_state = False
     business_state = None
@@ -269,6 +275,13 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
 ##        item['description'] = description
         
         notes = booking.additional_notes
+        if booking.discount and float(booking.discount) > 0:
+            discount = float(booking.discount)
+        else:
+            discount = 0
+
+    if bus_details:
+        billed_mob_num = bus_details.business_phone
         
 ##        booking.total_payment_made
     if invoice_action == 'create':
@@ -282,11 +295,13 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
         payload = json.dumps({
             "logo": logo, "header": "", "footer": "",
             "invoiceNumber": invoice_number,
-            "invoiceDate": invoice_date.isoformat(), "dueDate": "",
+            "invoiceDate": invoice_date.isoformat(), "dueDate": invoice_due_date.isoformat(),
             "notes": notes,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
+            "billed_mob_num": billed_mob_num,
             "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": status,
+            "discount": discount,
             "nextScheduleDate": "",
             "tags": [""] })
     elif invoice_action == 'update':
@@ -296,6 +311,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             "billedBy": billed_by, "billedTo": billed_to, "supplyDetails": supply_details,
             "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": status,
+            "discount": discount,
             "nextScheduleDate": "",
             "tags": [""] })
     else:
@@ -414,3 +430,245 @@ def create_invoice_response_data(invoice, payload_json):
     except Exception as e:
         print(f"Error creating invoice response data: {e}")
         return {"success": False, "error": str(e)}
+
+def generate_invoice_pdf(payload, booking_id=None):
+    """
+    Generate a PDF invoice from the payload data using wkhtmltopdf
+    
+    Args:
+        payload (str): JSON string containing invoice data
+        booking_id (str, optional): Booking ID for reference
+        
+    Returns:
+        str: Path to the generated PDF file
+    """
+    try:
+        # Parse payload if it's a string
+        if isinstance(payload, str):
+            invoice_data = json.loads(payload)
+        else:
+            invoice_data = payload
+            
+        # Get invoice number from the payload
+        invoice_number = invoice_data.get('invoiceNumber', 'unknown')
+            
+        # Format dates
+        if 'invoiceDate' in invoice_data and invoice_data['invoiceDate']:
+            try:
+                invoice_date = datetime.fromisoformat(invoice_data['invoiceDate'].replace('Z', '+00:00'))
+                invoice_data['invoiceDate'] = invoice_date
+            except (ValueError, TypeError):
+                pass
+                
+        if 'dueDate' in invoice_data and invoice_data['dueDate']:
+            try:
+                due_date = datetime.fromisoformat(invoice_data['dueDate'].replace('Z', '+00:00'))
+                invoice_data['dueDate'] = due_date
+            except (ValueError, TypeError):
+                pass
+        
+        # Calculate total in words
+        total_value = float(invoice_data.get('total', 0))
+        total_in_words = number_to_words(total_value)
+        invoice_data['total_in_words'] = total_in_words
+        
+        # Calculate amount and tax amounts for summary
+        amount = 0
+        tax_amount = 0
+        
+        for item in invoice_data.get('items', []):
+            amount += float(item.get('amount', 0))
+            tax_amount += float(item.get('tax', 0))
+            
+        invoice_data['amount'] = amount
+        invoice_data['tax_amount'] = tax_amount
+        
+        # Render the HTML template with the invoice data
+        html_content = render_to_string('invoice_template/invoice.html', invoice_data)
+        
+        # Set wkhtmltopdf options - adjusted for better layout
+        options = {
+            'page-size': 'A4',
+            'margin-top': '5mm',
+            'margin-right': '5mm',
+            'margin-bottom': '5mm',
+            'margin-left': '5mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'dpi': 300,
+            'zoom': 1.0,  # Adjust if needed for better fitting
+            'enable-smart-shrinking': True
+        }
+        
+        # Generate PDF in memory
+        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        pdf_file = io.BytesIO(pdf_bytes)
+
+        file_name = f"invoice_{invoice_number}.pdf"
+
+        # Save to Invoice model
+        invoice = Invoice.objects.get(invoice_number=invoice_number)
+        invoice.invoice_pdf.save(file_name, ContentFile(pdf_file.getvalue()))
+
+        if invoice.invoice_pdf:
+            pdf_url = invoice.invoice_pdf.url
+            print(f"Invoice PDF saved successfully. File URL: {pdf_url}")
+            return pdf_url
+        else:
+            print("Failed to save the invoice PDF.")
+            return None
+        
+    except Exception as e:
+        print(f"Error generating invoice PDF: {str(e)}")
+        raise
+
+def manual_generate_invoice_pdf(payload, booking_id=None):
+    """
+    Generate a PDF invoice from the new payload format.
+    """
+    try:
+        if isinstance(payload, str):
+            invoice_data = json.loads(payload)
+        else:
+            invoice_data = payload
+
+        print("invoice_data", invoice_data)
+
+        # Standardize keys for template rendering
+        invoice_data['invoiceNumber'] = invoice_data.get('invoice_number', 'unknown')
+        invoice_data['invoiceDate'] = invoice_data.get('invoice_date')
+        invoice_data['dueDate'] = invoice_data.get('due_date')
+        invoice_data['billedBy'] = dict(invoice_data.get('billed_by_details') or {})
+        invoice_data['billedTo'] = dict(invoice_data.get('billed_to_details') or {})
+        invoice_data['supplyDetails'] = dict(invoice_data.get('supply_details') or {})
+        billed_by_details = invoice_data.get('billedBy', {})
+        invoice_data['billed_mob_num'] = billed_by_details.get('mobile_number', '')
+        invoice_data['GSTType'] = invoice_data.get('GST_type')
+        invoice_data['total'] = invoice_data.get('total_amount', 0)
+        invoice_data['status'] = invoice_data.get('status', 'Pending')
+        invoice_data['total'] = invoice_data.get('total', 0)
+        invoice_data['totalAmount'] = invoice_data.get('total_amount', 0)
+        invoice_data['totalTax'] = invoice_data.get('total_tax', 0)
+
+        # Format dates
+        for key in ['invoiceDate', 'dueDate']:
+            if invoice_data.get(key):
+                try:
+                    invoice_data[key] = datetime.fromisoformat(invoice_data[key])
+                except Exception:
+                    pass
+        discount = float(invoice_data.get('discount', 0))
+        invoice_data['discount'] = discount
+
+        # Amount and tax calculation
+        amount = 0
+        tax_amount = 0
+        for item in invoice_data.get('items', []):
+            rate = float(item.get('rate', 0))  # Use rate for the price of the item
+            quantity = int(item.get('quantity', 0))
+            gst = float(item.get('gst', 0))  # GST percentage
+
+            item_amount = rate * quantity
+            item_tax = (gst / 100) * item_amount
+
+            amount += item_amount
+            tax_amount += item_tax
+
+            # Update the item data with new values
+            item['price'] = rate
+            item['amount'] = item_amount
+            item['tax'] = item_tax
+
+        # Apply discount
+        total_after_discount = amount + tax_amount - discount
+
+        # Pass the calculated total after discount
+        invoice_data['total'] = total_after_discount
+        invoice_data['total_in_words'] = number_to_words(total_after_discount)
+
+        invoice_data['amount'] = amount
+        invoice_data['tax_amount'] = tax_amount
+
+        html_content = render_to_string('invoice_template/invoice.html', invoice_data)
+
+        # PDF options
+        options = {
+            'page-size': 'A4',
+            'margin-top': '5mm',
+            'margin-right': '5mm',
+            'margin-bottom': '5mm',
+            'margin-left': '5mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'dpi': 300,
+            'zoom': 1.0,
+            'enable-smart-shrinking': True
+        }
+
+        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        pdf_file = io.BytesIO(pdf_bytes)
+
+        file_name = f"invoice_{invoice_data['invoiceNumber']}.pdf"
+        # Save the file to the 'invoice_pdf' field of the Invoice model
+        invoice = Invoice.objects.get(invoice_number=invoice_data['invoiceNumber'])
+
+        # Save the generated PDF to the invoice_pdf field
+        invoice.invoice_pdf.save(file_name, ContentFile(pdf_file.getvalue()))
+
+        if invoice.invoice_pdf:
+            # File is successfully saved
+            pdf_url = invoice.invoice_pdf.url
+
+            print(f"Invoice PDF saved successfully. File URL: {pdf_url}")
+            return pdf_url
+        else:
+            # File not saved
+            print("Failed to save the invoice PDF.")
+            return None
+
+    except Exception as e:
+        print(f"Error generating invoice PDF: {str(e)}")
+        raise
+
+
+def number_to_words(n):
+    ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"]
+    twos = ["Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen",
+            "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+    places = ["", "Thousand", "Lakh", "Crore"]
+
+    def two_digit_word(n):
+        if n < 10:
+            return ones[n]
+        elif n < 20:
+            return twos[n - 10]
+        else:
+            return tens[n // 10] + (" " + ones[n % 10] if n % 10 else "")
+
+    def get_words(n):
+        if n == 0:
+            return "Zero"
+
+        result = ""
+        parts = []
+
+        parts.append(n % 1000)  # hundreds
+        n //= 1000
+
+        while n > 0:
+            parts.append(n % 100)
+            n //= 100
+
+        for i in range(len(parts) - 1, -1, -1):
+            part = parts[i]
+            if part:
+                if i == 0:
+                    result += (two_digit_word(part % 100) if part < 100 else
+                               ones[part // 100] + " Hundred " + two_digit_word(part % 100)) + " "
+                else:
+                    result += two_digit_word(part) + " " + places[i] + " "
+
+        return result.strip()
+
+    return get_words(int(n)) + " Rupees Only"

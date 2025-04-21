@@ -225,6 +225,7 @@ TRANSACTION_FOR = (
     ("booking_refund", "booking_refund"),
     ("referral_booking", "referral_booking"),
     ("booking_refund", "booking_refund"),
+    ("signup_reward", "signup_reward"),
     ("others", "others")
 )
 

@@ -1,7 +1,7 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
     RoomGallery, FavoriteList, BlockedProperty,
-    PayAtHotelSpendLimit)
+    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
@@ -24,7 +24,7 @@ from datetime import datetime
 
 from functools import reduce
 from apps.booking.models import Booking
-
+from decimal import Decimal
 from django.db.models import ExpressionWrapper, Value
 from django.db.models.functions import ACos, Cos, Radians, Sin
 
@@ -716,7 +716,7 @@ def check_property_slug(slug_value, exclude=None):
     
 def get_user_booking_data(user_id, booking_date):
     """
-    Fetch confirmed bookings count and eligible spend limit for a user in a given month.
+    Fetch confirmed bookings and cancelled bokings count and eligible spend limit for a user in a given month.
     """
     booking_datetime = datetime.strptime(booking_date, '%Y-%m-%d %H:%M:%S')
     current_month_name = booking_datetime.strftime('%B')
@@ -726,9 +726,26 @@ def get_user_booking_data(user_id, booking_date):
     confirmed_bookings_count = Booking.objects.filter(
         user_id=user_id,
         status__in=['confirmed', 'completed'],
+        booking_payment__is_transaction_success=True,
         created__month=current_month,
         created__year=current_year
     ).count()
+
+    canceled_bookings = Booking.objects.filter(
+        user_id=user_id,
+        status='canceled',
+        booking_payment__payment_type='DIRECT',
+        booking_payment__payment_medium='Hotel',
+        created__month=current_month,
+        created__year=current_year
+    )
+
+    total_cancel_count = canceled_bookings.count()
+    cancel_limit = 0
+    for b in canceled_bookings:
+        booking_payment = b.booking_payment.first()
+        if booking_payment and booking_payment.amount:
+            cancel_limit += booking_payment.amount
 
     spend_limit_obj = PayAtHotelSpendLimit.objects.filter(
         start_limit__lte=confirmed_bookings_count,
@@ -736,18 +753,35 @@ def get_user_booking_data(user_id, booking_date):
     ).first()
 
     eligible_limit = spend_limit_obj.spend_limit if spend_limit_obj else 0
-    is_eligible = eligible_limit > 0
+
+    monthly_eligibility = MonthlyPayAtHotelEligibility.objects.filter(
+        user_id=user_id,
+        month=current_month_name
+    ).first()
+
+    spent_amount = monthly_eligibility.spent_amount if monthly_eligibility else Decimal('0.00')
+    remaining_limit = eligible_limit - spent_amount
+    is_eligible = remaining_limit > 0
+
+    # Blacklist check
+    is_blacklisted = False
+    if spend_limit_obj:
+        if (spend_limit_obj.cancel_count and total_cancel_count >= spend_limit_obj.cancel_count) or \
+           (spend_limit_obj.cancel_limit and cancel_limit >= spend_limit_obj.cancel_limit):
+            is_eligible = False
+            is_blacklisted = True
 
     return {
         'month_name': current_month_name,
         'booking_count': confirmed_bookings_count,
         'eligible_limit': eligible_limit,
-        'is_eligible': is_eligible
-    }
-
-
-
-            
+        'spent_amount': spent_amount,
+        'remaining_limit': remaining_limit,
+        'is_eligible': is_eligible,
+        'total_cancel_count': total_cancel_count,
+        'cancel_limit': cancel_limit,
+        'is_blacklisted': is_blacklisted
+    }   
     
     
     

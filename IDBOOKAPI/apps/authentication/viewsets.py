@@ -67,6 +67,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         self.log_request(request)  # Log the incoming request
 
         email = request.data.get('email', None)
+        if email:
+            email = email.lower().strip()
         mobile_number = request.data.get('mobile_number', None)
         group_name = request.data.get('group_name', 'B2C-GRP')
         otp = request.data.get('otp', None)
@@ -97,6 +99,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         
         
         if email:
+            email = email.lower().strip()
             user = User.objects.filter(email=email).first()
 
         grp, role = authentication_utils.get_group_based_on_name(group_name)
@@ -191,6 +194,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             user.default_group = group_name
             user.email_verified = True
             user.save()
+            authentication_utils.add_signup_bonus(user, group_name, role)
+
 
 ##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
@@ -505,6 +510,11 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 
     def post(self, request):
         self.log_request(request)  # Log the incoming request
+
+        username = request.data.get('username', '')
+        # If it's an email, normalize it to lowercase
+        if "@" in username:
+            request.data['username'] = username.lower()
         serializer = self.get_serializer(data=request.data)
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
@@ -697,6 +707,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
     def otp_based_user_login(self, request):
 
         username = request.data.get('username', '')
+        if "@" in username:
+            username = username.lower()
         user_id = request.data.get('user_id', None)
         otp = request.data.get('otp', None)
         group_name = request.data.get("group_name", 'B2C-GRP')
@@ -758,6 +770,8 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             username = request.data.get('username', None)
             otp_for = request.data.get('otp_for', None)
             group_name = request.data.get('group_name', '')
+            if username and '@' in username:
+                username = username.lower()
             
             if not username:
                 response = self.get_error_response(message="Missing username", status="error",
@@ -1509,7 +1523,7 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
             
-            
+        email = email.lower()
         check_existing_user = User.objects.filter(email=email).first()
         if check_existing_user:
             data = authentication_utils.generate_refresh_token(check_existing_user)
@@ -1533,6 +1547,9 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             new_user.groups.add(grp)
         if role:
             new_user.roles.add(role)
+
+        authentication_utils.add_signup_bonus(new_user, 'B2C-GRP', role)
+
         
         data = authentication_utils.generate_refresh_token(new_user)
         

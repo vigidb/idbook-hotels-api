@@ -236,6 +236,7 @@ class Invoice(models.Model):
     invoice_date = models.DateField()
     due_date = models.DateField(null=True)
     notes = models.CharField(max_length=255, default='', blank=True)
+    invoice_pdf = models.FileField(upload_to='booking/invoices/', blank=True, null=True)
 
     billed_by = models.ForeignKey(BusinessDetail, on_delete=models.CASCADE, related_name='invoices_billed_by')
     billed_by_details = models.JSONField(default=dict, null=True)
@@ -256,11 +257,14 @@ class Invoice(models.Model):
     next_schedule_date = models.DateField(null=True)
     tags = models.CharField(max_length=255, blank=True)
     reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
-
+    discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
     created_by = models.CharField(max_length=50, default='', blank=True)
     updated_by = models.CharField(max_length=50, default='', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
 
 class BookingPaymentDetail(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='booking_payment')
