@@ -1050,6 +1050,124 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             status_code=status.HTTP_400_BAD_REQUEST
     )
 
+    
+    
+    @action(detail=False, methods=['PATCH'], url_path='update/spend-limit',
+        url_name='update-spend-limit', permission_classes=[IsAuthenticated])
+    def update_pay_at_hotel_spend_limit(self, request):
+        """
+        Update a spend limit based on ID or start/end limit range
+        """
+        id = request.data.get('id')
+        start_limit = request.data.get('start_limit')
+        end_limit = request.data.get('end_limit')
+        
+        try:
+            if id is not None:
+                spend_limit = PayAtHotelSpendLimit.objects.get(id=id)
+            elif start_limit is not None and end_limit is not None:
+                spend_limit = PayAtHotelSpendLimit.objects.get(start_limit=start_limit, end_limit=end_limit)
+            else:
+                return self.get_error_response(
+                    message="Either 'id' or both 'start_limit' and 'end_limit' must be provided",
+                    status="error",
+                    errors={"non_field_errors": ["Either 'id' or both 'start_limit' and 'end_limit' must be provided"]},
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            update_data = request.data.copy()
+            
+            if 'start_limit' not in update_data:
+                update_data['start_limit'] = spend_limit.start_limit
+            if 'end_limit' not in update_data:
+                update_data['end_limit'] = spend_limit.end_limit
+            if 'spend_limit' not in update_data:
+                update_data['spend_limit'] = spend_limit.spend_limit
+                
+
+            if PayAtHotelSpendLimit.objects.filter(
+                start_limit__lte=update_data['end_limit'],
+                end_limit__gte=update_data['start_limit']
+            ).exclude(id=spend_limit.id).exists():
+                return self.get_error_response(
+                    message="Validation Failed",
+                    status="error",
+                    errors={"non_field_errors": ["Overlapping booking range already exists"]},
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+            if update_data['end_limit'] < update_data['start_limit']:
+                return self.get_error_response(
+                    message="Validation Failed",
+                    status="error",
+                    errors={"non_field_errors": ["End limit cannot be less than start limit"]},
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+            for key, value in update_data.items():
+                if key != 'id':
+                    setattr(spend_limit, key, value)
+            spend_limit.save()
+            
+            all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
+            response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+            return self.get_response(
+                data=response_data,
+                count=len(response_data),
+                message="Spend limit updated successfully",
+                status_code=status.HTTP_200_OK
+            )
+            
+        except PayAtHotelSpendLimit.DoesNotExist:
+            return self.get_error_response(
+                message="Spend limit not found",
+                status="error",
+                errors={"non_field_errors": ["Spend limit not found"]},
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['POST'], url_path='delete/spend-limit',
+        url_name='delete-spend-limit', permission_classes=[IsAuthenticated])
+    def delete_pay_at_hotel_spend_limit(self, request):
+        """
+        Delete a spend limit based on ID using POST method
+        """
+        id = request.data.get('id')
+        
+        if not id:
+            return self.get_error_response(
+                message="'id' parameter is required",
+                status="error",
+                errors={"non_field_errors": ["'id' parameter is required"]},
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            spend_limit = PayAtHotelSpendLimit.objects.get(id=id)
+            spend_limit.delete()
+            
+            all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
+            response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+            return self.get_response(
+                data=response_data,
+                count=len(response_data),
+                message="Spend limit deleted successfully",
+                status_code=status.HTTP_200_OK
+            )
+        except PayAtHotelSpendLimit.DoesNotExist:
+            return self.get_error_response(
+                message="Spend limit not found",
+                status="error",
+                errors={"non_field_errors": ["Spend limit not found"]},
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
     @action(detail=False, methods=['GET'], url_path='get/spend-limit',
         url_name='get-spend-limits', permission_classes=[IsAuthenticated])
     def get_pay_at_hotel_spend_limits(self, request):
