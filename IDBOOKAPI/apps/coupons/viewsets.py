@@ -41,6 +41,7 @@ class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         booking_date = self.request.query_params.get('booking_date', '')
         property_id = self.request.query_params.get('property', '')
         active = self.request.query_params.get('active', None)
+        code = self.request.query_params.get('code', '')
         
         if user_id:
             used_coupons = get_user_based_applied_coupon(user_id)
@@ -73,6 +74,9 @@ class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if active is not None:
             active = True if active == 'true' else False
             self.queryset = self.queryset.filter(active=active)
+
+        if code:
+            self.queryset = self.queryset.filter(code__icontains=code)
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request

@@ -140,9 +140,13 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         role_name = request.query_params.get('role', '')
         name = request.query_params.get('name', '').strip()
+        email = request.query_params.get('email', '').strip()
 
         if name:
             self.queryset = self.queryset.filter(name__icontains=name)
+
+        if email:
+            self.queryset = self.queryset.filter(email__icontains=email)
 
         if role_name:
             role = db_utils.get_role_by_name(role_name)
@@ -151,7 +155,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if company_id:
             self.queryset = self.queryset.filter(company_id=company_id)
 
-
+        self.queryset = self.queryset.order_by('-created')
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 
         # Perform the default listing logic
