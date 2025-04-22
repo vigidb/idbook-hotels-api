@@ -202,7 +202,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         # search 
         search = self.request.query_params.get('search', '')
         if search:
-            search_q_filter = Q(confirmation_code__icontains=search)
+            search_q_filter = Q(confirmation_code__icontains=search) | Q(reference_code__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
 
 
