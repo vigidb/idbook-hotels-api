@@ -1948,7 +1948,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         'params': {
                             'user_id': instance.user.id,
                             'deduct_amount': float(instance.final_amount),
-                            'wallet_balance': float(wallet_balance)
+                            'wallet_balance': float(wallet_balance),
+                            'booking_id': instance.id
                         }
                     }
                 )
