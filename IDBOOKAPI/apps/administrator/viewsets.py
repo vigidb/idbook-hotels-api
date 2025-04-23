@@ -41,7 +41,7 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     # lookup_field = 'mobile_number'
 
     action_serializers = {
-        'retrieve': UserSerializer,
+        'retrieve': UserAdminListSerializer,
         'list': UserAdminListSerializer,
         'create': UserSerializer,
         'update': UserSerializer

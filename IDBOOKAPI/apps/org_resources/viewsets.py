@@ -1012,6 +1012,22 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     permission_classes = []
     http_method_names = ['get', 'post', 'put', 'patch']
 
+    def get_queryset(self):
+        queryset = Enquiry.objects.all()
+
+        phone_no = self.request.query_params.get('phone_no')
+        email = self.request.query_params.get('email')
+        name = self.request.query_params.get('name')
+
+        if phone_no:
+            queryset = queryset.filter(phone_no__icontains=phone_no)
+        if email:
+            queryset = queryset.filter(email__icontains=email)
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+
+        return queryset
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -1074,6 +1090,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
+        self.queryset = self.get_queryset()
         offset = request.query_params.get('offset')
         limit = request.query_params.get('limit')
         
