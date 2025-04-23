@@ -341,7 +341,7 @@ class BookingSerializer(serializers.ModelSerializer):
             representation['final_amount'] = instance.final_amount
             representation['total_payment_made'] = instance.total_payment_made
             if instance.user:
-                representation['user'] = {'name':instance.user.name, 'email':instance.user.email}
+                representation['user'] = {'user_id':instance.user_id, 'name':instance.user.name, 'email':instance.user.email}
             if booking_type == 'HOLIDAYPACK':
                 holidaypack_booking = instance.holiday_package_booking
                 if holidaypack_booking:
@@ -483,6 +483,12 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         representation['commission_info'] = None
 
+        representation['user'] = {
+            "id": instance.get('user_id'),
+            "email": instance.get('user__email'),
+            "mobile_number": instance.get('user__mobile_number'),
+            "name": instance.get('user__name')
+        }
         if instance:
             booking_id = instance.get('id', None)
             booking_commission = get_booking_commission(booking_id)
