@@ -783,5 +783,16 @@ def get_user_booking_data(user_id, booking_date):
         'is_blacklisted': is_blacklisted
     }   
     
-    
-    
+def get_room_price(room, booking_slot):
+    """
+    Get the price of a room based on the booking slot.
+    """
+    if booking_slot == '24 Hrs':
+        return float(room.room_price.get('base_rate', 0))
+    elif booking_slot == '12 Hrs':
+        return float(room.room_price.get('price_12hrs', 0))
+    elif booking_slot == '8 Hrs':
+        return float(room.room_price.get('price_8hrs', 0))
+    else:  # 4 Hrs
+        return float(room.room_price.get('price_4hrs', 0))
+

@@ -1275,6 +1275,15 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             self.property_id = property_id
             self.booking_slot = booking_slot
 
+            # If no room_list is provided, use auto room allocation
+            if not room_list:
+                is_allocated, allocation_response = self.auto_room_allocation(request)
+                if not is_allocated:
+                    return allocation_response
+                room_list = self.room_list
+            else:
+                self.room_list = room_list
+
             # get dynamic pricing if applicable
             self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
                 self.checkin_datetime.date(), self.checkout_datetime.date())
