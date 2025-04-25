@@ -199,6 +199,10 @@ def get_price_range(location_list=[], slot="24 Hrs"):
     return min_price, max_price
 
 def update_property_review_details(property_id, review_star, review_count):
+    if review_star is None:
+        review_star = 0
+    if review_count is None:
+        review_count = 0
     Property.objects.filter(id=property_id).update(
         review_star=review_star, review_count=review_count)
 
