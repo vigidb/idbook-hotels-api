@@ -40,7 +40,10 @@ from apps.authentication.utils import (db_utils, authentication_utils)
 
 from IDBOOKAPI.permissions import HasRoleModelPermission
 from IDBOOKAPI.utils import paginate_queryset
-
+from django.db import transaction
+from apps.booking.models import Booking
+from apps.customer.models import Wallet, WalletTransaction
+from apps.log_management.models import WalletTransactionLog, BookingPaymentLog, BookingInvoiceLog
 
 User = get_user_model()
 
@@ -1177,7 +1180,42 @@ class ResetPasswordTokenAPIView(APIView, StandardResponseMixin, LoggingMixin):
 class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserListSerializer
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
+    @action(detail=True, methods=['delete'], url_path='delete_user',
+            permission_classes=[IsAuthenticated], url_name='delete-user')
+    def delete_user(self, request, pk=None):
+        try:
+            user = self.get_object()
+
+            with transaction.atomic():
+                
+                BookingInvoiceLog.objects.filter(booking__user=user).delete()
+                BookingPaymentLog.objects.filter(booking__user=user).delete()
+                Booking.objects.filter(user=user).delete()
+
+                # Delete Wallet-related data
+                Wallet.objects.filter(user=user).delete()
+                WalletTransaction.objects.filter(user=user).delete()
+                WalletTransactionLog.objects.filter(user=user).delete()
+
+                # Finally, delete the user
+                user_email = user.email
+                user_phone_number = user.mobile_number
+                user.delete()
+                print(f"Deleted user with ID: {user.id}, Email: {user_email}, Phone: {user_phone_number}")
+
+            return Response(
+                {
+                    'detail': 'User and related data deleted successfully.',
+                    'email': user_email,
+                    'phone_number': user_phone_number
+                },
+                status=status.HTTP_204_NO_CONTENT
+            )
+        
+        except Exception as e:
+            return Response({'detail': f'Error deleting user: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['GET'], url_path='detail',
             permission_classes=[IsAuthenticated],
