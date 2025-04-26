@@ -472,6 +472,7 @@ class UserNotification(models.Model):
     is_read = models.BooleanField(default=False)
     redirect_url = models.TextField(blank=True, null=True)
     image_link = models.TextField(blank=True, null=True)
+    group_name =  models.CharField(max_length=30, blank=True, default="")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -506,6 +507,11 @@ class Subscription(models.Model):
     def __str__(self):
         return self.name
     
-    
+class BasicAdminConfig(models.Model):
+    code = models.CharField(max_length=25, blank=True, null=True)
+    value = models.CharField(max_length=255, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.code}: {self.value}"
 
     

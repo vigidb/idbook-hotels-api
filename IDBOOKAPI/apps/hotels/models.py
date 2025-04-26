@@ -481,6 +481,8 @@ class PayAtHotelSpendLimit(models.Model):
     start_limit = models.PositiveIntegerField(default=0, help_text="Start range of bookings for paying at hotel")
     end_limit = models.PositiveIntegerField(default=0, help_text="End range of bookings for paying at hotel")
     spend_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Max allowed spend for this booking range")
+    cancel_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Maximum cancellation amount for this booking range")
+    cancel_count = models.PositiveIntegerField(default=0, help_text="Number of cancellation for this booking range")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -490,7 +492,12 @@ class PayAtHotelSpendLimit(models.Model):
 class MonthlyPayAtHotelEligibility(models.Model):
     is_eligible = models.BooleanField(default=False, help_text="Is the user eligible for Pay at Hotel this month?")
     eligible_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, help_text="Eligible spend limit for this month")
+    spent_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Amount spent by the user in a month")
     total_booking_count = models.PositiveIntegerField(default=0, null=True, help_text="Total bookings made by the user this month")
+    cancel_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, help_text="Allowed cancel amount")
+    total_cancel_count = models.PositiveIntegerField(default=0, null=True, help_text="Allowed cancel count")
+    is_blacklisted = models.BooleanField(default=False, help_text="Is the user blacklisted this month?")
+    updated_by = models.CharField(max_length=50, default="Automatic", help_text="Who updated this record?")
     month = models.CharField(max_length=20, blank=True, default='', help_text="Month name like January, February etc.")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='monthly_pay_at_hotel_eligibility')
     created = models.DateTimeField(auto_now_add=True)

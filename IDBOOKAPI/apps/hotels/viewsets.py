@@ -18,13 +18,15 @@ from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
     FinancialDetailSerializer, HotelAmenityCategorySerializer,
     RoomAmenityCategorySerializer, PropertyGallerySerializer, RoomGallerySerializer,
-    PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer)
+    PropertyListSerializer, PropertyRetrieveSerializer, PropertyBankDetailsSerializer,
+    MonthlyPayAtHotelEligibilitySerializer)
 from .serializers import BlockedPropertySerializer, RoomNameSerializer, PayAtHotelSpendLimitSerializer
 
 from .models import (Property, Gallery, Room, Rule, Inclusion,
                      FinancialDetail, HotelAmenityCategory,
                      RoomAmenityCategory, FavoriteList,
-                     PropertyBankDetails, BlockedProperty)
+                     PropertyBankDetails, BlockedProperty,
+                     MonthlyPayAtHotelEligibility)
 
 from .models import RoomGallery, PropertyGallery, PayAtHotelSpendLimit
 
@@ -1058,6 +1060,49 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             data=response_data,
             count=len(response_data),
             message="Spend limit list retrieved successfully",
+            status_code=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=['GET'], permission_classes=[IsAuthenticated],
+            url_path='hotel-customer-eligibility', url_name='hotel-customer-eligibility')
+    def get_customer_eligibility(self, request):
+
+        queryset = MonthlyPayAtHotelEligibility.objects.all()
+        
+        is_eligible = request.query_params.get('is_eligible')
+        is_blacklisted = request.query_params.get('is_blacklisted')
+        month = request.query_params.get('month')
+        user_id = request.query_params.get('user_id')
+        
+        if is_eligible is not None:
+            is_eligible_bool = is_eligible.lower() == 'true'
+            queryset = queryset.filter(is_eligible=is_eligible_bool)
+
+        if is_blacklisted is not None:
+            is_blacklisted_bool = is_blacklisted.lower() == 'true'
+            queryset = queryset.filter(is_blacklisted=is_blacklisted_bool)
+        
+        if month:
+            queryset = queryset.filter(month__iexact=month)
+            
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        count, queryset = paginate_queryset(request, queryset)
+        
+        serialized_data = MonthlyPayAtHotelEligibilitySerializer(queryset, many=True).data
+        
+        response_data = {
+            "status": "success",
+            "message": "Customer eligibility details retrieved successfully",
+            "count": count,
+            "data": serialized_data
+        }
+        
+        return self.get_response(
+            data=serialized_data,
+            count=count,
+            message="Customer eligibility details retrieved successfully",
             status_code=status.HTTP_200_OK
         )
 

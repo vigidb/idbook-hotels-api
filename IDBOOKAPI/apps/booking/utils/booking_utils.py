@@ -21,10 +21,12 @@ from decimal import Decimal
 from IDBOOKAPI.utils import get_unique_id_from_time
 from apps.customer.models import (Wallet, WalletTransaction)
 from apps.log_management.models import WalletTransactionLog
-from apps.booking.models import BookingPaymentDetail, Booking
+from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
+from apps.org_resources.models import BasicAdminConfig 
+from IDBOOKAPI.utils import shorten_url
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -152,7 +154,12 @@ def generate_context_confirmed_booking(booking):
         refresh, access = generate_refresh_access_token(booking.user)
     
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?token={access}"
-    invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
+    try:
+        invoice = Invoice.objects.get(invoice_number=invoice_id)
+        invoice_link = invoice.invoice_pdf.url if invoice.invoice_pdf else ''
+    except Invoice.DoesNotExist:
+        invoice_link = ''
+    # invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
         occupancy = occupancy + "{child_count} Child".format(
@@ -422,7 +429,7 @@ def generate_context_completed_booking(booking):
 
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}"
     review_link = "https://www.ambitionbox.com/overview/idbook-hotels-overview"
-
+    review_link = shorten_url(review_link)
     context = {'name': name,
               'email': email, 
               'mobile_number': mobile_number,
@@ -486,7 +493,9 @@ def calculate_total_amount(booking):
 def set_firstbooking_reward(referred_code, booked_user_id=None):
     user = get_user_by_referralcode(referred_code)
     if user:
-        reward_amount = 250
+        # reward_amount = 250
+        reward_config = BasicAdminConfig.objects.get(code='referral_bonus')
+        reward_amount = float(reward_config.value)
 ##        company_id = user.company_id
 ##        if company_id:
 ##            status = add_company_wallet_amount(company_id, reward_amount)
@@ -753,14 +762,133 @@ def check_pay_at_hotel_eligibility(user, amount):
     if not eligibility.is_eligible:
         return False, "You are not eligible for pay-at-hotel this month"
     
-    if float(amount) > float(eligibility.eligible_limit):
-        return False, f"Booking amount exceeds your pay-at-hotel limit of {eligibility.eligible_limit}"
+    remaining_limit = eligibility.eligible_limit - eligibility.spent_amount
+    if float(amount) > float(remaining_limit):
+        return False, f"Booking amount exceeds your available limit of {remaining_limit}"
     
     return True, "Eligible for pay-at-hotel"
     
          
-         
-
+def handle_pay_at_hotel_payment_cancellation(instance, cancellation_details, applicable_policy):
+    try:
+        # Checking for Non-Refundable policy
+        cancellation_policy = instance.hotel_booking.cancel_policy or {}
+        policies = cancellation_policy.get('cancellation_policy', [])
+        
+        payment_details = BookingPaymentDetail.objects.filter(booking=instance).first()
+        
+        cancellation_fee = applicable_policy.get('cancellation_fee', 0)
+        
+        if "Non-Refundable" in policies:
+            if payment_details:
+                cancellation_fee = payment_details.amount
+            print(f"Non-Refundable policy applied. Fee set to full amount: {cancellation_fee}")
+        
+        if cancellation_fee <= 0:
+            # No cancellation fee to charge
+            return True, "booking_cancelled_no_fee", {
+                'fee_charged': 0,
+                'message': 'Booking cancelled with no cancellation fee'
+            }
+        
+        # Try to get the user's wallet
+        wallet = Wallet.objects.filter(user__id=instance.user.id, company__isnull=True).first()
+        
+        if not wallet:
+            # Create wallet if it doesn't exist
+            wallet = Wallet.objects.create(
+                user=instance.user,
+                balance=0,
+                company=None
+            )
+        # Generate a unique transaction ID for the fee
+        append_id = f"CNCL{instance.user.id}"
+        merchant_transaction_id = get_unique_id_from_time(append_id)
+        
+        # Update wallet balance - can go negative
+        previous_balance = wallet.balance
+        wallet.balance = wallet.balance - Decimal(cancellation_fee)
+        wallet.save()
+        
+        # Create wallet transaction record for the fee
+        transaction_details = f"Cancellation fee charged for {instance.booking_type} booking ({instance.confirmation_code})"
+        wallet_transaction = WalletTransaction.objects.create(
+            user=instance.user,
+            amount=cancellation_fee,
+            transaction_type='Debit',
+            transaction_for='others',
+            transaction_id=merchant_transaction_id,
+            transaction_details=transaction_details,
+            payment_type='WALLET',
+            payment_medium='Idbook',
+            is_transaction_success=True,
+            code='CANCEL_FEE_CHARGED'
+        )
+        
+        # Create a record in booking payment details
+        booking_payment = BookingPaymentDetail.objects.create(
+            booking=instance,
+            merchant_transaction_id=merchant_transaction_id,
+            transaction_id='',
+            code='CANCEL_FEE_CHARGED',
+            message='Cancellation fee charged successfully',
+            payment_type='WALLET',
+            payment_medium='Idbook',
+            amount=cancellation_fee,
+            is_transaction_success=True,
+            transaction_for='others',
+            transaction_details={
+                'fee_amount': float(cancellation_fee),
+                'previous_wallet_balance': float(previous_balance),
+                'new_wallet_balance': float(wallet.balance),
+                'transaction_details': transaction_details
+            }
+        )
+        
+        # Log the fee transaction
+        log_data = {
+            'user': instance.user,
+            'merchant_transaction_id': merchant_transaction_id,
+            'request': {
+                'booking_id': instance.id,
+                'fee_amount': float(cancellation_fee),
+                'transaction_type': 'Debit',
+                'payment_type': 'WALLET'
+            },
+            'response': {
+                'status': 'success',
+                'code': 'CANCEL_FEE_CHARGED',
+                'message': 'Cancellation fee charged successfully'
+            }
+        }
+        wallet_log = WalletTransactionLog.objects.create(**log_data)
+        
+        # Update cancellation details
+        fee_status = 'fee_charged'
+        cancellation_details['fee_status'] = fee_status
+        cancellation_details['fee_amount'] = float(cancellation_fee)
+        cancellation_details['wallet_balance_after_fee'] = float(wallet.balance)
+        instance.hotel_booking.cancellation_details = cancellation_details
+        instance.hotel_booking.save()
+        
+        return True, fee_status, {
+            'merchant_transaction_id': merchant_transaction_id,
+            'fee_amount': float(cancellation_fee),
+            'wallet_previous_balance': float(previous_balance),
+            'wallet_current_balance': float(wallet.balance)
+        }
+    
+    except Exception as e:
+        print("Cancellation fee charge error:", e)
+        fee_status = 'fee_charge_failed'
+        cancellation_details['fee_status'] = fee_status
+        cancellation_details['fee_error'] = str(e)
+        instance.hotel_booking.cancellation_details = cancellation_details
+        instance.hotel_booking.save()
+        
+        return False, fee_status, {
+            'error_message': str(e)
+        }
     
         
             

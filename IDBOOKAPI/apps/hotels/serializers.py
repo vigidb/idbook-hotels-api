@@ -10,7 +10,7 @@ from .models import (Property, Gallery, Room, Rule,
                      HotelAmenity, RoomAmenityCategory, RoomAmenity,
                      PropertyGallery, RoomGallery, PropertyBankDetails,
                      PolicyDetails, PropertyLandmark)
-from .models import BlockedProperty, PayAtHotelSpendLimit
+from .models import BlockedProperty, PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
   DynamicRoomPricing, TopDestinations, PropertyCommission, 
@@ -122,7 +122,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
             if avail_prop:
                 representation['available_room_after_booking'] = avail_prop
             else:
-                representation['available_room_after_booking'] = {}
+                representation['available_room_after_booking'] = []
 
             if property_id in favorite_list:
                 representation['favorite'] = True
@@ -514,13 +514,9 @@ class TrendingPlacesSerializer(serializers.ModelSerializer):
         return representation
 
 class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
-    start_limit = serializers.IntegerField(required=True)
-    end_limit = serializers.IntegerField(required=True)
-    spend_limit = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
-
     class Meta:
         model = PayAtHotelSpendLimit
-        fields = ['id', 'start_limit', 'end_limit', 'spend_limit']
+        fields = '__all__'
 
     def validate(self, data):
         start = data.get('start_limit')
@@ -540,3 +536,7 @@ class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
 
         return data
 
+class MonthlyPayAtHotelEligibilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonthlyPayAtHotelEligibility
+        fields = '__all__'

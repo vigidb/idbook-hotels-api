@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Idbook Hotels - Invoice</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: Arial, sans-serif;
+                color: #333;
+                line-height: 1.5;
+                background: white; /* Removed gray background for printing */
+            }
+
+            .invoice__preview {
+                padding: 1.25rem;
+                background: white;
+                border: 1px solid;
+                border-radius: 1rem;
+                margin: 4rem auto;
+                width: 100%;
+                min-width: 600px;
+                max-width: 1000px;
+            }
+
+            .container {
+                padding: 0.75rem;
+                width: 100%;
+            }
+
+            .header {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 1.5rem;
+                align-items: center;
+            }
+
+            .header-left h1 {
+                font-size: 1.5rem;
+                font-weight: bold;
+                color: #2d5284;
+                margin-bottom: 0.5rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .invoice-details {
+                font-size: 0.875rem;
+                color: #4b5563;
+                margin-bottom: 0.25rem;
+            }
+
+            .billing-box h2 {
+                font-size: 1rem;
+                color: #2d5284;
+                margin-bottom: 0.5rem;
+            }
+
+            .supply-item {
+                font-size: 0.875rem;
+                color: #4b5563;
+            }
+
+            .total-amount-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 3px 0;
+                border-top: 2px solid #1f2937;
+                /*border-bottom: 2px solid #1f2937;*/
+                font-size: 0.875rem;
+                font-weight: 500;
+            }
+
+            .total-amount-row:nth-last-child(1) p {
+                font-weight: 600;
+            }
+
+            .paid-badge {
+                font-size: 0.75rem;
+                font-weight: normal;
+                background: #4caf50;
+                color: white;
+                padding: 0.25rem 1rem;
+                border-radius: 0.5rem;
+                margin-left: 0.5rem;
+                display: inline-block;
+            }
+
+            .invoice-details span {
+                font-weight: 600;
+            }
+
+            .logo img {
+                height: 100px;
+                margin-bottom: 0.5rem;
+            }
+
+            .billing-section {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 1.5rem;
+            }
+
+            .billing-box {
+                width: 48%;
+                padding: 1rem;
+                background: #f0f4ff;
+                border-radius: 0.5rem;
+            }
+
+            .supply-details {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 2rem;
+                text-align: center;
+            }
+
+            .invoice-table {
+                width: 100%;
+                border: 1px solid #e5e7eb;
+                border-radius: 0.5rem;
+                border-spacing: 0;
+                margin-bottom: 2rem;
+                overflow: hidden;
+            }
+
+            .invoice-table thead {
+            	background: #3c65a4;
+                /*background: linear-gradient(
+                    90.11deg,
+                    #1d498d -1.97%,
+                    #3c65a4 99.93%
+                );*/
+                color: white;
+            }
+
+            .invoice-table th {
+                padding: 0.75rem;
+                text-align: left;
+                border-right: 1px solid rgba(255, 255, 255, 0.2);
+            }
+
+            .invoice-table th:last-child {
+                border-right: none;
+            }
+
+            .invoice-table td {
+                padding: 0.75rem;
+                border: 1px solid #e5e7eb;
+                vertical-align: top;
+            }
+
+            .invoice-table tr:last-child td {
+                border-bottom: none;
+            }
+
+            .item-details {
+                color: #500050;
+                font-size: 0.75rem;
+                margin-top: 0.25rem;
+                line-height: 1.6;
+            }
+
+            .total-section {
+                display: flex;
+                justify-content: space-between;
+            }
+
+            .total-words {
+                margin-top: 20px;
+                color: #1f2937;
+                font-size: 0.75rem;
+            }
+
+            .total-words span {
+                font-size: 0.75rem;
+                font-weight: 600;
+            }
+
+            .total-amount {
+                min-width: 240px;
+            }
+
+            .notes-section {
+                margin: 0.75rem 0;
+                min-height: 50px;
+                font-size: 0.8rem;
+            }
+
+            .notes-title {
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+            }
+
+            .notes-content {
+                font-size: 0.75rem;
+                color: #4b5563;
+            }
+
+            .contact-section {
+                text-align: center;
+                font-size: 0.75rem;
+                margin: 1.5rem 0;
+            }
+
+            .contact-section a {
+                text-decoration: none;
+                font-weight: 600;
+                color: inherit;
+            }
+
+            .footer {
+                padding-top: 0.5rem;
+                border-top: 2px solid #e5e7eb;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.75rem;
+            }
+
+            .footer p:first-child {
+                font-style: italic;
+                color: #6b7280;
+            }
+
+            .footer b {
+                color: #2d5284;
+            }
+
+            .font-medium {
+                font-weight: 500;
+            }
+
+            .font-bold {
+                font-weight: 700;
+            }
+
+            .mb-1 {
+                margin-bottom: 0.25rem;
+            }
+
+            .mt-1 {
+                margin-top: 0.25rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="invoice__preview">
+            <div class="container">
+                <div class="header">
+                    <div class="header-left">
+                        <h1>
+                            Idbook hotels 
+                            {% if status == "Paid" %}
+                            <span class="paid-badge">Paid</span>
+                            {% else %}
+                            <span class="paid-badge" style="background: #f97316;">Pending</span>
+                            {% endif %}
+                        </h1>
+                        <p class="invoice-details">
+                            Invoice No # <span>{{ invoiceNumber }}</span>
+                        </p>
+                        <p class="invoice-details">
+                            Invoice Date: <span>{{ invoiceDate|date:"d/m/Y" }}</span>
+                        </p>
+                        {% if dueDate %}
+                        <p class="invoice-details">
+                            Due Date: <span>{{ dueDate|date:"d/m/Y" }}</span>
+                        </p>
+                        {% endif %}
+                    </div>
+                    <div class="logo">
+                        <img
+                            src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015"
+                            alt="Idbook Hotels Logo"
+                        />
+                    </div>
+                </div>
+
+                <div class="billing-section">
+                    <div class="billing-box">
+                        <h2>Billed By</h2>
+                        <p class="font-medium mb-1">
+                            {{ billedBy.name }}
+                        </p>
+                        <p>{{ billedBy.address }}</p>
+                        {% if billedBy.GSTIN %}
+                        <p class="font-medium mt-1">
+                            <strong>GSTIN:</strong> <span>{{ billedBy.GSTIN }}</span>
+                        </p>
+                        {% endif %}
+                        {% if billedBy.PAN %}
+                        <p class="font-medium">
+                            <strong>PAN:</strong> <span>{{ billedBy.PAN }}</span>
+                        </p>
+                        {% endif %}
+                    </div>
+                    <div class="billing-box">
+                        <h2>Billed To</h2>
+                        <p class="font-medium mb-1">
+                            {{ billedTo.name }}
+                        </p>
+                        <p>{{ billedTo.address }}</p>
+                        {% if billedTo.GSTIN %}
+                        <p class="font-medium mt-1">
+                            <strong>GSTIN:</strong> <span>{{ billedTo.GSTIN }}</span>
+                        </p>
+                        {% endif %}
+                        {% if billedTo.PAN %}
+                        <p class="font-medium">
+                            <strong>PAN:</strong> <span>{{ billedTo.PAN }}</span>
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="supply-details">
+                    <div class="supply-item">
+                        <strong>HSN/SAC No:</strong> <span>{{ billedBy.hsn_sac_no }}</span>
+                    </div>
+                    <div class="supply-item">
+                        <strong>Country of Supply:</strong> <span>{{ supplyDetails.countryOfSupply }}</span>
+                    </div>
+                    <div class="supply-item">
+                        <strong>Place of Supply:</strong>
+                        <span>{{ supplyDetails.placeOfSupply }}</span>
+                    </div>
+                </div>
+
+                <table class="invoice-table">
+				    <thead>
+				        <tr>
+				            <th style="width: 33%">Item</th>
+				            <th style="width: 10%; text-align: center">Qty</th>
+				            <th style="width: 15%; text-align: center">Rate</th>
+				            <th style="width: 10%; text-align: center">Amount</th>
+				            <th style="width: 10%; text-align: center">GST (%)</th>
+				            <th style="width: 15%; text-align: center">
+				                {{ GSTType }}
+				            </th>
+				            <th style="width: 15%; text-align: center">
+				                Total
+				            </th>
+				        </tr>
+				    </thead>
+				    <tbody>
+				        {% for item in items %}
+						<tr>
+						    <td>
+						        <div class="font-medium">
+				                    {{ item.name }}
+				                </div>
+				                {% if item.description %}
+				                <div class="item-details">
+				                    {{ item.description|linebreaksbr }}
+				                </div>
+				                {% endif %}
+						    </td>
+						    <td style="text-align: center">{{ item.quantity }}</td>
+						    <td style="text-align: center">₹{{ item.price|floatformat:0 }}</td>
+						    <td style="text-align: center">₹{{ item.amount|floatformat:0 }}</td>
+						    <td style="text-align: center">{{ item.gst|floatformat:0 }}%</td>
+						    <td style="text-align: center">₹{{ item.tax|floatformat:0 }}</td>
+						    <td style="text-align: center">₹{{ item.amount|add:item.tax|floatformat:0 }}</td>
+						</tr>
+						{% endfor %}
+				        <tr>
+				            <td colspan="7" style="text-align: left; border-bottom: none">
+				                <div class="total-section">
+				                    <div class="total-words">
+				                        <span>Total (in words):</span>
+				                        {{ total_in_words }}
+				                    </div>
+				                    <div class="total-amount">
+				                        <div class="total-amount-row" style="border: 0px">
+				                            <p>Amount:</p>
+				                            <p>₹{{ amount|floatformat:0 }}</p>
+				                        </div>
+				                        <div class="total-amount-row" style="border: 0px">
+				                            <p>GST:</p>
+				                            <!-- <p>{{ GSTType }}({{ GST }}%):</p> -->
+				                            <p>₹{{ tax_amount|floatformat:0 }}</p>
+				                        </div>
+				                        {% if discount %}
+				                        <div class="total-amount-row" style="border-top: 0px">
+										    <p>Discount:</p>
+										    <p>-₹{{ discount|default:0|floatformat:0 }}</p>
+										</div>
+				                        {% endif %}
+				                        <div class="total-amount-row" style="border-top: 2px solid #1f2937; border-bottom: 2px solid #1f2937;">
+				                            <p class="font-bold">Total (INR):</p>
+				                            <p><strong>₹{{ total|floatformat:0 }}</strong></p>
+				                        </div>
+				                    </div>
+				                </div>
+				            </td>
+				        </tr>
+				    </tbody>
+				</table>
+
+                {% if notes %}
+                <div class="notes-section">
+                    <div class="notes-title">Additional Notes:</div>
+                    <div class="notes-content">
+                        <p>{{ notes }}</p>
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+            	<div class="contact-section">
+                    <p>
+                        For any enquiry, reach out via email at
+                        <a href="mailto:{{ billedBy.email }}">{{ billedBy.email }}</a>
+                    </p>
+                    <p>
+                        Call on
+                        <a href="tel:+91 {{ billed_mob_num }}">{{ billed_mob_num }}</a>
+                    </p>
+                </div>
+
+                <footer class="footer">
+                    <p>
+                        This is an electronically generated document, no
+                        signature is required.
+                    </p>
+                    <p>Powered by <b>Idbook hotels</b></p>
+                </footer>
+            </div>
+    </body>
+</html>
