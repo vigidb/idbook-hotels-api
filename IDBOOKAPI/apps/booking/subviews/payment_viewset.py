@@ -47,7 +47,8 @@ class PaymentPropertyViewSet(viewsets.ModelViewSet, PaymentPropertyFilterMixins,
             'hotel_booking__confirmed_checkin_time', 'hotel_booking__confirmed_checkout_time',
             'booking_payment__merchant_transaction_id', 'booking_payment__payment_type',
             'booking_payment__payment_medium', 'booking_payment__amount',
-            'booking_payment__is_transaction_success')
+            'booking_payment__is_transaction_success', 'user_id', 'user__email',
+            'user__mobile_number', 'user__name')
         serializer = PropertyPaymentBookingSerializer(booking_payment_dict, many=True)
         
         data = {"payment_aggregate": booking_payment_agg, "booking_payment_details": serializer.data}

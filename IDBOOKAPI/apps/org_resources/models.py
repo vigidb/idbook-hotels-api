@@ -18,7 +18,8 @@ from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator,
 from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
 from IDBOOKAPI.basic_resources import (
     ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
-    COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE)
+    COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE,
+    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -506,6 +507,63 @@ class Subscription(models.Model):
 
     def __str__(self):
         return self.name
+
+class UserSubscription(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_subscription')
+    idb_sub = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='user_idbsub',
+                                null=True, help_text="Idbook subscription")
+    pg_subid = models.CharField(max_length=100, blank=True,
+                                help_text='payment gateway subscription id')
+    merchant_userid = models.CharField(max_length=100, blank=True)
+    merchant_subid = models.CharField(max_length=100, blank=True)
+    mandate_tnx_id = models.CharField(max_length=100, blank=True,
+                                      help_text="Mandate transaction id")
+    recrinit_tnx_id = models.CharField(max_length=100, blank=True,
+                                      help_text="Recurring init transaction id")
+    notification_id = models.CharField(max_length=100, blank=True)
+
+    # payment_frequency = models.CharField(max_length=50, choices=PAYMENT_FREQUENCY, default='')
+    payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, default='')
+    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default='')
+    upi_id = models.CharField(max_length=50, blank=True, default='')
+    is_upi_valid = models.BooleanField(default=False)
+    sub_workflow = models.CharField(max_length=50, choices=AUTH_WORKFLOW, default='')
+
+    sub_start_date = models.DateTimeField(null=True)
+    sub_end_date = models.DateTimeField(null=True)
+    last_paid_date = models.DateTimeField(null=True)
+    next_payment_date = models.DateTimeField(null=True)
+    next_notify_date = models.DateTimeField(null=True)
+
+    subscription_amount = models.IntegerField(default=0)
+    total_amount = models.IntegerField(default=0)
+    transaction_amount = models.IntegerField(default=0)
+    paid = models.BooleanField(default=False)
+    active = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+class SubRecurringTransaction(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_sub_recurtrans')
+    user_sub = models.ForeignKey(UserSubscription, on_delete=models.CASCADE,
+                                 related_name='usersub_recur_transaction')
+    recrinit_tnx_id = models.CharField(max_length=100, blank=True,
+                                      help_text="Recurring init transaction id")
+    notification_id = models.CharField(max_length=100, blank=True)
+    transaction_amount = models.IntegerField(default=0)
+    paid = models.BooleanField(default=False)
+    init_state = models.CharField(max_length=50, blank=True)
+    callbak_state = models.CharField(max_length=50, blank=True)
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    
+    
+    
+    
     
 class BasicAdminConfig(models.Model):
     code = models.CharField(max_length=25, blank=True, null=True)

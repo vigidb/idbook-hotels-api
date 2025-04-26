@@ -202,7 +202,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         # search 
         search = self.request.query_params.get('search', '')
         if search:
-            search_q_filter = Q(confirmation_code__icontains=search)
+            search_q_filter = Q(confirmation_code__icontains=search) | Q(reference_code__icontains=search)
             self.queryset = self.queryset.filter(search_q_filter)
 
 
@@ -1275,6 +1275,15 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             self.property_id = property_id
             self.booking_slot = booking_slot
 
+            # If no room_list is provided, use auto room allocation
+            if not room_list:
+                is_allocated, allocation_response = self.auto_room_allocation(request)
+                if not is_allocated:
+                    return allocation_response
+                room_list = self.room_list
+            else:
+                self.room_list = room_list
+
             # get dynamic pricing if applicable
             self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
                 self.checkin_datetime.date(), self.checkout_datetime.date())
@@ -1948,7 +1957,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                         'params': {
                             'user_id': instance.user.id,
                             'deduct_amount': float(instance.final_amount),
-                            'wallet_balance': float(wallet_balance)
+                            'wallet_balance': float(wallet_balance),
+                            'booking_id': instance.id
                         }
                     }
                 )
@@ -2335,9 +2345,11 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         Admin API to update Pay At Hotel eligibility record for a user and month
         """
         data = request.data
-        required_fields = ['user_id', 'month', 'is_eligible', 'is_blacklisted', 'eligible_limit']
-        missing = [f for f in required_fields if f not in data]
+        updated_by = data.get('updated_by')
 
+        # Check base required fields
+        base_required = ['user_id', 'month', 'updated_by']
+        missing = [f for f in base_required if f not in data]
         if missing:
             return self.get_response(
                 message=f"Missing required fields: {', '.join(missing)}",
@@ -2356,21 +2368,30 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         # Check if the record exists
         eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=month).first()
-
         if not eligibility:
             return self.get_response(
                 message=f"No eligibility record found for user {user.id} and month '{month}'.",
                 status_code=status.HTTP_404_NOT_FOUND
             )
 
-        # Update the eligibility record
-        eligibility.is_eligible = data['is_eligible']
-        eligibility.is_blacklisted = data['is_blacklisted']
-        eligibility.eligible_limit = data['eligible_limit']
-        eligibility.updated_by = 'Admin'  # Assuming admin is updating it
+        # If Admin, require and update all fields
+        if updated_by == 'Admin':
+            extra_required = ['is_eligible', 'is_blacklisted', 'eligible_limit']
+            extra_missing = [f for f in extra_required if f not in data]
+            if extra_missing:
+                return self.get_response(
+                    message=f"Missing required fields for Admin: {', '.join(extra_missing)}",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            eligibility.is_eligible = data['is_eligible']
+            eligibility.is_blacklisted = data['is_blacklisted']
+            eligibility.eligible_limit = data['eligible_limit']
+
+        # Common update for all users
+        eligibility.updated_by = updated_by
         eligibility.save()
 
-        # Serialize the updated record
         serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
 
         return self.get_response(

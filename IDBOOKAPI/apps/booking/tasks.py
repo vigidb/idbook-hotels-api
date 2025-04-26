@@ -19,7 +19,8 @@ from apps.org_managements.utils import get_active_business #get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
 from apps.org_resources.utils.notification_utils import (
     wallet_minbalance_notification_template, booking_comfirmed_notification_template,
-    booking_cancelled_notification_template, booking_completed_notification_template)
+    booking_cancelled_notification_template, booking_completed_notification_template,
+    generate_user_notification)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
     get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
@@ -316,6 +317,12 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
+                # generate_user_notification(
+                #     notification_type='HOTEL_BOOKING_CONFIRMATION',
+                #     user = booking.user,
+                #     variables_values=variables_values,
+                #     booking_id=booking.id
+                # )
 
         elif notification_type == 'HOTEL_PAYMENT_REFUND':
             booking_id = params.get('booking_id')
@@ -330,6 +337,14 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='HOTEL_PAYMENT_REFUND',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
 
         elif notification_type == 'WALLET_RECHARGE_CONFIRMATION':
             user_id = params.get('user_id')
@@ -346,11 +361,19 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
                     print("wallet recharge variables_values", variables_values)
                     send_template_sms(mobile_number, template_code, variables_values)
+                    generate_user_notification(
+                        notification_type='WALLET_RECHARGE_CONFIRMATION',
+                        user=user,
+                        variables_values=variables_values,
+                        booking_id=None,
+                        group_name=group_name
+                    )
 
         elif notification_type == 'WALLET_DEDUCTION_CONFIRMATION':
             user_id = params.get('user_id')
             deduct_amount = params.get('deduct_amount', 0)
             wallet_balance = params.get('wallet_balance', 0)
+            booking_id = params.get('booking_id')
 
             if user_id:
                 user = User.objects.get(id=user_id)
@@ -362,6 +385,19 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
                     print("wallet deduction variables_values", variables_values)
                     send_template_sms(mobile_number, template_code, variables_values)
+                    group_name = None
+                    if booking_id:
+                        booking = get_booking(booking_id)
+                        if booking:
+                            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                    
+                    generate_user_notification(
+                        notification_type='WALLET_DEDUCTION_CONFIRMATION',
+                        user=user,
+                        variables_values=variables_values,
+                        booking_id=booking_id,
+                        group_name=group_name
+                    )
 
         elif notification_type == 'HOTEL_BOOKING_CONFIRMATION':
             booking_id = params.get('booking_id')
@@ -380,6 +416,12 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
                 print("booking confirmation variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
+                # generate_user_notification(
+                #     notification_type='HOTEL_BOOKING_CONFIRMATION',
+                #     user = booking.user,
+                #     variables_values=variables_values,
+                #     booking_id=booking.id
+                # )
 
         elif notification_type == 'PAYMENT_FAILED_INFO':
             booking_id = params.get('booking_id', None)
@@ -414,6 +456,14 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 
                 print("payment failed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='PAYMENT_FAILED_INFO',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name  # Pass the group_name here
+                )
 
         elif notification_type == 'PAYMENT_PROCEED_INFO':
             booking_id = params.get('booking_id', None)
@@ -447,6 +497,14 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 
                 print("payment processed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='PAYMENT_PROCEED_INFO',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
 
         # elif notification_type == 'otp':
         #     mobile_number = params.get('mobile_number')

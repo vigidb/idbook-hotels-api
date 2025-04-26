@@ -215,6 +215,11 @@ PAYMENT_METHOD_CHOICES = (
     ("Others", "Others"),
 )
 
+AUTH_WORKFLOW = (
+    ("PENNY_DROP", "PENNY_DROP"),
+    ("TRANSACTION", "TRANSACTION")
+)
+    
 TRANSACTION_FOR = (
     ("booking_confirmed", "booking_confirmed"),
     ("booking_refund", "booking_refund"),
@@ -1293,6 +1298,13 @@ SMS_TYPES_CHOICES = [
     ('VERIFY', 'Verify OTP'),
     ('SIGNUP', 'Signup OTP'),
     ('LOGIN', 'Login OTP'),
+    ('HOTEL_PROPERTY_ACTIVATION', 'Property Activated'),
+    ('HOTEL_PROPERTY_DEACTIVATION', 'Property Deactivated'),
+    ('HOTELIER_BOOKING_NOTIFICATION', 'Hotelier Booking Notification'),
+    ('HOTELER_BOOKING_CANCEL_NOTIFICATION', 'Hotelier Booking Cancel Notification'),
+    ('HOTELER_PAYMENT_NOTIFICATION', 'Hotelier Payment Notification'),
+    ('HOTELIER_PROPERTY_REVIEW_NOTIFICATION', 'Property Review Notification'),
+    ('HOTEL_PROPERTY_SUBMISSION', 'Property Submission'),
     ('other', 'Other Notification')
 ] 
     

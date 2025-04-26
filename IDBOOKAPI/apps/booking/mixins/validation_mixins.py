@@ -37,11 +37,11 @@ class ValidationMixins:
                           "error_code":"PROPERTY_MISSING"}
             return False, error_info
 
-        room_list = self.request.data.get('room_list', [])
-        if not room_list or not isinstance(room_list, list):
-            error_info = {"message": "Missing Room list or invalid list format",
-                          "error_code":"ROOM_MISSING"}
-            return False, error_info
+        # room_list = self.request.data.get('room_list', [])
+        # if not room_list or not isinstance(room_list, list):
+        #     error_info = {"message": "Missing Room list or invalid list format",
+        #                   "error_code":"ROOM_MISSING"}
+        #     return False, error_info
 
         self.no_of_days = get_days_from_string(
             self.confirmed_checkin_time, self.confirmed_checkout_time,

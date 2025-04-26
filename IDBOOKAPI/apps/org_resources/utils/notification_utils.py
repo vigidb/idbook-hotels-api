@@ -1,4 +1,9 @@
 from IDBOOKAPI.utils import shorten_url
+from apps.org_resources.models import MessageTemplate
+from apps.org_managements.utils import get_active_business
+from apps.org_resources.db_utils import create_notification
+from apps.authentication.models import User
+import re
 
 def booking_comfirmed_notification_template(booking_id, booking_type, confirmation_code, notification_dict):
     try:
@@ -94,3 +99,113 @@ Please recharge your wallet to confirm booking".format(
         print('Notification Wallet Balance Template Error', e)
 
     return notification_dict
+
+def generate_user_notification(notification_type, booking=None, user=None, variables_values="", booking_id=None, group_name=None):
+    try:
+        # Get template message from DB
+        template_code = notification_type
+        template = MessageTemplate.objects.get(template_code=template_code)
+        raw_message = template.template_message
+        
+        raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
+        split_values = variables_values.split('|')
+        description = raw_message.format(*split_values)
+
+        # Notification title mapping
+        titles = {
+            'HOTEL_BOOKING_CONFIRMATION': 'Hotel Booking Confirmed',
+            'HOTEL_BOOKING_CANCEL': 'Hotel Booking Cancelled',
+            'HOTEL_PAYMENT_REFUND': 'Booking Payment Refunded',
+            'WALLET_RECHARGE_CONFIRMATION': 'Wallet Recharge Success',
+            'WALLET_DEDUCTION_CONFIRMATION': 'Wallet Deduction Info',
+            'PAYMENT_FAILED_INFO': 'Payment Failed',
+            'PAYMENT_PROCEED_INFO': 'Payment Successful',
+        }
+        title = titles.get(notification_type, "Notification")
+
+        # Determine user and redirect_url
+        user = booking.user if booking else user
+        # If group_name is not provided, determine it from booking
+        if group_name is None:
+            group_name = "CORPORATE-GRP" if booking and getattr(booking, "company_id", None) else "B2C-GRP"
+            
+        send_by = get_active_business().user
+        notif_type = notification_type  # backup original type
+
+        notification_type = 'GENERAL' if notif_type == 'WALLET_RECHARGE_CONFIRMATION' else 'BOOKING'
+        if notif_type in ["WALLET_RECHARGE_CONFIRMATION", "WALLET_DEDUCTION_CONFIRMATION"]:
+            redirect_url = ""
+        else:
+            redirect_url = f"/bookings/{booking_id}"
+
+        # Create dictionary
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': notification_type,
+            'title': title,
+            'description': description,
+            'redirect_url': redirect_url,
+            'image_link': '',
+            'group_name': group_name
+        }
+        print("creating_notification", notification_dict)
+        create_notification(notification_dict)
+    except Exception as e:
+        print("Notification Error", e)
+
+def create_hotelier_notification(property, notification_type, variables_values):
+    # Create notification for hotelier
+    try:
+        # Map notification types to titles
+        titles = {
+            'HOTEL_PROPERTY_ACTIVATION': 'Property Activated',
+            'HOTEL_PROPERTY_DEACTIVATION': 'Property Deactivated',
+            'HOTELIER_BOOKING_NOTIFICATION': 'New Booking Received',
+            'HOTELER_BOOKING_CANCEL_NOTIFICATION': 'Booking Cancelled',
+            'HOTELER_PAYMENT_NOTIFICATION': 'Payment Received',
+            'HOTELIER_PROPERTY_REVIEW_NOTIFICATION': 'New Review Received',
+            'HOTEL_PROPERTY_SUBMISSION': 'Property Submission Received',
+        }
+        
+        # Determine appropriate notification_type (GENERAL or BOOKING)
+        app_notification_type = 'BOOKING' if notification_type in [
+            'HOTELIER_BOOKING_NOTIFICATION',
+            'HOTELER_BOOKING_CANCEL_NOTIFICATION',
+            'HOTELER_PAYMENT_NOTIFICATION'
+        ] else 'GENERAL'
+        
+        # Get template message from DB
+        template_code = notification_type
+        template = MessageTemplate.objects.get(template_code=template_code)
+        raw_message = template.template_message
+        
+        raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
+        split_values = variables_values.split('|')
+        description = raw_message.format(*split_values)
+        
+        title = titles.get(notification_type, "Notification")
+        
+        # Get the user associated with property using managed_by_id
+        user = User.objects.filter(id=property.managed_by_id).first()
+        if not user:
+            return
+        
+        send_by = get_active_business().user
+        
+        # Create notification dictionary
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': app_notification_type,
+            'title': title,
+            'description': description,
+            'redirect_url': '',
+            'image_link': '',
+            'group_name': 'HOTELIER-GRP'
+        }
+        
+        print("creating_hotelier_notification", notification_dict)
+        create_notification(notification_dict)
+    except Exception as e:
+        print("Hotelier Notification Error", e)
