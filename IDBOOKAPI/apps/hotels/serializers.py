@@ -140,6 +140,13 @@ class PropertyListSerializer(serializers.ModelSerializer):
             else:
                 representation['available'] = True
 
+            complete_pricing_details = self.context.get("complete_pricing_details", {})
+    
+            if property_id in complete_pricing_details:
+                representation['complete_price_details'] = complete_pricing_details[property_id]
+            else:
+                representation['complete_price_details'] = {'status': 'not_calculated'}
+
         return representation     
 
 ##    def create(self, validated_data):

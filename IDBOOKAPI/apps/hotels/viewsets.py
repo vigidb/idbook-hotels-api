@@ -33,7 +33,7 @@ from .models import RoomGallery, PropertyGallery, PayAtHotelSpendLimit
 from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
-from apps.booking.utils.db_utils import change_onhold_status
+from apps.booking.utils.db_utils import change_onhold_status, get_booking_based_tax_rule
 from apps.analytics.utils.db_utils import create_or_update_property_count
 from rest_framework.decorators import action
 from apps.booking.models import Booking, HotelBooking
@@ -44,10 +44,10 @@ from functools import reduce
 import traceback
 from .tasks import send_hotel_sms_task, send_hotel_email_task
 from .mixins.validation_mixins import ValidationMixin
-
+from apps.booking.mixins.booking_mixins import BookingMixins
 User = get_user_model()
 
-class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, BookingMixins):
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
     serializer_action_classes = {'list': PropertyListSerializer, 'retrieve': PropertyRetrieveSerializer}
@@ -275,7 +275,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             checkout_date = datetime.strptime(checkout_date, '%Y-%m-%dT%H:%M%z')
 
             self.checkin_date = checkin_date
-            
+            self.checkin_datetime = checkin_date
+            self.checkout_datetime = checkout_date
 ##            booked_hotel_dict = hotel_utils.get_booked_property(checkin_date, checkout_date, True)
             
             nonavailable_property_list, available_property_dict = hotel_utils.get_filled_property_list(checkin_date, checkout_date)
@@ -300,6 +301,109 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         context = super().get_serializer_context()
         context.update({"slug": self.slug})
         return context
+
+    def calculate_complete_pricing_details(self, request, queryset, available_property_dict, nonavailable_property_list):
+        adult_count = int(request.query_params.get('adult_count', 1))
+        child_count = int(request.query_params.get('child_count', 0))
+        child_age_list = request.query_params.get('child_age_list', [])
+        booking_slot = request.query_params.get('booking_slot', '24 Hrs')
+
+        if isinstance(child_age_list, str) and child_age_list:
+            try:
+                child_age_list = [int(age.strip()) for age in child_age_list.split(',')]
+            except:
+                child_age_list = []
+
+        complete_pricing_details = {}
+
+        for property_obj in queryset:
+            property_id = property_obj.id
+            
+            try:
+                self.property_id = property_id
+                self.adult_count = adult_count
+                self.child_count = child_count
+                self.child_age_list = child_age_list
+                self.booking_slot = booking_slot
+                self.no_of_days = (self.checkout_datetime - self.checkin_datetime).days
+
+                mock_request = type('obj', (object,), {'data': {'adult_count': adult_count, 'child_count': child_count, 'booking_slot': booking_slot}})
+                is_allocated, allocation_response = self.auto_room_allocation(mock_request, property_id)
+                
+                if not is_allocated:
+                    error_message = getattr(allocation_response.data, 'message', 'Could not find enough rooms to accommodate all guests')
+                    error_code = getattr(allocation_response.data, 'error_code', 'INADEQUATE_ROOMS')
+                    
+                    complete_pricing_details[property_id] = {
+                        'status': 'error',
+                        'error': {
+                            'message': error_message,
+                            'error_code': error_code
+                        }
+                    }
+                    continue
+                
+                self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+                    self.checkin_datetime.date(), self.checkout_datetime.date())
+
+                is_status, allocation_response = self.room_allocation()
+                if not is_status:
+                    error_message = getattr(allocation_response.data, 'message', 'Room allocation failed')
+                    error_code = getattr(allocation_response.data, 'error_code', 'ALLOCATION_ERROR')
+                    
+                    complete_pricing_details[property_id] = {
+                        'status': 'error',
+                        'error': {
+                            'message': error_message,
+                            'error_code': error_code
+                        }
+                    }
+                    continue
+                
+                self.confirmed_room_details = []
+                self.final_amount = 0
+                self.final_tax_amount = 0
+                self.subtotal = 0
+                self.tax_rules_dict = get_booking_based_tax_rule('HOTEL')
+
+                is_cal_status, calculation_response = self.amount_calculation()
+                if not is_cal_status:
+                    error_message = getattr(calculation_response.data, 'message', 'Price calculation failed')
+                    error_code = getattr(calculation_response.data, 'error_code', 'CALCULATION_ERROR')
+                    
+                    complete_pricing_details[property_id] = {
+                        'status': 'error',
+                        'error': {
+                            'message': error_message,
+                            'error_code': error_code
+                        }
+                    }
+                    continue
+                
+                total_final_amount = sum(room_detail.get('final_room_total', 0) for room_detail in self.confirmed_room_details)
+                
+                complete_pricing_details[property_id] = {
+                    'status': 'success',
+                    'room_list': self.room_list,
+                    'detailed_pricing': {
+                        'rooms_pricing': self.confirmed_room_details,
+                        'subtotal': self.subtotal,
+                        'gst_amount': self.final_tax_amount,
+                        'final_amount': total_final_amount
+                    }
+                }
+
+            except Exception as e:
+                print(f"Error calculating complete pricing for property {property_id}: {str(e)}")
+                complete_pricing_details[property_id] = {
+                    'status': 'error',
+                    'error': {
+                        'message': f"An error occurred during calculation: {str(e)}",
+                        'error_code': "CALCULATION_EXCEPTION"
+                    }
+                }
+        
+        return complete_pricing_details
             
 
     def create(self, request, *args, **kwargs):
@@ -486,8 +590,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         self.property_filter_ops()
         self.property_json_filter_ops()
 
-        
-        
+
+
         # filter for checkin checkout
         available_property_dict, nonavailable_property_list = self.checkin_checkout_based_filter()
 
@@ -523,22 +627,29 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##                    is_slot_price_enabled                         'address')
         if count == 0:
             hotel_db_utils.save_unavailable_property_search(request.query_params)
+
+        complete_pricing_details = self.calculate_complete_pricing_details(
+            request, self.queryset, available_property_dict, nonavailable_property_list
+        )
+        
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
-            context={'available_property_dict': available_property_dict,
-                     'favorite_list':self.favorite_list,
-                     'nonavailable_property_list': nonavailable_property_list})
-        # response = super().list(request, *args, **kwargs)
+            context={
+                'available_property_dict': available_property_dict,
+                'favorite_list': self.favorite_list,
+                'nonavailable_property_list': nonavailable_property_list,
+                'complete_pricing_details': complete_pricing_details
+            })
 
         custom_response = self.get_response(
             count=count, status="success",
-            data=response.data,  # Use the data from the default response
+            data=response.data,
             message="List Retrieved",
-            status_code=status.HTTP_200_OK,  # 200 for successful listing
-            )
+            status_code=status.HTTP_200_OK
+        )
 
-        self.log_response(custom_response)  # Log the custom response before returning
+        self.log_response(custom_response)
         return custom_response
 
     def retrieve(self, request, *args, **kwargs):
