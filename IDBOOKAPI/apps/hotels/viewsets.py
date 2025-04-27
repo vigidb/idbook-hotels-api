@@ -248,8 +248,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         
 
     def checkin_checkout_based_filter(self):
-        checkin_date = self.request.query_params.get('checkin', '')
-        checkout_date = self.request.query_params.get('checkout', '')
+        checkin_date = self.request.query_params.get('checkIn', '')
+        checkout_date = self.request.query_params.get('checkOut', '')
 ##        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
 ##        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
         
