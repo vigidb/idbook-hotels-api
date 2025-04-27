@@ -29,7 +29,7 @@ class BookingMixins:
         if len(date_list) >=2:
             date_list.pop()
 
-        print("date list::", date_list)
+        # print("date list::", date_list)
         pricing_objs = get_dynamic_room_pricing_list(
             start_date, end_date, room_ids)
 
