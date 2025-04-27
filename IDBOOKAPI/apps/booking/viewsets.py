@@ -1277,7 +1277,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             # If no room_list is provided, use auto room allocation
             if not room_list:
-                is_allocated, allocation_response = self.auto_room_allocation(request)
+                is_allocated, allocation_response = self.auto_room_allocation(request, property_id)
                 if not is_allocated:
                     return allocation_response
                 room_list = self.room_list

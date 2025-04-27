@@ -484,12 +484,12 @@ class BookingMixins:
               
         return commission_details 
     
-    def auto_room_allocation(self, request):
+    def auto_room_allocation(self, request, property_id):
         """
         Automatically allocate rooms based on adult and child count if room_list is not provided.
         Uses lowest price rooms while ensuring all guests can be accommodated.
         """
-        property_id = request.data.get('property', None)
+        # property_id = request.data.get('property', None)
         adult_count = request.data.get('adult_count', 1)
         child_count = request.data.get('child_count', 0)
         booking_slot = request.data.get('booking_slot', '24 Hrs')
