@@ -93,6 +93,7 @@ class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         self.review_filter_ops()
         # paginate the result
+        self.queryset = self.queryset.order_by('-created')
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 
         # Perform the default listing logic

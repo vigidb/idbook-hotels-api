@@ -36,7 +36,7 @@ class PaymentPropertyViewSet(viewsets.ModelViewSet, PaymentPropertyFilterMixins,
         if not booking_payment_filter_enabled:
             self.left_join_booking_payment_ops()
     
-        self.queryset = self.queryset.order_by('id')
+        self.queryset = self.queryset.order_by('-id')
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
         # print("query", self.queryset.query)
         

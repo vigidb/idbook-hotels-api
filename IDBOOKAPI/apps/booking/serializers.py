@@ -482,6 +482,13 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['commission_info'] = None
+        booking_id = instance.get('id')  # Get booking ID from the instance
+        if booking_id:
+            try:
+                booking_instance = Booking.objects.get(id=booking_id)
+                representation['booking_status'] = booking_instance.status
+            except Booking.DoesNotExist:
+                representation['booking_status'] = None
 
         representation['user'] = {
             "id": instance.get('user_id'),
