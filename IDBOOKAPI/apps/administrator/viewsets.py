@@ -30,7 +30,9 @@ from IDBOOKAPI.utils import paginate_queryset
 
 from .models import available_permission_queryset
 from .serializers import UserSerializer, RoleSerializer, PermissionSerializer, UserAdminListSerializer
-
+from apps.org_resources.serializers import CompanyDetailSerializer
+from apps.org_resources.models import CompanyDetail
+from rest_framework.decorators import action
 
 class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
@@ -208,6 +210,81 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    @action(detail=False, methods=['get'], url_path='users-company-details',
+        url_name='users-company-details', permission_classes=[IsAuthenticated])
+    def users_company_details(self, request):
+        self.log_request(request)
+
+        # Get the authenticated user
+        user = request.user
+
+        # User filters
+        role_name = request.query_params.get('role', '')
+        name = request.query_params.get('name', '').strip()
+        email = request.query_params.get('email', '').strip()
+        company_id = request.query_params.get('company_id', None)
+        # Filter user queryset based on name, email, and role
+        user_queryset = self.filter_queryset(self.get_queryset().order_by('-created'))
+
+        if name:
+            user_queryset = user_queryset.filter(name__icontains=name)
+
+        if email:
+            user_queryset = user_queryset.filter(email__icontains=email)
+
+        if role_name:
+            role = db_utils.get_role_by_name(role_name)
+            user_queryset = user_queryset.filter(roles__in=[role])
+
+        if company_id:
+            user_queryset = user_queryset.filter(company_id=company_id)
+
+        # Apply pagination to user queryset
+        user_count, user_queryset = paginate_queryset(request, user_queryset)
+        user_serializer = UserAdminListSerializer(user_queryset, many=True)
+
+        # Company filters
+        company_queryset = CompanyDetail.objects.all().order_by('-id')
+
+        company_is_active = request.query_params.get('company_is_active', None)
+        company_name = request.query_params.get('company_name', '').strip()
+        company_phone = request.query_params.get('company_phone', '').strip()
+        company_email = request.query_params.get('company_email', '').strip()
+
+        # Apply company filters
+        if company_name:
+            company_queryset = company_queryset.filter(company_name__icontains=company_name)
+        
+        if company_phone:
+            company_queryset = company_queryset.filter(company_phone__icontains=company_phone)
+        
+        if company_email:
+            company_queryset = company_queryset.filter(company_email__icontains=company_email)
+        
+        if company_is_active is not None:
+            company_is_active = company_is_active.lower() == 'true'
+            company_queryset = company_queryset.filter(is_active=company_is_active)
+
+        if company_id:
+            company_queryset = company_queryset.filter(id=company_id)
+
+        # Apply pagination to company queryset
+        company_count, company_queryset = paginate_queryset(request, company_queryset)
+        company_serializer = CompanyDetailSerializer(company_queryset, many=True)
+
+        data = {
+            "users_details": user_serializer.data,
+            "company_details": company_serializer.data
+        }
+
+        # Return the response with user and company details
+        return self.get_response(
+            count=user_count+company_count,
+            status="success",
+            data=data,
+            message="Users and Company Details Retrieved",
+            status_code=status.HTTP_200_OK
+        )
 
 
 class RoleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
