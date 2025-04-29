@@ -11,6 +11,68 @@ class PayUMixin:
         return hex_digest
 
 
+    def recurring_payment_notification(self):
+
+        # url = "https://info.payu.in/merchant/"
+        url = "https://test.payu.in/merchant/postservice.php?form=2"
+
+        #7043873219
+
+        key, command = "JPM7Fg", "pre_debit_SI" #"check_action_status_txnid"
+        var1 = {"authPayuId":"403993715533817148","requestId":"1234589","debitDate":"2025-04-30","amount":"500"}
+        var1 = json.dumps(var1)
+
+        salt = settings.PAYU_SALT
+
+        data_to_hash = f"{key}|{command}|{var1}|{salt}"
+        hex_digest = self.encode_using_sha512(data_to_hash)
+        print("hex digest::", hex_digest)
+        
+
+        payload = {
+            "key": key,
+            "var1": var1,
+            "command": command,#"pre_debit_SI",
+            "hash": hex_digest
+        }
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/x-www-form-urlencoded"
+        }
+
+        response = requests.post(url, data=payload, headers=headers)
+
+        return response
+
+
+    def verify_payment(self):
+
+        url = "https://test.payu.in/merchant/postservice?form=2"
+
+        key = "JPM7Fg"
+        command = "upi_mandate_status"#"verify_payment"
+        var1 = "TX11745850883"
+
+       
+
+        salt = settings.PAYU_SALT
+        
+        data_to_hash = f"{key}|{command}|{var1}|{salt}"
+        hex_digest = self.encode_using_sha512(data_to_hash)
+        print("hex digest::", hex_digest)
+
+        payload = {
+            "key": key,
+            "command": command,
+            "var1": var1,
+            "hash":hex_digest
+        }
+        
+        headers = {"content-type": "application/x-www-form-urlencoded"}
+
+        response = requests.post(url, data=payload, headers=headers)
+        return response
+
     def subscribe_consent_transaction(self, si_details, params):
 
         url = settings.PAYU_URL #"https://test.payu.in/_payment"

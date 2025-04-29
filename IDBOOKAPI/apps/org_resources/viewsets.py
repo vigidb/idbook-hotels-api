@@ -1692,6 +1692,24 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         UserSubscriptionLogs.objects.create(**user_sub_logs)   
         return custom_response
 
+    @action(detail=False, methods=['POST'], url_path='payu-payment-response',
+            url_name='payu-payment-sucess', permission_classes=[])
+    def payment_payu_success(self, request):
+
+        post_data = request.data
+        payment_data_json = json.dumps(post_data)
+
+        UserSubscriptionLogs.objects.create(status_response=payment_data_json)
+
+        custom_response = self.get_response(
+            data=payment_data_json,  # Use the data from the default response
+            status='success',
+            message="User Subscription Created",
+            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+        )
+
+        return custom_response
+
 
     @action(detail=False, methods=['POST'], url_path='submit-auth-init/pe-callbackurl',
             url_name='submit-auth-init-pe-callbackurl', permission_classes=[])
@@ -1772,6 +1790,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             status_code=status.HTTP_200_OK,
         )
         return custom_response
+    
 
     @action(detail=False, methods=['POST'], url_path='recur-init/pe-callbackurl',
             url_name='recur-init-pe-callbackurl', permission_classes=[])
