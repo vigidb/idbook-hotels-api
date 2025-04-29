@@ -16,6 +16,7 @@ def subscription_payu_process(user_subscription_dict, params):
     transaction_id = params.get('txnid')
     start_date = params.get('start_date')
     end_date = params.get('end_date')
+    daily = params.get('daily')
     
     subscription_amount = params.get('amount')
     subscription_name = params.get('subscription_name')
@@ -37,10 +38,19 @@ def subscription_payu_process(user_subscription_dict, params):
     # initiate payu 
     payu_obj = PayUMixin()
 
-    si_details = {"billingAmount": subscription_amount,"billingCurrency": "INR",
-                  "billingCycle": payment_frequency,"billingInterval": 1,
-                  "paymentStartDate": str(start_date.date()),
-                  "paymentEndDate": str(end_date.date())}
+    if daily:
+        payment_frequency = "DAILY"
+        si_details = {"billingAmount": subscription_amount,"billingCurrency": "INR",
+                      "billingCycle": payment_frequency,"billingInterval": daily,
+                      "paymentStartDate": str(start_date.date()),
+                      "paymentEndDate": str(end_date.date())}
+    else:    
+        si_details = {"billingAmount": subscription_amount,"billingCurrency": "INR",
+                      "billingCycle": payment_frequency,"billingInterval": 1,
+                      "paymentStartDate": str(start_date.date()),
+                      "paymentEndDate": str(end_date.date())}
+
+    print("si details::", si_details)
 
     key = settings.PAYU_KEY#"QE93eb"#"12936989"#8680557  #"JPM7Fg"
     params.update({"key":key,"udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":""})  

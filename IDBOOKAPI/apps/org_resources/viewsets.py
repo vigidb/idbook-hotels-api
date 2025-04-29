@@ -1390,6 +1390,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         idb_sub_id = request.data.get('idb_sub')
         upi = request.data.get('upi', '')
         payment_medium = request.data.get('payment_medium')
+        daily = request.data.get('daily', 0)
         
         name = request.data.get('name')
         email = request.data.get('email')
@@ -1435,7 +1436,8 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                       "subscription_type":subscription.subscription_type,
                       "firstname":name,
                       "email":email, "phone":mobile_number,
-                      "start_date":start_date,"end_date":end_date}
+                      "start_date":start_date,"end_date":end_date,
+                      "daily":daily}
          
             response, usersub_obj = subscription_payu_process(user_subscription_dict, params)
             
