@@ -9,6 +9,7 @@ from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
 from .utils.db_utils import get_user_booking_data
 from apps.org_resources.utils.notification_utils import create_hotelier_notification
+from apps.booking.tasks import send_booking_sms_task
 
 @celery_idbook.task(bind=True)
 def send_hotel_sms_task(self, notification_type='', params=None):
@@ -113,6 +114,19 @@ def send_hotel_sms_task(self, notification_type='', params=None):
                 send_sms(
                     property.phone_no,
                     "HOTEL_PROPERTY_SUBMISSION",
+                    variables_values
+                )
+                create_hotelier_notification(property, notification_type, variables_values)
+
+        elif notification_type == 'HOTELIER_PAH_FEATURE':
+            property = get_property_from_id(params.get('property_id'))
+            if property and property.phone_no:
+                website_link = "https://www.idbookhotels.com/"
+                short_link = shorten_link(website_link)
+                variables_values = f"Hotelier|{property.name}|{short_link}"
+                send_sms(
+                    property.phone_no,
+                    "HOTELIER_PAH_FEATURE",
                     variables_values
                 )
                 create_hotelier_notification(property, notification_type, variables_values)
@@ -245,6 +259,16 @@ def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
             f"Cancel count: {data['total_cancel_count']}, Cancel limit: {data['cancel_limit']}, "
             f"Is eligible: {data['is_eligible']}, Is blacklisted: {data['is_blacklisted']}"
         )
+        # Check if user is not eligible and send the ELIGIBILITY_LOSS_NOTIFICATION
+        if not data['is_eligible']:
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'ELIGIBILITY_LOSS_NOTIFICATION',
+                    'params': {
+                        'user_id': user_id,
+                    }
+                }
+            )
 
         return {
             'user_id': user_id,

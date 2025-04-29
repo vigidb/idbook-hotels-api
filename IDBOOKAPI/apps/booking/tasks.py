@@ -506,6 +506,125 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     group_name=group_name
                 )
 
+        elif notification_type == 'PAY_AT_HOTEL_BOOKING_CONFIRMATION':
+            booking_id = params.get('booking_id')
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "PAY_AT_HOTEL_BOOKING_CONFIRMATION"
+
+                property_name = ""
+                if booking.hotel_booking and booking.hotel_booking.confirmed_property:
+                    property_name = booking.hotel_booking.confirmed_property.name
+
+                variables_values = f"{booking.user.name}|{property_name}|{float(booking.final_amount)}"
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                print("pay at hotel booking confirmation variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                generate_user_notification(
+                    notification_type='PAY_AT_HOTEL_BOOKING_CONFIRMATION',
+                    user = booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'ELIGIBILITY_LOSS_WARNING':
+            booking_id = params.get('booking_id')
+
+            booking = get_booking(booking_id)
+            if booking and booking.user and booking.user.mobile_number:
+                user = booking.user
+                mobile_number = user.mobile_number
+                template_code = "ELIGIBILITY_LOSS_WARNING"
+
+                reason = params.get('reason', 'unpaid hotel charges')
+                amount = params.get('amount', 0)
+
+                variables_values = f"{user.name}|{reason}|{float(amount)}"
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                print("eligibility loss warning variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                generate_user_notification(
+                    notification_type='ELIGIBILITY_LOSS_WARNING',
+                    user=user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'PAH_PAYMENT_CONFIRMATION':
+            booking_id = params.get('booking_id')
+            amount = params.get('amount', 0)
+
+            booking = get_booking(booking_id)
+            if booking and booking.user and booking.user.mobile_number:
+                user = booking.user
+                mobile_number = user.mobile_number
+                template_code = "PAH_PAYMENT_CONFIRMATION"
+
+                property_name = ""
+                if booking.hotel_booking and booking.hotel_booking.confirmed_property:
+                    property_name = booking.hotel_booking.confirmed_property.name
+
+                variables_values = f"{user.name}|{float(amount)}|{property_name}"
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+
+                print("Pay at hotel payment confirmation variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                generate_user_notification(
+                    notification_type='PAH_PAYMENT_CONFIRMATION',
+                    user=user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'ELIGIBILITY_LOSS_NOTIFICATION':
+            user_id = params.get('user_id')
+            if user_id:
+                user = User.objects.get(id=user_id)
+                if user and user.mobile_number:
+                    mobile_number = user.mobile_number
+                template_code = "ELIGIBILITY_LOSS_NOTIFICATION"
+
+                # Custom message details
+                variables_values = f"{user.name}|multiple unpaid bookings|support@idbookhotels.com"
+                group_name = "CORPORATE-GRP" if user.company_id else "B2C-GRP"
+                print("eligibility loss notification variables_values", variables_values)
+
+                # Send the SMS
+                send_template_sms(mobile_number, template_code, variables_values)
+                generate_user_notification(
+                    notification_type='ELIGIBILITY_LOSS_NOTIFICATION',
+                    user=user,
+                    variables_values=variables_values,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'PAH_SPECIAL_LIMIT_OVERRIDE':
+            user_id = params.get('user_id')
+            if user_id:
+                user = User.objects.get(id=user_id)
+                if user and user.mobile_number:
+                    mobile_number = user.mobile_number
+                template_code = "PAH_SPECIAL_LIMIT_OVERRIDE"
+
+                user_name = user.name
+                limit = params.get('limit')
+                valid_till = params.get('valid_till')
+
+                variables_values = f"{user_name}|{limit}|{valid_till}"
+                group_name = "CORPORATE-GRP" if user.company_id else "B2C-GRP"
+
+                send_template_sms(mobile_number, template_code, variables_values)
+                generate_user_notification(
+                    notification_type='PAH_SPECIAL_LIMIT_OVERRIDE',
+                    user=user,
+                    variables_values=variables_values,
+                    group_name=group_name
+                )
         # elif notification_type == 'otp':
         #     mobile_number = params.get('mobile_number')
         #     otp = params.get('otp')

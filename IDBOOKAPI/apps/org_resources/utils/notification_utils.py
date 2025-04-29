@@ -120,6 +120,11 @@ def generate_user_notification(notification_type, booking=None, user=None, varia
             'WALLET_DEDUCTION_CONFIRMATION': 'Wallet Deduction Info',
             'PAYMENT_FAILED_INFO': 'Payment Failed',
             'PAYMENT_PROCEED_INFO': 'Payment Successful',
+            'PAY_AT_HOTEL_BOOKING_CONFIRMATION': 'Pay at Hotel Booking Confirmed',
+            'ELIGIBILITY_LOSS_WARNING': 'Pay at Hotel Eligibility Loss Warning',
+            'PAH_PAYMENT_CONFIRMATION': 'Pay at Hotel Payment Confirmation',
+            'ELIGIBILITY_LOSS_NOTIFICATION': 'Pay at Hotel Eligibility Loss Notification',
+            'PAH_SPECIAL_LIMIT_OVERRIDE': 'Pay at Hotel Special Limit'
         }
         title = titles.get(notification_type, "Notification")
 
@@ -132,8 +137,12 @@ def generate_user_notification(notification_type, booking=None, user=None, varia
         send_by = get_active_business().user
         notif_type = notification_type  # backup original type
 
-        notification_type = 'GENERAL' if notif_type == 'WALLET_RECHARGE_CONFIRMATION' else 'BOOKING'
-        if notif_type in ["WALLET_RECHARGE_CONFIRMATION", "WALLET_DEDUCTION_CONFIRMATION"]:
+        if notif_type in ['WALLET_RECHARGE_CONFIRMATION', 'ELIGIBILITY_LOSS_WARNING', 'ELIGIBILITY_LOSS_NOTIFICATION', 'PAH_SPECIAL_LIMIT_OVERRIDE']:
+            notification_type = 'GENERAL'
+        else:
+            notification_type = 'BOOKING'
+        if notif_type in ["WALLET_RECHARGE_CONFIRMATION", "WALLET_DEDUCTION_CONFIRMATION", "ELIGIBILITY_LOSS_WARNING", "ELIGIBILITY_LOSS_NOTIFICATION", 
+            "PAH_SPECIAL_LIMIT_OVERRIDE"]:
             redirect_url = ""
         else:
             redirect_url = f"/bookings/{booking_id}"
@@ -166,6 +175,7 @@ def create_hotelier_notification(property, notification_type, variables_values):
             'HOTELER_PAYMENT_NOTIFICATION': 'Payment Received',
             'HOTELIER_PROPERTY_REVIEW_NOTIFICATION': 'New Review Received',
             'HOTEL_PROPERTY_SUBMISSION': 'Property Submission Received',
+            'HOTELIER_PAH_FEATURE': 'Property Pay at Hotel Facility Added'
         }
         
         # Determine appropriate notification_type (GENERAL or BOOKING)

@@ -540,6 +540,14 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             if prop_status=='Active' and (city or state or country):
                 hotel_db_utils.process_property_based_topdest_count(location_list)
 
+            if request.data.get('pay_at_hotel') == True or request.data.get('pay_at_hotel') == 'true':
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'HOTELIER_PAH_FEATURE',
+                        'params': {'property_id': instance.id}
+                    }
+                )
+
             if prop_status == 'Active':
                 send_hotel_sms_task.apply_async(
                     kwargs={'notification_type': 'HOTEL_PROPERTY_ACTIVATION', 'params': {'property_id': instance.id}}

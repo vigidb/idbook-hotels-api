@@ -593,9 +593,9 @@ def check_wallet_balance_for_booking(booking, user, company_id=None):
             bus_details = get_active_business() 
             if bus_details:
                 send_by = bus_details.user
-                
+            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"    
             notification_dict = {'user':user, 'send_by':send_by, 'notification_type':'GENERAL',
-                                 'title':'', 'description':'', 'redirect_url':'',
+                                 'title':'', 'description':'', 'redirect_url':'','group_name':group_name,
                                  'image_link':''}
             notification_dict = wallet_booking_balance_notification_template(
                     booking, balance, notification_dict)
