@@ -247,13 +247,12 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         company_queryset = CompanyDetail.objects.all().order_by('-id')
 
         company_is_active = request.query_params.get('company_is_active', None)
-        company_name = request.query_params.get('company_name', '').strip()
         company_phone = request.query_params.get('company_phone', '').strip()
         company_email = request.query_params.get('company_email', '').strip()
 
         # Apply company filters
-        if company_name:
-            company_queryset = company_queryset.filter(company_name__icontains=company_name)
+        if name:
+            company_queryset = company_queryset.filter(company_name__icontains=name)
         
         if company_phone:
             company_queryset = company_queryset.filter(company_phone__icontains=company_phone)
