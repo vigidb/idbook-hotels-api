@@ -1032,6 +1032,16 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if name:
             queryset = queryset.filter(name__icontains=name)
 
+        queryset = queryset.order_by('-created')
+
+        offset = self.request.query_params.get('offset')
+        limit = self.request.query_params.get('limit')
+
+        if offset is not None and limit is not None:
+            offset = int(offset)
+            limit = int(limit)
+            queryset = queryset[offset:offset + limit]
+
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -1096,14 +1106,16 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        self.queryset = self.get_queryset()
-        offset = request.query_params.get('offset')
-        limit = request.query_params.get('limit')
+        # self.queryset = self.get_queryset()
+        # offset = request.query_params.get('offset')
+        # limit = request.query_params.get('limit')
         
-        if offset is not None and limit is not None:
-            count, self.queryset = paginate_queryset(request, self.queryset)
-        else:
-            count = self.queryset.count()
+        # if offset is not None and limit is not None:
+        #     count, self.queryset = paginate_queryset(request, self.queryset)
+        # else:
+        #     count = self.queryset.count()
+
+        count = self.get_queryset().count()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
