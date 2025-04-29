@@ -61,7 +61,7 @@ from IDBOOKAPI.basic_resources import BOOKING_TYPE
 from django.db import transaction
 
 from datetime import datetime
-
+import calendar
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -77,6 +77,7 @@ import pytz
 from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
+from apps.customer.utils.db_utils import get_wallet_balance
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -597,6 +598,20 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 cancellation_details, 
                 applicable_policy
             )
+
+            if success:
+                balance = get_wallet_balance(instance.user.id)
+                if balance < 0:
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'ELIGIBILITY_LOSS_WARNING',
+                            'params': {
+                                'booking_id': instance.id,
+                                'reason': 'unpaid hotel charges',
+                                'amount': abs(balance)
+                            }
+                        }
+                    )
             
             # Send cancellation notifications regardless of fee status
             self.send_cancel_task(instance, 0)
@@ -1922,7 +1937,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
                     send_booking_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                            'notification_type': 'PAY_AT_HOTEL_BOOKING_CONFIRMATION',
                             'params': {
                                 'booking_id': booking_id
                             }
@@ -2164,11 +2179,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             try:
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'PAYMENT_SUCCESS_INFO',
+                        'notification_type': 'PAH_PAYMENT_CONFIRMATION',
                         'params': {
                             'booking_id': instance.id,
-                            'amount': float(amount),
-                            'payment_purpose': 'Hotel Booking'
+                            'amount': float(amount)
                         }
                     }
                 )
@@ -2332,6 +2346,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         )
 
         serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        if data['is_eligible'] and not data['is_blacklisted']:
+            year = datetime.now().year
+            month_num = datetime.strptime(month, "%B").month
+            last_day = calendar.monthrange(year, month_num)[1]
+            formatted_date = f"{month} {last_day}, {year}"
+
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'PAH_SPECIAL_LIMIT_OVERRIDE',
+                    'params': {
+                        'user_id': user.id,
+                        'limit': float(data['eligible_limit']),
+                        'valid_till': formatted_date
+                    }
+                }
+            )
         return self.get_response(
             data=serializer.data,
             message="Eligibility record created successfully.",
@@ -2393,7 +2423,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         eligibility.save()
 
         serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        if updated_by == 'Admin' and data.get('is_eligible') and not data.get('is_blacklisted'):
+            year = datetime.now().year
+            month_num = datetime.strptime(month, "%B").month
+            last_day = calendar.monthrange(year, month_num)[1]
+            formatted_date = f"{month} {last_day}, {year}"
 
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'PAH_SPECIAL_LIMIT_OVERRIDE',
+                    'params': {
+                        'user_id': user.id,
+                        'limit': float(data['eligible_limit']),
+                        'valid_till': formatted_date
+                    }
+                }
+            )
         return self.get_response(
             data=serializer.data,
             message="Eligibility record updated successfully.",
