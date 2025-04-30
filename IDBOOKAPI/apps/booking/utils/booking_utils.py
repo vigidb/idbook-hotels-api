@@ -890,7 +890,14 @@ def handle_pay_at_hotel_payment_cancellation(instance, cancellation_details, app
             'error_message': str(e)
         }
     
-        
+def get_gst_type(bus_details, company_details=None, customer_details=None):
+    business_state = bus_details.state.lower() if bus_details and bus_details.state else None
+
+    if company_details and company_details.state:
+        return "CGST/SGST" if business_state == company_details.state.lower() else "IGST"
+    elif customer_details and customer_details.state:
+        return "CGST/SGST" if business_state == customer_details.state.lower() else "IGST"
+    return ""
             
             
             

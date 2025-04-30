@@ -31,7 +31,7 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
-    handle_pay_at_hotel_payment_cancellation)
+    handle_pay_at_hotel_payment_cancellation, get_gst_type)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -79,6 +79,9 @@ from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 from apps.customer.utils.db_utils import get_wallet_balance
 from apps.org_resources.tasks import admin_send_sms_task
+from apps.org_managements.utils import get_active_business
+from apps.org_resources.db_utils import get_company_details
+from apps.customer.utils.db_utils import get_user_based_customer
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -1695,6 +1698,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
+
+                bus_details = get_active_business()
+
+                if booking and booking.user:
+                    company_id = booking.company_id
+                    if company_id:
+                        company_details = get_company_details(company_id)
+                        customer_details = None
+                    else:
+                        company_details = None
+                        customer_details = get_user_based_customer(booking.user.id)
+
+                    gst_type = get_gst_type(bus_details, company_details, customer_details)
+
+                    booking.gst_type = gst_type
+                    booking.save()
 
                 if commission_details:
                     add_or_update_booking_commission(booking.id, commission_details)

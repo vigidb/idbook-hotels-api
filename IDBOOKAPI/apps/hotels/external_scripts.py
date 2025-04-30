@@ -4,6 +4,7 @@ from apps.hotels.utils.db_utils import (
     update_property_with_starting_price,
     get_slot_price_enabled_property)
 from apps.hotels.utils.hotel_utils import process_property_confirmed_booking_total
+from apps.hotels.submodels.related_models import PropertyCommission
 
 
 def change_json_12hr_price():
@@ -49,6 +50,21 @@ def check_property_coordinates():
             print(e)
             print(obj.get('id'))
         
-    
+def create_or_update_property_commissions():
+    for prop in Property.objects.all():
+        commission_code = f"Idb_comm_{prop.id}"
+        commission_obj, created = PropertyCommission.objects.update_or_create(
+            property_comm=prop,
+            defaults={
+                "code": commission_code,
+                "commission_type": "PERCENT",
+                "commission": 20.0,
+                "active": True
+            }
+        )
+        if created:
+            print(f"Created commission for Property ID {prop.id}")
+        else:
+            print(f"Updated commission for Property ID {prop.id}") 
     
         
