@@ -78,6 +78,7 @@ from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 from apps.customer.utils.db_utils import get_wallet_balance
+from apps.org_resources.tasks import admin_send_sms_task
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -1933,8 +1934,17 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     
                     # Update total no of confirmed booking for a property
                     process_property_confirmed_booking_total(property_id)
+                    if instance.final_amount > 20000:
+                        admin_send_sms_task.apply_async(
+                            kwargs={
+                                'notification_type': 'ADMIN_PAH_HIGH_VALUE_ALERT',
+                                'params': {
+                                    'booking_id': booking_id
+                                }
+                            }
+                        )
                     
-                    create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                    # create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
                     send_booking_sms_task.apply_async(
                         kwargs={
                             'notification_type': 'PAY_AT_HOTEL_BOOKING_CONFIRMATION',
@@ -1945,7 +1955,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     )
                     send_hotel_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
+                            'notification_type': 'HOTELIER_PAH_BOOKING_ALERT',
                             'params': {
                                 'booking_id': booking_id
                             }

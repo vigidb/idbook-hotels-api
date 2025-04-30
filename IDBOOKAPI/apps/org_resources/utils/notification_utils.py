@@ -175,14 +175,16 @@ def create_hotelier_notification(property, notification_type, variables_values):
             'HOTELER_PAYMENT_NOTIFICATION': 'Payment Received',
             'HOTELIER_PROPERTY_REVIEW_NOTIFICATION': 'New Review Received',
             'HOTEL_PROPERTY_SUBMISSION': 'Property Submission Received',
-            'HOTELIER_PAH_FEATURE': 'Property Pay at Hotel Facility Added'
+            'HOTELIER_PAH_FEATURE': 'Property Pay at Hotel Facility Added',
+            'HOTELIER_PAH_BOOKING_ALERT': 'New Pay at Hotel Booking Received'
         }
         
         # Determine appropriate notification_type (GENERAL or BOOKING)
         app_notification_type = 'BOOKING' if notification_type in [
             'HOTELIER_BOOKING_NOTIFICATION',
             'HOTELER_BOOKING_CANCEL_NOTIFICATION',
-            'HOTELER_PAYMENT_NOTIFICATION'
+            'HOTELER_PAYMENT_NOTIFICATION',
+            'HOTELIER_PAH_BOOKING_ALERT'
         ] else 'GENERAL'
         
         # Get template message from DB
@@ -219,3 +221,38 @@ def create_hotelier_notification(property, notification_type, variables_values):
         create_notification(notification_dict)
     except Exception as e:
         print("Hotelier Notification Error", e)
+
+def admin_create_notification(user, notification_type, variables_values):
+    try:
+        titles = {
+            'ADMIN_PAH_HIGH_VALUE_ALERT': 'High-Value Pay at Hotel Booking Alert'
+        }
+        app_notification_type = 'BOOKING' if notification_type in [
+            'ADMIN_PAH_HIGH_VALUE_ALERT'
+        ] else 'GENERAL'
+
+        template = MessageTemplate.objects.get(template_code=notification_type)
+        raw_message = template.template_message
+        raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
+        split_values = variables_values.split('|')
+        description = raw_message.format(*split_values)
+
+        title = titles.get(notification_type, "Admin Notification")
+
+        send_by = get_active_business().user
+
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': app_notification_type,
+            'title': title,
+            'description': description,
+            'redirect_url': '',
+            'image_link': '',
+            'group_name': 'BUSINESS-GRP'
+        }
+
+        print("creating_admin_notification", notification_dict)
+        create_notification(notification_dict)
+    except Exception as e:
+        print("Admin Notification Error", e)
