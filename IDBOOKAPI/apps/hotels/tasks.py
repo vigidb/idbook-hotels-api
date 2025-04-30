@@ -130,6 +130,17 @@ def send_hotel_sms_task(self, notification_type='', params=None):
                     variables_values
                 )
                 create_hotelier_notification(property, notification_type, variables_values)
+        
+        elif notification_type == 'HOTELIER_PAH_BOOKING_ALERT':
+            booking, property = get_booking_property(params.get('booking_id'))
+            if property and property.phone_no and booking:
+                variables_values = f"Hotelier|{property.name}|{float(booking.final_amount)}"
+                send_sms(
+                    property.phone_no,
+                    "HOTELIER_PAH_BOOKING_ALERT",
+                    variables_values
+                )
+                create_hotelier_notification(property, notification_type, variables_values)
 
     except Exception as e:
         print(f'{notification_type} SMS Task Error: {e}')
