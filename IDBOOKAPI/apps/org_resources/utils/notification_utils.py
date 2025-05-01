@@ -225,10 +225,11 @@ def create_hotelier_notification(property, notification_type, variables_values):
 def admin_create_notification(user, notification_type, variables_values):
     try:
         titles = {
-            'ADMIN_PAH_HIGH_VALUE_ALERT': 'High-Value Pay at Hotel Booking Alert'
+            'ADMIN_PAH_HIGH_VALUE_ALERT': 'High-Value Pay at Hotel Booking Alert',
+            'ADMIN_PAH_PAYMENT_DISPUTE_ALERT': 'Payment Dispute Alert'
         }
         app_notification_type = 'BOOKING' if notification_type in [
-            'ADMIN_PAH_HIGH_VALUE_ALERT'
+            'ADMIN_PAH_HIGH_VALUE_ALERT', 'ADMIN_PAH_PAYMENT_DISPUTE_ALERT'
         ] else 'GENERAL'
 
         template = MessageTemplate.objects.get(template_code=notification_type)

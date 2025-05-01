@@ -2232,6 +2232,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             
             # Send payment failure notification
             try:
+                admin_send_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'ADMIN_PAH_PAYMENT_DISPUTE_ALERT',
+                        'params': {
+                            'booking_id': instance.id
+                        }
+                    }
+                )
                 send_booking_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'PAYMENT_FAILED_INFO',
