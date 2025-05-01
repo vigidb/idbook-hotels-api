@@ -45,21 +45,42 @@ class PayUMixin:
         return response
 
 
-    def verify_payment(self):
+    def check_mandate(self, auth_id, trans_id):
+        url = "https://test.payu.in/merchant/postservice?form=2"
+        key = settings.PAYU_KEY
+        command = "check_mandate_status"
+
+        var1 = {"authPayuId":auth_id, "requestId": trans_id}
+        var1 = json.dumps(var1)
+
+        salt = settings.PAYU_SALT
+
+        data_to_hash = f"{key}|{command}|{var1}|{salt}"
+        hex_digest = self.encode_using_sha512(data_to_hash)
+
+        payload = {
+            "key": key,
+            "command": command,
+            "var1": var1,
+            "hash":hex_digest
+        }
+        
+        headers = {"content-type": "application/x-www-form-urlencoded"}
+
+        response = requests.post(url, data=payload, headers=headers)
+        return response
+
+    def verify_payment(self, var1):
 
         url = "https://test.payu.in/merchant/postservice?form=2"
-
-        key = "JPM7Fg"
-        command = "upi_mandate_status"#"verify_payment"
-        var1 = "TX11745850883"
-
-       
-
+        key = settings.PAYU_KEY
+        command = "verify_payment"
+##        var1 = "TX11745850883"
+        
         salt = settings.PAYU_SALT
         
         data_to_hash = f"{key}|{command}|{var1}|{salt}"
         hex_digest = self.encode_using_sha512(data_to_hash)
-        print("hex digest::", hex_digest)
 
         payload = {
             "key": key,
@@ -77,16 +98,16 @@ class PayUMixin:
 
         url = settings.PAYU_URL #"https://test.payu.in/_payment"
         
-##        si_details = {"billingAmount": 120.00,"billingCurrency": "INR",
+##        si_details = {"billingAmount": "200.00","billingCurrency": "INR",
 ##                      "billingCycle": "MONTHLY","billingInterval": 1,
-##                      "paymentStartDate": "2019-09-01",
-##                      "paymentEndDate": "2019-12-01"}
+##                      "paymentStartDate": "2025-04-30",
+##                      "paymentEndDate": "2025-07-29", "siTokenRequestor":1}
         # convert dict to json
         si_details = json.dumps(si_details)
 
-##        params = {"key":"JPM7Fg", "txnid":"ST0189z10", "amount":120,
+##        params = {"key":settings.PAYU_KEY, "txnid":"ST0189z21", "amount":200.00,
 ##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
-##                  "productinfo":"subscription", "firstname":"Sonu",
+##                  "subscription_name":"subscription", "firstname":"Sonu",
 ##                  "email":"sonu@idbookhotels.com", "phone":"9567068425"
 ##                  }
 
@@ -103,7 +124,8 @@ class PayUMixin:
         surl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
         furl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
 
-        api_version, si = 7, 4
+        api_version = 7
+        si =  1  # for recurring payment
 
         salt = settings.PAYU_SALT #""#"QE93eb" #"TuxqAugd"
 
@@ -124,6 +146,7 @@ class PayUMixin:
             "furl": furl,
             "api_version":api_version,
             "si":si,
+            #"free_trial":1,
             "si_details":si_details,
             "hash":hex_digest
         }
@@ -133,6 +156,7 @@ class PayUMixin:
             "content-type": "application/x-www-form-urlencoded"
         }
 
+        print(payload)
         response = requests.post(url, data=payload, headers=headers)
         return response
 
