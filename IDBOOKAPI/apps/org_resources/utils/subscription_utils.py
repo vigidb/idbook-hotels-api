@@ -32,7 +32,11 @@ def subscription_payu_process(user_subscription_dict, params):
    
     if subscription_type == "Monthly":
         payment_frequency = "MONTHLY"
+        total_amount = subscription_amount
+        user_subscription_dict['total_amount'] = total_amount
     elif subscription_type == "Yearly":
+        total_amount = subscription_amount * 12
+        user_subscription_dict['total_amount'] = total_amount
         payment_frequency = "YEARLY"
 
     # initiate payu 
@@ -44,8 +48,9 @@ def subscription_payu_process(user_subscription_dict, params):
                       "billingCycle": payment_frequency,"billingInterval": daily,
                       "paymentStartDate": str(start_date.date()),
                       "paymentEndDate": str(end_date.date())}
-    else:    
-        si_details = {"billingAmount": subscription_amount,"billingCurrency": "INR",
+    else:
+        params['amount'] = total_amount
+        si_details = {"billingAmount": total_amount,"billingCurrency": "INR",
                       "billingCycle": payment_frequency,"billingInterval": 1,
                       "paymentStartDate": str(start_date.date()),
                       "paymentEndDate": str(end_date.date())}

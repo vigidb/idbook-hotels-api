@@ -1667,9 +1667,24 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             if tranx_mode=="CC":
                 # credit card
                 pass
+
+            current_date = datetime.now()
             
             user_sub_obj = UserSubscription.objects.filter(mandate_tnx_id=transaction_id).first()
             if user_sub_obj:
+                # for logs
+                user_id = user_sub_obj.user.id
+                user_subid = user_sub_obj.id
+                user_sub_logs['user_id'] = user_id
+                user_sub_logs['user_sub_id'] = user_subid
+                
+                user_sub_obj.last_paid_date = current_date
+                subscription_type = user_sub_obj.idb_sub.subscription_type
+                if subscription_type == "Monthly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(months=1)
+                elif subscription_type == "Yearly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(years=1)
+                
                 user_sub_obj.pg_subid = pg_subid
                 user_sub_obj.transaction_amount = net_amount_debit
                 if mnd_status == 'success':
@@ -1741,7 +1756,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
                 auth_data = json_data.get('data', {})
                 pg_subscription_id = auth_data.get('subscriptionDetails', {}).get("subscriptionId", "")
-                pg_subscription_id = "OM2504191131437470597164"
+                #pg_subscription_id = "OM2504191131437470597164"
                 subscription_state = auth_data.get('subscriptionDetails', {}).get("state", "")
                 
                 if pg_subscription_id:
