@@ -154,6 +154,20 @@ def admin_send_sms_task(self, notification_type='', params=None):
                         )
                         admin_create_notification(user, notification_type, variables_values)
 
+        elif notification_type == 'ADMIN_PAH_PAYMENT_DISPUTE_ALERT':
+            booking, property = get_booking_property(params.get('booking_id'))
+            if booking and property:
+                variables_values = f"{property.name}|{booking.reference_code}|{float(booking.final_amount)}"
+                users = get_users_by_group_and_role('BUSINESS-GRP', 'BUS-ADMIN')
+                for user in users:
+                    if user.mobile_number:
+                        send_sms(
+                            user.mobile_number,
+                            "ADMIN_PAH_PAYMENT_DISPUTE_ALERT",
+                            variables_values
+                        )
+                        admin_create_notification(user, notification_type, variables_values)
+
     except Exception as e:
         print(f'{notification_type} ADMIN SMS Task Error: {e}')
 
