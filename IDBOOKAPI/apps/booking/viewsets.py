@@ -1161,7 +1161,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 #     commission_details.get('com_amnt_withtax', 0))
                 # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                 hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                 commission_details['hotelier_amount'] = hotelier_amount
+                commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
                             "subtotal":str(self.subtotal),
