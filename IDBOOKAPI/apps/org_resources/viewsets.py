@@ -52,10 +52,12 @@ from apps.org_resources.utils.db_utils import (
     is_corporate_email_exist, is_corporate_number_exist, get_subscription,
     update_subrecur_transaction)
 from apps.org_resources.utils.subscription_utils import (
-    subscription_phone_pe_process, subscription_payu_process)
+    subscription_phone_pe_process, subscription_payu_process,
+    subscription_cancel_payu_process)
 from IDBOOKAPI.utils import paginate_queryset
 
 from datetime import datetime
+import pytz
 from dateutil.relativedelta import relativedelta
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -1468,9 +1470,54 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='cancel',
+            url_name='cancel', permission_classes=[IsAuthenticated])
+    def cancel_subscription(self, request):
         
+        user_id = self.request.user.id
+        user_sub_id = request.data.get('user_sub')
+        payment_medium = request.data.get('payment_medium')
+        data = {}
         
-    
+        user_sub = UserSubscription.objects.filter(id=user_sub_id).first()
+        if not user_sub:
+            custom_response = self.get_error_response(
+                message="Subscription not found", status="error",
+                errors=[],error_code="SUBSCRIPTION_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+
+        pg_subid = user_sub.pg_subid
+
+        tnx_id = "%s%d" % ("CANC", user_id)
+        tnx_id = get_unique_id_from_time(tnx_id)
+
+        amount = user_sub.total_amount
+        subscription_name = user_sub.idb_sub.name
+        name = self.request.user.name
+        email = self.request.user.email
+        phone = self.request.user.mobile_number
+        
+        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
+                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
+                  "subscription_name":subscription_name, "firstname": name,
+                  "email":email, "phone":phone
+                  }
+
+        if payment_medium == 'PayU':
+            response = subscription_cancel_payu_process(pg_subid, params)
+            data = {"url":response.url, "text":response.text, "status_code":response.status_code}
+
+        custom_response = self.get_response(
+            data=data,  # Use the data from the default response
+            status='success',
+            message="User Subscription Initiated",
+            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+        )
+
+        return custom_response
+            
 ##    def create(self, request, *args, **kwargs):
 ##        self.log_request(request)  # Log the incoming request
 ##        user_id = self.request.user.id
@@ -1661,6 +1708,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         try:
             post_data = request.data
             subscription_data_json = json.dumps(post_data)
+            print(subscription_data_json)
             user_sub_logs['status_response'] = subscription_data_json # log
 
             transaction_id = post_data.get('txnid')
@@ -1675,13 +1723,29 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             else:
                 user_sub_logs['status_code'] = 400
                 
-            net_amount_debit = post_data.get('net_amount_debit')
+            net_amount_debit = int(post_data.get('net_amount_debit'))
             if tranx_mode=="CC":
                 # credit card
                 pass
+
+            timezone = pytz.timezone(settings.TIME_ZONE)
+            current_date = datetime.now(timezone)
             
             user_sub_obj = UserSubscription.objects.filter(mandate_tnx_id=transaction_id).first()
             if user_sub_obj:
+                # for logs
+                user_id = user_sub_obj.user.id
+                user_subid = user_sub_obj.id
+                user_sub_logs['user_id'] = user_id
+                user_sub_logs['user_sub_id'] = user_subid
+                
+                user_sub_obj.last_paid_date = current_date
+                subscription_type = user_sub_obj.idb_sub.subscription_type
+                if subscription_type == "Monthly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(months=1)
+                elif subscription_type == "Yearly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(years=1)
+                
                 user_sub_obj.pg_subid = pg_subid
                 user_sub_obj.transaction_amount = net_amount_debit
                 if mnd_status == 'success':
@@ -1753,7 +1817,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
                 auth_data = json_data.get('data', {})
                 pg_subscription_id = auth_data.get('subscriptionDetails', {}).get("subscriptionId", "")
-                pg_subscription_id = "OM2504191131437470597164"
+                #pg_subscription_id = "OM2504191131437470597164"
                 subscription_state = auth_data.get('subscriptionDetails', {}).get("state", "")
                 
                 if pg_subscription_id:

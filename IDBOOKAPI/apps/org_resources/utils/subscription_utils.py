@@ -32,7 +32,11 @@ def subscription_payu_process(user_subscription_dict, params):
    
     if subscription_type == "Monthly":
         payment_frequency = "MONTHLY"
+        total_amount = subscription_amount
+        user_subscription_dict['total_amount'] = total_amount
     elif subscription_type == "Yearly":
+        total_amount = subscription_amount * 12
+        user_subscription_dict['total_amount'] = total_amount
         payment_frequency = "YEARLY"
 
     # initiate payu 
@@ -44,13 +48,14 @@ def subscription_payu_process(user_subscription_dict, params):
                       "billingCycle": payment_frequency,"billingInterval": daily,
                       "paymentStartDate": str(start_date.date()),
                       "paymentEndDate": str(end_date.date())}
-    else:    
-        si_details = {"billingAmount": subscription_amount,"billingCurrency": "INR",
+    else:
+        params['amount'] = total_amount
+        si_details = {"billingAmount": total_amount,"billingCurrency": "INR",
                       "billingCycle": payment_frequency,"billingInterval": 1,
                       "paymentStartDate": str(start_date.date()),
-                      "paymentEndDate": str(end_date.date())}
+                      "paymentEndDate": str(end_date.date()),
+                      "remarks":"Subscription"}
 
-    print("si details::", si_details)
 
     key = settings.PAYU_KEY#"QE93eb"#"12936989"#8680557  #"JPM7Fg"
     params.update({"key":key,"udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":""})  
@@ -64,6 +69,14 @@ def subscription_payu_process(user_subscription_dict, params):
                                         api_code='CRT-SUB', status_code=response.status_code)
     
     return response, usersub_obj
+
+def subscription_cancel_payu_process(pg_subid, params):
+
+    # initiate payu 
+    payu_obj = PayUMixin()
+    response = payu_obj.cancel_subscription(pg_subid, params)
+
+    return response
 
 def subscription_phone_pe_process(
     user_subscription_dict, merchant_subid, merchant_userid,
