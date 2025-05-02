@@ -389,6 +389,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                         'rooms_pricing': self.confirmed_room_details,
                         'subtotal': self.subtotal,
                         'gst_amount': self.final_tax_amount,
+                        'total_room_amount_without_discount': float(self.total_room_amount_without_room_discount),
+                        'total_room_amount_with_discount': self.total_room_amount_with_room_discount,
                         'final_amount': total_final_amount
                     }
                 }
