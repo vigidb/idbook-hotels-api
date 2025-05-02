@@ -12,7 +12,8 @@ from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
     ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS,
-    PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE
+    PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE,
+    DISCOUNT_TYPE
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -278,6 +279,7 @@ class Room(models.Model):
 ##    price_for_12_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price for a 12-hour stay in the room.")
 ##    price_for_24_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price for a 24-hour stay in the room.")
     discount = models.PositiveSmallIntegerField(default=0, help_text="Discount percentage for the room (maximum 90%).")
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
     start_availability_date = models.DateField(null=True)
     end_availability_date = models.DateField(null=True)
 

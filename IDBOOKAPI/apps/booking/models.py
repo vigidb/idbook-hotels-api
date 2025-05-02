@@ -311,6 +311,7 @@ class BookingCommission(models.Model):
     tcs = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     tds = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    hotelier_amount_with_tax = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     
 
 class AppliedCoupon(models.Model):

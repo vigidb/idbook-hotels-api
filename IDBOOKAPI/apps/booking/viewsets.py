@@ -1132,12 +1132,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 coupon_discount_type = coupon.discount_type
                 coupon_discount = coupon.discount
                 discount, subtotal_after_discount = apply_coupon_based_discount(
-                    coupon_discount, coupon_discount_type, self.subtotal)
+                    coupon_discount, coupon_discount_type, self.total_room_amount_with_room_discount)
+                    # coupon_discount, coupon_discount_type, self.subtotal)
 
                 self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
             else:
                 discount = 0
-                self.final_amount = self.subtotal + self.final_tax_amount
+                self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
+                # self.final_amount = self.subtotal + self.final_tax_amount
 
             hotel_booking_dict = {
                 "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
@@ -1155,13 +1157,17 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             commission_details = self.commission_calculation()
             if commission_details:
-                self.final_amount = self.final_amount + float(
-                    commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                # self.final_amount = self.final_amount + float(
+                #     commission_details.get('com_amnt_withtax', 0))
+                # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
                 commission_details['hotelier_amount'] = hotelier_amount
 
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
-                            "subtotal":str(self.subtotal), "discount":str(discount),
+                            "subtotal":str(self.subtotal),
+                            "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
+                            "total_room_amount_with_discount": str(self.total_room_amount_with_room_discount),
+                            "discount":str(discount),
                             "final_amount":str(self.final_amount),
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
@@ -1621,12 +1627,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     coupon_discount_type = coupon.discount_type
                     coupon_discount = coupon.discount
                     discount, subtotal_after_discount = apply_coupon_based_discount(
-                        coupon_discount, coupon_discount_type, self.subtotal)
+                        coupon_discount, coupon_discount_type, self.total_room_amount_with_room_discount)
+                        # coupon_discount, coupon_discount_type, self.subtotal)
 
                     self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
                 else:
                     discount = 0
-                    self.final_amount = self.subtotal + self.final_tax_amount
+                    self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
+                    # self.final_amount = self.subtotal + self.final_tax_amount
 
 ##                tm ='Asia/Kolkata'
 ##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
@@ -1673,9 +1681,11 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
                 commission_details = self.commission_calculation()
                 if commission_details:
-                    self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                    # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                     commission_details['hotelier_amount'] = hotelier_amount
+                    commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
                 booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
@@ -1760,7 +1770,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
                 india_timezone = timezone('Asia/Kolkata')
                 current_month = datetime.now(india_timezone).strftime('%B')
-
+                booking_dict["total_room_amount_without_discount"] = str(float(self.total_room_amount_without_room_discount))
+                booking_dict["total_room_amount_with_discount"] = str(self.total_room_amount_with_room_discount)
                 if user.is_authenticated:
                     eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
 
