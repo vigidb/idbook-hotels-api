@@ -65,16 +65,16 @@ def subscription_payu_process(user_subscription_dict, params):
     # user subscription
     usersub_obj = UserSubscription.objects.create(**user_subscription_dict)
     # user subscription logs
-    UserSubscriptionLogs.objects.create(user_id=user_id, user_sub=usersub_obj,
+    UserSubscriptionLogs.objects.create(user_id=user_id, user_sub=usersub_obj, tnx_id=transaction_id,
                                         api_code='CRT-SUB', status_code=response.status_code)
     
     return response, usersub_obj
 
-def subscription_cancel_payu_process(pg_subid, params):
+def subscription_cancel_payu_process(pg_subid, tnx_id):
 
     # initiate payu 
     payu_obj = PayUMixin()
-    response = payu_obj.cancel_subscription(pg_subid, params)
+    response = payu_obj.cancel_subscription(pg_subid, tnx_id)
 
     return response
 

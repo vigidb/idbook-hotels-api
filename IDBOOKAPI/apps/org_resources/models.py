@@ -541,6 +541,11 @@ class UserSubscription(models.Model):
     paid = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
+
+    is_cancel_initiated = models.BooleanField(default=False)
+    is_cancelled = models.BooleanField(default=False)
+    cancel_tnx_id = models.CharField(max_length=100, blank=True,
+                                     help_text="Cancel transaction id")
     
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -559,10 +564,6 @@ class SubRecurringTransaction(models.Model):
 
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    
-    
-    
-    
     
     
 class BasicAdminConfig(models.Model):
