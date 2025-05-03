@@ -149,6 +149,7 @@ class PayUMixin:
             "content-type": "application/x-www-form-urlencoded"
         }
 
+
         response = requests.post(url, data=payload, headers=headers)
         return response
 
@@ -160,66 +161,29 @@ class PayUMixin:
         print("hex_digest:", hex_digest)
 
 
-    def cancel_subscription(self, authpayuid, params):
+    def cancel_subscription(self, authpayuid, requestid):
 
-        url = settings.PAYU_URL #"https://test.payu.in/_payment"
+        url = "https://test.payu.in/merchant/postservice.php?form=2"#settings.PAYU_URL 
 
         # 403993715533837880
-        si_details = {"authpayuid": authpayuid,
-                      "action":"cancel"}
+        #authpayuid = "403993715533829815"
+        var1 = {"authPayuId": authpayuid,
+                "requestId": requestid}
         # convert dict to json
-        si_details = json.dumps(si_details)
+        var1 = json.dumps(var1)
 
-##        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":200.00,
-##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
-##                  "subscription_name":"subscription", "firstname":"Sonu",
-##                  "email":"sonu@idbookhotels.com", "phone":"9567068425"
-##                  }
+        key = settings.PAYU_KEY
+        salt = settings.PAYU_SALT
+        command = "mandate_revoke"
 
-        key, txnid = params.get("key", ""), params.get("txnid", "")
-        amount = params.get("amount", 0)
-        
-        udf1, udf2, udf3 = params.get("udf1", ""), params.get("udf2", ""), params.get("udf3", "")
-        udf4, udf5 =  params.get("udf4", ""), params.get("udf5", "")
-        
-        productinfo = params.get("subscription_name", "")
-        firstname = params.get("firstname", "")
-        email, phone = params.get("email", ""), params.get("phone", "")
-
-        surl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
-        furl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
-
-        api_version = 7
-        si =  1  # for recurring payment
-
-        salt = settings.PAYU_SALT #""#"QE93eb" #"TuxqAugd"
-
-        #data_to_hash = f"{key}|{txnid}|120|subscription|Sonu|sonu@idbookhotels.com|||||||||||{si_details}|TuxqAugd"
-        data_to_hash = f"{key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}|{udf1}|{udf2}|{udf3}|{udf4}|{udf5}||||||{si_details}|{salt}"
+        data_to_hash = f"{key}|{command}|{var1}|{salt}"
         hex_digest = self.encode_using_sha512(data_to_hash)
         print("hex digest::", hex_digest)
         
         payload = {
             "key": key,
-            "txnid":txnid,
-            "amount":amount,
-            "productinfo":productinfo,
-            "firstname":firstname,
-            "email":email,
-            "phone":phone,
-##            "pg":"CC",
-##            "bankcode":"UTIBENCC",
-            "surl": surl,#"https://test-payment-middleware.payu.in/simulatorResponse",
-            "furl": furl,
-            "api_version":api_version,
-            "si":si,
-##            "ccnum":"5123456789012346",
-##            "ccexpmon":"05",
-##            "ccexpyr":"2025",
-##            "ccvv":"123",
-##            "ccname":"Sonu",
-            #"free_trial":1,
-            "si_details":si_details,
+            "command":command,
+            "var1":var1,
             "hash":hex_digest
         }
         

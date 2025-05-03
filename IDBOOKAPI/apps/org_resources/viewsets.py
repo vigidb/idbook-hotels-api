@@ -1479,6 +1479,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         user_sub_id = request.data.get('user_sub')
         payment_medium = request.data.get('payment_medium')
         data = {}
+        user_sub_logs = {"api_code":"SUB-CANC", "user_id":user_id} # log
         
         user_sub = UserSubscription.objects.filter(id=user_sub_id).first()
         if not user_sub:
@@ -1487,28 +1488,41 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 errors=[],error_code="SUBSCRIPTION_MISSING",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-
+        
+        user_sub_logs['user_sub_id'] = user_sub.id # log
+        user_sub_logs['pg_subid'] = user_sub.pg_subid # log
+        
         pg_subid = user_sub.pg_subid
 
         tnx_id = "%s%d" % ("CANC", user_id)
         tnx_id = get_unique_id_from_time(tnx_id)
+        user_sub_logs['tnx_id'] = tnx_id # log
 
-        amount = user_sub.total_amount
-        subscription_name = user_sub.idb_sub.name
-        name = self.request.user.name
-        email = self.request.user.email
-        phone = self.request.user.mobile_number
-        
-        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
-                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
-                  "subscription_name":subscription_name, "firstname": name,
-                  "email":email, "phone":phone
-                  }
+        user_sub.is_cancel_initiated = True
+        user_sub.cancel_tnx_id = tnx_id
+
+##        amount = user_sub.total_amount
+##        subscription_name = user_sub.idb_sub.name
+##        name = self.request.user.name
+##        email = self.request.user.email
+##        phone = self.request.user.mobile_number
+##        
+##        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
+##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
+##                  "subscription_name":subscription_name, "firstname": name,
+##                  "email":email, "phone":phone
+##                  }
 
         if payment_medium == 'PayU':
-            response = subscription_cancel_payu_process(pg_subid, params)
-            data = {"url":response.url, "text":response.text, "status_code":response.status_code}
+            response = subscription_cancel_payu_process(pg_subid, tnx_id)
+            data = response.json()
 
+        user_sub.save() # save sunscription with cancellation details
+
+        user_sub_logs['status_response'] = data # log      
+        # log entry
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+        
         custom_response = self.get_response(
             data=data,  # Use the data from the default response
             status='success',
@@ -1714,6 +1728,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             transaction_id = post_data.get('txnid')
             pg_subid = post_data.get('mihpayid')
             user_sub_logs['pg_subid'] = pg_subid # log
+            user_sub_logs['tnx_id'] = transaction_id
             tranx_mode = post_data.get('mode')
             
             mnd_status = post_data.get('status')
@@ -1771,21 +1786,52 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         return custom_response
 
     @action(detail=False, methods=['POST'], url_path='payu-payment-response',
-            url_name='payu-payment-sucess', permission_classes=[])
-    def payment_payu_success(self, request):
+            url_name='payu-payment-response', permission_classes=[])
+    def payment_payu_response(self, request):
+        user_sub_logs = {"api_code":"CMN-CALBAK"}
 
-        post_data = request.data
-        payment_data_json = json.dumps(post_data)
+        try:
+            post_data = request.data
+            payment_data_json = json.dumps(post_data)
+            
+            transaction_id = post_data.get('txnid')
+            pg_subid = post_data.get('mihpayid')
+            user_sub_logs['pg_subid'] = pg_subid # log
+            user_sub_logs['tnx_id'] = transaction_id
+            user_sub_logs['status_response'] = payment_data_json
 
-        UserSubscriptionLogs.objects.create(status_response=payment_data_json)
+            response_status = post_data.get('status')
+            # log
+            if response_status == "success":
+                user_sub_logs['status_code'] = 200
+            else:
+                user_sub_logs['status_code'] = 400
 
-        custom_response = self.get_response(
-            data=payment_data_json,  # Use the data from the default response
-            status='success',
-            message="User Subscription Created",
-            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-        )
+            user_sub_obj = UserSubscription.objects.filter(
+                Q(mandate_tnx_id=transaction_id) | Q(pg_subid=pg_subid)).first()
+            print("user sub obj::", user_sub_obj)
+            if user_sub_obj:
+                user_id = user_sub_obj.user.id
+                user_subid = user_sub_obj.id
 
+                user_sub_logs['user_id'] = user_id
+                user_sub_logs['user_sub_id'] = user_subid
+
+            custom_response = self.get_response(
+                data=payment_data_json,  # Use the data from the default response
+                status='success',
+                message="Payu Subscription Response",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+        except Exception as e:
+            user_sub_logs['error_message'] = str(e)
+            custom_response = self.get_error_response(
+                message=str(e), status="error",
+                errors=[],error_code="CALLBACK_ERRROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+        
         return custom_response
 
 
