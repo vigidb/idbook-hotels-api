@@ -5,7 +5,11 @@ from apps.hotels.utils.db_utils import (
     get_room_by_id, get_total_rooms, get_blocked_property_ids,
     get_property_availability, update_property_confirmed_booking,
     get_calendar_unavailable_property)
-
+from datetime import datetime
+from django.template.loader import render_to_string
+from django.template import Context, Template
+import pdfkit
+import os, io
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
 
@@ -254,6 +258,56 @@ def process_property_confirmed_booking_total(property_id):
     except Exception as e:
         print(e)
     
-    
+def generate_service_agreement_pdf(context, property_id=None):
+
+    try:
+        # Format date if needed
+        if 'date' in context and isinstance(context['date'], datetime):
+            context['date'] = context['date'].strftime('%d-%B-%Y')
+            
+        # Render the HTML template with the context data
+        html_content = render_to_string('service_agreement_template/service_agreement.html', context)
+        
+        # Set wkhtmltopdf options
+        options = {
+            'page-size': 'A4',
+            'margin-top': '0mm',
+            'margin-right': '0mm',
+            'margin-bottom': '0mm',
+            'margin-left': '0mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'dpi': 300,
+            'disable-smart-shrinking': True,  # Add this
+            'zoom': 2.75  # Increase this value
+        }
+        
+        # Generate PDF in memory
+        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        
+        # Create filename using property ID and current date
+        file_name = f"service_agreement_{property_id}_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.pdf"
+        
+        # Define the hardcoded path as specified
+        hardcoded_path = "/home/lokesh/Documents/agreement"
+        
+        # Ensure the directory exists
+        os.makedirs(hardcoded_path, exist_ok=True)
+        
+        # Full path to save the file
+        file_path = os.path.join(hardcoded_path, file_name)
+        
+        # Save the PDF to file
+        with open(file_path, 'wb') as pdf_file:
+            pdf_file.write(pdf_bytes)
+            
+        print(f"Service agreement PDF saved successfully at: {file_path}")
+        
+        # Return the path where the file was saved
+        return file_path
+        
+    except Exception as e:
+        print(f"Error generating service agreement PDF: {str(e)}")
+        raise
     
         

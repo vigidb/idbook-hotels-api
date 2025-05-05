@@ -42,7 +42,7 @@ from django.contrib.auth import get_user_model
 from datetime import datetime
 from functools import reduce
 import traceback
-from .tasks import send_hotel_sms_task, send_hotel_email_task
+from .tasks import send_hotel_sms_task, send_hotel_email_task, create_service_agreement_task
 from .mixins.validation_mixins import ValidationMixin
 from apps.booking.mixins.booking_mixins import BookingMixins
 User = get_user_model()
@@ -564,9 +564,12 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 )
 
             elif prop_status == 'Completed':
-                send_hotel_sms_task.apply_async(
-                    kwargs={'notification_type': 'HOTEL_PROPERTY_SUBMISSION', 'params': {'property_id': instance.id}}
-                )
+                # send_hotel_sms_task.apply_async(
+                #     kwargs={'notification_type': 'HOTEL_PROPERTY_SUBMISSION', 'params': {'property_id': instance.id}}
+                # )
+                print("\n\n\n generating service agreement pdf")
+                create_service_agreement_task.apply_async(args=[instance.id])
+                print("generated")
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response

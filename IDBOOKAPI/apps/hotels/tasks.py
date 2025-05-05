@@ -8,8 +8,10 @@ from IDBOOKAPI.email_utils import send_booking_email
 from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
 from .utils.db_utils import get_user_booking_data
+from .utils.hotel_utils import generate_service_agreement_pdf
 from apps.org_resources.utils.notification_utils import create_hotelier_notification
 from apps.booking.tasks import send_booking_sms_task
+from datetime import datetime
 
 @celery_idbook.task(bind=True)
 def send_hotel_sms_task(self, notification_type='', params=None):
@@ -170,14 +172,6 @@ def send_hotel_email_task(self, notification_type='', params=None):
                     recipient_email = property.email
                     print("recipient_email", recipient_email)
                     
-                    # user = None
-                    # if property.managed_by_id:
-                    #     try:
-                    #         user = User.objects.get(id=property.managed_by_id)
-                    #     except User.DoesNotExist:
-                    #         pass
-                    
-                    # hotelier_name = user.name if user else "Hotelier"
                     hotelier_name = "Hotelier"
                     property_name = property.name
                     # login_link = f"{settings.FRONTEND_URL}/login"
@@ -300,3 +294,45 @@ def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
             'status': 'error',
             'message': str(e)
         }
+
+@celery_idbook.task(bind=True)
+def create_service_agreement_task(self, property_id):
+    print("Inside Service Agreement Task")
+    try:
+        property = Property.objects.get(id=property_id)
+        
+        if property:
+            property_name = property.name
+            property_address = f"{property.area_name}, {property.city_name}, {property.state}, {property.country}"
+            
+            # Current date
+            date = datetime.now()
+            
+            # Prepare context data for the template
+            context = {
+                'property_name': property_name,
+                'property_address': property_address,
+                'date': date,
+                # Add any other context data needed for the template
+            }
+            
+            # Generate the PDF agreement
+            try:
+                pdf_path = generate_service_agreement_pdf(context, property_id=property_id)
+                
+                # You may want to update your property model with the agreement path
+                property.service_agreement_path = pdf_path
+                property.save()
+                
+                return pdf_path
+                
+            except Exception as e:
+                print(f"Error generating service agreement PDF: {str(e)}")
+                raise
+                
+    except Property.DoesNotExist:
+        print(f"Property with ID {property_id} does not exist")
+        raise
+    except Exception as e:
+        print(f"Error in create_service_agreement_task: {str(e)}")
+        raise
