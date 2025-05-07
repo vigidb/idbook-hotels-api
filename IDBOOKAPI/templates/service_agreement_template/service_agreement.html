@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Service Agreement - ID BOOK TRADE & E-COMMERCE PVT.LTD.</title>
+        <style>
+
+
+            body {
+                margin: 0;
+                padding: 0;
+                width: 210mm;
+                height: 297mm;
+            }
+
+            .page {
+                width: 210mm;
+                height: 297mm;
+                padding: 15mm 20mm 20mm 15mm;
+                margin: 0 auto;
+                background: #fff;
+                page-break-after: always;
+                position: relative;
+            }
+
+            /* Page 1 Styles */
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: 20px;
+                border-bottom: 1px solid #000;
+                padding-bottom: 10px;
+            }
+
+            .logo {
+                width: 150px;
+            }
+
+            .company-info {
+                text-align: right;
+                font-size: 12px;
+            }
+
+            .title {
+                text-align: center;
+                margin: 10px 0;
+                text-decoration: underline;
+                font-size: 18px;
+            }
+
+            .agreement-content {
+                font-size: 14px;
+                flex-grow: 1;
+            }
+
+            .party-details,
+            .whereas-section,
+            .services-section {
+                margin: 10px 0;
+            }
+
+            strong {
+                font-weight: bold;
+            }
+
+            .stamp {
+                text-align: right;
+                margin-top: 20px;
+            }
+
+            .stamp img {
+                width: 100px;
+            }
+
+            .footer {
+                text-align: center;
+                font-size: 10px;
+                border-top: 1px solid #000;
+                padding-top: 5px;
+                position: absolute;
+                bottom: 20mm; /* Match your new bottom padding */
+                left: 15mm;
+                right: 20mm; /* Match your new right padding */
+            }
+
+            /* Common Styles for All Pages */
+            .services-content {
+                font-size: 14px;
+            }
+
+            .service-item {
+                margin-bottom: 15px;
+                text-align: justify;
+            }
+
+            .sub-item {
+                margin-left: 20px;
+                margin-bottom: 10px;
+            }
+
+            .commission-details {
+                margin: 15px 0;
+            }
+
+            .commission-item {
+                margin-left: 30px;
+                margin-bottom: 10px;
+            }
+
+            .page-number {
+                text-align: right;
+                position: absolute;
+                bottom: 20mm; /* Match your new bottom padding */
+                right: 20mm; /* Match your new right padding */
+                font-size: 14px;
+            }
+
+            /* Page 3 Styles */
+            .hours-list {
+                margin-left: 30px;
+                margin-bottom: 10px;
+            }
+
+            .consideration-section {
+                margin-top: 20px;
+            }
+
+            /* Page 4-6 Styles */
+            .service-item h3 {
+                margin-bottom: 10px;
+            }
+
+            .service-item p {
+                margin-bottom: 10px;
+            }
+
+            .sub-item {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            /* Page 5 Styles */
+            .signature-block {
+                margin-top: 30px;
+            }
+
+            /* Page 6 Styles */
+            .address-section {
+                margin-bottom: 30px;
+            }
+
+            .address-section p {
+                margin-bottom: 15px;
+            }
+
+            .address-section .address-line {
+                margin-top: 10px;
+            }
+
+            .signature-line {
+                display: inline-block;
+                min-width: 200px;
+                border-bottom: 1px solid #000;
+                margin-left: 5px;
+            }
+
+            @media print {
+                body {
+                    background: none;
+                    margin: 0;
+                    padding: 0;
+                }
+
+                .page {
+                    box-shadow: none;
+                    margin: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Page 1 -->
+        <div class="page">
+            <div class="header">
+                <img
+                    src="https://idbookhotels.s3.eu-north-1.amazonaws.com/logo/idbook+logo.png"
+                    alt="Company Logo Placeholder"
+                    class="logo"
+                />
+                <div class="company-info">
+                    <div
+                        style="
+                            font-size: 14px;
+                            font-weight: bold;
+                            margin-bottom: 2px;
+                        "
+                    >
+                        IDBOOK HOSPITALITY PRIVATE LIMITED
+                    </div>
+                    Mail:- partner.b2b@idbookhotels.com<br />
+                    Web:- www.idbookhotels.com<br />
+                    GSTIN No. 06AAECI8163KIZ9
+                </div>
+            </div>
+
+            <h1 class="title">Services Agreement</h1>
+
+            <div class="agreement-content">
+                <p>
+                    This Services agreement (the "<strong>Agreement</strong>")
+                    is made this <u>{{ date }}</u> (date) by and between:
+                </p>
+
+                <div class="party-details">
+                    <p>
+                        IDBOOK TRADE & ECOMMERCE PVT LTD., a company
+                        incorporated under the laws of INDIAN CONSTITUTION,
+                        having its registered office at OPPOSITE PLOT NO.-234,
+                        FRONT OF ICICI BANK ATM, NEAR POLICE STATION, SARHAUL
+                        GURGAON (122015) (hereinafter referred to as the
+                        <strong>"Service Provider"</strong> which expression
+                        shall unless excluded by or repugnant to the subject or
+                        context be deemed to include its successors-in-interest
+                        and permitted assigns) of the
+                        <strong>ONE PART</strong>
+                    </p>
+                    <br />
+                    <p><strong>AND</strong></p>
+                    <br />
+                    <p>
+                        <u>{{ property_name }}</u>, a company
+                        incorporated under the laws of India, having its
+                        registered office at <u>{{ property_address }}</u>
+                        (hereinafter referred to as the
+                        <strong>"Client"</strong> which expression shall unless
+                        excluded by or repugnant to the subject or context be
+                        deemed to include its successors-in-interest and
+                        permitted assigns) of the
+                        <strong>OTHER PART</strong>
+                    </p>
+                </div>
+
+                <div class="whereas-section">
+                    <h2><strong>WHEREAS</strong></h2>
+                    <p>
+                        A. The Service Provider is in the business of providing
+                        the Services (as defined hereunder) and has the skills,
+                        qualification and expertise required to perform the
+                        Services.
+                    </p>
+                    <p>
+                        B. The Client desires to engage the Service Provider to
+                        provide the Services and the Service Provider has agreed
+                        to do the same.
+                    </p>
+                    <p>
+                        C. Pursuant to the above, the Parties seek to enter into
+                        this Agreement to confirm and record the terms and
+                        conditions on which the Service Provider shall provide
+                        the Services to the Client, and other agreements in
+                        connection therewith.
+                    </p>
+                </div>
+
+                <div class="services-section">
+                    <h2>1. SERVICES</h2>
+                    <p>
+                        (a) The Client agrees to avail the Services from the
+                        Service Provider and the Service Provider agrees to
+                        provide the Services to the Client on the terms and
+                        conditions specified in this Agreement.
+                    </p>
+                    <p>(b) The Service Provider shall:</p>
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp Placeholder"
+                    />
+                </div>
+            </div>
+
+            <div class="footer">
+                Ground Floor, Front of ICICI Bank ATM Opposite Plot No. 234,<br />
+                Near Police Station Sarhaul Gurgaon, (HR) 122015<br />
+                Head Office: Gurgaon
+            </div>
+
+            <div class="page-number">1</div>
+        </div>
+
+        <!-- Page 2 -->
+        <div class="page">
+            <div class="services-content">
+                <div class="service-item">
+                    <p>
+                        (i) Provide the Services in compliance with this
+                        Agreement and Applicable Laws. If any Approvals are to
+                        be obtained for provision of Services the same shall be
+                        obtained by the Service Provider;
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (ii) Perform the Services (i) in a professional,
+                        diligent and timely manner; (ii) as per good commercial
+                        practices; and (iii) within the budget specified by the
+                        Client;
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (iii) Retain and utilize a sufficient number of
+                        qualified personnel to perform the Services;
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (iv) Ensure that all personnel who are deputed to
+                        perform the Services are appropriately trained and
+                        qualified to perform such Services; and
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (v) Devote its time and attention necessary to provide
+                        the Services in accordance with the best of the industry
+                        standards and meet any quality standards as may be
+                        specified by the Client.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (c) Unless otherwise authorized in writing, the Services
+                        Provider shall not have any authority pursuant to this
+                        Agreement to commit the Client to any obligation in any
+                        manner whatsoever with respect to third parties, or to
+                        enter into any contracts on behalf of the Client. The
+                        Service Provider shall not have, nor represent itself as
+                        having, any authority under the terms of this Agreement
+                        to make agreements of any kind in the name of or binding
+                        upon the Client.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (d) The Service Provider shall keep the Client promptly
+                        informed of all material matters which come to Service
+                        Provider's attention relating to or affecting the
+                        business of the Client or any matters concerning
+                        provision of Services hereunder by the Service Provider.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (e) The Service Provider agrees and acknowledges that:
+                    </p>
+                    <div class="commission-details">
+                        <p class="commission-item">
+                            i. we are working on 20 % commission.
+                        </p>
+                        <p class="commission-item">
+                            ii. The payment will be transfer to owner account at
+                            the same day as booking day.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (f) The Services shall be provided at Gurugram. The
+                        Service Provider agrees and acknowledges that the
+                        provision of Services hereunder may require travel to
+                        different destinations and the Parties agree that the
+                        cost of travel and accommodation shall be borne by
+                        Service Provider.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (g) The total budget for shall be specified by the
+                        Client to the Service Provider in the Schedule B
+                        attached hereto. Service Provider agrees to manage the
+                        designated budget responsibly and to confer with the
+                        Client in the event that there is any possibility of
+                        overruns and prior to such an event. Service Provider
+                        agrees to provide the Client with all purchase or rental
+                        receipts and an itemized and annotated accounting of all
+                        expenditures. Service Provider agrees that all items
+                        purchased with the Client's funds become the property of
+                        the Client.
+                    </p>
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp"
+                    />
+                </div>
+
+                <div class="page-number">2</div>
+            </div>
+        </div>
+
+        <!-- Page 3 -->
+        <div class="page">
+            <div class="services-content">
+                <div class="service-item">
+                    <p>
+                        (h) The Service Provider shall work for a minimum of: 1
+                        year for providing Services to the Client during the
+                        Term of the Agreement.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (i) The Service Provider shall keep the Client informed
+                        regarding the time spent on provision of Services and in
+                        the event the time spent exceeds: 1 year the fee payable
+                        shall only be increased if prior written approval is
+                        obtained from the Client regarding time in excess of: 1
+                        year.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (j) In the event the Service Provider does not spend at
+                        least: 1 year, the fee payable shall be reduced
+                        proportionately based on the actual time spent or
+                        otherwise as may be agreed between the Parties.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>(k) Our services depends upon the hours –</p>
+                    <div class="hours-list">
+                        <p>• 4 Hours :</p>
+                        <p>• 8 Hours :</p>
+                        <p>• 12 Hours :</p>
+                        <p>• 24 Hours :</p>
+                    </div>
+                    <p>
+                        (l) Anytime Check-in Check-out – NONSTANDARDIZED TIME OF
+                        CHECK-IN & CHECK-OUT
+                    </p>
+                </div>
+
+                <div class="consideration-section">
+                    <h3>2. CONSIDERATION</h3>
+                    <div class="service-item">
+                        <p>
+                            (a) In consideration of the Services rendered by the
+                            Service Provider, the Client shall pay to the
+                            Service Provider, the following fixed fees: 20% per
+                            transaction.
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (b) The fees shall be payable subject to receipt of
+                            an invoice from the Service Provider as per the
+                            Schedule attached hereto as Fee Schedule (attached
+                            separately). The Service Provider shall raise
+                            invoices on the Client for all amounts due (in terms
+                            of this Agreement) to the Service Provider from the
+                            Client.
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (c) The Fee to be paid as specified above shall be
+                            exclusive of Goods and Services Tax (GST).
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (d) The Fees payable by the Client shall be
+                            inclusive of all expenses to be incurred by the
+                            Service Provider in provision of Services hereunder.
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (e) The Client shall pay the fee within a period of
+                            1 (one) day from receipt of invoice by the Service
+                            Provider.
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (f) In the event of delay by the Client in payment
+                            of fees to the Service Provider, the Service
+                            Provider shall be entitled to stop provision of
+                            further Services till such time that the payment of
+                            outstanding dues is made by the Client.
+                        </p>
+                    </div>
+
+                    <div class="service-item">
+                        <p>
+                            (g) In the event of any service(s) provided that are
+                            not included in the list of services as specified in
+                            this Agreement, the Parties shall mutually agree
+                            upon such services, fees and expenses.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp"
+                    />
+                </div>
+
+                <div class="page-number">3</div>
+            </div>
+        </div>
+
+        <!-- Page 4 -->
+        <div class="page">
+            <div class="services-content">
+                <div class="service-item">
+                    <p>
+                        (h) All payments to be made by Client to the Service
+                        Provider shall be subject to deduction of applicable
+                        taxes. The Client shall issue requisite certificate
+                        evidencing such tax deduction in accordance with
+                        Applicable Laws.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>3. REPRESENTATIONS AND WARRANTIES</h3>
+                    <p>
+                        (a) Each Party hereby warrants and represents to the
+                        other Party that:
+                    </p>
+                    <div class="sub-item">
+                        <p>
+                            (i) It has full power and authority to enter into
+                            this Agreement and perform its obligations
+                            hereunder;
+                        </p>
+                        <p>
+                            (ii) This Agreement has been duly executed by it and
+                            this Agreement constitutes its legal, valid and
+                            binding obligation enforceable in accordance with
+                            the terms contained herein;
+                        </p>
+                    </div>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        (b) The Service Provider hereby represents and warrants
+                        to the Client:
+                    </p>
+                    <div class="sub-item">
+                        <p>
+                            (i) It will provide the Services in compliance with
+                            the provisions of this Agreement;
+                        </p>
+                        <p>
+                            (ii) It will act in good faith and use reasonable
+                            skill and care in provision of Services under this
+                            Agreement;
+                        </p>
+                        <p>
+                            (iii) It will comply with all Applicable Laws in
+                            provision of the Services;
+                        </p>
+                        <p>
+                            (iv) It has all requisite corporate and other
+                            approvals, licenses and permits from relevant
+                            governmental authorities to provide the Services.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        EXCEPT AS SPECIFIED ABOVE THE SERVICE PROVIDER MAKES NO
+                        WARRANTIES, EXPRESS OR IMPLIED, WITH RESPECT TO THE
+                        SERVICES AND HEREBY DISCLAIMS ANY AND ALL IMPLIED
+                        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+                        PARTICULAR PURPOSE.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>4. TERM AND TERMINATION</h3>
+                    <p>
+                        (a) This Agreement shall commence on <u>{{ date }}</u>
+                        (date)continue to be in full force and, unless
+                        terminated as specified below. Thereafter, this
+                        Agreement may be renewed upon the mutual consent of the
+                        Parties.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>(b) This Agreement may be terminated as follows:</p>
+                    <div class="sub-item">
+                        <p>
+                            (i) By either Party upon providing a written notice
+                            of 30 (thirty) days prior written notice to the
+                            other Party
+                        </p>
+                        <p>
+                            (ii) By the Client, in the event a material breach
+                            of any provision hereof is committed by the Service
+                            Provider, by providing 15 (fifteen) days written
+                            notice to the Service Provider with reasons of
+                            termination stated thereunder
+                        </p>
+                    </div>
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp"
+                    />
+                </div>
+
+                <div class="page-number">4</div>
+            </div>
+        </div>
+
+        <!-- Page 5 -->
+        <div class="page">
+            <div class="services-content">
+                <div class="service-item">
+                    <p>
+                        (iii) By the Service Provider, in the event a material
+                        breach of any provision hereof is committed by the
+                        Client, by providing 15 (fifteen) days written notice to
+                        the Service Provider with reasons of termination stated
+                        thereunder
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>5. TAXES</h3>
+                    <p>
+                        Service Provider shall be responsible for all taxes in
+                        respect of this Agreement including without limitation
+                        payment of goods and services tax, if applicable, on the
+                        Services provided hereunder.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>6. ENTIRE AGREEMENT</h3>
+                    <p>
+                        This Service Agreement constitutes the entire agreement
+                        and understanding of the Parties with respect to the
+                        subject matter hereof and supersedes any and all prior
+                        negotiations, correspondence, agreements, understandings
+                        duties or obligations between the Parties with respect
+                        to the subject matter hereof.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>7. AMENDMENTS</h3>
+                    <p>
+                        Any change, alteration, amendment, or modification to
+                        this Service Agreement must be in writing and signed by
+                        authorized representatives of both the Parties.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>8. DISPUTE RESOLUTION</h3>
+                    <p>
+                        (a) Any dispute(s) arising out of this Agreement shall,
+                        as far as possible, be settled amicably between the
+                        Parties hereto failing which the following shall apply:
+                    </p>
+                    <p>
+                        (b) The courts in GURGAON,HARYANA COURT shall have
+                        exclusive jurisdiction over any dispute, differences or
+                        claims arising out of this Agreement.
+                    </p>
+                    <p>
+                        (c) If either Party employs attorneys to enforce any
+                        rights arising out of or relating to this Agreement, the
+                        prevailing Party shall be entitled to recover reasonable
+                        costs and attorneys' fees.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>9. Complimentary breakfast schedule</h3>
+                    <p>
+                        The breakfast for short time hotel room, the standard
+                        time is 08:00AM to 10:00AM. If any one will take hotel
+                        rooms for short time before or after morning ( standard
+                        time ) at that time the breakfast will not be provided
+                        only hotel will provide i.e., Tea , Coffee , Cold drink
+                        etc as a part of some refreshment according to above
+                        condition .
+                    </p>
+                </div>
+
+                <!-- <div class="signature-block">
+                    <p>In the case of Client:</p>
+                    <p>Signature (with stamp): ________</p>
+                </div> -->
+                <div class="signature-block">
+                    <p>In the case of Client:</p>
+                    <p>Signature:</p>
+
+                    {% if is_verified and property_name and verified_date and ip_address %}
+                    <p style="font-size: 12px; color: #555;">
+                        Digitally Verified by {{ property_name }}<br />
+                        on {{ verified_date }} from IP address {{ ip_address }}<br />
+                        via secure email verification link.
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp"
+                    />
+                </div>
+
+                <div class="page-number">5</div>
+            </div>
+        </div>
+
+        <!-- Page 6 -->
+        <div class="page">
+            <div class="services-content">
+                <div class="address-section">
+                    <!-- <p>Address:<span class="signature-line"></span></p> -->
+                    <!-- <p>In case of Service Provider:</p>
+                    <p>
+                        Signature (with stamp):<span
+                            class="signature-line"
+                        ></span>
+                    </p> -->
+                    <p class="address-line">
+                        Address: opposite plot no -234 ,front of icici bank atm
+                        ,near police station ,sarhaul ,gurgaon (122015),haryana
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <p>
+                        Either Party may change its address for notification
+                        purposes by giving the other Party 10 (ten) days notice
+                        of the new address and the date upon which it will
+                        become effective.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3>10. GOVERNING LAW</h3>
+                    <p>
+                        This Agreement and all issues arising out of the same
+                        shall be construed in accordance with the laws of India.
+                    </p>
+                </div>
+
+                <div class="service-item">
+                    <h3 style="text-align: center; margin: 30px 0 20px">
+                        FEE SCHEDULE
+                    </h3>
+                    <p style="text-align: center">
+                        The all payment will be sent by the company to hotel
+                        owner within week and hotel owner have to send all the
+                        payments to company within week .
+                    </p>
+                </div>
+
+                <div class="stamp">
+                    <img
+                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
+                        alt="Company Stamp"
+                    />
+                </div>
+
+                <div class="page-number">6</div>
+            </div>
+        </div>
+    </body>
+</html>

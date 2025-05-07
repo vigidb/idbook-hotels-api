@@ -8,8 +8,11 @@ from IDBOOKAPI.email_utils import send_booking_email
 from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
 from .utils.db_utils import get_user_booking_data
+from .utils.hotel_utils import generate_service_agreement_pdf, send_agreement_email
 from apps.org_resources.utils.notification_utils import create_hotelier_notification
 from apps.booking.tasks import send_booking_sms_task
+from datetime import datetime
+import uuid
 
 @celery_idbook.task(bind=True)
 def send_hotel_sms_task(self, notification_type='', params=None):
@@ -300,3 +303,106 @@ def update_monthly_pay_at_hotel_eligibility_task(self, user_id, booking_date):
             'status': 'error',
             'message': str(e)
         }
+
+@celery_idbook.task(bind=True)
+def create_service_agreement_task(self, property_id, is_verified=False, verified_at=None, ip_address=None):
+
+    print("Inside Service Agreement Task")
+    
+    try:
+        property = Property.objects.get(id=property_id)
+        
+        if property:
+            property_name = property.name
+            property_address = f"{property.area_name}, {property.city_name}, {property.state}, {property.country}"
+            date = datetime.now()
+            
+            # If not verified, generate a unique verification token
+            if not is_verified:
+                verification_token = str(uuid.uuid4())
+                property.verify_token = verification_token
+                property.save()
+            
+            pdf_context = {
+                'property_name': property_name,
+                'property_address': property_address,
+                'date': date,
+                'is_verified': is_verified
+            }
+            
+            # Add verification details if available
+            if is_verified and verified_at and ip_address:
+                verified_date = datetime.fromisoformat(verified_at)
+                pdf_context['verified_date'] = verified_date.strftime('%d-%B-%Y %H:%M:%S')
+                pdf_context['ip_address'] = ip_address
+            
+            # Generate the PDF agreement
+            try:
+                print(f"Generating {'verified' if is_verified else 'initial'} service agreement PDF")
+                if is_verified:
+                    # Generate and save PDF to database
+                    pdf_result = generate_service_agreement_pdf(
+                        pdf_context, 
+                        property_id=property_id,
+                        save_to_db=True,
+                        property_obj=property
+                    )
+                else:
+                    # Generate PDF without saving to database
+                    pdf_result = generate_service_agreement_pdf(
+                        pdf_context, 
+                        property_id=property_id,
+                        save_to_db=False
+                    )
+                
+                # Send email to hotelier with the agreement attached
+                if property.email:
+                    if is_verified:
+                        # For verified agreements, send verification confirmation
+                        email_context = {
+                            'name': 'Hotelier',
+                            'property_name': property_name,
+                            'ip_address': ip_address,
+                            'verified_at': pdf_context.get('verified_date')
+                        }
+                        print("Verified email_context", email_context)
+                        
+                        send_agreement_email(
+                            property, 
+                            pdf_result, 
+                            email_context,
+                            is_verification=True
+                        )
+                        print(f"Verification confirmation email sent to {property.email}")
+                    else:
+                        # For initial agreements, send request for verification
+                        email_context = {
+                            'name': 'Hotelier',
+                            'property_name': property_name,
+                            'commission': '20%',
+                            'token': property.verify_token
+                        }
+                        print("Initial email_context", email_context)
+                        
+                        send_agreement_email(
+                            property, 
+                            pdf_result, 
+                            email_context,
+                            is_verification=False
+                        )
+                        print(f"Service agreement email sent to {property.email}")
+                else:
+                    print(f"No email address found for property {property_id}")
+                
+                return pdf_result
+                
+            except Exception as e:
+                print(f"Error generating service agreement PDF: {str(e)}")
+                raise
+                
+    except Property.DoesNotExist:
+        print(f"Property with ID {property_id} does not exist")
+        raise
+    except Exception as e:
+        print(f"Error in create_service_agreement_task: {str(e)}")
+        raise

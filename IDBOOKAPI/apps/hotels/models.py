@@ -205,6 +205,11 @@ class Property(models.Model):
     pay_at_hotel = models.BooleanField(default=False, help_text="If true, customer can pay at the hotel.")
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
+    service_agreement_pdf = models.FileField(upload_to='hotels/service_agreements/', blank=True, null=True)
+    verify_token = models.CharField(max_length=255, blank=True, default='')
+    is_svc_agreement_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(blank=True, null=True)
+    verified_ip = models.CharField(max_length=220, blank=True, default='')
 
     # objects = models.Manager()  # The default manager.
     # published = PropertyManager()  # Our custom manager.
