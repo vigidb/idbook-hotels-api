@@ -202,7 +202,7 @@ class Property(models.Model):
     is_slot_price_enabled = models.BooleanField(default=False)
     property_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
     property_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
-    pay_at_hotel = models.BooleanField(default=False, help_text="If true, customer can pay at the hotel.")
+    pay_at_hotel = models.BooleanField(default=True, help_text="If true, customer can pay at the hotel.")
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
     service_agreement_pdf = models.FileField(upload_to='hotels/service_agreements/', blank=True, null=True)
