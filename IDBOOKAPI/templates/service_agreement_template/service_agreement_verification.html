@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotel Agreement Verification - Idbook Hotels</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #F2F5FB;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #1D498D -1.97%, #3C65A4 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+      margin: 0 auto;
+    }
+
+    .content {
+      padding: 30px;
+      text-align: left;
+    }
+
+    .content h1 {
+      font-size: 24px;
+      color: #3C65A4;
+      margin-bottom: 20px;
+    }
+
+    .content p {
+      font-size: 16px;
+      color: #666;
+      margin: 20px 0;
+      line-height: 1.6;
+    }
+
+    .verification-box {
+      background-color: #E8F5E9;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #4CAF50;
+    }
+
+    .verification-box p {
+      margin: 10px 0;
+    }
+
+    .verification-details {
+      background-color: #F2F5FB;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .verification-details p {
+      margin: 10px 0;
+    }
+
+    .footer {
+      background-color: #F2F5FB;
+      padding: 20px;
+      text-align: center;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .footer a {
+      color: #354F8C;
+      text-decoration: none;
+    }
+
+    /* Dark Mode Styles */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1E1E1E;
+        color: #E2E2E2;
+      }
+
+      .container {
+        background-color: #2A2A2A;
+        box-shadow: none;
+      }
+
+      .header {
+        background-color: #354F8C;
+        color: white;
+      }
+
+      .content h1 {
+        color: #A3C4F1;
+      }
+
+      .content p {
+        color: #CCCCCC;
+      }
+
+      .verification-box {
+        background-color: #1B3B1B;
+        border-left-color: #81C784;
+      }
+
+      .verification-details {
+        background-color: #333;
+      }
+
+      .footer {
+        background-color: #2A2A2A;
+        color: #E2E2E2;
+      }
+
+      .footer a {
+        color: #A3C4F1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section with logo -->
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+    </div>
+
+    <!-- Agreement Verification Content -->
+    <div class="content">
+      <h1>Agreement Verification Confirmation</h1>
+      
+      <p>Dear {{name}},</p>
+
+      <p>Thank you for verifying your Service Agreement with Idbook hotels.</p>
+
+      <div class="verification-box">
+        <p>We're pleased to confirm your acceptance of the agreement. Your property, <strong>{{property_name}}</strong>, is now <strong>active</strong> and visible to customers on our platform.</p>
+      </div>
+
+      <div class="verification-details">
+        <p><strong>📄 Agreement Status:</strong> Digitally Verified</p>
+        <p><strong>📍 Verification IP:</strong> {{ip_address}}</p>
+        <p><strong>🕒 Timestamp:</strong> {{verified_at}}</p>
+        <p><strong>🔐 Verified via:</strong> Email Link Confirmation</p>
+      </div>
+
+      <p>Attached is your <strong>digitally verified agreement</strong> for your records. This document includes a verification statement and your confirmation details.</p>
+
+      <p>We look forward to a successful partnership.</p>
+
+      <p>Warm regards,<br>
+      <strong>Idbook hotels</strong><br>
+      <a href="https://idbookhotels.com">www.idbookhotels.com</a></p>
+    </div>
+
+    <!-- Footer Section -->
+    <div class="footer">
+      <p>© 2025 Idbook hotels All Rights Reserved.</p>
+    </div>
+  </div>
+</body>
+</html> 

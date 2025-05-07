@@ -40,9 +40,10 @@ from apps.booking.models import Booking, HotelBooking
 from django.db.models import Q, Sum
 from django.contrib.auth import get_user_model
 from datetime import datetime
+from pytz import timezone as pytz_timezone
 from functools import reduce
 import traceback
-from .tasks import send_hotel_sms_task, send_hotel_email_task
+from .tasks import send_hotel_sms_task, send_hotel_email_task, create_service_agreement_task
 from .mixins.validation_mixins import ValidationMixin
 from apps.booking.mixins.booking_mixins import BookingMixins
 User = get_user_model()
@@ -567,6 +568,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 send_hotel_sms_task.apply_async(
                     kwargs={'notification_type': 'HOTEL_PROPERTY_SUBMISSION', 'params': {'property_id': instance.id}}
                 )
+                create_service_agreement_task.apply_async(args=[instance.id])
+
             # Create a custom response
             custom_response = self.get_response(
                 data=serializer.data,  # Use the data from the default response
@@ -768,6 +771,58 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 ##
 ##        self.log_response(custom_response)  # Log the custom response before returning
 ##        return custom_response
+
+    @action(detail=False, methods=['get'], url_path='verify-agreement',
+        url_name='verify_agreement', permission_classes=[AllowAny])
+    def verify_agreement(self, request):
+        """
+        Verify service agreement using token and regenerate PDF with signature details
+        """
+        token = request.GET.get('token')
+        print("token---------", token)
+        if not token:
+            return Response({'success': False, 'message': 'Invalid request. Token is required.'}, status=400)
+
+        try:
+            # Get client IP
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            client_ip = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR')
+
+            # Find property with this token
+            property = Property.objects.filter(verify_token=token).first()
+
+            if property:
+                # Use IST (Indian Standard Time)
+                ist = pytz_timezone('Asia/Kolkata')
+                verified_at = datetime.now(ist)
+                
+                # Update property verification fields
+                property.is_svc_agreement_verified = True
+                property.verified_at = verified_at
+                property.verified_ip = client_ip
+                property.save()
+                
+                # Generate signed PDF with verification details
+                print("\n\n\n generating verified service agreement pdf")
+                create_service_agreement_task.apply_async(
+                    kwargs={
+                        'property_id': property.id,
+                        'is_verified': True,
+                        'verified_at': verified_at.isoformat(),
+                        'ip_address': client_ip
+                    }
+                )
+                print("verified service agreement task queued")
+
+                return Response({
+                    'success': True,
+                    'message': 'Agreement verified successfully. Thank you for partnering with Idbook hotels.'
+                })
+            else:
+                return Response({'success': False, 'message': 'Invalid verification token.'}, status=400)
+
+        except Exception as e:
+            return Response({'success': False, 'message': f'Verification failed: {str(e)}'}, status=500)
 
     @action(detail=False, methods=['POST'], url_path='media',
             url_name='media', permission_classes=[IsAuthenticated])

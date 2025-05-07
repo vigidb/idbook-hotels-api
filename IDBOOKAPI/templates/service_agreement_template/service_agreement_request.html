@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotel Agreement Request - Idbook Hotels</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #F2F5FB;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #1D498D -1.97%, #3C65A4 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+      margin: 0 auto;
+    }
+
+    .content {
+      padding: 30px;
+      text-align: left;
+    }
+
+    .content h1 {
+      font-size: 24px;
+      color: #3C65A4;
+      margin-bottom: 20px;
+    }
+
+    .content p {
+      font-size: 16px;
+      color: #666;
+      margin: 20px 0;
+      line-height: 1.6;
+    }
+
+    .highlight-box {
+      background-color: #F2F5FB;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #1D498D;
+    }
+
+    .highlight-box p {
+      margin: 10px 0;
+    }
+
+    .cta-button {
+      display: inline-block;
+      background-color: #1D498D;
+      color: white;
+      padding: 12px 25px;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+      margin: 20px 0;
+    }
+
+    .footer {
+      background-color: #F2F5FB;
+      padding: 20px;
+      text-align: center;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .footer a {
+      color: #354F8C;
+      text-decoration: none;
+    }
+
+    /* Dark Mode Styles */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1E1E1E;
+        color: #E2E2E2;
+      }
+
+      .container {
+        background-color: #2A2A2A;
+        box-shadow: none;
+      }
+
+      .header {
+        background-color: #354F8C;
+        color: white;
+      }
+
+      .content h1 {
+        color: #A3C4F1;
+      }
+
+      .content p {
+        color: #CCCCCC;
+      }
+
+      .highlight-box {
+        background-color: #333;
+        border-left-color: #A3C4F1;
+      }
+
+      .cta-button {
+        background-color: #354F8C;
+      }
+
+      .footer {
+        background-color: #2A2A2A;
+        color: #E2E2E2;
+      }
+
+      .footer a {
+        color: #A3C4F1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section with logo -->
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+    </div>
+
+    <!-- Agreement Request Content -->
+    <div class="content">
+      <h1>Welcome to Idbook hotels</h1>
+      
+      <p>Dear {{name}},</p>
+
+      <p>Thank you for listing your property, <strong>{{property_name}}</strong>, on Idbook hotels.</p>
+
+      <div class="highlight-box">
+        <p><strong>📌 Commission Details:</strong></p>
+        <p>We charge a commission of {{commission}} on each successful booking made through our platform. Full details are outlined in the agreement.</p>
+      </div>
+
+      <p>Please find attached the draft Service Agreement detailing the terms of partnership, including commission and service responsibilities.</p>
+
+      <p>To proceed, please review the attached agreement and confirm your acceptance by clicking the verification link below:</p>
+
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="https://www.idbookhotels.com/hotels/properties/verify-agreement/?token={{token}}" 
+           class="cta-button" style="color: white;">Verify & Accept Agreement</a>
+      </div>
+      <!-- <a href="https://www.idbookhotels.com/hotels/properties/verify-agreement/?token={{token}}" class="cta-button" style="color: white">Verify & Accept Agreement</a> -->
+
+      <p>By clicking this link, you agree to the terms outlined in the attached Service Agreement.</p>
+
+      <p>If you have any questions, feel free to reach out to us at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>.</p>
+
+      <p>Warm regards,<br>
+      <strong>Idbook hotels</strong><br>
+      <a href="https://idbookhotels.com">www.idbookhotels.com</a></p>
+    </div>
+
+    <!-- Footer Section -->
+    <div class="footer">
+      <p>© 2025 Idbook hotels All Rights Reserved.</p>
+    </div>
+  </div>
+</body>
+</html> 
