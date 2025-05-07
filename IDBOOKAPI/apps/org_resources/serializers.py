@@ -224,3 +224,14 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         model = UserSubscription
         fields = '__all__'
 
+class UserSubscriptionProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='idb_sub.name', allow_null=True)
+    subscription_type = serializers.CharField(source='idb_sub.subscription_type',
+                                              allow_null=True)
+    
+    class Meta:
+        model = UserSubscription
+        fields = ('id', 'idb_sub', 'name', 'subscription_type', 'pg_subid',
+                  'sub_start_date','sub_end_date', 'last_paid_date',
+                  'next_payment_date', 'subscription_amount')
+

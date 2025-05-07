@@ -24,7 +24,14 @@ def user_representation(user, refresh_token=None):
 
     user_roles = [uroles for uroles in user.roles.values('id','name')]
     user_groups = [ugrps for ugrps in user.groups.values('id', 'name')]
-        
+
+    subscription_name = ""
+    user_subscription_id = None
+    user_subscription = user.user_subscription.filter(active=True).last()
+    user_subscription_details = {}
+    if user_subscription:
+        subscription_name = user_subscription.idb_sub.name
+        user_subscription_id = user_subscription.id
 
     user_data = {'id': user.id, 'mobile_number': user.mobile_number if user.mobile_number else '',
                  'email': user.email if user.email else '', 'name': user.get_full_name(),
@@ -32,7 +39,8 @@ def user_representation(user, refresh_token=None):
                  'category': user.category, 'profile_picture':profile_picture,
                  'business_id': user.business_id if user.business_id else '',
                  'company_id' : user.company_id if user.company_id else '',
-                 'default_group': user.default_group,
+                 'default_group': user.default_group, 'subscription_name':subscription_name,
+                 'user_subscription_id':user_subscription_id,
                  'is_active': user.is_active}
 
     if refresh_token:
