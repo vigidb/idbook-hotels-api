@@ -1385,6 +1385,32 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 ##            # action is not set return default permission_classes
 ##            return [permission() for permission in self.permission_classes]
 
+    def user_subscription_param_ops(self):
+        
+        filter_dict = {}
+        # fetch filter parameters
+        param_dict= self.request.query_params
+        for key in param_dict:
+            if key in ('user', 'idb_sub',
+                       'paid', 'active', 'is_cancelled',
+                       'is_cancel_initiated'):
+                filter_dict[key] = param_dict[key]
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+
+        # search 
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(pg_subid__icontains=search) | Q(mandate_tnx_id__icontains=search) | Q(cancel_tnx_id__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+    def property_order_ops(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
+
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -1471,6 +1497,35 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        self.user_subscription_param_ops()
+        self.property_order_ops()
+        # paginate the result
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                status="success",
+                count=count,
+                data=response.data,  # Use the data from the default response
+                message="User Subscription List",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+
+            )
+        else:
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                      errors=[],error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
     @action(detail=False, methods=['POST'], url_path='cancel',
             url_name='cancel', permission_classes=[IsAuthenticated])
     def cancel_subscription(self, request):
@@ -1531,189 +1586,6 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         )
 
         return custom_response
-            
-##    def create(self, request, *args, **kwargs):
-##        self.log_request(request)  # Log the incoming request
-##        user_id = self.request.user.id
-##        idb_sub_id = request.data.get('idb_sub')
-##        mobile_number = request.data.get('mobile_number')
-##
-##        # generate merchant user id
-##        merchant_userid = "%s%d" % ("MU", user_id)
-##        # merchant_userid = get_unique_id_from_time(merchant_userid)
-##
-##        # generate merchant subscription id
-##        merchant_subid = "%s%d%d" %("MSUB", user_id, idb_sub_id)
-##        merchant_subid = get_unique_id_from_time(merchant_subid)
-##        
-##        user_subscription_dict = {"user_id":user_id,
-##                                  "idb_sub_id":idb_sub_id}
-##        
-##        subscription = get_subscription(idb_sub_id)
-##        if not subscription:
-##            custom_response = self.get_error_response(
-##                message="Subscription not exist", status="error",
-##                errors=[],error_code="SUBSCRIPTION_NOT_EXIST",
-##                status_code=status.HTTP_400_BAD_REQUEST)
-##            return custom_response
-##            
-##        subscription_amount = subscription.price
-##        user_subscription_dict['subscription_amount'] = subscription_amount
-##        if subscription.subscription_type == 'Once':
-##            pass
-##        else:
-##            if subscription.subscription_type == "Monthly":
-##                payment_frequency = "MONTHLY"
-##            elif subscription.subscription_type == "Yearly":
-##                payment_frequency = "YEARLY"
-##                
-##            upi = request.data.get('upi')
-##            phonepe_obj = PhonePayMixin()
-##            # verify UPI ID
-##            vpa_response = phonepe_obj.verify_vpa(upi)
-##            if vpa_response.status_code == 200:
-##                is_upi_valid = True
-##                user_subscription_dict['upi_id'] = upi
-##                user_subscription_dict['is_upi_valid'] = is_upi_valid
-##                
-##            else:
-##                pass
-####                custom_response = self.get_error_response(
-####                    message="UPI Invalid", status="error",
-####                    errors=[],error_code="INVALID_UPI",
-####                    status_code=status.HTTP_400_BAD_REQUEST)
-####                return custom_response
-##
-##            # create subscription
-##            sub_payload = {
-##                "merchantId": settings.MERCHANT_ID,
-##                "merchantSubscriptionId": merchant_subid,
-##                "merchantUserId": merchant_userid,
-##                "authWorkflowType": "TRANSACTION",
-##                "amountType": "FIXED",
-##                "amount": subscription_amount,
-##                "frequency": payment_frequency,
-##                "recurringCount": 12,
-##                "mobileNumber": mobile_number
-##            }
-##            sub_response = phonepe_obj.create_subscription(sub_payload)
-##            if sub_response.status_code == 200:
-##                sub_response_json = sub_response.json()
-##                sub_data = sub_response_json.get('data',{})
-##                pg_subid = sub_data.get('subscriptionId')
-##                print("subscription id::", pg_subid)
-##                user_subscription_dict['pg_subid'] = pg_subid
-##                user_subscription_dict['merchant_userid'] = merchant_userid
-##                user_subscription_dict['merchant_subid'] = merchant_subid
-##                user_subscription_dict['sub_workflow'] = "TRANSACTION"
-##                usersub_obj = UserSubscription.objects.create(**user_subscription_dict)
-##
-##                # subscription vpa log
-##                usr_sublogs_vpa = UserSubscriptionLogs(
-##                    user_id=user_id, user_sub_id=usersub_obj.id,
-##                    pg_subid=pg_subid, api_code="VPA-CHECK",
-##                    status_code=vpa_response.status_code,
-##                    #status_response=vpa_response.json()
-##                )
-##                # subscription create log
-##                usr_sublogs_subcreate = UserSubscriptionLogs(
-##                    user_id=user_id, user_sub_id=usersub_obj.id,
-##                    pg_subid=pg_subid, api_code="CRT-SUB",
-##                    status_code=sub_response.status_code, status_response=sub_response.json())
-##                
-##                UserSubscriptionLogs.objects.bulk_create([
-##                    usr_sublogs_vpa, usr_sublogs_subcreate])
-##
-##            else:
-##                # error log
-##                UserSubscriptionLogs.objects.create(
-##                    user_id=user_id, api_code="CRT-SUB",
-##                    status_code=sub_response.status_code,
-##                    status_response=sub_response.json())
-##                
-##                custom_response = self.get_error_response(
-##                    message="Subscription creation failed", status="error",
-##                    errors=[],error_code="SUBSCRIPTION_CREATE_ERROR",
-##                    status_code=status.HTTP_400_BAD_REQUEST)
-##                return custom_response
-##
-##
-##            auth_request_id = "%s%d" % ("TX", user_id)
-##            auth_request_id = get_unique_id_from_time(auth_request_id)
-##
-##            # submit auth request, for mandate
-##            payload = {
-##                "merchantId": settings.MERCHANT_ID,
-##                "merchantUserId": merchant_userid,
-##                "subscriptionId": pg_subid,
-##                "authRequestId": auth_request_id,
-##                "amount": subscription_amount,
-##                "paymentInstrument": {
-##                    "type": "UPI_COLLECT",
-##                    "vpa": upi
-##                }
-##            }
-##
-##            submit_init_response = phonepe_obj.submit_auth_init(payload)
-##            if not submit_init_response.status_code == 200:
-##                UserSubscriptionLogs.objects.create(
-##                    user_id=user_id, api_code="MANDATE",
-##                    user_sub_id=usersub_obj.id, pg_subid=pg_subid,
-##                    status_code=submit_init_response.status_code,
-##                    status_response=submit_init_response.json())
-##                
-##                custom_response = self.get_error_response(
-##                     message="Subscription Mandate Request failed", status="error",
-##                     errors=[],error_code="SUBSCRIPTION_MANDATE_REQUEST_ERROR",
-##                     status_code=status.HTTP_400_BAD_REQUEST)
-##                return custom_response
-##            usersub_obj.mandate_tnx_id = auth_request_id
-##            usersub_obj.save()
-##
-##            UserSubscriptionLogs.objects.create(
-##                user_id=user_id, api_code="MANDATE",
-##                user_sub_id=usersub_obj.id, pg_subid=pg_subid,
-##                status_code=submit_init_response.status_code,
-##                status_response=submit_init_response.json())
-##            
-##            #user_subscription_dict['mandate_tnx_id'] = auth_request_id
-##            #print("submit init response::", submit_init_response.json())
-##                  
-##
-####        # Create an instance of your serializer with the request data
-####        serializer = self.get_serializer(data=request.data)
-####
-####        if serializer.is_valid():
-####            # If the serializer is valid, perform the default creation logic
-####            response = super().create(request, *args, **kwargs)
-####
-####            # Create a custom response
-####            custom_response = self.get_response(
-####                data=response.data,  # Use the data from the default response
-####                status='success',
-####                message="User Subscription Created",
-####                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-####
-####            )
-####        else:
-####            error_list = self.custom_serializer_error(serializer.errors)
-####            custom_response = self.get_error_response(
-####                message="Validation Error", status="error",
-####                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
-####            return custom_response
-##
-##        # UserSubscription.objects.create(**user_subscription_dict)
-##        custom_response = self.get_response(
-##            data={},  # Use the data from the default response
-##            status='success',
-##            message="User Subscription Created",
-##            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-##        )
-##
-##        self.log_response(custom_response)  # Log the custom response before returning
-##        return custom_response
-
-
 
     @action(detail=False, methods=['POST'], url_path='payu-sucess',
             url_name='payu-sucess', permission_classes=[])
