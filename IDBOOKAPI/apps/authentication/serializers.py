@@ -8,7 +8,7 @@ from django.contrib.auth import authenticate
 from IDBOOKAPI.utils import format_custom_id
 
 from apps.customer.serializers import CustomerProfileSerializer
-from apps.org_resources.serializers import CompanyDetailSerializer
+from apps.org_resources.serializers import CompanyDetailSerializer, UserSubscriptionProfileSerializer
 from apps.org_managements.serializers import BusinessDetailSerializer
 from apps.org_managements.utils import get_business_details
 from apps.org_resources.db_utils import get_company_details
@@ -223,7 +223,14 @@ class UserListSerializer(serializers.Serializer):
         ret['business_details'] = business_data
         # ret['company_details'] = company_data
         ret['company_id'] = company_id
-        
+
+        user_subscription = user.user_subscription.filter(active=True).last()
+        user_subscription_details = {}
+        if user_subscription:
+            user_subscription_details = UserSubscriptionProfileSerializer(user_subscription)
+            user_subscription_details = user_subscription_details.data
+            
+        ret['user_subscription_details'] = user_subscription_details
         # ret['category'] = user.category
         # ret['is_active'] = user.is_active
         return ret
