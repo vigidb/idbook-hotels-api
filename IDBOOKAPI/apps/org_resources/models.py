@@ -19,7 +19,7 @@ from IDBOOKAPI.validators import get_filename, validate_file_extension, calculat
 from IDBOOKAPI.basic_resources import (
     ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
     COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE,
-    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW)
+    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW, DISCOUNT_TYPE)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -497,6 +497,9 @@ class Subscription(models.Model):
         max_length=50, choices=SUBSCRIPTION_TYPE)
     price = models.PositiveIntegerField(default=0)
     level = models.PositiveIntegerField()
+    discount = models.PositiveSmallIntegerField(default=0, help_text="Discount for Subscription")
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
+    final_price = models.PositiveIntegerField(default=0)
     details = models.JSONField(default=list)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)

@@ -216,9 +216,19 @@ class UserNotificationSerializer(serializers.ModelSerializer):
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
+    features = serializers.SerializerMethodField()
+    
     class Meta:
         model = Subscription
         fields = '__all__'
+
+    def get_features(self, subscription):
+        features = FeatureSubscription.objects.filter(
+            level=subscription.level,
+            type=subscription.subscription_type,
+            is_active=True
+        ).order_by('order')
+        return [feature.title for feature in features]
 
 class UserSubscriptionSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='idb_sub.name', allow_null=True)

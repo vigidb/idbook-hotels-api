@@ -1241,7 +1241,17 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
             
+    def calculate_final_price(self, price, discount, discount_type):
+
+        final_price = price
         
+        if discount and discount_type:
+            if discount_type == 'AMOUNT':
+                final_price = price - discount
+            elif discount_type == 'PERCENT':
+                discount_amount = (discount * price) / 100
+                final_price = price - discount_amount
+        return final_price
         
 
     def create(self, request, *args, **kwargs):
@@ -1249,6 +1259,9 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
 
         name = self.request.data.get('name', '')
         subscription_type = self.request.data.get('subscription_type', '')
+        price = self.request.data.get('price', 0)
+        discount = self.request.data.get('discount', 0)
+        discount_type = self.request.data.get('discount_type', 'PERCENT')
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type,
@@ -1259,18 +1272,36 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
                                                       errors=[],error_code="DUPLICATE_NAME",
                                                       status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-            
+        try:
+            price = int(price)
+            discount = int(discount)
+            final_price = self.calculate_final_price(price, discount, discount_type)
+
+            data_copy = request.data.copy()
+            data_copy['final_price'] = final_price
+
+        except (ValueError, TypeError):
+            return self.get_error_response(
+                message="Invalid price or discount values", 
+                status="error",
+                errors=[],
+                error_code="INVALID_VALUES",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = self.get_serializer(data=data_copy)
 
         # Create an instance of your serializer with the request data
-        serializer = self.get_serializer(data=request.data)
+        # serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
-            response = super().create(request, *args, **kwargs)
-
+            # response = super().create(request, *args, **kwargs)
+            serializer.save()
             # Create a custom response
             custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response
+                # data=response.data,  # Use the data from the default response
+                data=serializer.data,  # Use the data from the default response
                 status='success',
                 message="Subscription Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
@@ -1287,18 +1318,15 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         return custom_response
 
     def partial_update(self, request, *args, **kwargs):
-
-        name = self.request.data.get('name', '')
-        subscription_type = self.request.data.get('subscription_type', '')
-        active = self.request.data.get('active', None)
-        
         # Get the object to be updated
         instance = self.get_object()
-        if not subscription_type:
-            subscription_type = instance.subscription_type
-
-        if not name:
-            name = instance.name
+        
+        name = self.request.data.get('name', instance.name)
+        subscription_type = self.request.data.get('subscription_type', instance.subscription_type)
+        price = self.request.data.get('price', instance.price)
+        discount = self.request.data.get('discount', instance.discount)
+        discount_type = self.request.data.get('discount_type', instance.discount_type)
+        active = self.request.data.get('active', None)
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type, active=True).exclude(
@@ -1309,16 +1337,36 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
                                                       errors=[],error_code="DUPLICATE_NAME",
                                                       status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-                
         
+        # Calculate final price
+        try:
+            price = int(price)
+            discount = int(discount)
+            final_price = self.calculate_final_price(price, discount, discount_type)
+            
+            data_copy = request.data.copy()
+            data_copy['final_price'] = final_price
+        except (ValueError, TypeError):
+            custom_response = self.get_error_response(
+                message="Invalid price or discount values", 
+                status="error",
+                errors=[],
+                error_code="INVALID_VALUES",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+        
+        serializer = self.get_serializer(instance, data=data_copy, partial=True)
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        # serializer = self.get_serializer(instance, data=request.data, partial=True)
 
         if serializer.is_valid():
-            response = super().partial_update(request, *args, **kwargs)
+            # response = super().partial_update(request, *args, **kwargs)
+            serializer.save()
             
             custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response
+                # data=response.data,  # Use the data from the default response
+                data=serializer.data,  # Use the data from the default response
                 status='success',
                 message="Update success",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
@@ -3255,7 +3303,7 @@ class GetDistrictStateView(APIView):
 class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = FeatureSubscription.objects.all()
     serializer_class = FeatureSubscriptionSerializer
-    http_method_names = ['get', 'post', 'patch', 'delete']  # Excluding 'put' as requested
+    http_method_names = ['get', 'post', 'patch', 'delete']
     permission_classes_by_action = {
         'create': [IsAuthenticated], 
         'update': [IsAuthenticated],
@@ -3269,7 +3317,6 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
         try: 
             return [permission() for permission in self.permission_classes_by_action[self.action]]
         except KeyError: 
-            # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
     
     def feature_subscription_filter_ops(self):
@@ -3279,23 +3326,35 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
         for key in param_dict:
             param_value = param_dict[key]
             if key in ('is_active', 'type', 'level', 'subscription'):
-                filter_dict[key] = param_value
+                if key == 'is_active':
+                    if param_value.lower() in ('true', '1', 'yes'):
+                        filter_dict[key] = True
+                    elif param_value.lower() in ('false', '0', 'no'):
+                        filter_dict[key] = False
+                else:
+                    filter_dict[key] = param_value
         
         if filter_dict:
-            self.queryset = self.queryset.filter(**filter_dict)
+            filtered_queryset = FeatureSubscription.objects.filter(**filter_dict)
+            self.queryset = filtered_queryset
     
     def list(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-        self.feature_subscription_filter_ops()  # Apply filters
-        
+        self.log_request(request)
+        original_queryset = self.queryset
+        self.feature_subscription_filter_ops()
+
+        count, self.queryset = paginate_queryset(request, self.queryset)
+
         response = super().list(request, *args, **kwargs)
+
         custom_response = self.get_response(
             data=response.data,
             status='success',
             message="Feature Subscriptions Retrieved",
+            count=count,
             status_code=status.HTTP_200_OK,
         )
-        
+
         self.log_response(custom_response)
         return custom_response
     
@@ -3305,6 +3364,7 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
         response = super().retrieve(request, *args, **kwargs)
         custom_response = self.get_response(
             data=response.data,
+            count=1,
             status='success',
             message="Feature Subscription Retrieved",
             status_code=status.HTTP_200_OK,
@@ -3324,8 +3384,7 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
         is_feature_exist = self.queryset.filter(
             feature_key__iexact=feature_key, 
             type=type_val,
-            level=level,
-            is_active=True
+            level=level
         )
         
         if is_feature_exist:
@@ -3341,14 +3400,13 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
         # Create an instance of the serializer with the request data
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
             # Create a custom response
             custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response
+                data=response.data,
                 status='success',
                 message="Feature Subscription Created",
-                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+                status_code=status.HTTP_201_CREATED,
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
@@ -3361,17 +3419,55 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
             )
             return custom_response
             
-        self.log_response(custom_response)  # Log the custom response before returning
+        self.log_response(custom_response)
         return custom_response
     
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)
         
         instance = self.get_object()
+        
+        # Check if feature_key, type, or level is being updated
+        feature_key = request.data.get('feature_key')
+        type_val = request.data.get('type', instance.type)
+        level = request.data.get('level', instance.level)
+        
+        # Only validate if feature_key is being changed or type/level are being changed
+        if feature_key or ('type' in request.data) or ('level' in request.data):
+            key_to_check = feature_key if feature_key else instance.feature_key
+            
+            # Check if a feature with the same key already exists for this level and type (excluding this instance)
+            is_feature_exist = FeatureSubscription.objects.filter(
+                feature_key__iexact=key_to_check,
+                type=type_val,
+                level=level
+            ).exclude(id=instance.id)
+            
+            if is_feature_exist:
+                custom_response = self.get_error_response(
+                    message="Feature already exists", 
+                    status="error",
+                    errors=[],
+                    error_code="DUPLICATE_FEATURE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
+        
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         
         if serializer.is_valid():
-            serializer.save()
+            if 'type' in request.data or 'level' in request.data:
+                try:
+                    matching_subscription = Subscription.objects.get(
+                        level=level,
+                        subscription_type=type_val
+                    )
+                    serializer.validated_data['subscription'] = matching_subscription
+                except Subscription.DoesNotExist:
+                    serializer.validated_data['subscription'] = None
+            
+            updated_instance = serializer.save()
+            
             custom_response = self.get_response(
                 data=serializer.data,
                 status='success',
@@ -3401,7 +3497,7 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
             data={},
             status='success',
             message="Feature Subscription Deleted",
-            status_code=status.HTTP_204_NO_CONTENT,
+            status_code=status.HTTP_200_OK,
         )
         
         self.log_response(custom_response)
