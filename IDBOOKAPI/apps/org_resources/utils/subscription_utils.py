@@ -35,7 +35,7 @@ def subscription_payu_process(user_subscription_dict, params):
         total_amount = subscription_amount
         user_subscription_dict['total_amount'] = total_amount
     elif subscription_type == "Yearly":
-        total_amount = subscription_amount * 12
+        total_amount = subscription_amount
         user_subscription_dict['total_amount'] = total_amount
         payment_frequency = "YEARLY"
 
