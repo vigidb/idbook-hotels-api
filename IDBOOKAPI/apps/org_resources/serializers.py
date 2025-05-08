@@ -214,12 +214,16 @@ class UserNotificationSerializer(serializers.ModelSerializer):
                               'profile_pic':sender_profile_pic}
         return ret
 
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subscription
         fields = '__all__'
 
 class UserSubscriptionSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='idb_sub.name', allow_null=True)
+    subscription_type = serializers.CharField(source='idb_sub.subscription_type',
+                                              allow_null=True)
     class Meta:
         model = UserSubscription
         fields = '__all__'
