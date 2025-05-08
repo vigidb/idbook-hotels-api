@@ -24,6 +24,7 @@ router.register(r'country-details', CountryDetailsViewSet, basename='country_det
 router.register(r'notification', UserNotificationViewSet, basename='user_notifications')
 router.register(r'subscription', SubscriptionViewset, basename='subscription')
 router.register(r'user-subscription', UserSubscriptionViewset, basename='user-subscription')
+router.register(r'feature-subscriptions', FeatureSubscriptionViewSet, basename='feature-subscription')
 
 urlpatterns = [
     path('get-state-and-district/<str:query>/', GetDistrictStateView.as_view(), name='district-state'),

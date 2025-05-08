@@ -7,7 +7,7 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription
+    UserSubscription, FeatureSubscription
 )
 from apps.org_resources import db_utils as org_res_db_utils
 from apps.org_managements import utils as org_mng_utils
@@ -239,3 +239,8 @@ class UserSubscriptionProfileSerializer(serializers.ModelSerializer):
                   'sub_start_date','sub_end_date', 'last_paid_date',
                   'next_payment_date', 'subscription_amount')
 
+
+class FeatureSubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeatureSubscription
+        fields = '__all__'

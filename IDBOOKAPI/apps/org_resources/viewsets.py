@@ -16,13 +16,13 @@ from .serializers import (
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
     UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer,
-    SubscriptionSerializer, UserSubscriptionSerializer
+    SubscriptionSerializer, UserSubscriptionSerializer, FeatureSubscriptionSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription
+    UserSubscription, FeatureSubscription
     )
 from apps.log_management.models import UserSubscriptionLogs
 
@@ -3251,3 +3251,158 @@ class GetDistrictStateView(APIView):
             elif query in data["districts"]:
                 return Response({"district": query, "state": data["state"]})
         return Response({"error": f"Query '{query}' not found."}, status=404)
+
+class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = FeatureSubscription.objects.all()
+    serializer_class = FeatureSubscriptionSerializer
+    http_method_names = ['get', 'post', 'patch', 'delete']  # Excluding 'put' as requested
+    permission_classes_by_action = {
+        'create': [IsAuthenticated], 
+        'update': [IsAuthenticated],
+        'partial_update': [IsAuthenticated],
+        'list': [AllowAny], 
+        'retrieve': [AllowAny],
+        'destroy': [IsAuthenticated]
+    }
+    
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            # action is not set return default permission_classes
+            return [permission() for permission in self.permission_classes]
+    
+    def feature_subscription_filter_ops(self):
+        filter_dict = {}
+        param_dict = self.request.query_params
+        
+        for key in param_dict:
+            param_value = param_dict[key]
+            if key in ('is_active', 'type', 'level', 'subscription'):
+                filter_dict[key] = param_value
+        
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+    
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        self.feature_subscription_filter_ops()  # Apply filters
+        
+        response = super().list(request, *args, **kwargs)
+        custom_response = self.get_response(
+            data=response.data,
+            status='success',
+            message="Feature Subscriptions Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        response = super().retrieve(request, *args, **kwargs)
+        custom_response = self.get_response(
+            data=response.data,
+            status='success',
+            message="Feature Subscription Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        title = self.request.data.get('title', '')
+        feature_key = self.request.data.get('feature_key', '')
+        type_val = self.request.data.get('type', '')
+        level = self.request.data.get('level', None)
+        
+        # Check if a feature with the same title or key already exists for this level and type
+        is_feature_exist = self.queryset.filter(
+            feature_key__iexact=feature_key, 
+            type=type_val,
+            level=level,
+            is_active=True
+        )
+        
+        if is_feature_exist:
+            custom_response = self.get_error_response(
+                message="Feature already exists", 
+                status="error",
+                errors=[],
+                error_code="DUPLICATE_FEATURE",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        # Create an instance of the serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default creation logic
+            response = super().create(request, *args, **kwargs)
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                status='success',
+                message="Feature Subscription Created",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR", 
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+    
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            custom_response = self.get_response(
+                data=serializer.data,
+                status='success',
+                message="Feature Subscription Updated",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list, 
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        self.log_response(custom_response)
+        return custom_response
+    
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        instance.delete()
+        
+        custom_response = self.get_response(
+            data={},
+            status='success',
+            message="Feature Subscription Deleted",
+            status_code=status.HTTP_204_NO_CONTENT,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
