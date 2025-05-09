@@ -1,6 +1,6 @@
 from apps.hotels.utils.db_utils import (
     get_property_room_for_booking, get_dynamic_room_pricing_list,
-    get_property_commission)
+    get_property_commission, get_room_price)
 from apps.booking.utils.booking_utils import (
     get_tax_rate, calculate_xbed_amount, calculate_room_booking_amount)
 
@@ -9,7 +9,8 @@ from rest_framework import status
 from IDBOOKAPI.utils import (
     calculate_tax, get_dates_from_range,
     get_date_from_string)
-
+from apps.hotels.models import Room
+from apps.hotels.utils.hotel_utils import get_available_room
 import traceback
 
 class BookingMixins:
@@ -482,7 +483,105 @@ class BookingMixins:
             
               
         return commission_details 
+    
+    def auto_room_allocation(self, request):
+        """
+        Automatically allocate rooms based on adult and child count if room_list is not provided.
+        Uses lowest price rooms while ensuring all guests can be accommodated.
+        """
+        property_id = request.data.get('property', None)
+        adult_count = request.data.get('adult_count', 1)
+        child_count = request.data.get('child_count', 0)
+        booking_slot = request.data.get('booking_slot', '24 Hrs')
         
+        if not property_id:
+            return False, self.get_error_response(
+                message="Property ID is required", status="error",
+                errors=[], error_code="PROPERTY_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+        
+        # Get all available rooms for the property
+        available_rooms = Room.objects.filter(
+            property_id=property_id,
+            active=True
+        )
+        
+        # Check availability for these rooms
+        available_room_list = get_available_room(
+            self.checkin_datetime, self.checkout_datetime, property_id)
+        
+        # Create a dict of available room counts
+        available_room_counts = {}
+        for avail_room in available_room_list:
+            room_id = avail_room.get('id')
+            available_count = avail_room.get('current_available_room', 0)
+            if available_count > 0:
+                available_room_counts[room_id] = available_count
+        
+        # Filter available_rooms to only include rooms with available inventory
+        available_rooms = [room for room in available_rooms if room.id in available_room_counts]
+
+        # Sort rooms by price
+        available_rooms = sorted(available_rooms, key=lambda room: get_room_price(room, booking_slot))
+        
+        # Construct room allocation
+        allocated_rooms = []
+        remaining_adults = adult_count
+        remaining_children = child_count
+        total_guests = remaining_adults + remaining_children
+        
+        for room in available_rooms:
+            room_id = room.id
+            available_count = available_room_counts.get(room_id, 0)
+            
+            if available_count <= 0:
+                continue
+            
+            # Get room details for occupancy info
+            room_detail = get_property_room_for_booking(property_id, room_id)
+            if not room_detail:
+                continue
+                
+            max_occupancy = room_detail.get('room_occupancy', {}).get('max_occupancy', 1)
+            print(f"Room ID: {room_id}, Max Occupancy: {max_occupancy}, Available Count: {available_count}")
+            
+            # Calculate how many rooms of this type we need
+            guests_per_room = max_occupancy
+            rooms_needed = min(
+                (total_guests + guests_per_room - 1) // guests_per_room,  # Ceiling division
+                available_count
+            )
+            
+            # How many guests can we accommodate with these rooms
+            guests_accommodated = min(rooms_needed * guests_per_room, total_guests)
+            total_guests -= guests_accommodated
+            
+            # If we need rooms of this type, add to allocation
+            if rooms_needed > 0:
+                print(f"Allocating {rooms_needed} rooms of Room ID: {room_id} for {guests_accommodated} guests")
+                allocated_rooms.append({
+                    "room_id": room_id,
+                    "no_of_rooms": rooms_needed
+                })
+            
+            # If all guests are allocated, break
+            if total_guests == 0:
+                break
+        
+        # Check if all guests could be allocated
+        if total_guests > 0:
+            return False, self.get_error_response(
+                message="Could not find enough rooms to accommodate all guests",
+                status="error",
+                errors=[],
+                error_code="INADEQUATE_ROOMS",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Successfully allocated rooms
+        self.room_list = allocated_rooms
+        print(f"Final allocated rooms: {allocated_rooms}")
+        return True, None
 
 ##    def amount_calculations(self):
 ##        

@@ -8,6 +8,7 @@ from IDBOOKAPI.email_utils import send_booking_email
 from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
 from .utils.db_utils import get_user_booking_data
+from apps.org_resources.utils.notification_utils import create_hotelier_notification
 
 @celery_idbook.task(bind=True)
 def send_hotel_sms_task(self, notification_type='', params=None):
@@ -40,67 +41,81 @@ def send_hotel_sms_task(self, notification_type='', params=None):
             if property and property.phone_no:
                 website_link = f"https://www.idbookhotels.com/hotelier/login?utm_source=sms&utm_medium=notification&utm_campaign=property_activation&ref={property.slug}"
                 short_link = shorten_link(website_link)
-                return send_sms(
+                variables_values = f"Hotelier|{property.name}|{short_link}"
+                send_sms(
                     property.phone_no,
                     "HOTEL_PROPERTY_ACTIVATION",
-                    f"Hotelier|{property.name}|{short_link}"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
         elif notification_type == 'HOTEL_PROPERTY_DEACTIVATION':
             property = get_property_from_id(params.get('property_id'))
             if property and property.phone_no:
-                return send_sms(
+                variables_values = f"Hotelier|{property.name}|Invalid/incomplete listing"
+                send_sms(
                     property.phone_no,
                     "HOTEL_PROPERTY_DEACTIVATION",
-                    f"Hotelier|{property.name}|Invalid/incomplete listing"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
         elif notification_type == 'HOTELIER_BOOKING_NOTIFICATION':
             booking, property = get_booking_property(params.get('booking_id'))
             if property and property.phone_no:
-                return send_sms(
+                variables_values = f"Hotelier|{property.name}|{booking.hotel_booking.confirmed_checkin_time}"
+                send_sms(
                     property.phone_no,
                     "HOTELIER_BOOKING_NOTIFICATION",
-                    f"Hotelier|{property.name}|{booking.hotel_booking.confirmed_checkin_time}"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
         elif notification_type == 'HOTELER_BOOKING_CANCEL_NOTIFICATION':
             booking, property = get_booking_property(params.get('booking_id'))
             if property and property.phone_no:
-                return send_sms(
+                variables_values = f"Hotelier|{property.name}|{booking.reference_code}"
+                send_sms(
                     property.phone_no,
                     "HOTELER_BOOKING_CANCEL_NOTIFICATION",
-                    f"Hotelier|{property.name}|{booking.reference_code}"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
         elif notification_type == 'HOTELER_PAYMENT_NOTIFICATION':
             booking, property = get_booking_property(params.get('booking_id'))
             if property and property.phone_no:
                 final_amount = float(booking.final_amount or 0)
                 code = booking.confirmation_code or booking.reference_code
-                return send_sms(
+                variables_values = f"Hotelier|{final_amount}|{code}"
+                send_sms(
                     property.phone_no,
                     "HOTELER_PAYMENT_NOTIFICATION",
-                    f"Hotelier|{final_amount}|{code}"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
         elif notification_type == 'HOTELIER_PROPERTY_REVIEW_NOTIFICATION':
             review = Review.objects.select_related('property').filter(id=params.get('review_id')).first()
             if review and review.property and review.property.phone_no:
-                return send_sms(
+                variables_values = f"Hotelier|{review.property.name}|{float(review.overall_rating)}"
+                send_sms(
                     review.property.phone_no,
                     "HOTELIER_PROPERTY_REVIEW_NOTIFICATION",
-                    f"Hotelier|{review.property.name}|{float(review.overall_rating)}"
+                    variables_values
                 )
+                create_hotelier_notification(review.property, notification_type, variables_values)
 
         elif notification_type == 'HOTEL_PROPERTY_SUBMISSION':
             property = get_property_from_id(params.get('property_id'))
             if property and property.phone_no:
-                return send_sms(
+                variables_values = f"Hotelier|{property.name}"
+                send_sms(
                     property.phone_no,
                     "HOTEL_PROPERTY_SUBMISSION",
-                    f"Hotelier|{property.name}"
+                    variables_values
                 )
+                create_hotelier_notification(property, notification_type, variables_values)
 
     except Exception as e:
         print(f'{notification_type} SMS Task Error: {e}')
