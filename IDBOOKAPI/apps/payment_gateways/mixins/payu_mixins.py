@@ -11,15 +11,18 @@ class PayUMixin:
         return hex_digest
 
 
-    def recurring_payment_notification(self):
+    def recurring_payment_notification(self, var1):
 
         # url = "https://info.payu.in/merchant/"
-        url = "https://test.payu.in/merchant/postservice.php?form=2"
+##        url = "https://test.payu.in/merchant/postservice.php?form=2"
+        url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
 
         #7043873219
 
-        key, command = "JPM7Fg", "pre_debit_SI" #"check_action_status_txnid"
-        var1 = {"authPayuId":"403993715533817148","requestId":"1234589","debitDate":"2025-04-30","amount":"500"}
+        key = settings.PAYU_KEY
+        command = "pre_debit_SI" 
+##        var1 = {"authPayuId":"403993715533858347","requestId":"TNX589","debitDate":"2025-05-09","amount":"500",
+##                "invoiceDisplayNumber":"INV3RTU6"}
         var1 = json.dumps(var1)
 
         salt = settings.PAYU_SALT
@@ -32,13 +35,52 @@ class PayUMixin:
         payload = {
             "key": key,
             "var1": var1,
-            "command": command,#"pre_debit_SI",
+            "command": command,
             "hash": hex_digest
         }
         headers = {
             "accept": "application/json",
             "content-type": "application/x-www-form-urlencoded"
         }
+        print("payload::", payload)
+
+        response = requests.post(url, data=payload, headers=headers)
+
+        return response
+
+    def recurring_payment_transaction(self, var1):
+
+        # url = "https://info.payu.in/merchant/"
+        #url = "https://test.payu.in/merchant/postservice.php?form=2"
+        url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
+
+        #7043873219
+
+        key = settings.PAYU_KEY
+        command = "si_transaction"
+        
+##        var1 = {"authpayuid":"403993715533858347","txnid":"TNX58908", "amount":"500",
+##                "invoiceDisplayNumber":"M4kOsEOAj1","phone":"9567068425","email":"sonu@idbookhotels.com"}
+        var1 = json.dumps(var1)
+
+        salt = settings.PAYU_SALT
+
+        data_to_hash = f"{key}|{command}|{var1}|{salt}"
+        hex_digest = self.encode_using_sha512(data_to_hash)
+        print("hex digest::", hex_digest)
+        
+
+        payload = {
+            "key": key,
+            "var1": var1,
+            "command": command,
+            "hash": hex_digest
+        }
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/x-www-form-urlencoded"
+        }
+        print("payload::", payload)
 
         response = requests.post(url, data=payload, headers=headers)
 
@@ -46,7 +88,8 @@ class PayUMixin:
 
 
     def check_mandate(self, auth_id, trans_id):
-        url = "https://test.payu.in/merchant/postservice?form=2"
+        # url = "https://test.payu.in/merchant/postservice?form=2"
+        url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
         key = settings.PAYU_KEY
         command = "check_mandate_status"
 
@@ -72,7 +115,8 @@ class PayUMixin:
 
     def verify_payment(self, var1):
 
-        url = "https://test.payu.in/merchant/postservice?form=2"
+        # url = "https://test.payu.in/merchant/postservice?form=2"
+        url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
         key = settings.PAYU_KEY
         command = "verify_payment"
 ##        var1 = "TX11745850883"
@@ -167,7 +211,8 @@ class PayUMixin:
 
     def cancel_subscription(self, authpayuid, requestid):
 
-        url = "https://test.payu.in/merchant/postservice.php?form=2"#settings.PAYU_URL 
+        #url = "https://test.payu.in/merchant/postservice.php?form=2"#settings.PAYU_URL
+        url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
 
         # 403993715533837880
         #authpayuid = "403993715533829815"
