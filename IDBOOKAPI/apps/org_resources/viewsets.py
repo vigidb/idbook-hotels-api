@@ -1507,7 +1507,8 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             user_subscription_dict['payment_type'] = 'PAYMENT GATEWAY'
             user_subscription_dict['payment_medium'] = payment_medium
             params = {'merchant_userid':merchant_userid,'merchant_subid':merchant_subid,
-                      "txnid":auth_request_id, "amount":subscription.price,
+                      "txnid":auth_request_id, "amount":subscription.final_price,
+                      # "txnid":auth_request_id, "amount":subscription.price,
                       "subscription_name":subscription.name,
                       "subscription_type":subscription.subscription_type,
                       "firstname":name,
