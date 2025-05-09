@@ -195,6 +195,7 @@ PAYMENT_TYPE = (
 
 PAYMENT_MEDIUM = (
     ('PHONE PAY', 'PHONE PAY'),
+    ('PayU','PayU'),
     ('Idbook', 'Idbook'),
     ('Hotel', 'Hotel'),
 )

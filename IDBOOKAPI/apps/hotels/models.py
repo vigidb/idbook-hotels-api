@@ -12,7 +12,8 @@ from IDBOOKAPI.utils import get_default_time, default_address_json
 from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
     ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS,
-    PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE
+    PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE,
+    DISCOUNT_TYPE
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -201,9 +202,14 @@ class Property(models.Model):
     is_slot_price_enabled = models.BooleanField(default=False)
     property_size = models.PositiveSmallIntegerField(default=0, help_text="Room Size")
     property_measurement_type = models.CharField(max_length=25, choices=ROOM_MEASUREMENT, default='')
-    pay_at_hotel = models.BooleanField(default=False, help_text="If true, customer can pay at the hotel.")
+    pay_at_hotel = models.BooleanField(default=True, help_text="If true, customer can pay at the hotel.")
     created = models.DateTimeField(auto_now_add=True, help_text="Date and time when the property was created.")
     updated = models.DateTimeField(auto_now=True, help_text="Date and time when the property was last updated.")
+    service_agreement_pdf = models.FileField(upload_to='hotels/service_agreements/', blank=True, null=True)
+    verify_token = models.CharField(max_length=255, blank=True, default='')
+    is_svc_agreement_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(blank=True, null=True)
+    verified_ip = models.CharField(max_length=220, blank=True, default='')
 
     # objects = models.Manager()  # The default manager.
     # published = PropertyManager()  # Our custom manager.
@@ -278,6 +284,7 @@ class Room(models.Model):
 ##    price_for_12_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price for a 12-hour stay in the room.")
 ##    price_for_24_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Price for a 24-hour stay in the room.")
     discount = models.PositiveSmallIntegerField(default=0, help_text="Discount percentage for the room (maximum 90%).")
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
     start_availability_date = models.DateField(null=True)
     end_availability_date = models.DateField(null=True)
 

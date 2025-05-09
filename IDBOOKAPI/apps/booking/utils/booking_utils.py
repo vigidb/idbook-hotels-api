@@ -593,9 +593,9 @@ def check_wallet_balance_for_booking(booking, user, company_id=None):
             bus_details = get_active_business() 
             if bus_details:
                 send_by = bus_details.user
-                
+            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"    
             notification_dict = {'user':user, 'send_by':send_by, 'notification_type':'GENERAL',
-                                 'title':'', 'description':'', 'redirect_url':'',
+                                 'title':'', 'description':'', 'redirect_url':'','group_name':group_name,
                                  'image_link':''}
             notification_dict = wallet_booking_balance_notification_template(
                     booking, balance, notification_dict)
@@ -890,7 +890,14 @@ def handle_pay_at_hotel_payment_cancellation(instance, cancellation_details, app
             'error_message': str(e)
         }
     
-        
+def get_gst_type(bus_details, company_details=None, customer_details=None):
+    business_state = bus_details.state.lower() if bus_details and bus_details.state else None
+
+    if company_details and company_details.state:
+        return "CGST/SGST" if business_state == company_details.state.lower() else "IGST"
+    elif customer_details and customer_details.state:
+        return "CGST/SGST" if business_state == customer_details.state.lower() else "IGST"
+    return ""
             
             
             
