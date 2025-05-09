@@ -123,9 +123,9 @@ class PayUMixin:
 
         # surl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
         # furl = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/payu-sucess/"
-        surl = "http://localhost:3000/api/payment"
+        surl = "https://www.idbookhotels.com/api/payment"
         # surl = "https://www.idbookhotels.com/payment/status/success?type=SUBSCRIPTION"
-        furl = "http://localhost:3000/api/payment"
+        furl = "https://www.idbookhotels.com/api/payment"
         # furl = "https://www.idbookhotels.com/payment/status/failed?type=SUBSCRIPTION"
 
         api_version = 7
