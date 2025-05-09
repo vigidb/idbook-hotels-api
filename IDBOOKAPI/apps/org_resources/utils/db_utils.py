@@ -29,15 +29,53 @@ def get_subscription(subscription_id):
     except Exception as e:
         return None
 
-def fetch_rec_init_subscriptions(start_date, end_date):
+def fetch_rec_subscribers_to_notify(current_date, payment_medium=None):
     try:
         user_subscriptions = UserSubscription.objects.filter(
-            notification_id='', next_notify_date__lte=end_date,
-            next_notify_date__gte=start_date)
+            notification_id='', next_notify_date__date=current_date)
+        if payment_medium:
+            user_subscriptions = user_subscriptions.filter(
+                payment_medium=payment_medium)        
         return user_subscriptions
     except Exception as e:
         print(e)
-        user_subscriptions = []
+        return []
+
+def fetch_rec_subscribers_to_debit(current_date, payment_medium=None):
+    try:
+        user_subscriptions = UserSubscription.objects.filter(
+            recrinit_tnx_id='', next_payment_date__date=current_date).exclude(
+                notification_id='')
+        if payment_medium:
+            user_subscriptions = user_subscriptions.filter(
+                payment_medium=payment_medium)        
+        return user_subscriptions
+    except Exception as e:
+        print(e)
+        return []
+
+def fetch_rec_init_subscriptions(current_date, payment_medium=None):
+    try:
+        user_subscriptions = UserSubscription.objects.filter(
+            notification_id='', next_notify_date__date=current_date)
+        if payment_medium:
+            user_subscriptions = user_subscriptions.filter(
+                payment_medium=payment_medium)
+            
+        return user_subscriptions
+    except Exception as e:
+        print(e)
+        return []
+
+##def fetch_for_rec_notification(start_date, end_date):
+##    try:
+##        user_subscriptions = UserSubscription.objects.filter(
+##            notification_id='', next_notify_date__lte=end_date,
+##            next_notify_date__gte=start_date)
+##        return user_subscriptions
+##    except Exception as e:
+##        print(e)
+##        return []
 
 def add_sub_recurring_transaction(trans_dict:dict):
     SubRecurringTransaction.objects.create(**trans_dict)

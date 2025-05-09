@@ -1,10 +1,18 @@
 from django.conf import settings
+from dateutil.relativedelta import relativedelta
+
+from apps.org_resources.utils.db_utils import (
+    fetch_rec_init_subscriptions, fetch_rec_subscribers_to_notify,
+    fetch_rec_subscribers_to_debit)
 
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.models import UserSubscriptionLogs
-from apps.org_resources.models import UserSubscription
+from apps.org_resources.models import UserSubscription, SubRecurringTransaction
+from apps.log_management.utils .db_utils import create_user_subscription_logs
 
 from apps.payment_gateways.mixins.payu_mixins import PayUMixin
+
+from IDBOOKAPI.utils import get_unique_id_from_time
 
 def subscription_payu_process(user_subscription_dict, params):
     error_response_dict = {}
@@ -206,6 +214,189 @@ def subscription_phone_pe_process(
         status_response=submit_init_response.json())
 
     return error_response_dict, usersub_obj
+
+def subscription_recurring_notification(current_date, payment_medium, pg_obj):
+    trans_dict = {}
+##    payment_medium = "PayU"
+##    user_subscriptions = fetch_rec_init_subscriptions(
+##        current_date, payment_medium=payment_medium)
+
+    user_subscriptions = fetch_rec_subscribers_to_notify(
+        current_date, payment_medium=payment_medium)
+
+    print("user subscriptions notification ---------", user_subscriptions)
+
+    for user_subscription in user_subscriptions:
+
+        # for logs
+        user_sub_logs = {
+            "user_id":user_subscription.user_id,
+            "user_sub_id":user_subscription.id,
+            "pg_subid":user_subscription.pg_subid,
+            "api_code":"RECUR-NOTIF"
+        }
+        
+        try:
+            if payment_medium == "PayU":
+                # send notification
+                request_id = "%s%d" %("RQT", user_subscription.id)
+                request_id  = get_unique_id_from_time(request_id)
+
+                # for transaction debit
+                trans_dict['notify_request_id'] = request_id 
+                trans_dict['user_id'] = user_subscription.user_id 
+                trans_dict['user_sub_id'] = user_subscription.id
+                
+                user_sub_logs["tnx_id"] = request_id # for log
+
+                inv_display_no = "%s%d" %("INV", user_subscription.id)
+                inv_display_no  = get_unique_id_from_time(inv_display_no)
+                trans_dict['invoice_display_no'] = inv_display_no # for transaction debit
+
+                debit_date = str(user_subscription.next_payment_date.date())
+                
+                var1 = {
+                    "authPayuId": user_subscription.pg_subid,
+                    "requestId": request_id,
+                    "debitDate":debit_date,
+                    "amount":user_subscription.total_amount,
+                    "invoiceDisplayNumber":inv_display_no
+                }
+
+                # pg_obj = PayUMixin()
+                resp = pg_obj.recurring_payment_notification(var1)
+
+                notify_response =  resp.json()
+                notify_status_code = notify_response.get('status', 0)
+                
+                if notify_status_code == 1:
+                    notify_status_code = 200
+                    # clear existing transaction id
+                    user_subscription.recrinit_tnx_id = ""
+                    # for user subscription, will be cleared after transaction debit
+                    user_subscription.notification_id = notify_response.get('invoiceid', '')
+                    # save notification id for recurring transaction
+                    trans_dict['notification_id'] = notify_response.get('invoiceid', '')
+                else:
+                    notify_status_code = 400
+                    
+                user_sub_logs["status_code"] = notify_status_code
+                user_sub_logs["status_response"] = notify_response
+
+                user_subscription.notify_request_id = request_id
+                user_subscription.save()
+
+                # save recurring transaction notification details
+                SubRecurringTransaction.objects.create(**trans_dict)
+  
+                
+        except Exception as e:
+            print(e)
+            user_sub_logs["error_message"] = str(e)
+
+        # logs
+        create_user_subscription_logs(user_sub_logs)
+
+
+def subscription_recurring_debit(current_date,payment_medium, pg_obj):
+    trans_dict = {}
+##    payment_medium = "PayU"
+
+    # fetch subscriptions to be debited
+    user_subscriptions = fetch_rec_subscribers_to_debit(
+        current_date, payment_medium=payment_medium)
+
+    print("user subscriptions debit ---------", user_subscriptions)
+
+    for user_subscription in user_subscriptions:
+        
+        subscription_type = user_subscription.idb_sub.subscription_type
+        notification_id = user_subscription.notification_id
+
+        sub_rec_obj = SubRecurringTransaction.objects.get(
+            notification_id=notification_id)
+        inv_display_no = sub_rec_obj.invoice_display_no
+
+        # for logs
+        user_sub_logs = {
+            "user_id":user_subscription.user_id,
+            "user_sub_id":user_subscription.id,
+            "pg_subid":user_subscription.pg_subid,
+            "api_code":"RECUR-INIT"
+        }
+
+        try:
+            if payment_medium == "PayU":
+
+                transaction_id = "%s%d" %("RTX", user_subscription.id)
+                transaction_id  = get_unique_id_from_time(transaction_id)
+
+                user_sub_logs["tnx_id"] = transaction_id
+
+##                inv_display_no = "%s%d" %("INV", user_subscription.id)
+##                inv_display_no  = get_unique_id_from_time(inv_display_no)
+                
+                var1 = {
+                    "authpayuid":user_subscription.pg_subid,
+                    "txnid":transaction_id, "amount":user_subscription.total_amount,
+                    "invoiceDisplayNumber":inv_display_no,
+                    "phone":user_subscription.user.mobile_number,
+                    "email":user_subscription.user.email
+                }
+
+                # debit payment
+                # pg_obj = PayUMixin()
+                resp = pg_obj.recurring_payment_transaction(var1)
+                debit_response =  resp.json()
+                
+                debit_status_code = debit_response.get('status', 0)
+                amount = debit_response.get('details', {}).get(transaction_id, {}).get('amount', 0)
+                #log
+                user_sub_logs["status_response"] = debit_response
+
+                # recurring transaction
+                sub_rec_obj.transaction_amount = int(amount) if amount else 0
+                sub_rec_obj.recrinit_tnx_id = transaction_id
+                
+                if debit_status_code == 1:
+                    user_sub_logs["status_code"] = 200 #log
+                    # recurring transaction 
+                    sub_rec_obj.init_state = True
+                    sub_rec_obj.paid = True
+
+                    user_subscription.last_paid_date = current_date
+                    user_subscription.paid = True
+                    # clear the existing notification id once transaction is success
+                    user_subscription.notification_id = ""
+
+                    if subscription_type == "Monthly":
+                        sub_next_payment_date = current_date + relativedelta(months=1)
+                        user_subscription.next_payment_date = sub_next_payment_date
+                        # notify the customer 3 days before the payment date (mininum 2 days before for payu
+                        user_subscription.next_notify_date = sub_next_payment_date - relativedelta(days=3)
+                    elif subscription_type == "Yearly":
+                        sub_next_payment_date = current_date + relativedelta(years=1)
+                        user_subscription.next_payment_date = sub_next_payment_date
+                        user_subscription.next_notify_date = sub_next_payment_date - relativedelta(days=3)
+                        
+                else:
+                    user_subscription.paid = False
+                    user_subscription.active = False
+                # update user subscription
+                user_subscription.recrinit_tnx_id = transaction_id
+                user_subscription.save()
+                sub_rec_obj.save()
+                        
+        except Exception as e:
+            print(e)
+            user_sub_logs["error_message"] = str(e)
+
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+        
+    
+    
+    
+    
         
     
         

@@ -1629,9 +1629,13 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 user_sub_obj.last_paid_date = current_date
                 subscription_type = user_sub_obj.idb_sub.subscription_type
                 if subscription_type == "Monthly":
-                    user_sub_obj.next_payment_date = current_date + relativedelta(months=1)
+                    sub_next_payment_date = current_date + relativedelta(months=1)
+                    user_sub_obj.next_payment_date = sub_next_payment_date
+                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 elif subscription_type == "Yearly":
-                    user_sub_obj.next_payment_date = current_date + relativedelta(years=1)
+                    sub_next_payment_date = current_date + relativedelta(years=1)
+                    user_sub_obj.next_payment_date = current_date + sub_next_payment_date
+                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 
                 user_sub_obj.pg_subid = pg_subid
                 user_sub_obj.transaction_amount = net_amount_debit
