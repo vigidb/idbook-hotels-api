@@ -501,6 +501,7 @@ class Subscription(models.Model):
     discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
     final_price = models.PositiveIntegerField(default=0)
     details = models.JSONField(default=list)
+    is_popular = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)

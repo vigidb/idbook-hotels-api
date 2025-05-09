@@ -1235,7 +1235,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         
         for key in param_dict:
             param_value = param_dict[key]
-            if key in ('active', 'subscription_type'):
+            if key in ('active', 'subscription_type', 'is_popular'):
                 filter_dict[key] = param_value
 
         if filter_dict:
@@ -1262,6 +1262,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         price = self.request.data.get('price', 0)
         discount = self.request.data.get('discount', 0)
         discount_type = self.request.data.get('discount_type', 'PERCENT')
+        is_popular = self.request.data.get('is_popular', False)
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type,
@@ -1279,6 +1280,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
 
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price
+            data_copy['is_popular'] = is_popular
 
         except (ValueError, TypeError):
             return self.get_error_response(
@@ -1327,6 +1329,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         discount = self.request.data.get('discount', instance.discount)
         discount_type = self.request.data.get('discount_type', instance.discount_type)
         active = self.request.data.get('active', None)
+        is_popular = self.request.data.get('is_popular', instance.is_popular)
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type, active=True).exclude(
@@ -1346,6 +1349,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
             
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price
+            data_copy['is_popular'] = is_popular
         except (ValueError, TypeError):
             custom_response = self.get_error_response(
                 message="Invalid price or discount values", 
