@@ -98,7 +98,8 @@ def subscription_phone_pe_process(
     usersub_obj = None
     phonepe_obj = PhonePayMixin()
 
-    subscription_amount = subscription.price
+    subscription_amount = subscription.final_price
+    # subscription_amount = subscription.price
     user_subscription_dict['subscription_amount'] = subscription_amount
    
     if subscription.subscription_type == "Monthly":

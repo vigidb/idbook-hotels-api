@@ -19,7 +19,7 @@ from IDBOOKAPI.validators import get_filename, validate_file_extension, calculat
 from IDBOOKAPI.basic_resources import (
     ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
     COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE,
-    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW)
+    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW, DISCOUNT_TYPE)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -497,7 +497,11 @@ class Subscription(models.Model):
         max_length=50, choices=SUBSCRIPTION_TYPE)
     price = models.PositiveIntegerField(default=0)
     level = models.PositiveIntegerField()
+    discount = models.PositiveSmallIntegerField(default=0, help_text="Discount for Subscription")
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
+    final_price = models.PositiveIntegerField(default=0)
     details = models.JSONField(default=list)
+    is_popular = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -579,4 +583,33 @@ class BasicAdminConfig(models.Model):
     def __str__(self):
         return f"{self.code}: {self.value}"
 
-    
+class FeatureSubscription(models.Model):
+    title = models.CharField(max_length=255)
+    feature_key = models.CharField(max_length=100)
+    type = models.CharField(max_length=50, choices=SUBSCRIPTION_TYPE)
+    description = models.TextField(blank=True, null=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    level = models.PositiveIntegerField()
+    subscription = models.ForeignKey('Subscription', on_delete=models.CASCADE, 
+                                   related_name='features', blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["level"]
+        
+    def __str__(self):
+        return self.title
+        
+    def save(self, *args, **kwargs):
+        if not self.subscription:
+            try:
+                matching_subscription = Subscription.objects.get(
+                    level=self.level, 
+                    subscription_type=self.type
+                )
+                self.subscription = matching_subscription
+            except Subscription.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
