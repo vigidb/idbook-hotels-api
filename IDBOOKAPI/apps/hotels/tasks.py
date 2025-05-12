@@ -406,3 +406,64 @@ def create_service_agreement_task(self, property_id, is_verified=False, verified
     except Exception as e:
         print(f"Error in create_service_agreement_task: {str(e)}")
         raise
+
+@celery_idbook.task(bind=True)
+def send_hotel_receipt_email_task(self, booking_id):
+    try:
+        booking = Booking.objects.get(id=booking_id)
+        commission = booking.commission_info
+        room_details = booking.hotel_booking.confirmed_room_details[0]  # Assuming one entry
+
+        booking_slot = room_details.get('booking_slot', booking.hotel_booking.booking_slot)
+        checkin = booking.hotel_booking.confirmed_checkin_time
+        checkout = booking.hotel_booking.confirmed_checkout_time
+
+        hotel = booking.hotel_booking.confirmed_property
+        recipient_email = hotel.email
+        print("recipient_email", recipient_email)
+
+        context = {
+            "booking_id": booking.reference_code,
+            "booking_date": datetime.now(),
+            "reservation_datetime": datetime.now(),
+            "check_in_date": checkin,
+            "check_out_date": checkout,
+            "booking_slot": booking_slot,
+            "day_count": room_details.get("no_of_days") if booking_slot == "24 Hrs" else None,
+            "hour_count": room_details.get("booking_slot") if booking_slot != "24 Hrs" else None,
+            "guest_name": booking.user.name,
+            "hotel_name": booking.hotel_booking.confirmed_property.name,
+            "room_type": booking.hotel_booking.room_type,
+            "num_adults": booking.adult_count,  # Use booking object here
+            "num_children": booking.child_count,  # Use booking object here
+            "num_rooms": room_details.get("no_of_rooms"),
+
+            # Amount Details
+            "room_charges": float(booking.subtotal),
+            "property_tax": float(booking.gst_amount),
+            "extra_charges": float(room_details.get("extra_bed_price", 0)),
+            "coupon_code": booking.coupon_code,
+            "discount_text": f"INR {float(booking.discount)}" if booking.discount else "None",
+            "final_amount": float(booking.final_amount),
+            "commission_amount": float(commission.com_amnt),
+            "commission_tax": float(commission.tax_amount),
+            "payable_amount": float(commission.hotelier_amount),
+        }
+
+        # Render the email HTML
+        email_template = get_template('email_template/hotelier-receipt.html')
+        html_content = email_template.render(context)
+
+        subject = f"Hotelier Receipt for Booking - {booking.reference_code}"
+        send_booking_email(subject, hotel, [recipient_email], html_content)
+        
+        print(f"Receipt email sent to {recipient_email} for booking {booking.reference_code}")
+        return True
+
+    except Booking.DoesNotExist:
+        print(f"Booking with id {booking_id} not found")
+        return None
+
+    except Exception as e:
+        print(f"Error in sending hotel receipt email: {e}")
+        return None
