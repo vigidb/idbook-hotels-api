@@ -75,7 +75,7 @@ from pytz import timezone
 from decimal import Decimal
 import pytz
 from apps.customer.models import Wallet
-from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
+from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task, send_hotel_receipt_email_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 from apps.customer.utils.db_utils import get_wallet_balance
 from apps.org_resources.tasks import admin_send_sms_task
@@ -2008,6 +2008,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             if wallet:
                 wallet_balance = wallet.balance
             try:
+                send_hotel_receipt_email_task.apply_async(args=[instance.id])
                 send_booking_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'WALLET_DEDUCTION_CONFIRMATION',

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Idbook Hotels - Booking Confirmation</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      body {
+        background-color: #f3f4f6;
+        color: #1f2937;
+        line-height: 1.5;
+      }
+
+      .invoice__preview {
+        max-width: 800px;
+        margin: 2rem auto;
+        background-color: #ffffff;
+        border-radius: 0.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        overflow: hidden;
+      }
+
+      .container {
+        padding: 2rem;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 2rem;
+        border-bottom: 2px solid #e5e7eb;
+        padding-bottom: 1.5rem;
+      }
+
+      .header-left h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #2d5284;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .paid-badge {
+        background-color: #10b981;
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: 500;
+      }
+
+      .confirmed-badge {
+        background-color: #10b981;
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: 500;
+      }
+
+      .invoice-details {
+        font-size: 0.875rem;
+        color: #6b7280;
+        margin-bottom: 0.25rem;
+      }
+
+      .invoice-details span {
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      .logo {
+        max-width: 100px;
+      }
+
+      .logo img {
+        width: 100%;
+        height: auto;
+      }
+
+      .booking-alert {
+        background-color: #2d5284;
+        color: white;
+        text-align: center;
+        padding: 1rem;
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        margin-bottom: 1.5rem;
+        border-radius: 0.25rem;
+      }
+
+      .hotel-info {
+        margin-bottom: 1.5rem;
+        line-height: 1.8;
+      }
+
+      .hotel-info p {
+        margin-bottom: 0.75rem;
+        font-size: 0.875rem;
+      }
+
+      .booking-details {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        background-color: #f9fafb;
+        border-radius: 0.25rem;
+        overflow: hidden;
+      }
+
+      .booking-details td {
+        padding: 0.75rem 1rem;
+        vertical-align: top;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 0.875rem;
+      }
+
+      .booking-details td:first-child {
+        width: 40%;
+        color: #6b7280;
+        font-weight: 500;
+      }
+
+      .booking-details td:last-child {
+        width: 60%;
+        color: #1f2937;
+        font-weight: 500;
+      }
+
+      .contact-section {
+        text-align: center;
+        font-size: 0.875rem;
+        margin: 2rem 0;
+      }
+
+      .contact-section a {
+        text-decoration: none;
+        font-weight: 600;
+        color: #2d5284;
+      }
+
+      .footer {
+        padding-top: 1rem;
+        border-top: 2px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 2rem;
+      }
+
+      .footer p:first-child {
+        font-style: italic;
+        color: #6b7280;
+        font-size: 0.75rem;
+      }
+
+      .footer p:last-child {
+        font-size: 0.75rem;
+      }
+
+      .footer b {
+        color: #2d5284;
+      }
+
+      .font-medium {
+        font-weight: 500;
+      }
+
+      .mt-1 {
+        margin-top: 0.25rem;
+      }
+
+      .mb-1 {
+        margin-bottom: 0.25rem;
+      }
+
+      @media (max-width: 768px) {
+        .invoice__preview {
+          margin: 1rem;
+          min-width: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+	  <div class="invoice__preview">
+	    <div class="container">
+	      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+			  <div>
+			    <div style="display: flex; align-items: center; gap: 0.5rem;">
+			      <h1 style="margin: 0; font-size: 1.5rem;">Idbook hotels</h1>
+			      <span style="background-color: #10b981; color: white; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-weight: 500;">
+			        Confirmed
+			      </span>
+			    </div>
+			    <p style="margin: 0.25rem 0;">Booking ID: <span>{{ booking_id }}</span></p>
+			    <p style="margin: 0.25rem 0;">Booking Date: <span>{{ booking_date }}</span></p>
+			  </div>
+			  <div style="max-width: 100px;">
+			    <img
+			      src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015"
+			      alt="Idbook Hotels Logo"
+			      style="width: 100%; height: auto;"
+			    />
+			  </div>
+			</div>
+
+	      <div class="booking-alert">
+	        BE READY TO HOST THE GUEST, BOOKING CONFIRMED FOR {{ booking_id }}
+	      </div>
+
+	      <div class="hotel-info">
+	        <p>Hi {{ hotel_name }},</p>
+	        <p>
+	          Your booking from {{ guest_name }} is confirmed for {{ check_in_date }} and the
+	          confirmation email is shared with the guest too.
+	        </p>
+	        <p>
+	          Make sure that the hotel has all the necessary requirements checked
+	          before the guest arrives. Idbook hotels will pay to you total INR
+	          {{ payable_amount }}/- on {{ check_in_date }} for this booking.
+	        </p>
+	      </div>
+
+	      <h3 style="margin-top: 30px;">Booking Details</h3>
+	      <table class="booking-details">
+	        <tr>
+	          <td>Primary Guest name</td>
+	          <td>{{ guest_name }}</td>
+	        </tr>
+	        <tr>
+	          <td>Reservation Date & Time</td>
+	          <td>{{ booking_date }}</td>
+	        </tr>
+	        <tr>
+	          <td>Check-in on</td>
+	          <td>{{ check_in_date }}</td>
+	        </tr>
+	        <tr>
+	          <td>Check-out on</td>
+	          <td>{{ check_out_date }}</td>
+	        </tr>
+	        {% if booking_slot == "24 Hrs" %}
+	        <tr>
+	          <td>No of Days</td>
+	          <td>{{ day_count }}</td>
+	        </tr>
+	        {% else %}
+	        <tr>
+	          <td>No of Hours</td>
+	          <td>{{ hour_count }}</td>
+	        </tr>
+	        {% endif %}
+	        <tr>
+	          <td>Room type</td>
+	          <td>{{ room_type }}</td>
+	        </tr>
+	        <tr>
+	          <td>No of Adult</td>
+	          <td>{{ num_adults }}</td>
+	        </tr>
+	        <tr>
+	          <td>No of Child</td>
+	          <td>{{ num_children }}</td>
+	        </tr>
+	        <tr>
+	          <td>No of rooms</td>
+	          <td>{{ num_rooms }}</td>
+	        </tr>
+	      </table>
+
+	      <h3 style="margin-top: 30px;">Amount Details</h3>
+	      <table class="booking-details">
+	        <tr>
+	          <td>Room Charges</td>
+	          <td>INR {{ room_charges }}/-</td>
+	        </tr>
+	        <tr>
+	          <td>Total Property Tax</td>
+	          <td>INR {{ property_tax }}/-</td>
+	        </tr>
+	        <tr>
+	          <td>Extra Bed Prices</td>
+	          <td>INR {{ extra_charges }}/-</td>
+	        </tr>
+	        <tr>
+	          <td>Coupon Code and Discount</td>
+	          <td>{{ coupon_code }} ({{ discount_text }})</td>
+	        </tr>
+	        <tr>
+	          <td>Final Booking Amount</td>
+	          <td>{{ final_amount }}</td>
+	        </tr>
+	        <tr>
+	          <td>Idbook Commission (20%)</td>
+	          <td>INR {{ commission_amount }}/-</td>
+	        </tr>
+	        <tr>
+	          <td>Idbook Commission Tax (GST 18%)</td>
+	          <td>INR {{ commission_tax }}/-</td>
+	        </tr>
+	        <tr>
+	        <tr>
+			  <td><b>Hotelier Amount</b></td>
+			  <td>
+		        Room Charges (INR {{ room_charges|floatformat:2 }}) 
+		        - Commission (INR {{ commission_amount|floatformat:2 }}) 
+		        + Commission GST (INR {{ commission_tax|floatformat:2 }})
+			  </td>
+			</tr>
+			<tr>
+			<tr>
+			  <td><b>Amount payable to hotel</b></td>
+			  <td><b>INR {{ payable_amount|floatformat:2 }}/-</b></td>
+			</tr>
+	      </table>
+
+	      <p class="mb-1">Looking to hear a great guest review from you.</p>
+	      <p class="mb-1">
+	        We're approachable for you in all 7 days between 9 am to 8 pm.
+	      </p>
+
+	      <div class="contact-section">
+	        <p>
+	          For any enquiry, reach out via
+	          <a href="tel:+919218077408">+91 9218077408</a> |
+	          <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>
+	        </p>
+	        <p>At your services</p>
+	        <p>The Team @Idbook hotels</p>
+	      </div>
+
+	      <footer class="footer">
+	        <p>
+	          This is an electronically generated document, no signature is required.
+	        </p>
+	        <p>Powered by <b>Idbook hotels</b></p>
+	      </footer>
+	    </div>
+	  </div>
+  </body>
+</html>

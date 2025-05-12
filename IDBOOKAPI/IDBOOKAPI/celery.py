@@ -26,6 +26,7 @@ app.conf.task_routes = {
     'apps.hotels.tasks.send_hotel_email_task': {'queue': email_send_queue},
     'apps.hotels.tasks.update_monthly_pay_at_hotel_eligibility_task': {'queue': email_send_queue},
     'apps.hotels.tasks.create_service_agreement_task': {'queue': email_send_queue},
+    'apps.hotels.tasks.send_hotel_receipt_email_task': {'queue': email_send_queue},
     'apps.authentication.tasks.customer_signup_link_task': {'queue': email_send_queue},
     'apps.authentication.tasks.send_signup_email_task': {'queue': email_send_queue},
     'apps.booking.tasks.send_booking_email_task': {'queue': email_send_queue},
