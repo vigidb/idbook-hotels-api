@@ -3067,6 +3067,15 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
         
             create_invoice_task.apply_async(args=[booking_id])
             send_hotel_receipt_email_task.apply_async(args=[booking_id])
+
+            try:
+                cashback_applied = process_subscription_cashback(booking.user, booking_id)
+                if cashback_applied:
+                    print(f"[Cashback] Cashback successfully applied for booking ID: {booking_id}")
+                else:
+                    print(f"[Cashback] No cashback applied for booking ID: {booking_id}")
+            except Exception as cashback_error:
+                print(f"[Cashback ERROR] Failed to apply cashback for booking ID {booking_id}: {cashback_error}")
             
     
     @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
