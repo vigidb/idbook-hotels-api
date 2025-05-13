@@ -27,6 +27,7 @@ import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
 from apps.org_resources.models import BasicAdminConfig, FeatureSubscription
 from IDBOOKAPI.utils import shorten_url
+import random
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -903,8 +904,7 @@ def process_subscription_cashback(user, booking_id):
     """
     Process cashback rewards based on user's subscription level and booking count
     """
-    import random
-    
+
     # Check if user has an active subscription
     user_subscription = user.user_subscription.filter(active=True).last()
     if not user_subscription or not user_subscription.idb_sub:
@@ -923,11 +923,13 @@ def process_subscription_cashback(user, booking_id):
     if not cashback_features:
         return False
     
-    # Count confirmed bookings for this user
+    # Count confirmed bookings for this user - exclude direct hotel payments
     confirmed_bookings_count = Booking.objects.filter(
-        user=user,
-        booking_payment__is_transaction_success=True,
-        status='confirmed'
+        user_id=user.id,
+        status='confirmed',
+    ).exclude(
+        booking_payment__payment_type='DIRECT',
+        booking_payment__payment_medium='Hotel'
     ).count()
     print("confirmed_bookings_count----", confirmed_bookings_count)
     cashback_applied = False
@@ -939,6 +941,9 @@ def process_subscription_cashback(user, booking_id):
             cashback_amount = random.randint(1, 30)
             transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
             cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            # Create notification for cashback
+            if cashback_applied:
+                create_cashback_notification(user, booking_id, cashback_amount, confirmed_bookings_count)
             break
             
         elif feature.feature_key == 'cashback_5' and confirmed_bookings_count % 5 == 0:
@@ -946,6 +951,9 @@ def process_subscription_cashback(user, booking_id):
             cashback_amount = random.randint(1, 30)
             transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
             cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            # Create notification for cashback
+            if cashback_applied:
+                create_cashback_notification(user, booking_id, cashback_amount, confirmed_bookings_count)
             break
     
     return cashback_applied
@@ -986,3 +994,58 @@ def apply_cashback(user, booking_id, cashback_amount, transaction_details):
     update_wallet_transaction(wallet_transact_dict)
     return True         
             
+def create_cashback_notification(user, booking_id, cashback_amount, booking_count):
+    """
+    Create and save notification for cashback rewards
+    """
+    try:
+        booking = Booking.objects.get(id=booking_id)
+        
+        # Get sender (business user)
+        send_by = None
+        bus_details = get_active_business()
+        if bus_details:
+            send_by = bus_details.user
+        
+        # Determine group name based on company_id
+        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+        
+        # Prepare notification dictionary
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': 'GENERAL',
+            'title': '',
+            'description': '',
+            'redirect_url': '',
+            'image_link': '',
+            'group_name': group_name
+        }
+        
+        # Apply notification template
+        notification_dict = booking_cashback_notification_template(
+            booking_id, cashback_amount, booking_count, notification_dict)
+        
+        # Create the notification
+        create_notification(notification_dict)
+        print(f"Cashback notification created for user {user.id}")
+        
+    except Exception as e:
+        print(f"Error creating cashback notification: {e}")
+
+def booking_cashback_notification_template(booking_id, cashback_amount, booking_count, notification_dict):
+    """
+    Create notification template for cashback rewards
+    """
+    try:
+        title = "Cashback Reward Credited"
+        description = f"Congratulations! You've received ₹{cashback_amount} cashback on your {booking_count}th booking."
+        redirect_url = ''
+        
+        notification_dict['title'] = title
+        notification_dict['description'] = description
+        notification_dict['redirect_url'] = redirect_url
+        
+    except Exception as e:
+        print('Cashback Notification Error', e)
+    return notification_dict
