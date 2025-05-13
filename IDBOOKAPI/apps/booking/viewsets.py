@@ -31,7 +31,7 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
-    handle_pay_at_hotel_payment_cancellation, get_gst_type)
+    handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -2085,6 +2085,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         # update total no of confirmed booking for a property
         process_property_confirmed_booking_total(property_id)
+        # Apply cashback if user has eligible subscription
+        try:
+            cashback_applied = process_subscription_cashback(instance.user, instance.id)
+            if cashback_applied:
+                print(f"Cashback applied for booking {instance.id}")
+        except Exception as cashback_error:
+            print(f"Error applying cashback: {cashback_error}")
         
         create_invoice_task.apply_async(args=[booking_id])
         send_booking_sms_task.apply_async(
