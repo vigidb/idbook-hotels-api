@@ -241,7 +241,9 @@ class Invoice(models.Model):
     billed_by = models.ForeignKey(BusinessDetail, on_delete=models.CASCADE, related_name='invoices_billed_by')
     billed_by_details = models.JSONField(default=dict, null=True)
 
-    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    # billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to', null=True, blank=True)
+
     billed_to_details = models.JSONField(default=dict, null=True)
 
     supply_details = models.JSONField(default=dict, null=True)
