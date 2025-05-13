@@ -25,7 +25,7 @@ from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
-from apps.org_resources.models import BasicAdminConfig 
+from apps.org_resources.models import BasicAdminConfig, FeatureSubscription
 from IDBOOKAPI.utils import shorten_url
 
 def generate_booking_confirmation_code(booking_id, booking_type):
@@ -899,5 +899,90 @@ def get_gst_type(bus_details, company_details=None, customer_details=None):
         return "CGST/SGST" if business_state == customer_details.state.lower() else "IGST"
     return ""
             
+def process_subscription_cashback(user, booking_id):
+    """
+    Process cashback rewards based on user's subscription level and booking count
+    """
+    import random
+    
+    # Check if user has an active subscription
+    user_subscription = user.user_subscription.filter(active=True).last()
+    if not user_subscription or not user_subscription.idb_sub:
+        return False
+        
+    # Get subscription features
+    subscription = user_subscription.idb_sub
+    
+    # Get all features for the subscription
+    cashback_features = FeatureSubscription.objects.filter(
+        subscription=subscription,
+        feature_key__in=['cashback_3', 'cashback_5'],
+        is_active=True
+    )
+    
+    if not cashback_features:
+        return False
+    
+    # Count confirmed bookings for this user
+    confirmed_bookings_count = Booking.objects.filter(
+        user=user,
+        booking_payment__is_transaction_success=True,
+        status='confirmed'
+    ).count()
+    print("confirmed_bookings_count----", confirmed_bookings_count)
+    cashback_applied = False
+    
+    # Check each cashback feature
+    for feature in cashback_features:
+        if feature.feature_key == 'cashback_3' and confirmed_bookings_count % 3 == 0:
+            # Apply cashback for every 3rd booking
+            cashback_amount = random.randint(1, 30)
+            transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
+            cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            break
             
+        elif feature.feature_key == 'cashback_5' and confirmed_bookings_count % 5 == 0:
+            # Apply cashback for every 5th booking
+            cashback_amount = random.randint(1, 30)
+            transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
+            cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            break
+    
+    return cashback_applied
+
+def apply_cashback(user, booking_id, cashback_amount, transaction_details):
+    """
+    Apply cashback to user's wallet and create transaction record
+    """
+    booking = Booking.objects.get(id=booking_id)
+    company_id = booking.company_id
+    
+    # Determine which wallet to credit based on company_id
+    if company_id:
+        status = add_company_wallet_amount(company_id, cashback_amount)
+    else:
+        status = add_user_wallet_amount(user.id, cashback_amount)
+    
+    if not status:
+        return False
+        
+    # Create wallet transaction record
+    other_details = {
+        "booking_id": booking_id,
+        "cashback_reward": True
+    }
+    
+    wallet_transact_dict = {
+        'user_id': user.id,
+        'amount': cashback_amount,
+        'transaction_type': 'Credit',
+        'transaction_details': transaction_details,
+        'company_id': company_id,
+        'transaction_for': 'booking_cashback',
+        'is_transaction_success': status,
+        'other_details': other_details
+    }
+    
+    update_wallet_transaction(wallet_transact_dict)
+    return True         
             
