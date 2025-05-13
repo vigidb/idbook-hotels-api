@@ -198,11 +198,11 @@
   <body>
 	  <div class="invoice__preview">
 	    <div class="container">
-	      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-			  <div>
+	      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; width: 100%;">
+			  <div style="width: 100%">
 			    <div style="display: flex; align-items: center; gap: 0.5rem;">
 			      <h1 style="margin: 0; font-size: 1.5rem;">Idbook hotels</h1>
-			      <span style="background-color: #10b981; color: white; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-weight: 500;">
+			      <span style="background-color: #10b981; color: white; font-size: 0.75rem; padding: 0.5rem; border-radius: 0.25rem; font-weight: 500; margin-left: 10px">
 			        Confirmed
 			      </span>
 			    </div>
@@ -280,10 +280,14 @@
 	          <td>No of rooms</td>
 	          <td>{{ num_rooms }}</td>
 	        </tr>
-	      </table>
-
-	      <h3 style="margin-top: 30px;">Amount Details</h3>
-	      <table class="booking-details">
+	        <tr>
+	          <td></td>
+	          <td></td>
+	        </tr>
+	        <tr>
+	          <td><b>Amount details</b></td>
+	          <td></td>
+	        </tr>
 	        <tr>
 	          <td>Room Charges</td>
 	          <td>INR {{ room_charges }}/-</td>
@@ -302,7 +306,7 @@
 	        </tr>
 	        <tr>
 	          <td>Final Booking Amount</td>
-	          <td>{{ final_amount }}</td>
+	          <td>INR {{ final_amount }}</td>
 	        </tr>
 	        <tr>
 	          <td>Idbook Commission (20%)</td>

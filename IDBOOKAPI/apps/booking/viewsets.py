@@ -3059,6 +3059,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             process_property_confirmed_booking_total(property_id)
         
             create_invoice_task.apply_async(args=[booking_id])
+            send_hotel_receipt_email_task.apply_async(args=[booking_id])
             
     
     @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
