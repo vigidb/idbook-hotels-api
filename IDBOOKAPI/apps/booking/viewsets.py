@@ -2858,7 +2858,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 
             amount = request.data.get('amount', None)
             if not amount:
-                custom_response = self.get_error_response(message="Amount mismatch", status="error",
+                custom_response = self.get_error_response(message="Amount is required", status="error",
                                                           errors=[],error_code="VALIDATION_ERROR",
                                                           status_code=status.HTTP_400_BAD_REQUEST)
                 return custom_response
@@ -2873,6 +2873,27 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     status_code=status.HTTP_400_BAD_REQUEST)
                 return custom_response
 
+            # Validate that the request amount matches the booking final amount
+            try:
+                request_amount = float(amount)
+                if request_amount != float(booking.final_amount):
+                    custom_response = self.get_error_response(
+                        message=f"Amount mismatch. Expected amount: {float(booking.final_amount)}",
+                        status="error",
+                        errors=[],
+                        error_code="AMOUNT_MISMATCH",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                    return custom_response
+            except ValueError:
+                custom_response = self.get_error_response(
+                    message="Invalid amount format",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
 
             if not user.id:
                 user_details =  self.request.data.get('user_details', {})
