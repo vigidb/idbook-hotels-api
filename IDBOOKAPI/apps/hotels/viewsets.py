@@ -34,6 +34,7 @@ from apps.hotels.utils import db_utils as hotel_db_utils
 from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status, get_booking_based_tax_rule
+from apps.booking.utils.booking_utils import calculate_subscription_discount
 from apps.analytics.utils.db_utils import create_or_update_property_count
 from rest_framework.decorators import action
 from apps.booking.models import Booking, HotelBooking
@@ -382,7 +383,21 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                     continue
                 
                 total_final_amount = sum(room_detail.get('final_room_total', 0) for room_detail in self.confirmed_room_details)
-                
+
+                user = request.user
+
+                pro_member_discount_percent = 0
+                pro_member_discount_value = 0
+
+                # Check if user is authenticated and calculate subscription discount
+                if user and user.is_authenticated:
+                    pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
+                        user, self.total_room_amount_with_room_discount)
+                    
+                    if pro_member_discount_value > 0:
+                        total_final_amount = total_final_amount - pro_member_discount_value
+
+
                 complete_pricing_details[property_id] = {
                     'status': 'success',
                     'room_list': self.room_list,
@@ -392,6 +407,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                         'gst_amount': self.final_tax_amount,
                         'total_room_amount_without_discount': float(self.total_room_amount_without_room_discount),
                         'total_room_amount_with_discount': self.total_room_amount_with_room_discount,
+                        'pro_member_discount_percent': pro_member_discount_percent,
+                        'pro_member_discount_value': float(pro_member_discount_value),
                         'final_amount': total_final_amount
                     }
                 }
