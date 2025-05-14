@@ -187,6 +187,8 @@ class Booking(models.Model):
     # deal_price = models.DecimalField(default=0, decimal_places=6)
     coupon_code = models.CharField(max_length=20, blank=True, default='')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount_percent = models.PositiveSmallIntegerField(default=0, help_text="Discount percent for pro member")
+    pro_member_discount_value = models.PositiveSmallIntegerField(default=0, help_text="Discount value")
 
     subtotal = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="Price for the booking")
     gst_percentage = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="GST % for the booking")

@@ -31,7 +31,8 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
-    handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback)
+    handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback,
+    calculate_subscription_discount)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -1141,6 +1142,17 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
                 # self.final_amount = self.subtotal + self.final_tax_amount
 
+            pro_member_discount_percent = 0
+            pro_member_discount_value = 0
+
+            if user:
+                pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
+                user, self.total_room_amount_with_room_discount)
+            
+            # Apply the discount to the final amount
+            if pro_member_discount_value > 0:
+                self.final_amount = self.final_amount - int(pro_member_discount_value)
+
             hotel_booking_dict = {
                 "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
                 "confirmed_checkin_time":confirmed_checkin_time,
@@ -1170,6 +1182,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
                             "total_room_amount_with_discount": str(self.total_room_amount_with_room_discount),
                             "discount":str(discount),
+                            "pro_member_discount_percent": int(pro_member_discount_percent),
+                            "pro_member_discount_value": int(pro_member_discount_value),
                             "final_amount":str(self.final_amount),
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
@@ -1654,6 +1668,18 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##                                  gst_amount=final_tax_amount, adult_count=adult_count,
 ##                                  child_count=child_count, infant_count=infant_count,
 ##                                  child_age_list=child_age_list)
+                
+                # Pro membership discount calculation
+                pro_member_discount_percent = 0
+                pro_member_discount_value = 0
+
+                if user:
+                    pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
+                    user, self.total_room_amount_with_room_discount)
+                
+                # Apply the discount to the final amount
+                if pro_member_discount_value > 0:
+                    self.final_amount = self.final_amount - int(pro_member_discount_value)
 
                 if booking_id:
                     booking_objs = Booking.objects.filter(id=booking_id)
@@ -1693,7 +1719,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
                                 "gst_amount": self.final_tax_amount, "adult_count":adult_count,
                                 "child_count":child_count, "infant_count":infant_count,
-                                "child_age_list":child_age_list, "additional_notes":additional_notes}
+                                "child_age_list":child_age_list, "additional_notes":additional_notes,
+                                "pro_member_discount_percent": pro_member_discount_percent,
+                                "pro_member_discount_value": pro_member_discount_value}
                 if coupon:
                     booking_dict['coupon_code'] = coupon_code
                     #booking.coupon_code = coupon_code

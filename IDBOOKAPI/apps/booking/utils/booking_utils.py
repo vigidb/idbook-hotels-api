@@ -1049,3 +1049,25 @@ def booking_cashback_notification_template(booking_id, cashback_amount, booking_
     except Exception as e:
         print('Cashback Notification Error', e)
     return notification_dict
+
+def calculate_subscription_discount(user, amount):
+    discount_percent = 0
+    discount_value = 0
+    
+    # Check if user has active subscription
+    user_subscription = user.user_subscription.filter(active=True).last()
+    
+    if user_subscription and user_subscription.idb_sub:
+        subscription_level = user_subscription.idb_sub.level
+        
+        # Apply discount based on subscription level
+        if subscription_level == 1:
+            discount_percent = random.randint(1, 15)
+        elif subscription_level == 2:
+            discount_percent = random.randint(1, 20)
+        elif subscription_level >= 3:
+            discount_percent = random.randint(1, 30)
+        
+        discount_value = (amount * discount_percent) / 100
+    
+    return discount_percent, discount_value
