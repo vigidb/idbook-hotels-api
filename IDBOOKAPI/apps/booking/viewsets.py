@@ -1145,7 +1145,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             pro_member_discount_percent = 0
             pro_member_discount_value = 0
 
-            if user:
+            if user and user.is_authenticated:
                 pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
                 user, self.total_room_amount_with_room_discount)
             
