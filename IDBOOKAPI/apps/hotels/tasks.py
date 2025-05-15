@@ -8,7 +8,8 @@ from IDBOOKAPI.email_utils import send_booking_email
 from IDBOOKAPI.utils import shorten_url
 from apps.booking.models import Booking, Review
 from .utils.db_utils import get_user_booking_data
-from .utils.hotel_utils import generate_service_agreement_pdf, send_agreement_email
+from .utils.hotel_utils import (generate_service_agreement_pdf, send_agreement_email,
+    generate_hotel_receipt_pdf, send_receipt_email_with_attachment)
 from apps.org_resources.utils.notification_utils import create_hotelier_notification
 from apps.booking.tasks import send_booking_sms_task
 from datetime import datetime
@@ -412,8 +413,7 @@ def send_hotel_receipt_email_task(self, booking_id):
     try:
         booking = Booking.objects.get(id=booking_id)
         commission = booking.commission_info
-        room_details = booking.hotel_booking.confirmed_room_details[0]  # Assuming one entry
-
+        room_details = booking.hotel_booking.confirmed_room_details[0]
         booking_slot = room_details.get('booking_slot', booking.hotel_booking.booking_slot)
         checkin = booking.hotel_booking.confirmed_checkin_time
         checkout = booking.hotel_booking.confirmed_checkout_time
@@ -434,8 +434,8 @@ def send_hotel_receipt_email_task(self, booking_id):
             "guest_name": booking.user.name,
             "hotel_name": booking.hotel_booking.confirmed_property.name,
             "room_type": booking.hotel_booking.room_type,
-            "num_adults": booking.adult_count,  # Use booking object here
-            "num_children": booking.child_count,  # Use booking object here
+            "num_adults": booking.adult_count,
+            "num_children": booking.child_count,
             "num_rooms": room_details.get("no_of_rooms"),
 
             # Amount Details
@@ -444,26 +444,45 @@ def send_hotel_receipt_email_task(self, booking_id):
             "extra_charges": float(room_details.get("extra_bed_price", 0)),
             "coupon_code": booking.coupon_code,
             "discount_text": f"INR {float(booking.discount)}" if booking.discount else "None",
+            "pro_discount": booking.pro_member_discount_percent,
+            "pro_discount_value": booking.pro_member_discount_value,
             "final_amount": float(booking.final_amount),
             "commission_amount": float(commission.com_amnt),
             "commission_tax": float(commission.tax_amount),
             "payable_amount": float(commission.hotelier_amount),
         }
-
-        # Render the email HTML
-        email_template = get_template('email_template/hotelier-receipt.html')
-        html_content = email_template.render(context)
-
-        subject = f"Hotelier Receipt for Booking - {booking.reference_code}"
-        send_booking_email(subject, hotel, [recipient_email], html_content)
         
-        print(f"Receipt email sent to {recipient_email} for booking {booking.reference_code}")
-        return True
-
+        # Generate the PDF receipt and save it to the booking object
+        try:
+            pdf_bytes = generate_hotel_receipt_pdf(context, booking_id=booking_id, booking_obj=booking)
+            
+            email_template = get_template('email_template/hotelier-receipt.html')
+            html_content = email_template.render(context)
+            subject = f"Hotelier Receipt for Booking - {booking.reference_code}"
+            
+            send_receipt_email_with_attachment(
+                subject,
+                hotel,
+                [recipient_email],
+                html_content,
+                pdf_bytes,
+                f"Hotel_Receipt_{booking.reference_code}.pdf"
+            )
+            
+            print(f"Receipt email with attachment sent to {recipient_email} for booking {booking.reference_code}")
+            return True
+        except Exception as e:
+            print(f"Error generating or attaching PDF: {e}")
+            # Fallback to sending email without attachment if PDF generation fails
+            email_template = get_template('email_template/hotelier-receipt.html')
+            html_content = email_template.render(context)
+            subject = f"Hotelier Receipt for Booking - {booking.reference_code}"
+            send_booking_email(subject, hotel, [recipient_email], html_content)
+            print(f"Receipt email sent without attachment to {recipient_email} for booking {booking.reference_code}")
+            return False
     except Booking.DoesNotExist:
         print(f"Booking with id {booking_id} not found")
         return None
-
     except Exception as e:
         print(f"Error in sending hotel receipt email: {e}")
         return None

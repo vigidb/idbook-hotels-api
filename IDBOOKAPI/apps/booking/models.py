@@ -79,6 +79,7 @@ class HotelBooking(models.Model):
                                     help_text="Sorted cancellation policies for the property")
     cancellation_details = models.JSONField(null=True, blank=True, 
                                               help_text="Applied cancellation policy for this booking")
+    hotelier_receipt_pdf = models.FileField(upload_to='hotels/booking_receipts/', blank=True, null=True)
 ##    room_subtotal = models.DecimalField(
 ##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
 ##    service_tax =  models.DecimalField(

@@ -2004,7 +2004,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             }
                         )
                     
-                    # create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                    create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
                     send_booking_sms_task.apply_async(
                         kwargs={
                             'notification_type': 'PAY_AT_HOTEL_BOOKING_CONFIRMATION',
