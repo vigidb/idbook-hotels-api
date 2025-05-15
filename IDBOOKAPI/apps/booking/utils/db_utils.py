@@ -505,3 +505,18 @@ def get_room_by_id(room_id):
         return Room.objects.get(id=room_id)
     except Room.DoesNotExist:
         return None
+
+def get_hotelier_amount_payout(property_id):
+    booking_obj = Booking.objects.filter(
+        hotel_booking__confirmed_property=property_id).prefetch_related(
+            'commission_info')
+    booking_obj = booking_obj.filter(commission_info__booking__isnull=False,
+                                     commission_info__is_payment_approved=True)
+    booking_obj = booking_obj.filter(Q(commission_info__payout_status='PENDING')
+                                     | Q(commission_info__payout_status='INIT-FAIL'))
+
+    return booking_obj
+
+            
+            
+    
