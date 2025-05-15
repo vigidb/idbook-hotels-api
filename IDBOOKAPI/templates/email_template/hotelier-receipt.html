@@ -302,8 +302,12 @@
 	        </tr>
 	        <tr>
 	          <td>Coupon Code and Discount</td>
-	          <td>{{ coupon_code }} ({{ discount_text }})</td>
+	          <td>{{ coupon_code }} (- {{ discount_text }})</td>
 	        </tr>
+          <tr>
+            <td>Pro Membership Discount</td>
+            <td>{{ pro_discount }}% (- INR {{ pro_discount_value }})</td>
+          </tr>
 	        <tr>
 	          <td>Final Booking Amount</td>
 	          <td>INR {{ final_amount }}</td>
