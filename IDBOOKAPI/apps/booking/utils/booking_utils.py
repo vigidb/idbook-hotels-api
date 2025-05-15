@@ -143,6 +143,10 @@ def generate_context_confirmed_booking(booking):
     email = booking.user.email
     mobile_number = booking.user.mobile_number
     total_payment_made = booking.total_payment_made
+    coupon_code = booking.coupon_code
+    discount = booking.discount
+    pro_discount = booking.pro_member_discount_percent
+    pro_discount_value = booking.pro_member_discount_value
     confirmation_code = booking.confirmation_code
     final_amount = booking.final_amount
     total_balance_due = final_amount - total_payment_made
@@ -169,6 +173,8 @@ def generate_context_confirmed_booking(booking):
     context = {'booking_type': booking_type, 'name':name,
                'email':email, 'mobile_number':mobile_number,
                'total_payment_made':float(total_payment_made),
+               'coupon_code':coupon_code, 'discount': float(discount),
+               'pro_discount':pro_discount, 'pro_discount_value':float(pro_discount_value),
                'confirmation_code':confirmation_code,
                'occupancy':occupancy,
                'total_balance_due':float(total_balance_due),
