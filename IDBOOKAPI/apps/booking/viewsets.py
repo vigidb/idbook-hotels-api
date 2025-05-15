@@ -1172,7 +1172,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 # self.final_amount = self.final_amount + float(
                 #     commission_details.get('com_amnt_withtax', 0))
                 # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount = (self.final_amount - self.final_tax_amount) - float(commission_details.get('com_amnt_withtax', 0))
                 hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                 commission_details['hotelier_amount'] = hotelier_amount
                 commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
@@ -1710,7 +1710,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 commission_details = self.commission_calculation()
                 if commission_details:
                     # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount = (self.final_amount - self.final_tax_amount)- float(commission_details.get('com_amnt_withtax', 0))
                     hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                     commission_details['hotelier_amount'] = hotelier_amount
                     commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
