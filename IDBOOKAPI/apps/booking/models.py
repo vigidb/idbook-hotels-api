@@ -263,6 +263,7 @@ class Invoice(models.Model):
     tags = models.CharField(max_length=255, blank=True)
     reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
     created_by = models.CharField(max_length=50, default='', blank=True)
     updated_by = models.CharField(max_length=50, default='', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
