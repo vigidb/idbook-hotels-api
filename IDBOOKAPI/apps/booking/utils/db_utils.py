@@ -375,8 +375,8 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
         for item in items:
             if 'tax' in item and item['tax']:
                 total_tax += float(item['tax'])
-            if 'amount' in item and item['amount']:
-                total += float(item['amount'])
+            if 'room_amount_with_discount' in item and item['room_amount_with_discount']:
+                total += float(item['room_amount_with_discount'])
             if 'gst' in item and item['gst'] and not gst_percentage:
                 gst_percentage = float(item['gst'])
 
@@ -396,6 +396,7 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
             supply_details=payload.get('supplyDetails', {}),
             items=items,
             discount=payload.get('discount', 0),
+            pro_member_discount=payload.get('pro_member_discount', 0),
             GST=gst_percentage,
             GST_type=payload.get('GSTType', 'CGST/SGST'),
             total=total,
@@ -461,6 +462,7 @@ def update_invoice_in_database(invoice_number, payload, booking):
             invoice.total_amount = total + total_tax
             invoice.GST = gst_percentage
         invoice.discount = payload.get('discount', invoice.discount)
+        invoice.pro_member_discount = payload.get('pro_member_discount', invoice.pro_member_discount)
         invoice.GST_type = payload.get('GSTType', invoice.GST_type)
         invoice.status = payload.get('status', invoice.status)
         

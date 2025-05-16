@@ -79,6 +79,7 @@ class HotelBooking(models.Model):
                                     help_text="Sorted cancellation policies for the property")
     cancellation_details = models.JSONField(null=True, blank=True, 
                                               help_text="Applied cancellation policy for this booking")
+    hotelier_receipt_pdf = models.FileField(upload_to='hotels/booking_receipts/', blank=True, null=True)
 ##    room_subtotal = models.DecimalField(
 ##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
 ##    service_tax =  models.DecimalField(
@@ -187,6 +188,8 @@ class Booking(models.Model):
     # deal_price = models.DecimalField(default=0, decimal_places=6)
     coupon_code = models.CharField(max_length=20, blank=True, default='')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount_percent = models.PositiveSmallIntegerField(default=0, help_text="Discount percent for pro member")
+    pro_member_discount_value = models.PositiveSmallIntegerField(default=0, help_text="Discount value")
 
     subtotal = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="Price for the booking")
     gst_percentage = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="GST % for the booking")
@@ -241,7 +244,9 @@ class Invoice(models.Model):
     billed_by = models.ForeignKey(BusinessDetail, on_delete=models.CASCADE, related_name='invoices_billed_by')
     billed_by_details = models.JSONField(default=dict, null=True)
 
-    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    # billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to', null=True, blank=True)
+
     billed_to_details = models.JSONField(default=dict, null=True)
 
     supply_details = models.JSONField(default=dict, null=True)
@@ -258,6 +263,7 @@ class Invoice(models.Model):
     tags = models.CharField(max_length=255, blank=True)
     reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
     created_by = models.CharField(max_length=50, default='', blank=True)
     updated_by = models.CharField(max_length=50, default='', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

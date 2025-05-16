@@ -25,8 +25,9 @@ from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
-from apps.org_resources.models import BasicAdminConfig 
+from apps.org_resources.models import BasicAdminConfig, FeatureSubscription
 from IDBOOKAPI.utils import shorten_url
+import random
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -142,6 +143,10 @@ def generate_context_confirmed_booking(booking):
     email = booking.user.email
     mobile_number = booking.user.mobile_number
     total_payment_made = booking.total_payment_made
+    coupon_code = booking.coupon_code
+    discount = booking.discount
+    pro_discount = booking.pro_member_discount_percent
+    pro_discount_value = booking.pro_member_discount_value
     confirmation_code = booking.confirmation_code
     final_amount = booking.final_amount
     total_balance_due = final_amount - total_payment_made
@@ -168,6 +173,8 @@ def generate_context_confirmed_booking(booking):
     context = {'booking_type': booking_type, 'name':name,
                'email':email, 'mobile_number':mobile_number,
                'total_payment_made':float(total_payment_made),
+               'coupon_code':coupon_code, 'discount': float(discount),
+               'pro_discount':pro_discount, 'pro_discount_value':float(pro_discount_value),
                'confirmation_code':confirmation_code,
                'occupancy':occupancy,
                'total_balance_due':float(total_balance_due),
@@ -899,5 +906,174 @@ def get_gst_type(bus_details, company_details=None, customer_details=None):
         return "CGST/SGST" if business_state == customer_details.state.lower() else "IGST"
     return ""
             
+def process_subscription_cashback(user, booking_id):
+    """
+    Process cashback rewards based on user's subscription level and booking count
+    """
+
+    # Check if user has an active subscription
+    user_subscription = user.user_subscription.filter(active=True).last()
+    if not user_subscription or not user_subscription.idb_sub:
+        return False
+        
+    # Get subscription features
+    subscription = user_subscription.idb_sub
+    
+    # Get all features for the subscription
+    cashback_features = FeatureSubscription.objects.filter(
+        subscription=subscription,
+        feature_key__in=['cashback_3', 'cashback_5'],
+        is_active=True
+    )
+    
+    if not cashback_features:
+        return False
+    
+    # Count confirmed bookings for this user - exclude direct hotel payments
+    confirmed_bookings_count = Booking.objects.filter(
+        user_id=user.id,
+        status='confirmed',
+    ).exclude(
+        booking_payment__payment_type='DIRECT',
+        booking_payment__payment_medium='Hotel'
+    ).count()
+    print("confirmed_bookings_count----", confirmed_bookings_count)
+    cashback_applied = False
+    
+    # Check each cashback feature
+    for feature in cashback_features:
+        if feature.feature_key == 'cashback_3' and confirmed_bookings_count % 3 == 0:
+            # Apply cashback for every 3rd booking
+            cashback_amount = random.randint(1, 30)
+            transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
+            cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            # Create notification for cashback
+            if cashback_applied:
+                create_cashback_notification(user, booking_id, cashback_amount, confirmed_bookings_count)
+            break
             
+        elif feature.feature_key == 'cashback_5' and confirmed_bookings_count % 5 == 0:
+            # Apply cashback for every 5th booking
+            cashback_amount = random.randint(1, 30)
+            transaction_details = f"Credited {cashback_amount} as cashback on your {confirmed_bookings_count}th booking"
+            cashback_applied = apply_cashback(user, booking_id, cashback_amount, transaction_details)
+            # Create notification for cashback
+            if cashback_applied:
+                create_cashback_notification(user, booking_id, cashback_amount, confirmed_bookings_count)
+            break
+    
+    return cashback_applied
+
+def apply_cashback(user, booking_id, cashback_amount, transaction_details):
+    """
+    Apply cashback to user's wallet and create transaction record
+    """
+    booking = Booking.objects.get(id=booking_id)
+    company_id = booking.company_id
+    
+    # Determine which wallet to credit based on company_id
+    if company_id:
+        status = add_company_wallet_amount(company_id, cashback_amount)
+    else:
+        status = add_user_wallet_amount(user.id, cashback_amount)
+    
+    if not status:
+        return False
+        
+    # Create wallet transaction record
+    other_details = {
+        "booking_id": booking_id,
+        "cashback_reward": True
+    }
+    
+    wallet_transact_dict = {
+        'user_id': user.id,
+        'amount': cashback_amount,
+        'transaction_type': 'Credit',
+        'transaction_details': transaction_details,
+        'company_id': company_id,
+        'transaction_for': 'booking_cashback',
+        'is_transaction_success': status,
+        'other_details': other_details
+    }
+    
+    update_wallet_transaction(wallet_transact_dict)
+    return True         
             
+def create_cashback_notification(user, booking_id, cashback_amount, booking_count):
+    """
+    Create and save notification for cashback rewards
+    """
+    try:
+        booking = Booking.objects.get(id=booking_id)
+        
+        # Get sender (business user)
+        send_by = None
+        bus_details = get_active_business()
+        if bus_details:
+            send_by = bus_details.user
+        
+        # Determine group name based on company_id
+        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+        
+        # Prepare notification dictionary
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': 'GENERAL',
+            'title': '',
+            'description': '',
+            'redirect_url': '',
+            'image_link': '',
+            'group_name': group_name
+        }
+        
+        # Apply notification template
+        notification_dict = booking_cashback_notification_template(
+            booking_id, cashback_amount, booking_count, notification_dict)
+        
+        # Create the notification
+        create_notification(notification_dict)
+        print(f"Cashback notification created for user {user.id}")
+        
+    except Exception as e:
+        print(f"Error creating cashback notification: {e}")
+
+def booking_cashback_notification_template(booking_id, cashback_amount, booking_count, notification_dict):
+    """
+    Create notification template for cashback rewards
+    """
+    try:
+        title = "Cashback Reward Credited"
+        description = f"Congratulations! You've received ₹{cashback_amount} cashback on your {booking_count}th booking."
+        redirect_url = ''
+        
+        notification_dict['title'] = title
+        notification_dict['description'] = description
+        notification_dict['redirect_url'] = redirect_url
+        
+    except Exception as e:
+        print('Cashback Notification Error', e)
+    return notification_dict
+
+def calculate_subscription_discount(user, amount):
+    discount_percent = 0
+    discount_value = 0
+    
+    # Check if user has active subscription
+    user_subscription = user.user_subscription.filter(active=True).last()
+    
+    if user_subscription and user_subscription.idb_sub:
+        subscription_level = user_subscription.idb_sub.level
+        
+        # Apply discount based on subscription level
+        if subscription_level == 1:
+            discount_percent = random.randint(1, 15)
+        elif subscription_level == 2:
+            discount_percent = random.randint(1, 20)
+        elif subscription_level >= 3:
+            discount_percent = random.randint(1, 30)
+        
+        discount_value = (amount * discount_percent) / 100
+    
+    return discount_percent, discount_value

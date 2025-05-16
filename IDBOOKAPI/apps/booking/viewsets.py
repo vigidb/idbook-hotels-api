@@ -31,7 +31,8 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
-    handle_pay_at_hotel_payment_cancellation, get_gst_type)
+    handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback,
+    calculate_subscription_discount)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -75,7 +76,7 @@ from pytz import timezone
 from decimal import Decimal
 import pytz
 from apps.customer.models import Wallet
-from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
+from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task, send_hotel_receipt_email_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 from apps.customer.utils.db_utils import get_wallet_balance
 from apps.org_resources.tasks import admin_send_sms_task
@@ -1141,6 +1142,17 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
                 # self.final_amount = self.subtotal + self.final_tax_amount
 
+            pro_member_discount_percent = 0
+            pro_member_discount_value = 0
+
+            if user and user.is_authenticated:
+                pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
+                user, self.total_room_amount_with_room_discount)
+            
+            # Apply the discount to the final amount
+            if pro_member_discount_value > 0:
+                self.final_amount = self.final_amount - int(pro_member_discount_value)
+
             hotel_booking_dict = {
                 "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
                 "confirmed_checkin_time":confirmed_checkin_time,
@@ -1160,7 +1172,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 # self.final_amount = self.final_amount + float(
                 #     commission_details.get('com_amnt_withtax', 0))
                 # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount = (self.final_amount - self.final_tax_amount) - float(commission_details.get('com_amnt_withtax', 0))
                 hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                 commission_details['hotelier_amount'] = hotelier_amount
                 commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
@@ -1170,6 +1182,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
                             "total_room_amount_with_discount": str(self.total_room_amount_with_room_discount),
                             "discount":str(discount),
+                            "pro_member_discount_percent": int(pro_member_discount_percent),
+                            "pro_member_discount_value": int(pro_member_discount_value),
                             "final_amount":str(self.final_amount),
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
@@ -1654,6 +1668,18 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##                                  gst_amount=final_tax_amount, adult_count=adult_count,
 ##                                  child_count=child_count, infant_count=infant_count,
 ##                                  child_age_list=child_age_list)
+                
+                # Pro membership discount calculation
+                pro_member_discount_percent = 0
+                pro_member_discount_value = 0
+
+                if user and user.is_authenticated:
+                    pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
+                    user, self.total_room_amount_with_room_discount)
+                
+                # Apply the discount to the final amount
+                if pro_member_discount_value > 0:
+                    self.final_amount = self.final_amount - int(pro_member_discount_value)
 
                 if booking_id:
                     booking_objs = Booking.objects.filter(id=booking_id)
@@ -1684,7 +1710,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 commission_details = self.commission_calculation()
                 if commission_details:
                     # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount = (self.final_amount - self.final_tax_amount)- float(commission_details.get('com_amnt_withtax', 0))
                     hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                     commission_details['hotelier_amount'] = hotelier_amount
                     commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
@@ -1693,7 +1719,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
                                 "gst_amount": self.final_tax_amount, "adult_count":adult_count,
                                 "child_count":child_count, "infant_count":infant_count,
-                                "child_age_list":child_age_list, "additional_notes":additional_notes}
+                                "child_age_list":child_age_list, "additional_notes":additional_notes,
+                                "pro_member_discount_percent": pro_member_discount_percent,
+                                "pro_member_discount_value": pro_member_discount_value}
                 if coupon:
                     booking_dict['coupon_code'] = coupon_code
                     #booking.coupon_code = coupon_code
@@ -1976,7 +2004,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             }
                         )
                     
-                    # create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                    create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
                     send_booking_sms_task.apply_async(
                         kwargs={
                             'notification_type': 'PAY_AT_HOTEL_BOOKING_CONFIRMATION',
@@ -2008,6 +2036,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             if wallet:
                 wallet_balance = wallet.balance
             try:
+                send_hotel_receipt_email_task.apply_async(args=[instance.id])
                 send_booking_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'WALLET_DEDUCTION_CONFIRMATION',
@@ -2084,6 +2113,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         # update total no of confirmed booking for a property
         process_property_confirmed_booking_total(property_id)
+        # Apply cashback if user has eligible subscription
+        try:
+            cashback_applied = process_subscription_cashback(instance.user, instance.id)
+            if cashback_applied:
+                print(f"Cashback applied for booking {instance.id}")
+        except Exception as cashback_error:
+            print(f"Error applying cashback: {cashback_error}")
         
         create_invoice_task.apply_async(args=[booking_id])
         send_booking_sms_task.apply_async(
@@ -2822,7 +2858,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 
             amount = request.data.get('amount', None)
             if not amount:
-                custom_response = self.get_error_response(message="Amount mismatch", status="error",
+                custom_response = self.get_error_response(message="Amount is required", status="error",
                                                           errors=[],error_code="VALIDATION_ERROR",
                                                           status_code=status.HTTP_400_BAD_REQUEST)
                 return custom_response
@@ -2837,6 +2873,27 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     status_code=status.HTTP_400_BAD_REQUEST)
                 return custom_response
 
+            # Validate that the request amount matches the booking final amount
+            try:
+                request_amount = float(amount)
+                if request_amount != float(booking.final_amount):
+                    custom_response = self.get_error_response(
+                        message=f"Amount mismatch. Expected amount: {float(booking.final_amount)}",
+                        status="error",
+                        errors=[],
+                        error_code="AMOUNT_MISMATCH",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                    return custom_response
+            except ValueError:
+                custom_response = self.get_error_response(
+                    message="Invalid amount format",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
 
             if not user.id:
                 user_details =  self.request.data.get('user_details', {})
@@ -3058,6 +3115,16 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             process_property_confirmed_booking_total(property_id)
         
             create_invoice_task.apply_async(args=[booking_id])
+            send_hotel_receipt_email_task.apply_async(args=[booking_id])
+
+            try:
+                cashback_applied = process_subscription_cashback(booking.user, booking_id)
+                if cashback_applied:
+                    print(f"[Cashback] Cashback successfully applied for booking ID: {booking_id}")
+                else:
+                    print(f"[Cashback] No cashback applied for booking ID: {booking_id}")
+            except Exception as cashback_error:
+                print(f"[Cashback ERROR] Failed to apply cashback for booking ID {booking_id}: {cashback_error}")
             
     
     @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',

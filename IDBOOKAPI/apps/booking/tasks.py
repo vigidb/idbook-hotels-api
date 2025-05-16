@@ -211,7 +211,7 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                     update_payment_details(booking, invoice)
 
                 response_data = create_invoice_response_data(invoice, payload)
-                response = update_invoice(booking.invoice_id, payload)
+                # response = update_invoice(booking.invoice_id, payload)
                 # invoice_log = {'booking':booking, 'status_code':response.status_code,
                 #                'response': response.json()}
                 invoice_log = {

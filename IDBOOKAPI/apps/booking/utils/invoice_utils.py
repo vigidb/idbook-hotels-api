@@ -79,6 +79,9 @@ def invoice_json_hotel_booking(hotel_booking):
         total_room_amount = confirmed_room.get("total_room_amount", None)
         total_tax_amount = confirmed_room.get("total_tax_amount", None)
         no_of_days = confirmed_room.get("no_of_days", None)
+        room_discount_value = confirmed_room.get("room_discount_value", None)
+        final_room_total = confirmed_room.get("final_room_total", None)
+        room_amount_with_discount = confirmed_room.get("room_amount_with_discount", None)
 
         name = f"{room_type}, {property_name}"
         description = f" Check In:: {confirmed_checkin_time}, Check Out:: {confirmed_checkout_time}, \
@@ -86,7 +89,8 @@ No of Days:: {no_of_days} "
     
         item = { "name": name, "description": description, "quantity": no_of_rooms,
                  "price": price, "amount": total_room_amount, "gst":tax_in_percent,
-                 "tax":total_tax_amount}
+                 "tax":total_tax_amount, "room_discount": room_discount_value,
+                 "final_room_total": final_room_total, "room_amount_with_discount": room_amount_with_discount}
         items.append(item)
         
 
@@ -280,6 +284,11 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
         else:
             discount = 0
 
+        if booking.pro_member_discount_value and float(booking.pro_member_discount_value) > 0:
+            pro_member_discount = float(booking.pro_member_discount_value)
+        else:
+            pro_member_discount = 0
+
     if bus_details:
         billed_mob_num = bus_details.business_phone
         
@@ -302,6 +311,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": status,
             "discount": discount,
+            "pro_member_discount": pro_member_discount,
             "nextScheduleDate": "",
             "tags": [""] })
     elif invoice_action == 'update':
@@ -312,6 +322,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             "items": item,
             "GST": gst, "GSTType": gst_type, "total": total, "status": status,
             "discount": discount,
+            "pro_member_discount": pro_member_discount,
             "nextScheduleDate": "",
             "tags": [""] })
     else:
@@ -477,7 +488,7 @@ def generate_invoice_pdf(payload, booking_id=None):
         tax_amount = 0
         
         for item in invoice_data.get('items', []):
-            amount += float(item.get('amount', 0))
+            amount += float(item.get('room_amount_with_discount', 0))
             tax_amount += float(item.get('tax', 0))
             
         invoice_data['amount'] = amount

@@ -339,8 +339,9 @@
 				        <tr>
 				            <th style="width: 33%">Item</th>
 				            <th style="width: 10%; text-align: center">Qty</th>
-				            <th style="width: 15%; text-align: center">Rate</th>
+				            <th style="width: 15%; text-align: center">Room Rate</th>
 				            <th style="width: 10%; text-align: center">Amount</th>
+                            <th style="width: 10%; text-align: center">Room Discount</th>
 				            <th style="width: 10%; text-align: center">GST (%)</th>
 				            <th style="width: 15%; text-align: center">
 				                {{ GSTType }}
@@ -366,13 +367,20 @@
 						    <td style="text-align: center">{{ item.quantity }}</td>
 						    <td style="text-align: center">₹{{ item.price|floatformat:0 }}</td>
 						    <td style="text-align: center">₹{{ item.amount|floatformat:0 }}</td>
+                            <td style="text-align: center">
+                                {% if item.room_discount %}
+                                    ₹{{ item.room_discount|floatformat:0 }}
+                                {% else %}
+                                    ₹0
+                                {% endif %}
+                            </td>
 						    <td style="text-align: center">{{ item.gst|floatformat:0 }}%</td>
 						    <td style="text-align: center">₹{{ item.tax|floatformat:0 }}</td>
-						    <td style="text-align: center">₹{{ item.amount|add:item.tax|floatformat:0 }}</td>
+						    <td style="text-align: center">₹{{ item.final_room_total|floatformat:0 }}</td>
 						</tr>
 						{% endfor %}
 				        <tr>
-				            <td colspan="7" style="text-align: left; border-bottom: none">
+				            <td colspan="8" style="text-align: left; border-bottom: none">
 				                <div class="total-section">
 				                    <div class="total-words">
 				                        <span>Total (in words):</span>
@@ -394,6 +402,12 @@
 										    <p>-₹{{ discount|default:0|floatformat:0 }}</p>
 										</div>
 				                        {% endif %}
+                                        {% if pro_member_discount %}
+                                        <div class="total-amount-row" style="border-top: 0px">
+                                            <p>Pro Membership Discount:</p>
+                                            <p>-₹{{ pro_member_discount|default:0|floatformat:0 }}</p>
+                                        </div>
+                                        {% endif %}
 				                        <div class="total-amount-row" style="border-top: 2px solid #1f2937; border-bottom: 2px solid #1f2937;">
 				                            <p class="font-bold">Total (INR):</p>
 				                            <p><strong>₹{{ total|floatformat:0 }}</strong></p>

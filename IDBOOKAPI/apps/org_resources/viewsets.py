@@ -1276,7 +1276,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         try:
             price = int(price)
             discount = int(discount)
-            final_price = self.calculate_final_price(price, discount, discount_type)
+            final_price = int(self.calculate_final_price(price, discount, discount_type))
 
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price
@@ -1345,7 +1345,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         try:
             price = int(price)
             discount = int(discount)
-            final_price = self.calculate_final_price(price, discount, discount_type)
+            final_price = int(self.calculate_final_price(price, discount, discount_type))
             
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price

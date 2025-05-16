@@ -232,6 +232,7 @@ class BookingSerializer(serializers.ModelSerializer):
         requested_room_no = hotel_booking.requested_room_no
         cancellation_details = hotel_booking.cancellation_details
         confirmed_property = hotel_booking.confirmed_property
+        hotelier_receipt_pdf = hotel_booking.hotelier_receipt_pdf
         if confirmed_property:
             service_category = confirmed_property.service_category
             address = confirmed_property.address
@@ -304,6 +305,7 @@ class BookingSerializer(serializers.ModelSerializer):
             'confirmed_checkin_time':confirmed_checkin_time,
             'confirmed_checkout_time':confirmed_checkout_time,
             'requested_room_no':requested_room_no,
+            'hotelier_receipt_pdf': hotelier_receipt_pdf.url if hotelier_receipt_pdf else None,
             'cancellation_details': cancellation_details,
             'invoice_details': invoice_details}
          
@@ -393,6 +395,7 @@ class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
         model = Booking
         fields = ('id', 'booking_type', 'hotel_booking',
                   'final_amount', 'gst_amount', 'discount',
+                  'pro_member_discount_percent', 'pro_member_discount_value',
                   'subtotal', 'status', 'commission_info')
     
 
