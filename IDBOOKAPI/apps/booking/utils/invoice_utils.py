@@ -600,7 +600,7 @@ def manual_generate_invoice_pdf(payload, booking_id=None):
         invoice_data['amount'] = amount
         invoice_data['tax_amount'] = tax_amount
 
-        html_content = render_to_string('invoice_template/invoice.html', invoice_data)
+        html_content = render_to_string('invoice_template/manual_invoice.html', invoice_data)
 
         # PDF options
         options = {
