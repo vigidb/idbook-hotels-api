@@ -9,7 +9,8 @@ from .models import (
     Property, Room, Gallery, FinancialDetail,
     HotelAmenityCategory, HotelAmenity, RoomAmenityCategory, RoomAmenity,
     RoomGallery, PropertyGallery, BlockedProperty, PolicyDetails,
-    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility
+    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility, PropertyBankDetails,
+    PropertyPayoutDetails
 )
 from apps.hotels.submodels.related_models import (
     DynamicRoomPricing, TopDestinations, UnavailableProperty,
@@ -63,3 +64,5 @@ admin.site.register(DynamicRoomPricing)
 admin.site.register(PolicyDetails)
 admin.site.register(TopDestinations)
 admin.site.register(PropertyCommission)
+admin.site.register(PropertyBankDetails)
+admin.site.register(PropertyPayoutDetails)

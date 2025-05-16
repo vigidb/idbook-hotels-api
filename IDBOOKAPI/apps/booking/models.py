@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 
 from apps.coupons.models import Coupon
 from apps.authentication.models import User
-from apps.hotels.models import Property, Room
+from apps.hotels.models import Property, Room, PropertyPayoutDetails
 from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
 from apps.vehicle_management.models import VehicleDetail
@@ -307,6 +307,10 @@ class BookingMetaInfo(models.Model):
 
 
 class BookingCommission(models.Model):
+    PAYOUT_CHOICES = (('PENDING', 'PENDING'), ('INITIATED', 'INITIATED'),
+                      ('INIT-FAIL', 'INIT-FAIL'), ('PAID', 'PAID'),
+                      ('FAILED', 'FAILED'),)
+    
     booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='commission_info')
     commission = models.DecimalField(max_digits=20, decimal_places=6)
     commission_type = models.CharField(max_length=20)
@@ -318,6 +322,13 @@ class BookingCommission(models.Model):
     tds = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount_with_tax = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    # details related to payout
+    is_payment_approved = models.BooleanField(default=True, help_text="Whether payment approved by admin")
+    payout_status = models.CharField(max_length=50, choices=PAYOUT_CHOICES, default='PENDING')
+    latest_payout_reference = models.ForeignKey(
+        PropertyPayoutDetails, on_delete=models.CASCADE,
+        related_name='booking_payout_reference', null=True)
+    
     
 
 class AppliedCoupon(models.Model):

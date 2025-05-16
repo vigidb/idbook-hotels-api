@@ -1,7 +1,7 @@
 from apps.log_management.models import (
     BookingInvoiceLog, BookingPaymentLog,
     WalletTransactionLog, BookingRefundLog,
-    UserSubscriptionLogs)
+    UserSubscriptionLogs, HotelierPayoutLog)
 from apps.booking.models import Booking
 import traceback
 
@@ -47,3 +47,6 @@ def create_booking_refund_log(log_dict: dict):
 
 def create_user_subscription_logs(log_dict:dict):
     UserSubscriptionLogs.objects.create(**log_dict)
+
+def create_hotelier_payout_log(log_dict:dict):
+    HotelierPayoutLog.objects.create(**log_dict)

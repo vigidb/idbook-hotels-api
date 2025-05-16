@@ -124,5 +124,15 @@ class SmsNotificationLog(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.sms_for} - {self.mobile_number}" 
+        return f"{self.sms_for} - {self.mobile_number}"
+
+class HotelierPayoutLog(models.Model):
+    batch_id = models.CharField(max_length=100, blank=True)
+    payout_status = models.PositiveSmallIntegerField(null=True)
+    payout_response = models.JSONField(null=True)
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    
     
