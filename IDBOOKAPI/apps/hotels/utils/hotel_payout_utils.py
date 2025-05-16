@@ -2,6 +2,7 @@ from apps.hotels.utils.db_utils import (
     get_property_bank_details, bulk_create_property_payout_details,
     bulk_update_property_payout_details, update_property_payout_error_details)
 from apps.booking.utils.db_utils import get_hotelier_amount_payout
+from apps.log_management.utils.db_utils import create_hotelier_payout_log
 
 from apps.payment_gateways.mixins.payu_mixins import PayUPayOutMixin
 
@@ -73,7 +74,7 @@ def get_payout_property_details(property_ids):
             property_payout_list.append(property_payout_dict)
 
     print(payout_payload_list)
-    return payout_payload_list, property_payout_list
+    return payout_payload_list, property_payout_list, batch_id
 
 def process_initiate_payout_data_error(error_data, current_date):
     payout_error_ids = []
@@ -88,18 +89,31 @@ def process_initiate_payout_data_error(error_data, current_date):
     return payout_error_ids
     
 
-def initiate_payout(payload, property_payout_list, payment_medium):
+def initiate_payout(payload, property_payout_list, payment_medium, batch_id):
 
     response_data = {}
     pg_response = None
 
     timezone = pytz.timezone(settings.TIME_ZONE)
     current_date = datetime.now(timezone)
+    hotelier_payout_log = {}
 
     if payment_medium == 'PayU':
         payout_obj = PayUPayOutMixin()
         response = payout_obj.initiate_transfer_api(payload)
         response_data = response.json()
+
+        payu_status = response_data.get('status', '')
+        if payu_status == 0:
+            response_status = 200
+        elif payu_status == 1:
+            response_status = 206
+        else:
+            response_status = 400
+
+        hotelier_payout_log = {"batch_id":batch_id, "payout_status":response_status,
+                               "payout_response":response_data}
+        create_hotelier_payout_log(hotelier_payout_log)
         
 
     payout_pk_list = []
@@ -109,12 +123,13 @@ def initiate_payout(payload, property_payout_list, payment_medium):
         # fetch payout ids to update
         payout_pk_list = [obj.id for obj in prop_payout_obj]
 
-    print("response data", response_data)
-    response_status = response_data.get('status', '')
-    if response_status == 0:
+    # print("response data", response_data)
+    #response_status = response_data.get('status', '')
+    
+    if response_status == 200:
         print("success")
         payout_update_data = {
-            "initiate_status":200, "initiate_message": response_data.get('msg', ''),
+            "initiate_status":response_status, "initiate_message": response_data.get('msg', ''),
             "initiate_response": response_data, "initiate_date":current_date}
         print("payout list::", payout_pk_list)
         bulk_update_property_payout_details(payout_pk_list, payout_update_data)
@@ -123,14 +138,14 @@ def initiate_payout(payload, property_payout_list, payment_medium):
                            'payout_error_list':[]}
 
         return payout_response
-    elif response_status == 1:
+    elif response_status == 206:
         error_data = response_data.get('data', [])
         payout_error_ids = process_initiate_payout_data_error(error_data, current_date)
         # get success list
         payout_success_list = list(set(payout_pk_list) - set(payout_error_ids))
         if payout_success_list:
             payout_update_data = {
-                "initiate_status":200, "initiate_message": response_data.get('msg', ''),
+                "initiate_status":response_status, "initiate_message": response_data.get('msg', ''),
                 "initiate_response": response_data, "initiate_date":current_date}
             bulk_update_property_payout_details(payout_success_list, payout_update_data)
 

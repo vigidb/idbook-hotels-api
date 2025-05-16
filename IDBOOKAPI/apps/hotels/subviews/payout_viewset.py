@@ -27,8 +27,8 @@ class PropertyPayoutViewset(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
         
-        payload, property_payout_list = get_payout_property_details(property_ids)
-        payout_response = initiate_payout(payload,  property_payout_list, payment_medium)
+        payload, property_payout_list, batch_id = get_payout_property_details(property_ids)
+        payout_response = initiate_payout(payload,  property_payout_list, payment_medium, batch_id)
         payout_status = payout_response.get('status')
         if payout_status == "partial_success" or payout_status == "success":
             payout_success_list = payout_response.get('payout_success_list')
