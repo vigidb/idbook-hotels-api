@@ -234,9 +234,14 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='idb_sub.name', allow_null=True)
     subscription_type = serializers.CharField(source='idb_sub.subscription_type',
                                               allow_null=True)
+    features = serializers.SerializerMethodField()
     class Meta:
         model = UserSubscription
         fields = '__all__'
+    def get_features(self, obj):
+        if obj.idb_sub:
+            return list(obj.idb_sub.features.values_list('title', flat=True))
+        return []
 
 class UserSubscriptionProfileSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='idb_sub.name', allow_null=True)
