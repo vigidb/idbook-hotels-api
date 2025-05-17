@@ -53,6 +53,7 @@ def migrated_invoice_pdf_generation(payload, invoice_obj=None, booking_id=None):
         amount = 0
         tax_amount = 0
         for item in invoice_data.get('items', []):
+            item.setdefault('tax', 0)
             # if invoice_obj is not None and item.get('description') and len(item.get('description', '')) > 250:
             #     # Keep full description for PDF rendering but mark for database handling
             #     item['description'] = 'length Exceeded' 
@@ -70,7 +71,7 @@ def migrated_invoice_pdf_generation(payload, invoice_obj=None, booking_id=None):
                 
             item['price'] = price
             
-            item_tax = 0
+            gst = 0
             if item.get('tax') is not None:
                 gst = float(item.get('tax') or 0)
                 # item_tax = (gst / 100) * item_amount
