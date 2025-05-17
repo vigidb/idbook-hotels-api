@@ -73,10 +73,10 @@ def migrated_invoice_pdf_generation(payload, invoice_obj=None, booking_id=None):
             item_tax = 0
             if item.get('tax') is not None:
                 gst = float(item.get('tax') or 0)
-                item_tax = (gst / 100) * item_amount
+                # item_tax = (gst / 100) * item_amount
             
             amount += item_amount
-            tax_amount += item_tax
+            tax_amount += gst
 
         if amount > 0:
             invoice_data['amount'] = amount
@@ -428,8 +428,8 @@ def sync_invoices(limit=None):
                 
                 GST=invoice_data.get("GST", 0) or 0,  # Handle None values
                 GST_type=invoice_data.get("GSTType", "CGST/SGST"),
-                total=invoice_data.get("total", 0) or 0,
-                total_amount=invoice_data.get("totalAmount", 0) or 0,
+                total=invoice_data.get("totalAmount", 0) or 0,
+                total_amount=invoice_data.get("total", 0) or 0,
                 total_tax=invoice_data.get("totalTax", 0) or 0,
                 
                 status=invoice_data.get("status", "Pending"),
