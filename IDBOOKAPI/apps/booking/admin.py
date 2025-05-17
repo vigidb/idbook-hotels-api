@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Booking, HotelBooking, HolidayPackageBooking,
     VehicleBooking, FlightBooking, TaxRule,
-    BookingPaymentDetail, Review, BookingCommission)
+    BookingPaymentDetail, Review, BookingCommission,
+    Invoice)
 
 # Register your models here.
 
@@ -15,6 +16,11 @@ class BookingAdmin(admin.ModelAdmin):
 class BookingPaymentAdmin(admin.ModelAdmin):
     list_display = ('id', 'booking', 'is_transaction_success', 'created', 'updated')
     
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ('id', 'invoice_number', 'invoice_date', 'total_amount', 'status', 'created_at')
+    search_fields = ('invoice_number',)
+
+admin.site.register(Invoice, InvoiceAdmin)
 admin.site.register(Booking, BookingAdmin)
 admin.site.register(HotelBooking)
 admin.site.register(HolidayPackageBooking)
