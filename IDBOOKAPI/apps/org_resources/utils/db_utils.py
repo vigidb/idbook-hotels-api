@@ -1,7 +1,11 @@
 from apps.org_resources.models import (
     Enquiry, CompanyDetail, Subscription,
     UserSubscription, SubRecurringTransaction)
+
 import traceback
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
 
 def get_enquiry_details(enquiry_id):
     try:
@@ -29,10 +33,26 @@ def get_subscription(subscription_id):
     except Exception as e:
         return None
 
+def fetch_subscription_for_mandate_check(current_date):
+    # 3 days gap
+    mandate_date = current_date - relativedelta(days=2)
+    user_subscriptions = UserSubscription.objects.exclude(mandate_tnx_id='')
+
+    # check for mandate initiated and mandate cancelled initiated
+    user_subscriptions = user_subscriptions.filter(
+        Q(mandate_status='initiated') | Q(mandate_status='cancel_initiated'))
+    # check each subscription every 2 days
+    user_subscriptions = user_subscriptions.filter(Q(last_mandate_check__isnull=True)
+                                                   |Q(last_mandate_check__lte=mandate_date))
+    return user_subscriptions
+    
+    
+
 def fetch_rec_subscribers_to_notify(current_date, payment_medium=None):
     try:
         user_subscriptions = UserSubscription.objects.filter(
-            notification_id='', next_notify_date__date=current_date)
+            notification_id='', next_notify_date__date=current_date,
+            mandate_status='active')
         if payment_medium:
             user_subscriptions = user_subscriptions.filter(
                 payment_medium=payment_medium)        
@@ -44,7 +64,8 @@ def fetch_rec_subscribers_to_notify(current_date, payment_medium=None):
 def fetch_rec_subscribers_to_debit(current_date, payment_medium=None):
     try:
         user_subscriptions = UserSubscription.objects.filter(
-            recrinit_tnx_id='', next_payment_date__date=current_date).exclude(
+            recrinit_tnx_id='', next_payment_date__date=current_date,
+            mandate_status='active').exclude(
                 notification_id='')
         if payment_medium:
             user_subscriptions = user_subscriptions.filter(

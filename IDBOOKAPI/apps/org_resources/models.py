@@ -513,6 +513,11 @@ class Subscription(models.Model):
         return self.name
 
 class UserSubscription(models.Model):
+    MANDATE_STATUS_CHOICES = (("pending", "pending"),("initiated","initiated"),
+                              ("active", "active"),("failed", "failed"),
+                              ("cancel_initiated", "cancel_initiated"), ("cancelled", "cancelled"),
+                              ("cancel_failed","cancel_failed"), ("expired", "expired"))
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_subscription')
     idb_sub = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='user_idbsub',
                                 null=True, help_text="Idbook subscription")
@@ -546,6 +551,10 @@ class UserSubscription(models.Model):
     transaction_amount = models.IntegerField(default=0, help_text="last transaction amount")
 
     # is_mandate_paid = models.BooleanField(default=False)
+    mandate_status = models.CharField(max_length=50, choices=MANDATE_STATUS_CHOICES,
+                                      default='pending')
+    last_mandate_check = models.DateTimeField(null=True)
+    
     paid = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
