@@ -534,16 +534,16 @@ def deduct_booking_amount(booking, company_id=None):
     deduct_amount = booking.final_amount # - float(booking.total_payment_made)
     if company_id:
         status = deduct_company_wallet_balance(company_id, deduct_amount)
-    else:
-        status = deduct_wallet_balance(booking.user.id, deduct_amount)
 
-    if status:
-        transaction_details = f"Amount debited for {booking.booking_type} \
-booking ({booking.confirmation_code})"
-        wtransact_dict = {'user':booking.user, 'amount':deduct_amount,
-                          'transaction_type':'Debit', 'transaction_details':transaction_details,
-                          'company_id':company_id}
-        update_wallet_transaction(wtransact_dict)
+        if status:
+            transaction_details = f"Amount debited for {booking.booking_type} \
+    booking ({booking.confirmation_code})"
+            wtransact_dict = {'user':booking.user, 'amount':deduct_amount,
+                              'transaction_type':'Debit', 'transaction_details':transaction_details,
+                              'company_id':company_id}
+            update_wallet_transaction(wtransact_dict)
+    else:
+        status = deduct_wallet_balance(booking.user.id, deduct_amount, booking)
 
     return status
 

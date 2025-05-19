@@ -1,9 +1,9 @@
 from apps.org_resources.models import (
     Enquiry, CompanyDetail, Subscription,
     UserSubscription, SubRecurringTransaction)
-
+from apps.customer.models import WalletTransaction
 import traceback
-
+from apps.customer.utils.db_utils import add_user_wallet_amount
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 
@@ -110,8 +110,55 @@ def update_subrecur_transaction(transaction_id, trans_dict:dict):
         trans_obj.paid = trans_dict['paid']
         trans_obj.callbak_state = trans_dict['callbak_state']
         trans_obj.save()
-    
 
+def add_wallet_bonus_for_subscription(user_sub_obj):
+    """
+    Adds wallet bonus based on subscription type and level.
+    Returns True if wallet bonus was successfully added, else False.
+    """
+    user_id = user_sub_obj.user.id
+    user_subid = user_sub_obj.id
+    subscription_type = user_sub_obj.idb_sub.subscription_type
+    subscription_level = user_sub_obj.idb_sub.level
+
+    bonus_amount = 0
+    if subscription_type == "Yearly":
+        if subscription_level == 2:
+            bonus_amount = 200
+        elif subscription_level == 3:
+            bonus_amount = 500
+
+        if bonus_amount > 0:
+            wallet_status = add_user_wallet_amount(user_id, bonus_amount)
+
+            if wallet_status:
+                transaction_details = f"Pro member bonus {bonus_amount} INR for {subscription_type} {user_sub_obj.idb_sub.name} is credited into Wallet"
+                other_details = {
+                    "subscription": {
+                        "id": user_subid,
+                        "level": subscription_level,
+                        "type": subscription_type,
+                        "amount": bonus_amount
+                    }
+                }
+
+                wtransact_dict = {
+                    'user_id': user_id,
+                    'amount': bonus_amount,
+                    'transaction_type': 'Credit',
+                    'transaction_details': transaction_details,
+                    'company_id': None,
+                    'transaction_for': 'pro_member_bonus',
+                    'is_transaction_success': True,
+                    'other_details': other_details,
+                    'expiry_date': user_sub_obj.sub_end_date,
+                    'used_amount': 0,
+                    'remaining_amount': bonus_amount
+                }
+
+                WalletTransaction.objects.create(**wtransact_dict)
+                return True
+    return False
         
     
     
