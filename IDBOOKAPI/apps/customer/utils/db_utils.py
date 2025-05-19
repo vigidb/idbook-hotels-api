@@ -57,13 +57,99 @@ def update_wallet_transaction(wtransact):
     except Exception as e:
         print(e)
 
+# def deduct_wallet_balance(user_id, deduct_amount):
+#     try:
+#         wallet = Wallet.objects.get(user__id=user_id, company_id__isnull=True)
+#         if wallet.balance < deduct_amount:
+#             return False
+#         wallet.balance = wallet.balance - deduct_amount
+#         wallet.save()
+#         return True
+#     except Exception as e:
+#         print("Wallet Balance deduct error::", e)
+#         return False
+
 def deduct_wallet_balance(user_id, deduct_amount):
     try:
+        # Get the wallet for the user
         wallet = Wallet.objects.get(user__id=user_id, company_id__isnull=True)
+        
+        # First check if the total wallet balance is sufficient
         if wallet.balance < deduct_amount:
             return False
+        
+        # Get any active pro wallet bonuses with remaining balance
+        today = datetime.now().date()
+        pro_wallet_transactions = WalletTransaction.objects.filter(
+            user_id=user_id,
+            transaction_type='Credit',
+            expiry_date__gte=today,
+            remaining_amount__gt=0
+        ).order_by('expiry_date')  # Prioritize bonuses expiring soonest
+        
+        amount_to_deduct = deduct_amount
+        pro_wallet_deductions = []
+        
+        # First use pro wallet bonuses if available
+        for pro_txn in pro_wallet_transactions:
+            if amount_to_deduct <= 0:
+                break
+                
+            available_bonus = pro_txn.remaining_amount
+            used_from_bonus = min(available_bonus, amount_to_deduct)
+            
+            # Track how much was used from this bonus
+            pro_wallet_deductions.append({
+                'original_txn': pro_txn,
+                'amount_used': used_from_bonus
+            })
+            
+            amount_to_deduct -= used_from_bonus
+        
+        # Process the deductions
+        # 1. Update pro wallet transactions
+        for deduction in pro_wallet_deductions:
+            pro_txn = deduction['original_txn']
+            amount_used = deduction['amount_used']
+            
+            # Update the pro wallet transaction
+            pro_txn.used_amount += amount_used
+            pro_txn.remaining_amount -= amount_used
+            pro_txn.save()
+            
+            # Create corresponding debit transaction record
+            pro_debit = {
+                'user': wallet.user,
+                'amount': amount_used,
+                'transaction_type': 'Debit',
+                'transaction_details': f"Pro bembership wallet bonus deduction (expiry: {pro_txn.expiry_date})",
+                'transaction_for': 'booking',
+                'payment_type': 'WALLET',
+                'payment_medium': 'Idbook',
+                'is_transaction_success': True
+            }
+            update_wallet_transaction(pro_debit)
+        
+        # 2. If there's remaining amount to deduct, use regular wallet
+        regular_wallet_deduction = amount_to_deduct
+        if regular_wallet_deduction > 0:
+            # Create debit transaction for regular wallet
+            regular_debit = {
+                'user': wallet.user,
+                'amount': regular_wallet_deduction,
+                'transaction_type': 'Debit',
+                'transaction_details': "Regular wallet deduction",
+                'transaction_for': 'booking',
+                'payment_type': 'WALLET',
+                'payment_medium': 'Idbook',
+                'is_transaction_success': True
+            }
+            update_wallet_transaction(regular_debit)
+        
+        # Finally, update the main wallet balance
         wallet.balance = wallet.balance - deduct_amount
         wallet.save()
+        
         return True
     except Exception as e:
         print("Wallet Balance deduct error::", e)

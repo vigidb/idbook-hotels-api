@@ -44,7 +44,7 @@ from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
 from apps.authentication.utils.authentication_utils import get_group_based_on_name
-from apps.customer.models import Customer
+from apps.customer.models import Customer, WalletTransaction
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 
 from apps.org_resources.tasks import send_enquiry_email_task
@@ -55,7 +55,7 @@ from apps.org_resources.utils.subscription_utils import (
     subscription_phone_pe_process, subscription_payu_process,
     subscription_cancel_payu_process)
 from IDBOOKAPI.utils import paginate_queryset
-
+from apps.customer.utils.db_utils import add_user_wallet_amount
 from datetime import datetime
 import pytz
 from dateutil.relativedelta import relativedelta
@@ -1519,7 +1519,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                       "email":email, "phone":mobile_number,
                       "start_date":start_date,"end_date":end_date,
                       "daily":daily}
-         
+
             response, usersub_obj = subscription_payu_process(user_subscription_dict, params)
             
             data = {"url":response.url, "text":response.text, "status_code":response.status_code}
@@ -1695,6 +1695,47 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 if mnd_status == 'success':
                     user_sub_obj.paid = True
                     user_sub_obj.active = True
+                    # Add wallet bonus for pro members based on subscription level and type
+                    if subscription_type == "Yearly":
+                        subscription_level = user_sub_obj.idb_sub.level
+                        bonus_amount = 0
+                        
+                        if subscription_level == 2:
+                            bonus_amount = 200
+                        elif subscription_level == 3:
+                            bonus_amount = 500
+                        
+                        if bonus_amount > 0:
+                            wallet_status = add_user_wallet_amount(user_id, bonus_amount)
+                            
+                            if wallet_status:
+                                # Create wallet transaction record
+                                transaction_details = f"Pro member bonus {bonus_amount} INR for {subscription_type} {user_sub_obj.name} is credited into Wallet"
+                                other_details = {
+                                    "subscription": {
+                                        "id": user_subid,
+                                        "level": subscription_level,
+                                        "type": subscription_type,
+                                        "amount": bonus_amount
+                                    }
+                                }
+                                
+                                wtransact_dict = {
+                                    'user_id': user_id,
+                                    'amount': bonus_amount,
+                                    'transaction_type': 'Credit',
+                                    'transaction_details': transaction_details,
+                                    'company_id': None,
+                                    'transaction_for': 'pro_member_bonus',
+                                    'is_transaction_success': True,
+                                    'other_details': other_details,
+                                    'expiry_date': user_sub_obj.sub_end_date,
+                                    'used_amount': 0,
+                                    'remaining_amount': bonus_amount
+                                }
+                                
+                                # Create wallet transaction record
+                                WalletTransaction.objects.create(**wtransact_dict)
                 user_sub_obj.save()
                 
             custom_response = self.get_response(
