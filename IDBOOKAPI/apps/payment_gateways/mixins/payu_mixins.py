@@ -87,13 +87,13 @@ class PayUMixin:
         return response
 
 
-    def check_mandate(self, auth_id, trans_id):
+    def check_mandate(self, auth_id, request_id):
         # url = "https://test.payu.in/merchant/postservice?form=2"
         url = settings.PAYU_MERCH_URL + "/postservice.php?form=2"
         key = settings.PAYU_KEY
         command = "check_mandate_status"
 
-        var1 = {"authPayuId":auth_id, "requestId": trans_id}
+        var1 = {"authPayuId":auth_id, "requestId": request_id}
         var1 = json.dumps(var1)
 
         salt = settings.PAYU_SALT

@@ -69,6 +69,7 @@ class BookingRefundLog(models.Model):
 class UserSubscriptionLogs(models.Model):
     CODE_CHOICES = (('VPA-CHECK', 'VPA-CHECK'), ('CRT-SUB', 'CRT-SUB'),
                     ('MANDATE', 'MANDATE'), ('MNDT-CLBAK', 'MNDT-CLBAK'),
+                    ('MNDT-STATCHK', 'MNDT-STATCHK'),
                     ('RECUR-INIT', 'RECUR-INIT'), ('RECRINIT-CALBAK', 'RECRINIT-CALBAK'),
                     ('RECUR-NOTIF', 'RECUR-NOTIF'),
                     ('SUB-CANC', 'SUB-CANC'), ('SUBCANC-CALBAK', 'SUBCANC-CALBAK'),

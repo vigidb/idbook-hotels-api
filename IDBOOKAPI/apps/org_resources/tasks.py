@@ -8,7 +8,8 @@ from apps.org_resources.utils.db_utils import (
     add_sub_recurring_transaction)
 from apps.log_management.utils.db_utils import create_user_subscription_logs
 from apps.org_resources.utils.subscription_utils import (
-    subscription_recurring_notification, subscription_recurring_debit)
+    subscription_recurring_notification, subscription_recurring_debit,
+    subscription_mandate_check)
 
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.payment_gateways.mixins.payu_mixins import PayUMixin
@@ -62,6 +63,8 @@ def initiate_recurring_payment(self):
 
     if payment_medium == "PayU":
         pg_obj = PayUMixin()
+        # mandate check
+        subscription_mandate_check(current_date, payment_medium, pg_obj)
         # notify customer atleast 48 hrs before debit
         subscription_recurring_notification(current_date, payment_medium, pg_obj)
         # debit the amount 

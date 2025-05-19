@@ -3,7 +3,7 @@ from dateutil.relativedelta import relativedelta
 
 from apps.org_resources.utils.db_utils import (
     fetch_rec_init_subscriptions, fetch_rec_subscribers_to_notify,
-    fetch_rec_subscribers_to_debit)
+    fetch_rec_subscribers_to_debit, fetch_subscription_for_mandate_check)
 
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.log_management.models import UserSubscriptionLogs
@@ -215,6 +215,48 @@ def subscription_phone_pe_process(
         status_response=submit_init_response.json())
 
     return error_response_dict, usersub_obj
+
+def subscription_mandate_check(current_date, payment_medium, pg_obj):
+    user_subscriptions = fetch_subscription_for_mandate_check(current_date)
+    print("subscription manadate check")
+
+    for user_subscription in user_subscriptions:
+        
+        try:
+            user_sub_logs = {"api_code":"MNDT-STATCHK"}
+                             
+            auth_id = user_subscription.pg_subid
+            request_id = "%s" %("RQT")
+            request_id  = get_unique_id_from_time(request_id)
+
+            # for logs
+            user_sub_logs["user_id"] = user_subscription.user_id
+            user_sub_logs["user_sub_id"] = user_subscription.id
+            user_sub_logs["pg_subid"] = auth_id
+            user_sub_logs["tnx_id"] = request_id
+            
+            resp = pg_obj.check_mandate(auth_id, request_id)
+            mandate_resp = resp.json()
+            user_sub_logs["status_response"] = mandate_resp
+            
+            mandate_status = mandate_resp.get('status', '')
+            if mandate_status == 'active':
+                user_subscription.mandate_status = 'active'
+                user_sub_logs["status_code"] = 200
+            elif mandate_status == 'failed':
+                user_subscription.mandate_status = 'failed'
+                user_sub_logs["status_code"] = 400
+            else:
+                user_sub_logs["status_code"] = 400
+                
+            user_subscription.last_mandate_check = current_date
+            user_subscription.save()
+        except Exception as e:
+            print(e)
+            user_sub_logs['error_message'] = str(e)
+
+        UserSubscriptionLogs.objects.create(**user_sub_logs)     
+            
 
 def subscription_recurring_notification(current_date, payment_medium, pg_obj):
     trans_dict = {}
