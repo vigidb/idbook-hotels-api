@@ -197,6 +197,8 @@ class Booking(models.Model):
     gst_type = models.CharField(max_length=25, choices=GST_TYPE, default='', blank=True, help_text="GST Type")
     service_tax =  models.DecimalField(default=0.0, max_digits=20, decimal_places=6,
                                        help_text="Service tax for the booking")
+    total_discount = models.DecimalField(default=0, max_digits=20, decimal_places=6,
+                                       help_text="Total discount of a booking")
     
     final_amount = models.DecimalField(default=0, max_digits=20, decimal_places=6,
                                        help_text="Final amount after considering gst, discount")
