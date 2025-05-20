@@ -150,7 +150,8 @@ def generate_context_confirmed_booking(booking):
     confirmation_code = booking.confirmation_code
     final_amount = booking.final_amount
     total_balance_due = final_amount - total_payment_made
-    subtotal = booking.subtotal
+    # subtotal = booking.subtotal
+    subtotal = booking.subtotal - (booking.total_discount - booking.discount - booking.pro_member_discount_value)
     tax = booking.gst_amount
 
     invoice_id = booking.invoice_id
