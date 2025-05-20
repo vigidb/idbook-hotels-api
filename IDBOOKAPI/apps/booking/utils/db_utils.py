@@ -510,7 +510,7 @@ def get_room_by_id(room_id):
 
 def get_hotelier_amount_payout(property_id):
     booking_obj = Booking.objects.filter(
-        hotel_booking__confirmed_property=property_id).prefetch_related(
+        hotel_booking__confirmed_property=property_id, status='completed').prefetch_related(
             'commission_info')
     booking_obj = booking_obj.filter(commission_info__booking__isnull=False,
                                      commission_info__is_payment_approved=True)
@@ -518,6 +518,11 @@ def get_hotelier_amount_payout(property_id):
                                      | Q(commission_info__payout_status='INIT-FAIL'))
 
     return booking_obj
+
+def update_payout_booking(booking_ids, payout_status, latest_payout_reference_id):
+    BookingCommission.objects.filter(
+        booking_id__in=booking_ids).update(payout_status=payout_status,
+        latest_payout_reference_id=latest_payout_reference_id)
 
             
             

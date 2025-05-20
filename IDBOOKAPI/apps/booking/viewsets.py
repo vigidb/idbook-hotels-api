@@ -1979,6 +1979,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     print("Confirmation Code::", confirmation_code)
                     instance.confirmation_code = confirmation_code
                     instance.total_payment_made = 0  # No payment made yet
+                    # instance.is_direct_pay = True
                     instance.status = 'confirmed'
                     instance.save()
                     instance.meta_info.booking_confirmed_date = datetime.now()
@@ -2976,6 +2977,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         print("Confirmation Code::", confirmation_code)
                         booking.confirmation_code = confirmation_code
                         booking.total_payment_made = 0
+                        # booking.is_direct_pay = True
                         booking.status = 'confirmed'
                         booking.save()
                         booking.meta_info.booking_confirmed_date = datetime.now()

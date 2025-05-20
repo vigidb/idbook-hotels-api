@@ -215,6 +215,7 @@ class Booking(models.Model):
     updated = models.DateTimeField(auto_now=True)
     is_checkin = models.BooleanField(default=False, help_text="Check_in status")
     is_checkout = models.BooleanField(default=False, help_text="Check_out status")
+    is_direct_pay = models.BooleanField(default=False)
 
     # objects = BookingManager()
 
@@ -307,9 +308,9 @@ class BookingMetaInfo(models.Model):
 
 
 class BookingCommission(models.Model):
-    PAYOUT_CHOICES = (('PENDING', 'PENDING'), ('INITIATED', 'INITIATED'),
-                      ('INIT-FAIL', 'INIT-FAIL'), ('PAID', 'PAID'),
-                      ('FAILED', 'FAILED'),)
+    PAYOUT_CHOICES = (('PENDING', 'PENDING'), ('ASSIGNED','ASSIGNED'),
+                      ('INITIATED', 'INITIATED'), ('INIT-FAIL', 'INIT-FAIL'),
+                      ('PAID', 'PAID'), ('FAILED', 'FAILED'),)
     
     booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='commission_info')
     commission = models.DecimalField(max_digits=20, decimal_places=6)
@@ -322,7 +323,11 @@ class BookingCommission(models.Model):
     tds = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount_with_tax = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    
     # details related to payout
+    final_payout = models.DecimalField(default=0.0, max_digits=20, decimal_places=6,
+                                       help_text="for pay at hotel, the commision amount will be stored with\
+                                       negative value, other case it is hotelier_amount_with_tax")
     is_payment_approved = models.BooleanField(default=True, help_text="Whether payment approved by admin")
     payout_status = models.CharField(max_length=50, choices=PAYOUT_CHOICES, default='PENDING')
     latest_payout_reference = models.ForeignKey(

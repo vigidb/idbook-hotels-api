@@ -1,6 +1,7 @@
 from apps.hotels.utils.db_utils import (
     get_property_bank_details, bulk_create_property_payout_details,
-    bulk_update_property_payout_details, update_property_payout_error_details)
+    bulk_update_property_payout_details, update_property_payout_error_details,
+    payout_prop_booking_aggregate)
 from apps.booking.utils.db_utils import get_hotelier_amount_payout
 from apps.log_management.utils.db_utils import create_hotelier_payout_log
 
@@ -14,11 +15,24 @@ import traceback, pytz
 
 from datetime import datetime
 
+def get_booking_payout_details(property_id):
+    prop_booking_obj = get_hotelier_amount_payout(property_id)
+    # payat_hotel_deducted_commission_amount 
+    booking_ids = list(prop_booking_obj.values_list('id', flat=True))
+
+    final_payout_amount = payout_prop_booking_aggregate(prop_booking_obj)
+##
+##    hotelier_amount_dict = prop_booking_obj.aggregate(
+##        total=Sum('commission_info__hotelier_amount'))
+##    hotelier_amount = hotelier_amount_dict.get('total')
+
+    return prop_booking_obj, booking_ids, final_payout_amount
+    
 
 def get_payout_property_details(property_ids):
     payout_payload_list = []
     property_payout_list = []
-    payment_type = "IMPS"
+    transaction_type = "IMPS"
     payment_medium = "PayU"
 
     prop_bank_obj = get_property_bank_details(property_ids)
@@ -31,14 +45,9 @@ def get_payout_property_details(property_ids):
         account_number = prop_bank.get('property_bank__account_number')
         ifsc_code = prop_bank.get('property_bank__ifsc')
 
-        prop_booking_obj = get_hotelier_amount_payout(property_id)
-        booking_ids = list(prop_booking_obj.values_list('id', flat=True))
-        print("booking ids", booking_ids)
+        prop_booking_obj, booking_ids, final_payout_amount = get_booking_payout_details(property_id)
 
         if booking_ids:
-            hotelier_amount_dict = prop_booking_obj.aggregate(
-                total=Sum('commission_info__hotelier_amount'))
-            hotelier_amount = hotelier_amount_dict.get('total')
 
             merchant_ref_id = "%s%d" %("TX", indx)
             merchant_ref_id  = get_unique_id_from_time(merchant_ref_id)
@@ -51,10 +60,10 @@ def get_payout_property_details(property_ids):
                 "beneficiaryMobile": "9567068425",
                 "beneficiaryEmail": "sonu@idbookhotels.com",
                 "purpose": "Payment from company",
-                "amount": float(hotelier_amount),
+                "amount": float(final_payout_amount),
                 "batchId": batch_id,
                 "merchantRefId": merchant_ref_id,
-                "paymentType": payment_type,
+                "paymentType": transaction_type,
                 "retry": False
                 }
 
@@ -66,7 +75,7 @@ def get_payout_property_details(property_ids):
                 "amount":hotelier_amount,
                 "transaction_id":merchant_ref_id,
                 "batch_id":batch_id,
-                "payment_type":payment_type,
+                "transaction_type":transaction_type,
                 "booking_list": booking_ids,
                 "payment_medium":payment_medium,
                 "initiate_status":True

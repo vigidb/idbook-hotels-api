@@ -471,13 +471,17 @@ class PropertyBankDetails(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
 class PropertyPayoutDetails(models.Model):
+    OWNERSHIP_CHOICES = (('ADMIN', 'ADMIN'),
+                         ('AUTO', 'AUTO'))
+    
     payout_property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='property_payout')
     amount = models.DecimalField(max_digits=20, decimal_places=6)
     transaction_id = models.CharField(max_length=100, blank=True)
     batch_id = models.CharField(max_length=100, blank=True)
+    batch_created_by = models.CharField(max_length=20, choices=OWNERSHIP_CHOICES, blank=True)
     pg_ref_no = models.CharField(max_length=100, blank=True)
 
-    payment_type = models.CharField(max_length=50, blank=True)
+    transaction_type = models.CharField(max_length=50, blank=True)
     payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default='')
     booking_list = models.JSONField(default=list)
     
@@ -489,6 +493,9 @@ class PropertyPayoutDetails(models.Model):
     
     paid = models.BooleanField(default=False)
     transaction_status = models.CharField(max_length=50, blank=True)
+    transaction_executed_by = models.CharField(max_length=20, choices=OWNERSHIP_CHOICES, blank=True)
+    payout_reference_file = models.FileField(upload_to='hotels/payout/transaction/',
+                                             blank=True, null=True)
 
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
