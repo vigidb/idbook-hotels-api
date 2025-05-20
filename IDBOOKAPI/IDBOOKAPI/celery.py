@@ -55,12 +55,12 @@ app.conf.task_routes = {
 app.conf.beat_schedule = {
     'add-every-3-minutes': {
         'task': 'apps.org_resources.tasks.initiate_recurring_payment',
-        'schedule': crontab(minute="*/15"),
+        'schedule': crontab(minute="*/1"),
         'options': {'queue': "recpay-initiate-queue"}
     },
     'wallet-expiry-task': {
         'task': 'apps.booking.tasks.wallet_expiry_task',
-        'schedule': crontab(minute="*/1"),
+        'schedule': crontab(minute="*/30"),
         'options': {'queue': "recpay-initiate-queue"}
     },
 }
