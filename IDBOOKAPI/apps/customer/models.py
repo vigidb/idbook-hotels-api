@@ -95,6 +95,7 @@ class WalletTransaction(models.Model):
     expiry_date = models.DateTimeField(null=True, blank=True, help_text="Expiry date for pro wallet credit amount")
     used_amount = models.DecimalField(max_digits=20, decimal_places=6, default=0, help_text="Amount used from pro wallet")
     remaining_amount = models.DecimalField(max_digits=20, decimal_places=6, default=0, help_text="Remaining amount from pro wallet")
+    is_expired = models.BooleanField(default=False, help_text="Flag to indicate if a pro wallet credit has been expired and processed")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

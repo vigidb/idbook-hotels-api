@@ -23,11 +23,14 @@ from apps.org_resources.utils.notification_utils import (
     generate_user_notification)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
-    get_wallet_balance, get_company_wallet_balance, get_user_based_customer)
+    get_wallet_balance, get_company_wallet_balance, get_user_based_customer,
+    update_wallet_transaction)
 from apps.authentication.utils.db_utils import update_user_first_booking
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from apps.authentication.models import User
-
+from apps.customer.models import Wallet, WalletTransaction
+from datetime import datetime
+import pytz
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -639,3 +642,71 @@ def send_booking_sms_task(self, notification_type='', params=None):
 
     except Exception as e:
         print(f'{notification_type} SMS Task Error: {e}')
+
+
+@celery_idbook.task(bind=True)
+def wallet_expiry_task(self):
+    print("Running wallet expiry task")
+    try:
+        # Get current date and time in the correct timezone
+        india_tz = pytz.timezone('Asia/Kolkata')
+        current_date = datetime.now(india_tz)
+        print(f"Current date and time: {current_date}")
+        
+        # Find all expired pro wallet transaction credits that haven't been marked as expired yet
+        expired_transactions = WalletTransaction.objects.filter(
+            transaction_type='Credit',
+            expiry_date__lte=current_date,  # Less than or equal to current time
+            remaining_amount__gt=0,
+            is_expired=False  # Only get transactions that haven't been marked as expired
+        )
+        
+        print(f"Found {expired_transactions.count()} expired wallet transactions")
+        
+        for expired_txn in expired_transactions:
+            try:
+                user_id = expired_txn.user_id
+                remaining_amount = expired_txn.remaining_amount
+                
+                # Get the user's wallet
+                try:
+                    wallet = Wallet.objects.get(user_id=user_id, company_id__isnull=True)
+                except Wallet.DoesNotExist:
+                    print(f"Wallet not found for user_id: {user_id}")
+                    continue
+                
+                # Create transaction data for the debit record
+                debit_data = {
+                    'user': expired_txn.user,
+                    'amount': remaining_amount,
+                    'transaction_type': 'Debit',
+                    'transaction_details': f"Unused amount INR {float(remaining_amount)} in pro membership wallet credit of INR {float(expired_txn.amount)} is expired {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    'transaction_for': 'pro_member_bonus_expiry',
+                    'payment_type': 'WALLET',
+                    'payment_medium': 'Idbook',
+                    'is_transaction_success': True
+                }
+                
+                # Update the wallet balance
+                if wallet.balance >= remaining_amount:
+                    wallet.balance -= remaining_amount
+                    wallet.save()
+                    
+                    expired_txn.is_expired = True
+                    expired_txn.save()
+                    
+                    # Create the debit transaction record
+                    update_wallet_transaction(debit_data)
+                    
+                    print(f"Successfully expired wallet credit of {remaining_amount} for user {user_id}")
+                else:
+                    print(f"Insufficient wallet balance for user {user_id}. Required: {remaining_amount}, Available: {wallet.balance}")
+            except Exception as e:
+                print(f"Error processing expired transaction {expired_txn.id}: {e}")
+                continue
+                
+        return f"Processed {expired_transactions.count()} expired wallet transactions"
+    
+    except Exception as e:
+        print(f"Error in wallet_expiry_task: {e}")
+        return f"Error in wallet_expiry_task: {e}"
