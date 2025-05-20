@@ -1147,7 +1147,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             if user and user.is_authenticated:
                 pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
-                user, self.total_room_amount_with_room_discount)
+                user, self.subtotal)
+                # user, self.total_room_amount_with_room_discount)
             
             # Apply the discount to the final amount
             if pro_member_discount_value > 0:
@@ -1166,7 +1167,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##                                  "tax_percent":com_tax_in_percent,
 ##                                  "total_com_amnt":com_amnt_withtax}
 ##            self.final_amount = self.final_amount + float(com_amnt_withtax)
-
+            total_discount = 0
+            total_room_discount = self.total_room_amount_without_room_discount - self.total_room_amount_with_room_discount
+            total_discount = float(total_room_discount) + float(discount) + float(pro_member_discount_value)
             commission_details = self.commission_calculation()
             if commission_details:
                 # self.final_amount = self.final_amount + float(
@@ -1182,6 +1185,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
                             "total_room_amount_with_discount": str(self.total_room_amount_with_room_discount),
                             "discount":str(discount),
+                            "total_discount": total_discount,
                             "pro_member_discount_percent": int(pro_member_discount_percent),
                             "pro_member_discount_value": int(pro_member_discount_value),
                             "final_amount":str(self.final_amount),

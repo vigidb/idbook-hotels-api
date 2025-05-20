@@ -392,11 +392,15 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 # Check if user is authenticated and calculate subscription discount
                 if user and user.is_authenticated:
                     pro_member_discount_percent, pro_member_discount_value = calculate_subscription_discount(
-                        user, self.total_room_amount_with_room_discount)
+                        user, self.subtotal)
+                        # user, self.total_room_amount_with_room_discount)
                     
                     if pro_member_discount_value > 0:
                         total_final_amount = total_final_amount - pro_member_discount_value
 
+                total_discount = 0
+                total_room_discount = self.total_room_amount_without_room_discount - self.total_room_amount_with_room_discount
+                total_discount = float(total_room_discount) + float(pro_member_discount_value)
 
                 complete_pricing_details[property_id] = {
                     'status': 'success',
@@ -409,6 +413,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                         'total_room_amount_with_discount': self.total_room_amount_with_room_discount,
                         'pro_member_discount_percent': pro_member_discount_percent,
                         'pro_member_discount_value': float(pro_member_discount_value),
+                        'total_discount': total_discount,
                         'final_amount': total_final_amount
                     }
                 }
