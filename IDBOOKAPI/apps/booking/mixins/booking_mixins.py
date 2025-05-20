@@ -478,8 +478,8 @@ class BookingMixins:
             # final amount
             # final_amount = final_amount + final_room_total
             self.final_tax_amount = self.final_tax_amount + total_tax_amount
-            self.subtotal = self.subtotal + int(total_room_amount_with_discount) # total room amount without tax and services
-            # self.subtotal = self.subtotal + total_room_amount # total room amount without tax and services
+            # self.subtotal = self.subtotal + int(total_room_amount_with_discount) # total room amount without tax and services
+            self.subtotal = self.subtotal + total_room_amount # total room amount without tax and services
 
         #print("confirmed room details::", self.confirmed_room_details)
 
