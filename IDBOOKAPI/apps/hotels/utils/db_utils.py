@@ -819,6 +819,11 @@ def bulk_create_property_payout_details(property_payout_list):
 
     return None
 
+def create_property_payout(property_payout:dict):
+    prop_payout_obj = PropertyPayoutDetails.objects.create(**property_payout)
+    return prop_payout_obj
+    
+
 def bulk_update_property_payout_details(payout_list, payout_data):
     PropertyPayoutDetails.objects.filter(
         id__in=payout_list).update(**payout_data)
@@ -836,6 +841,12 @@ def update_property_payout_error_details(tnx_id, payout_data):
     prop_payout_obj.save()
 
     return prop_payout_obj.id
+
+def payout_prop_booking_aggregate(prop_booking_obj):
+    final_amount_dict = prop_booking_obj.aggregate(
+        total=Sum('commission_info__final_payout'))
+    final_amount = final_amount_dict.get('total')
+    return final_amount
     
         
     
