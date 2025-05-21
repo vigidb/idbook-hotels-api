@@ -78,6 +78,19 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         otp_mobile = request.data.get('otp_mobile', None)
         user = None
 
+        # Check mandatory OTP fields
+        errors = []
+        if not otp:
+            errors.append({"field": "otp", "message": "Email OTP is required"})
+        if not otp_mobile:
+            errors.append({"field": "otp_mobile", "message": "Mobile OTP is required"})
+
+        if errors:
+            return self.get_error_response(
+                message="Email or Mobile OTP is missing", status="error",
+                errors=errors, error_code="OTP_FIELDS_REQUIRED",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
         user_otp = None
         if otp:
             # VERIFY
@@ -828,7 +841,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             if otp_for == 'LOGIN':
                 if not user_objs:
                     response = self.get_error_response(
-                        message="No user associated with the account!",
+                        message="Invalid User Credentials!",
                         status="error", errors=[], error_code="MISSING_USERNAME",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
