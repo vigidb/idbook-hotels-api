@@ -32,7 +32,7 @@ from apps.booking.utils.booking_utils import (
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
     handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback,
-    calculate_subscription_discount)
+    calculate_subscription_discount, commission_calculation)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -1180,6 +1180,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 commission_details['hotelier_amount'] = hotelier_amount
                 commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
+
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
                             "subtotal":str(self.subtotal),
                             "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
@@ -1717,13 +1718,13 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     hotel_booking.save()
                     hotel_booking_id = hotel_booking.id
 
-                commission_details = self.commission_calculation()
-                if commission_details:
-                    # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount = (self.final_amount - self.final_tax_amount)- float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
-                    commission_details['hotelier_amount'] = hotelier_amount
-                    commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
+##                commission_details = self.commission_calculation()
+##                if commission_details:
+##                    # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
+##                    hotelier_amount = (self.final_amount - self.final_tax_amount)- float(commission_details.get('com_amnt_withtax', 0))
+##                    hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+##                    commission_details['hotelier_amount'] = hotelier_amount
+##                    commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
                 booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
@@ -1766,8 +1767,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     booking.gst_type = gst_type
                     booking.save()
 
-                if commission_details:
-                    add_or_update_booking_commission(booking.id, commission_details)
+##                if commission_details:
+##                    add_or_update_booking_commission(booking.id, commission_details)
 
                 if not booking_id:
                     BookingMetaInfo.objects.create(booking=booking, booking_created_date=datetime.now())
@@ -1973,7 +1974,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 print("Property does not allow Pay-At-Hotel. Proceeding with wallet payment.")
             else:
                 is_eligible, eligibility_message = check_pay_at_hotel_eligibility(user, instance.final_amount)
-                
                 if not is_eligible:
                     print(f"Pay-at-hotel not eligible: {eligibility_message}. Proceeding with wallet payment.")
                 else:
@@ -1992,9 +1992,16 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     instance.total_payment_made = 0  # No payment made yet
                     # instance.is_direct_pay = True
                     instance.status = 'confirmed'
+                    instance.is_direct_pay = True
                     instance.save()
                     instance.meta_info.booking_confirmed_date = datetime.now()
                     instance.meta_info.save()
+
+                    # save booking commission details
+                    commission_details = commission_calculation(property_id, instance.subtotal,
+                                           instance.final_amount, instance.gst_amount, pay_at_hotel=True)
+                    if commission_details:
+                        add_or_update_booking_commission(instance.id, commission_details)
                     
                     # Save basic booking payment details without payment specific fields
                     booking_payment_detail.amount = instance.final_amount
@@ -2113,6 +2120,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance.save()
         instance.meta_info.booking_confirmed_date = datetime.now()
         instance.meta_info.save()
+
+        # save booking commission details
+        commission_details = commission_calculation(property_id, instance.subtotal,
+                               instance.final_amount, instance.gst_amount)
+        if commission_details:
+            add_or_update_booking_commission(instance.id, commission_details)
 
         booking_payment_detail.code = "PAYMENT_SUCCESS"
         booking_payment_detail.message = "Your payment is successful."
@@ -2988,11 +3001,18 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         print("Confirmation Code::", confirmation_code)
                         booking.confirmation_code = confirmation_code
                         booking.total_payment_made = 0
-                        # booking.is_direct_pay = True
+                        booking.is_direct_pay = True
                         booking.status = 'confirmed'
                         booking.save()
                         booking.meta_info.booking_confirmed_date = datetime.now()
                         booking.meta_info.save()
+
+                        # save booking commission details
+                        commission_details = commission_calculation(confirmed_property.id, booking.subtotal,
+                                                                    booking.final_amount, booking.gst_amount,
+                                                                    pay_at_hotel=True)
+                        if commission_details:
+                            add_or_update_booking_commission(booking.id, commission_details)
                         
                         # Save basic booking payment details without payment specific fields
                         booking_payment_detail.amount = float(amount)
@@ -3106,6 +3126,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
         booking = Booking.objects.get(id=booking_id)
         if booking:
             booking_id = booking.id
+            print("booking id---", booking_id)
             booking_type = booking.booking_type
         
 ##            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
@@ -3122,6 +3143,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking.save()
             booking.meta_info.booking_confirmed_date = datetime.now()
             booking.meta_info.save()
+
+            # save booking commission details
+            commission_details = commission_calculation(booking.hotel_booking.confirmed_property_id,
+                                                        booking.subtotal, booking.final_amount,
+                                                        booking.gst_amount)
+            if commission_details:
+                add_or_update_booking_commission(booking.id, commission_details)
 
             # update property confirmed booking count
             property_id = booking.hotel_booking.confirmed_property_id
