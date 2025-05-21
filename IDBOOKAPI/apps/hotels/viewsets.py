@@ -667,6 +667,32 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             request, self.queryset, available_property_dict, nonavailable_property_list
         )
         
+        adult_count = int(request.query_params.get('adult_count', 1))
+        child_count = int(request.query_params.get('child_count', 0))
+        child_age_list = request.query_params.get('child_age_list', '')
+        booking_slot = request.query_params.get('booking_slot', '24 Hrs')
+        checkin = request.query_params.get('checkin', '')
+        checkout = request.query_params.get('checkout', '')
+
+        # Convert child_age_list from string to list
+        if isinstance(child_age_list, str) and child_age_list:
+            try:
+                child_age_list = [int(age.strip()) for age in child_age_list.split(',')]
+            except:
+                child_age_list = []
+
+        total_guest = adult_count + child_count
+
+        user_booking_request_details = {
+            'checkin': checkin,
+            'checkout': checkout,
+            'adult_count': adult_count,
+            'child_count': child_count,
+            'child_age_list': child_age_list,
+            'total_guest': total_guest,
+            'booking_slot': booking_slot
+        }
+
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
@@ -674,6 +700,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 'available_property_dict': available_property_dict,
                 'favorite_list': self.favorite_list,
                 'nonavailable_property_list': nonavailable_property_list,
+                'user_booking_request_details': user_booking_request_details,
                 'complete_pricing_details': complete_pricing_details
             })
 
