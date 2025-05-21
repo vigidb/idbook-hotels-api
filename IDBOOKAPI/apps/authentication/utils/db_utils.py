@@ -4,7 +4,7 @@ from django.contrib.auth.models import Group
 from apps.authentication.models import Role
 from apps.authentication.models import User, UserOtp
 from apps.customer.models import Customer
-
+from django.utils import timezone
 
 def get_group_by_name(name):
     #CORPORATE-GRP
@@ -55,6 +55,7 @@ def create_email_otp(otp, to_email, otp_for):
         existing_otp.otp = otp
         existing_otp.otp_for = otp_for
         existing_otp.otp_generate_tries += 1
+        existing_otp.created = timezone.now()
         existing_otp.save()
     else:
         UserOtp.objects.create(
@@ -81,6 +82,7 @@ def create_mobile_otp(otp, mobile_number, otp_for):
         existing_otp.otp = otp
         existing_otp.otp_for = otp_for
         existing_otp.otp_generate_tries += 1
+        existing_otp.created = timezone.now()
         existing_otp.save()
     else:
         UserOtp.objects.create(
@@ -137,8 +139,14 @@ def check_mobile_otp(mobile_number, otp, otp_for):
         otp_for=otp_for).first()
     return user_otp
     
-    
-    
-    
-
-    
+def reset_otp_counter(user_account):
+    """Reset the OTP attempt counter after successful verification"""
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        if user_otp:
+            user_otp.otp_generate_tries = 0
+            user_otp.save()
+            return True
+    except Exception as e:
+        print(f"Error resetting OTP counter: {e}")
+    return False

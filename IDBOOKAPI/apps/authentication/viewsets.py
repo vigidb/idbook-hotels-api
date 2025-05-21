@@ -222,7 +222,12 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             refresh = RefreshToken.for_user(user)
             # user representation
             data = authentication_utils.user_representation(user, refresh_token = refresh)
-            
+
+            if user.email:
+                db_utils.reset_otp_counter(user.email)
+            if user.mobile_number:
+                db_utils.reset_otp_counter(user.mobile_number)
+
             response = self.get_response(
                 data=data,
                 status="success",
@@ -549,6 +554,11 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 ##                    }
 
             data = authentication_utils.user_representation(user, refresh_token=refresh)
+            # Reset OTP counter after successful login
+            if user.email:
+                db_utils.reset_otp_counter(user.email)
+            if user.mobile_number:
+                db_utils.reset_otp_counter(user.mobile_number)
             
             response = self.get_response(
                 data=data,
@@ -773,6 +783,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             return response
         user_detail.default_group = group_name
         user_detail.save()
+        db_utils.reset_otp_counter(username)
         data = authentication_utils.generate_refresh_token(user_detail)
         response = self.get_response(data=data, status="success",
                                      message="Login successful",
@@ -861,7 +872,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                     status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS)
                 return response
-                  
+
             # generate otp
             otp = generate_otp(no_digits=4)
 
@@ -939,7 +950,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 data = authentication_utils.generate_refresh_token(user_detail)
 
         
-
+        db_utils.reset_otp_counter(username)
         response = self.get_response(data=data, status="success",
                                      message="Otp Verification Success",
                                      status_code=status.HTTP_200_OK)
