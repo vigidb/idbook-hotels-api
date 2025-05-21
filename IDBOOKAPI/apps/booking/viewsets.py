@@ -31,7 +31,7 @@ from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount,
     generate_booking_confirmation_code, calculate_refund_amount, refund_wallet_payment, 
     update_no_show_status, check_pay_at_hotel_eligibility,
-    handle_pay_at_hotel_payment_cancellation)
+    handle_pay_at_hotel_payment_cancellation, get_gst_type)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -61,7 +61,7 @@ from IDBOOKAPI.basic_resources import BOOKING_TYPE
 from django.db import transaction
 
 from datetime import datetime
-
+import calendar
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -77,6 +77,11 @@ import pytz
 from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
+from apps.customer.utils.db_utils import get_wallet_balance
+from apps.org_resources.tasks import admin_send_sms_task
+from apps.org_managements.utils import get_active_business
+from apps.org_resources.db_utils import get_company_details
+from apps.customer.utils.db_utils import get_user_based_customer
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -597,6 +602,20 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 cancellation_details, 
                 applicable_policy
             )
+
+            if success:
+                balance = get_wallet_balance(instance.user.id)
+                if balance < 0:
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'ELIGIBILITY_LOSS_WARNING',
+                            'params': {
+                                'booking_id': instance.id,
+                                'reason': 'unpaid hotel charges',
+                                'amount': abs(balance)
+                            }
+                        }
+                    )
             
             # Send cancellation notifications regardless of fee status
             self.send_cancel_task(instance, 0)
@@ -1113,12 +1132,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 coupon_discount_type = coupon.discount_type
                 coupon_discount = coupon.discount
                 discount, subtotal_after_discount = apply_coupon_based_discount(
-                    coupon_discount, coupon_discount_type, self.subtotal)
+                    coupon_discount, coupon_discount_type, self.total_room_amount_with_room_discount)
+                    # coupon_discount, coupon_discount_type, self.subtotal)
 
                 self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
             else:
                 discount = 0
-                self.final_amount = self.subtotal + self.final_tax_amount
+                self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
+                # self.final_amount = self.subtotal + self.final_tax_amount
 
             hotel_booking_dict = {
                 "confirmed_property_id":property_id, "confirmed_room_details":self.confirmed_room_details,
@@ -1136,13 +1157,19 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             commission_details = self.commission_calculation()
             if commission_details:
-                self.final_amount = self.final_amount + float(
-                    commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                # self.final_amount = self.final_amount + float(
+                #     commission_details.get('com_amnt_withtax', 0))
+                # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                 commission_details['hotelier_amount'] = hotelier_amount
+                commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
-                            "subtotal":str(self.subtotal), "discount":str(discount),
+                            "subtotal":str(self.subtotal),
+                            "total_room_amount_without_discount": str(float(self.total_room_amount_without_room_discount)),
+                            "total_room_amount_with_discount": str(self.total_room_amount_with_room_discount),
+                            "discount":str(discount),
                             "final_amount":str(self.final_amount),
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
@@ -1277,7 +1304,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             # If no room_list is provided, use auto room allocation
             if not room_list:
-                is_allocated, allocation_response = self.auto_room_allocation(request)
+                is_allocated, allocation_response = self.auto_room_allocation(request, property_id)
                 if not is_allocated:
                     return allocation_response
                 room_list = self.room_list
@@ -1602,12 +1629,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     coupon_discount_type = coupon.discount_type
                     coupon_discount = coupon.discount
                     discount, subtotal_after_discount = apply_coupon_based_discount(
-                        coupon_discount, coupon_discount_type, self.subtotal)
+                        coupon_discount, coupon_discount_type, self.total_room_amount_with_room_discount)
+                        # coupon_discount, coupon_discount_type, self.subtotal)
 
                     self.final_amount = float(subtotal_after_discount) + self.final_tax_amount
                 else:
                     discount = 0
-                    self.final_amount = self.subtotal + self.final_tax_amount
+                    self.final_amount = self.total_room_amount_with_room_discount + self.final_tax_amount
+                    # self.final_amount = self.subtotal + self.final_tax_amount
 
 ##                tm ='Asia/Kolkata'
 ##                local_dt = timezone.localtime(item.created_at, pytz.timezone(tm))
@@ -1654,9 +1683,11 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
                 commission_details = self.commission_calculation()
                 if commission_details:
-                    self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
-                    hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+                    # self.final_amount = self.final_amount + float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount = self.total_room_amount_with_room_discount - float(commission_details.get('com_amnt_withtax', 0))
+                    hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
                     commission_details['hotelier_amount'] = hotelier_amount
+                    commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
                 booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
@@ -1679,6 +1710,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
+
+                bus_details = get_active_business()
+
+                if booking and booking.user:
+                    company_id = booking.company_id
+                    if company_id:
+                        company_details = get_company_details(company_id)
+                        customer_details = None
+                    else:
+                        company_details = None
+                        customer_details = get_user_based_customer(booking.user.id)
+
+                    gst_type = get_gst_type(bus_details, company_details, customer_details)
+
+                    booking.gst_type = gst_type
+                    booking.save()
 
                 if commission_details:
                     add_or_update_booking_commission(booking.id, commission_details)
@@ -1725,7 +1772,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
                 india_timezone = timezone('Asia/Kolkata')
                 current_month = datetime.now(india_timezone).strftime('%B')
-
+                booking_dict["total_room_amount_without_discount"] = str(float(self.total_room_amount_without_room_discount))
+                booking_dict["total_room_amount_with_discount"] = str(self.total_room_amount_with_room_discount)
                 if user.is_authenticated:
                     eligibility = MonthlyPayAtHotelEligibility.objects.filter(user=user, month=current_month).first()
 
@@ -1918,11 +1966,20 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     
                     # Update total no of confirmed booking for a property
                     process_property_confirmed_booking_total(property_id)
+                    if instance.final_amount > 20000:
+                        admin_send_sms_task.apply_async(
+                            kwargs={
+                                'notification_type': 'ADMIN_PAH_HIGH_VALUE_ALERT',
+                                'params': {
+                                    'booking_id': booking_id
+                                }
+                            }
+                        )
                     
-                    create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
+                    # create_invoice_task.apply_async(args=[booking_id], kwargs={'pay_at_hotel': pay_at_hotel})
                     send_booking_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                            'notification_type': 'PAY_AT_HOTEL_BOOKING_CONFIRMATION',
                             'params': {
                                 'booking_id': booking_id
                             }
@@ -1930,7 +1987,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     )
                     send_hotel_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',
+                            'notification_type': 'HOTELIER_PAH_BOOKING_ALERT',
                             'params': {
                                 'booking_id': booking_id
                             }
@@ -2164,11 +2221,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             try:
                 send_booking_sms_task.apply_async(
                     kwargs={
-                        'notification_type': 'PAYMENT_SUCCESS_INFO',
+                        'notification_type': 'PAH_PAYMENT_CONFIRMATION',
                         'params': {
                             'booking_id': instance.id,
-                            'amount': float(amount),
-                            'payment_purpose': 'Hotel Booking'
+                            'amount': float(amount)
                         }
                     }
                 )
@@ -2189,6 +2245,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             
             # Send payment failure notification
             try:
+                admin_send_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'ADMIN_PAH_PAYMENT_DISPUTE_ALERT',
+                        'params': {
+                            'booking_id': instance.id
+                        }
+                    }
+                )
                 send_booking_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'PAYMENT_FAILED_INFO',
@@ -2332,6 +2396,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         )
 
         serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        if data['is_eligible'] and not data['is_blacklisted']:
+            year = datetime.now().year
+            month_num = datetime.strptime(month, "%B").month
+            last_day = calendar.monthrange(year, month_num)[1]
+            formatted_date = f"{month} {last_day}, {year}"
+
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'PAH_SPECIAL_LIMIT_OVERRIDE',
+                    'params': {
+                        'user_id': user.id,
+                        'limit': float(data['eligible_limit']),
+                        'valid_till': formatted_date
+                    }
+                }
+            )
         return self.get_response(
             data=serializer.data,
             message="Eligibility record created successfully.",
@@ -2393,7 +2473,22 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         eligibility.save()
 
         serializer = MonthlyPayAtHotelEligibilitySerializer(eligibility)
+        if updated_by == 'Admin' and data.get('is_eligible') and not data.get('is_blacklisted'):
+            year = datetime.now().year
+            month_num = datetime.strptime(month, "%B").month
+            last_day = calendar.monthrange(year, month_num)[1]
+            formatted_date = f"{month} {last_day}, {year}"
 
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'PAH_SPECIAL_LIMIT_OVERRIDE',
+                    'params': {
+                        'user_id': user.id,
+                        'limit': float(data['eligible_limit']),
+                        'valid_till': formatted_date
+                    }
+                }
+            )
         return self.get_response(
             data=serializer.data,
             message="Eligibility record updated successfully.",

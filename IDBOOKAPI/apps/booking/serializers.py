@@ -284,7 +284,18 @@ class BookingSerializer(serializers.ModelSerializer):
         room_json  = hotel_booking.confirmed_room_details
         confirmed_checkin_time = hotel_booking.confirmed_checkin_time
         confirmed_checkout_time = hotel_booking.confirmed_checkout_time
-        
+        try:
+            booking = Booking.objects.get(hotel_booking=hotel_booking)
+        except Booking.DoesNotExist:
+            booking = None
+
+        invoice_details = {}
+        if booking and booking.invoice_id:
+            try:
+                invoice = Invoice.objects.get(invoice_number=booking.invoice_id)
+                invoice_details = InvoiceSerializer(invoice).data
+            except Invoice.DoesNotExist:
+                invoice_details = {"error": "Invoice not found"}
         hotel_json = {
             'enquired_property':enquired_property, 'booking_slot':booking_slot,
             'room_type':room_type, 'checkin_time': checkin_time,
@@ -293,7 +304,8 @@ class BookingSerializer(serializers.ModelSerializer):
             'confirmed_checkin_time':confirmed_checkin_time,
             'confirmed_checkout_time':confirmed_checkout_time,
             'requested_room_no':requested_room_no,
-            'cancellation_details': cancellation_details}
+            'cancellation_details': cancellation_details,
+            'invoice_details': invoice_details}
          
         return hotel_json
 
@@ -482,6 +494,13 @@ class PropertyPaymentBookingSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['commission_info'] = None
+        booking_id = instance.get('id')  # Get booking ID from the instance
+        if booking_id:
+            try:
+                booking_instance = Booking.objects.get(id=booking_id)
+                representation['booking_status'] = booking_instance.status
+            except Booking.DoesNotExist:
+                representation['booking_status'] = None
 
         representation['user'] = {
             "id": instance.get('user_id'),

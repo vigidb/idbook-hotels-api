@@ -5,6 +5,16 @@ from apps.hotels.utils.db_utils import (
     get_room_by_id, get_total_rooms, get_blocked_property_ids,
     get_property_availability, update_property_confirmed_booking,
     get_calendar_unavailable_property)
+from datetime import datetime
+from django.template.loader import render_to_string
+from django.template import Context, Template
+import pdfkit
+import os, io
+from django.conf import settings
+from django.template.loader import get_template
+import requests
+from django.core.files.base import ContentFile
+from django.core.mail import EmailMessage
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -254,6 +264,94 @@ def process_property_confirmed_booking_total(property_id):
     except Exception as e:
         print(e)
     
-    
-    
+def generate_service_agreement_pdf(context, property_id=None, save_to_db=False, property_obj=None):
+
+    try:
+        if 'date' in context and isinstance(context['date'], datetime):
+            context['date'] = context['date'].strftime('%d-%B-%Y')
         
+        # Check if this is a verified agreement
+        is_verified = context.get('is_verified', False)
+        
+        # Render the HTML template with the context data
+        html_content = render_to_string('service_agreement_template/service_agreement.html', context)
+         
+        # Set wkhtmltopdf options
+        options = {
+            'page-size': 'A4',
+            'margin-top': '0mm',
+            'margin-right': '0mm',
+            'margin-bottom': '0mm',
+            'margin-left': '0mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'disable-smart-shrinking': True
+        }
+        
+        # Generate PDF in memory
+        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        
+        # For verified agreements, save to database
+        if save_to_db and property_obj and is_verified:
+            file_name = f"service_agreement_{property_id}_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.pdf"
+
+            # Save to property's service_agreement_pdf field
+            property_obj.service_agreement_pdf.save(file_name, ContentFile(pdf_bytes), save=True)
+            
+            print(f"Verified service agreement PDF saved to database")
+            return pdf_bytes
+        else:
+            # Before verification, just return PDF content in memory without saving anywhere
+            print("Returning PDF bytes in memory without saving")
+            return pdf_bytes
+         
+    except Exception as e:
+        print(f"Error generating service agreement PDF: {str(e)}")
+        raise
+    
+def send_agreement_email(property, pdf_content, context, is_verification=False):
+    """
+    Send service agreement email to hotelier
+
+    """
+    # Set appropriate subject and template based on email type
+    if is_verification:
+        subject = "Idbook Hotel Service Agreement Verification Confirmation"
+        template_name = 'service_agreement_template/service_agreement_verification.html'
+    else:
+        subject = "Idbook Hotel Service Agreement Request"
+        template_name = 'service_agreement_template/service_agreement_request.html'
+    
+    to_email = property.email
+    
+    # Get the email template
+    email_template = get_template(template_name)
+    html_content = email_template.render(context)
+    
+    # Create email
+    email = EmailMessage(
+        subject=subject,
+        body=html_content,
+        from_email=settings.EMAIL_HOST_USER,
+        to=[to_email]
+    )
+    email.content_subtype = "html"
+    
+    # Attach PDF to email
+    try:
+        if isinstance(pdf_content, bytes):
+            attachment_name = "service_agreement_request.pdf" if not is_verification else "service_agreement_verified.pdf"
+            email.attach(attachment_name, pdf_content, 'application/pdf')
+        
+        elif is_verification and hasattr(property, 'service_agreement_pdf') and property.service_agreement_pdf:
+            attachment_name = "service_agreement_verified.pdf"
+            email.attach(attachment_name, property.service_agreement_pdf.read(), 'application/pdf')
+        
+        else:
+            print("No PDF content available to attach")
+    except Exception as e:
+        print(f"Error attaching PDF to email: {e}")
+    
+    # Send the email
+    status = email.send(fail_silently=False)
+    print(f"Email send status: {status}")

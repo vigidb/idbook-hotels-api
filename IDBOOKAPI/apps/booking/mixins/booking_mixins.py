@@ -1,6 +1,6 @@
 from apps.hotels.utils.db_utils import (
     get_property_room_for_booking, get_dynamic_room_pricing_list,
-    get_property_commission, get_room_price)
+    get_property_commission, get_room_price, get_room_by_id)
 from apps.booking.utils.booking_utils import (
     get_tax_rate, calculate_xbed_amount, calculate_room_booking_amount)
 
@@ -11,6 +11,8 @@ from IDBOOKAPI.utils import (
     get_date_from_string)
 from apps.hotels.models import Room
 from apps.hotels.utils.hotel_utils import get_available_room
+from apps.org_resources.models import BasicAdminConfig
+from decimal import Decimal
 import traceback
 
 class BookingMixins:
@@ -29,7 +31,7 @@ class BookingMixins:
         if len(date_list) >=2:
             date_list.pop()
 
-        print("date list::", date_list)
+        # print("date list::", date_list)
         pricing_objs = get_dynamic_room_pricing_list(
             start_date, end_date, room_ids)
 
@@ -309,6 +311,10 @@ class BookingMixins:
 
             
     def amount_calculation(self):
+
+        # Initialize total room amount tracking variables
+        self.total_room_amount_without_room_discount = 0
+        self.total_room_amount_with_room_discount = 0
         
         for room in self.room_list:
             room_id = room.get('room_id', None)
@@ -320,6 +326,11 @@ class BookingMixins:
             # get room details
             room_type = room_detail.get('room_type')
             room_price = room_detail.get('room_price')
+            # Get room discount information from room table
+            room_db_info = get_room_by_id(room_id)
+            room_discount = room_db_info.discount if room_db_info else 0
+            room_discount_type = room_db_info.discount_type if room_db_info else 'PERCENT'
+
             if not room_price:
                 custom_response = self.get_error_response(
                     message=f"The room price details for the room {room_type} is missing", status="error",
@@ -429,8 +440,23 @@ class BookingMixins:
                                                      total_room_amount)
                 
             
+            # Calculate room discount
+            if room_discount_type == 'AMOUNT':
+                room_discount_value = min(room_discount, total_room_amount)
+            else:
+                discount_percentage = min(room_discount, 100)
+                room_discount_value = (total_room_amount * discount_percentage) / 100
+                
+            # Calculate room amount with discount
+            total_room_amount_with_discount = total_room_amount - room_discount_value
             
-            final_room_total = total_room_amount + total_tax_amount
+            self.total_room_amount_without_room_discount += int(total_room_amount)
+            self.total_room_amount_with_room_discount += int(total_room_amount_with_discount)
+                
+            # Final amount calculation (using discounted room amount)
+            final_room_total = total_room_amount_with_discount + total_tax_amount
+
+            # final_room_total = total_room_amount + total_tax_amount
 
             confirmed_room = {"room_id": room_id, "room_type":room_type, "base_price":base_price,
                               "price": booking_room_price,
@@ -438,6 +464,11 @@ class BookingMixins:
                               "tax_in_percent": tax_in_percent, "tax_amount": tax_amount,
                               "total_tax_amount": total_tax_amount,
                               "no_of_days": self.no_of_days, "total_room_amount":total_room_amount,
+                              "room_discount": room_discount,
+                              "room_discount_type": room_discount_type,
+                              "room_discount_value": room_discount_value,
+                              "room_amount_with_discount": total_room_amount_with_discount,
+                              "room_amount_without_discount": float(total_room_amount),
                               "final_room_total": final_room_total, "booking_slot":self.booking_slot,
                               "extra_adults_allotted":extra_adults_allotted, "extra_bed_price":extra_bed_price,
                               "child_allotted":child_allotted, "date_based_price_list": date_based_price_list
@@ -447,7 +478,8 @@ class BookingMixins:
             # final amount
             # final_amount = final_amount + final_room_total
             self.final_tax_amount = self.final_tax_amount + total_tax_amount
-            self.subtotal = self.subtotal + total_room_amount # total room amount without tax and services
+            self.subtotal = self.subtotal + int(total_room_amount_with_discount) # total room amount without tax and services
+            # self.subtotal = self.subtotal + total_room_amount # total room amount without tax and services
 
         #print("confirmed room details::", self.confirmed_room_details)
 
@@ -467,7 +499,9 @@ class BookingMixins:
                 elif comm_type == "AMOUNT":
                     com_amnt = commission
 
-                tax_in_percent = get_tax_rate(com_amnt, self.tax_rules_dict)
+                # tax_in_percent = get_tax_rate(com_amnt, self.tax_rules_dict)
+                config = BasicAdminConfig.objects.get(code='commission_tax_percent')
+                tax_in_percent = Decimal(config.value)
                 tax_amount = calculate_tax(tax_in_percent, com_amnt)
 
                 com_amnt_withtax = com_amnt + tax_amount
@@ -484,12 +518,12 @@ class BookingMixins:
               
         return commission_details 
     
-    def auto_room_allocation(self, request):
+    def auto_room_allocation(self, request, property_id):
         """
         Automatically allocate rooms based on adult and child count if room_list is not provided.
         Uses lowest price rooms while ensuring all guests can be accommodated.
         """
-        property_id = request.data.get('property', None)
+        # property_id = request.data.get('property', None)
         adult_count = request.data.get('adult_count', 1)
         child_count = request.data.get('child_count', 0)
         booking_slot = request.data.get('booking_slot', '24 Hrs')

@@ -499,3 +499,9 @@ def update_payment_details(booking, invoice):
     except Exception as e:
         print(f"Error updating payment details: {e}")
         return False
+
+def get_room_by_id(room_id):
+    try:
+        return Room.objects.get(id=room_id)
+    except Room.DoesNotExist:
+        return None

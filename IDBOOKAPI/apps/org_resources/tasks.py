@@ -12,7 +12,12 @@ from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from IDBOOKAPI.utils import get_unique_id_from_time
-
+from apps.booking.models import Booking
+from django.contrib.auth.models import Group
+from apps.authentication.models import Role
+from apps.authentication.models import User
+from apps.org_resources.utils.notification_utils import admin_create_notification
+from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 import traceback
 
 
@@ -110,6 +115,63 @@ def initiate_recurring_payment(self):
 
         create_user_subscription_logs(user_sub_logs)
         
+@celery_idbook.task(bind=True)
+def admin_send_sms_task(self, notification_type='', params=None):
+    if params is None:
+        params = {}
+
+    print(f"Inside {notification_type} ADMIN SMS task")
+
+    try:
+        def get_booking_property(booking_id):
+            booking = Booking.objects.filter(id=booking_id).first()
+            return booking, booking.hotel_booking.confirmed_property if booking and booking.hotel_booking else None
+
+        def send_sms(mobile, template, variables):
+            print("variables_values", variables)
+            response = send_template_sms(mobile, template, variables)
+            print(f"SMS sent with template '{template}'. Response: {response}")
+            return response
+
+        def get_users_by_group_and_role(group_name, role_name):
+            group = Group.objects.filter(name=group_name).first()
+            role = Role.objects.filter(name=role_name).first()
+            if not group or not role:
+                return []
+            return User.objects.filter(groups=group, roles=role)
+
+        if notification_type == 'ADMIN_PAH_HIGH_VALUE_ALERT':
+            booking, property = get_booking_property(params.get('booking_id'))
+            if booking and property and float(booking.final_amount) > 20000:
+                variables_values = f"{booking.reference_code}|{float(booking.final_amount)}|{property.name}"
+                users = get_users_by_group_and_role('BUSINESS-GRP', 'BUS-ADMIN')
+                for user in users:
+                    if user.mobile_number:
+                        send_sms(
+                            user.mobile_number,
+                            "ADMIN_PAH_HIGH_VALUE_ALERT",
+                            variables_values
+                        )
+                        admin_create_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'ADMIN_PAH_PAYMENT_DISPUTE_ALERT':
+            booking, property = get_booking_property(params.get('booking_id'))
+            if booking and property:
+                variables_values = f"{property.name}|{booking.reference_code}|{float(booking.final_amount)}"
+                users = get_users_by_group_and_role('BUSINESS-GRP', 'BUS-ADMIN')
+                for user in users:
+                    if user.mobile_number:
+                        send_sms(
+                            user.mobile_number,
+                            "ADMIN_PAH_PAYMENT_DISPUTE_ALERT",
+                            variables_values
+                        )
+                        admin_create_notification(user, notification_type, variables_values)
+
+    except Exception as e:
+        print(f'{notification_type} ADMIN SMS Task Error: {e}')
+
+    return None
         
 
     

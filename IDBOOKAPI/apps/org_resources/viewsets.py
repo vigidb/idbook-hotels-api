@@ -16,17 +16,21 @@ from .serializers import (
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
     UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer,
-    SubscriptionSerializer, UserSubscriptionSerializer
+    SubscriptionSerializer, UserSubscriptionSerializer, FeatureSubscriptionSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription
+    UserSubscription, FeatureSubscription
     )
 from apps.log_management.models import UserSubscriptionLogs
 
-from IDBOOKAPI.utils import paginate_queryset, get_unique_id_from_time
+from IDBOOKAPI.utils import (
+    paginate_queryset, get_unique_id_from_time,
+    get_date_from_string
+    )
+
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
 import requests, json
@@ -47,9 +51,13 @@ from apps.org_resources.tasks import send_enquiry_email_task
 from apps.org_resources.utils.db_utils import (
     is_corporate_email_exist, is_corporate_number_exist, get_subscription,
     update_subrecur_transaction)
+from apps.org_resources.utils.subscription_utils import (
+    subscription_phone_pe_process, subscription_payu_process,
+    subscription_cancel_payu_process)
 from IDBOOKAPI.utils import paginate_queryset
 
 from datetime import datetime
+import pytz
 from dateutil.relativedelta import relativedelta
 
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -1026,6 +1034,16 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if name:
             queryset = queryset.filter(name__icontains=name)
 
+        queryset = queryset.order_by('-created')
+
+        offset = self.request.query_params.get('offset')
+        limit = self.request.query_params.get('limit')
+
+        if offset is not None and limit is not None:
+            offset = int(offset)
+            limit = int(limit)
+            queryset = queryset[offset:offset + limit]
+
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -1090,14 +1108,16 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        self.queryset = self.get_queryset()
-        offset = request.query_params.get('offset')
-        limit = request.query_params.get('limit')
+        # self.queryset = self.get_queryset()
+        # offset = request.query_params.get('offset')
+        # limit = request.query_params.get('limit')
         
-        if offset is not None and limit is not None:
-            count, self.queryset = paginate_queryset(request, self.queryset)
-        else:
-            count = self.queryset.count()
+        # if offset is not None and limit is not None:
+        #     count, self.queryset = paginate_queryset(request, self.queryset)
+        # else:
+        #     count = self.queryset.count()
+
+        count = self.get_queryset().count()
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -1215,13 +1235,23 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         
         for key in param_dict:
             param_value = param_dict[key]
-            if key in ('active', 'subscription_type'):
+            if key in ('active', 'subscription_type', 'is_popular'):
                 filter_dict[key] = param_value
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
             
+    def calculate_final_price(self, price, discount, discount_type):
+
+        final_price = price
         
+        if discount and discount_type:
+            if discount_type == 'AMOUNT':
+                final_price = price - discount
+            elif discount_type == 'PERCENT':
+                discount_amount = (discount * price) / 100
+                final_price = price - discount_amount
+        return final_price
         
 
     def create(self, request, *args, **kwargs):
@@ -1229,6 +1259,10 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
 
         name = self.request.data.get('name', '')
         subscription_type = self.request.data.get('subscription_type', '')
+        price = self.request.data.get('price', 0)
+        discount = self.request.data.get('discount', 0)
+        discount_type = self.request.data.get('discount_type', 'PERCENT')
+        is_popular = self.request.data.get('is_popular', False)
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type,
@@ -1239,18 +1273,37 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
                                                       errors=[],error_code="DUPLICATE_NAME",
                                                       status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-            
+        try:
+            price = int(price)
+            discount = int(discount)
+            final_price = self.calculate_final_price(price, discount, discount_type)
+
+            data_copy = request.data.copy()
+            data_copy['final_price'] = final_price
+            data_copy['is_popular'] = is_popular
+
+        except (ValueError, TypeError):
+            return self.get_error_response(
+                message="Invalid price or discount values", 
+                status="error",
+                errors=[],
+                error_code="INVALID_VALUES",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = self.get_serializer(data=data_copy)
 
         # Create an instance of your serializer with the request data
-        serializer = self.get_serializer(data=request.data)
+        # serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
-            response = super().create(request, *args, **kwargs)
-
+            # response = super().create(request, *args, **kwargs)
+            serializer.save()
             # Create a custom response
             custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response
+                # data=response.data,  # Use the data from the default response
+                data=serializer.data,  # Use the data from the default response
                 status='success',
                 message="Subscription Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
@@ -1267,18 +1320,16 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         return custom_response
 
     def partial_update(self, request, *args, **kwargs):
-
-        name = self.request.data.get('name', '')
-        subscription_type = self.request.data.get('subscription_type', '')
-        active = self.request.data.get('active', None)
-        
         # Get the object to be updated
         instance = self.get_object()
-        if not subscription_type:
-            subscription_type = instance.subscription_type
-
-        if not name:
-            name = instance.name
+        
+        name = self.request.data.get('name', instance.name)
+        subscription_type = self.request.data.get('subscription_type', instance.subscription_type)
+        price = self.request.data.get('price', instance.price)
+        discount = self.request.data.get('discount', instance.discount)
+        discount_type = self.request.data.get('discount_type', instance.discount_type)
+        active = self.request.data.get('active', None)
+        is_popular = self.request.data.get('is_popular', instance.is_popular)
 
         is_name_exist = self.queryset.filter(
             name__iexact=name, subscription_type=subscription_type, active=True).exclude(
@@ -1289,16 +1340,37 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
                                                       errors=[],error_code="DUPLICATE_NAME",
                                                       status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-                
         
+        # Calculate final price
+        try:
+            price = int(price)
+            discount = int(discount)
+            final_price = self.calculate_final_price(price, discount, discount_type)
+            
+            data_copy = request.data.copy()
+            data_copy['final_price'] = final_price
+            data_copy['is_popular'] = is_popular
+        except (ValueError, TypeError):
+            custom_response = self.get_error_response(
+                message="Invalid price or discount values", 
+                status="error",
+                errors=[],
+                error_code="INVALID_VALUES",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+        
+        serializer = self.get_serializer(instance, data=data_copy, partial=True)
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        # serializer = self.get_serializer(instance, data=request.data, partial=True)
 
         if serializer.is_valid():
-            response = super().partial_update(request, *args, **kwargs)
+            # response = super().partial_update(request, *args, **kwargs)
+            serializer.save()
             
             custom_response = self.get_response(
-                data=response.data,  # Use the data from the default response
+                # data=response.data,  # Use the data from the default response
+                data=serializer.data,  # Use the data from the default response
                 status='success',
                 message="Update success",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
@@ -1364,14 +1436,54 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 ##        except KeyError: 
 ##            # action is not set return default permission_classes
 ##            return [permission() for permission in self.permission_classes]
+
+    def user_subscription_param_ops(self):
         
-        
-    
+        filter_dict = {}
+        # fetch filter parameters
+        param_dict= self.request.query_params
+        for key in param_dict:
+            if key in ('user', 'idb_sub',
+                       'paid', 'active', 'is_cancelled',
+                       'is_cancel_initiated'):
+                filter_dict[key] = param_dict[key]
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+
+        # search 
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(pg_subid__icontains=search) | Q(mandate_tnx_id__icontains=search) | Q(cancel_tnx_id__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+    def property_order_ops(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
+
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         user_id = self.request.user.id
         idb_sub_id = request.data.get('idb_sub')
+        upi = request.data.get('upi', '')
+        payment_medium = request.data.get('payment_medium')
+        daily = request.data.get('daily', 0)
+        
+        name = request.data.get('name')
+        email = request.data.get('email')
         mobile_number = request.data.get('mobile_number')
+
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+
+        start_date = get_date_from_string(start_date)
+        end_date = get_date_from_string(end_date)
+        
+        usersub_obj = None
+        data = {}
 
         # generate merchant user id
         merchant_userid = "%s%d" % ("MU", user_id)
@@ -1391,161 +1503,260 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 errors=[],error_code="SUBSCRIPTION_NOT_EXIST",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
+
+        auth_request_id = "%s%d" % ("TX", user_id)
+        auth_request_id = get_unique_id_from_time(auth_request_id)
+
+        if payment_medium == 'PayU':
+            user_subscription_dict['payment_type'] = 'PAYMENT GATEWAY'
+            user_subscription_dict['payment_medium'] = payment_medium
+            params = {'merchant_userid':merchant_userid,'merchant_subid':merchant_subid,
+                      "txnid":auth_request_id, "amount":subscription.final_price,
+                      # "txnid":auth_request_id, "amount":subscription.price,
+                      "subscription_name":subscription.name,
+                      "subscription_type":subscription.subscription_type,
+                      "firstname":name,
+                      "email":email, "phone":mobile_number,
+                      "start_date":start_date,"end_date":end_date,
+                      "daily":daily}
+         
+            response, usersub_obj = subscription_payu_process(user_subscription_dict, params)
             
-        subscription_amount = subscription.price
-        user_subscription_dict['subscription_amount'] = subscription_amount
-        if subscription.subscription_type == 'Once':
-            pass
-        else:
-            if subscription.subscription_type == "Monthly":
-                payment_frequency = "MONTHLY"
-            elif subscription.subscription_type == "Yearly":
-                payment_frequency = "YEARLY"
-                
-            upi = request.data.get('upi')
-            phonepe_obj = PhonePayMixin()
-            # verify UPI ID
-            vpa_response = phonepe_obj.verify_vpa(upi)
-            if vpa_response.status_code == 200:
-                is_upi_valid = True
-                user_subscription_dict['upi_id'] = upi
-                user_subscription_dict['is_upi_valid'] = is_upi_valid
-                
-            else:
-                pass
-##                custom_response = self.get_error_response(
-##                    message="UPI Invalid", status="error",
-##                    errors=[],error_code="INVALID_UPI",
-##                    status_code=status.HTTP_400_BAD_REQUEST)
-##                return custom_response
-
-            # create subscription
-            sub_payload = {
-                "merchantId": settings.MERCHANT_ID,
-                "merchantSubscriptionId": merchant_subid,
-                "merchantUserId": merchant_userid,
-                "authWorkflowType": "TRANSACTION",
-                "amountType": "FIXED",
-                "amount": subscription_amount,
-                "frequency": payment_frequency,
-                "recurringCount": 12,
-                "mobileNumber": mobile_number
-            }
-            sub_response = phonepe_obj.create_subscription(sub_payload)
-            if sub_response.status_code == 200:
-                sub_response_json = sub_response.json()
-                sub_data = sub_response_json.get('data',{})
-                pg_subid = sub_data.get('subscriptionId')
-                print("subscription id::", pg_subid)
-                user_subscription_dict['pg_subid'] = pg_subid
-                user_subscription_dict['merchant_userid'] = merchant_userid
-                user_subscription_dict['merchant_subid'] = merchant_subid
-                user_subscription_dict['sub_workflow'] = "TRANSACTION"
-                usersub_obj = UserSubscription.objects.create(**user_subscription_dict)
-
-                # subscription vpa log
-                usr_sublogs_vpa = UserSubscriptionLogs(
-                    user_id=user_id, user_sub_id=usersub_obj.id,
-                    pg_subid=pg_subid, api_code="VPA-CHECK",
-                    status_code=vpa_response.status_code,
-                    #status_response=vpa_response.json()
-                )
-                # subscription create log
-                usr_sublogs_subcreate = UserSubscriptionLogs(
-                    user_id=user_id, user_sub_id=usersub_obj.id,
-                    pg_subid=pg_subid, api_code="CRT-SUB",
-                    status_code=sub_response.status_code, status_response=sub_response.json())
-                
-                UserSubscriptionLogs.objects.bulk_create([
-                    usr_sublogs_vpa, usr_sublogs_subcreate])
-
-            else:
-                # error log
-                UserSubscriptionLogs.objects.create(
-                    user_id=user_id, api_code="CRT-SUB",
-                    status_code=sub_response.status_code,
-                    status_response=sub_response.json())
-                
-                custom_response = self.get_error_response(
-                    message="Subscription creation failed", status="error",
-                    errors=[],error_code="SUBSCRIPTION_CREATE_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST)
-                return custom_response
-
-
-            auth_request_id = "%s%d" % ("TX", user_id)
-            auth_request_id = get_unique_id_from_time(auth_request_id)
-
-            # submit auth request, for mandate
-            payload = {
-                "merchantId": settings.MERCHANT_ID,
-                "merchantUserId": merchant_userid,
-                "subscriptionId": pg_subid,
-                "authRequestId": auth_request_id,
-                "amount": subscription_amount,
-                "paymentInstrument": {
-                    "type": "UPI_COLLECT",
-                    "vpa": upi
-                }
-            }
-
-            submit_init_response = phonepe_obj.submit_auth_init(payload)
-            if not submit_init_response.status_code == 200:
-                UserSubscriptionLogs.objects.create(
-                    user_id=user_id, api_code="MANDATE",
-                    user_sub_id=usersub_obj.id, pg_subid=pg_subid,
-                    status_code=submit_init_response.status_code,
-                    status_response=submit_init_response.json())
-                
-                custom_response = self.get_error_response(
-                     message="Subscription Mandate Request failed", status="error",
-                     errors=[],error_code="SUBSCRIPTION_MANDATE_REQUEST_ERROR",
-                     status_code=status.HTTP_400_BAD_REQUEST)
-                return custom_response
-            usersub_obj.mandate_tnx_id = auth_request_id
-            usersub_obj.save()
-
-            UserSubscriptionLogs.objects.create(
-                user_id=user_id, api_code="MANDATE",
-                user_sub_id=usersub_obj.id, pg_subid=pg_subid,
-                status_code=submit_init_response.status_code,
-                status_response=submit_init_response.json())
+            data = {"url":response.url, "text":response.text, "status_code":response.status_code}
             
-            #user_subscription_dict['mandate_tnx_id'] = auth_request_id
-            #print("submit init response::", submit_init_response.json())
-                  
 
-##        # Create an instance of your serializer with the request data
-##        serializer = self.get_serializer(data=request.data)
-##
-##        if serializer.is_valid():
-##            # If the serializer is valid, perform the default creation logic
-##            response = super().create(request, *args, **kwargs)
-##
-##            # Create a custom response
-##            custom_response = self.get_response(
-##                data=response.data,  # Use the data from the default response
-##                status='success',
-##                message="User Subscription Created",
-##                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-##
-##            )
-##        else:
-##            error_list = self.custom_serializer_error(serializer.errors)
-##            custom_response = self.get_error_response(
-##                message="Validation Error", status="error",
-##                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
-##            return custom_response
+        elif payment_medium == 'PhonePe':
+            error_response_dict, usersub_obj = subscription_phone_pe_process(
+                user_subscription_dict, merchant_subid, merchant_userid,
+                subscription, mobile_number, upi, auth_request_id, user_id)
 
-        # UserSubscription.objects.create(**user_subscription_dict)
+            if error_response_dict:
+                custom_response = self.get_error_response(
+                        message=error_response_dict.get('message', ''), status="error",
+                        errors=[],error_code=error_response_dict.get('error_code', ''),
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                return custom_response
+            
+            seriaizer = UserSubscriptionSerializer(usersub_obj)
+            data = serializer.data
+            
         custom_response = self.get_response(
-            data={},  # Use the data from the default response
+            data=data,  # Use the data from the default response
             status='success',
-            message="User Subscription Created",
+            message="User Subscription Initiated",
             status_code=status.HTTP_201_CREATED,  # 201 for successful creation
         )
 
         self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        self.user_subscription_param_ops()
+        self.property_order_ops()
+        # paginate the result
+        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                status="success",
+                count=count,
+                data=response.data,  # Use the data from the default response
+                message="User Subscription List",
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+
+            )
+        else:
+            custom_response = self.get_error_response(message="Validation Error", status="error",
+                                                      errors=[],error_code="VALIDATION_ERROR",
+                                                      status_code=status.HTTP_400_BAD_REQUEST)
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='cancel',
+            url_name='cancel', permission_classes=[IsAuthenticated])
+    def cancel_subscription(self, request):
+        
+        user_id = self.request.user.id
+        user_sub_id = request.data.get('user_sub')
+        payment_medium = request.data.get('payment_medium')
+        data = {}
+        user_sub_logs = {"api_code":"SUB-CANC", "user_id":user_id} # log
+        
+        user_sub = UserSubscription.objects.filter(id=user_sub_id).first()
+        if not user_sub:
+            custom_response = self.get_error_response(
+                message="Subscription not found", status="error",
+                errors=[],error_code="SUBSCRIPTION_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return custom_response
+        
+        user_sub_logs['user_sub_id'] = user_sub.id # log
+        user_sub_logs['pg_subid'] = user_sub.pg_subid # log
+        
+        pg_subid = user_sub.pg_subid
+
+        tnx_id = "%s%d" % ("CANC", user_id)
+        tnx_id = get_unique_id_from_time(tnx_id)
+        user_sub_logs['tnx_id'] = tnx_id # log
+
+        user_sub.is_cancel_initiated = True
+        user_sub.cancel_tnx_id = tnx_id
+
+##        amount = user_sub.total_amount
+##        subscription_name = user_sub.idb_sub.name
+##        name = self.request.user.name
+##        email = self.request.user.email
+##        phone = self.request.user.mobile_number
+##        
+##        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
+##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
+##                  "subscription_name":subscription_name, "firstname": name,
+##                  "email":email, "phone":phone
+##                  }
+
+        if payment_medium == 'PayU':
+            response = subscription_cancel_payu_process(pg_subid, tnx_id)
+            data = response.json()
+
+        user_sub.save() # save sunscription with cancellation details
+
+        user_sub_logs['status_response'] = data # log      
+        # log entry
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+        
+        custom_response = self.get_response(
+            data=data,  # Use the data from the default response
+            status='success',
+            message="User Subscription Initiated",
+            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+        )
+
+        return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='payu-sucess',
+            url_name='payu-sucess', permission_classes=[])
+    def subscription_payu_success(self, request):
+        user_sub_logs = {"api_code":"MNDT-CLBAK"} # log
+        try:
+            post_data = request.data
+            subscription_data_json = json.dumps(post_data)
+            print(subscription_data_json)
+            user_sub_logs['status_response'] = subscription_data_json # log
+
+            transaction_id = post_data.get('txnid')
+            pg_subid = post_data.get('mihpayid')
+            user_sub_logs['pg_subid'] = pg_subid # log
+            user_sub_logs['tnx_id'] = transaction_id
+            tranx_mode = post_data.get('mode')
+            
+            mnd_status = post_data.get('status')
+            # log
+            if mnd_status == "success":
+                user_sub_logs['status_code'] = 200
+            else:
+                user_sub_logs['status_code'] = 400
+                
+            net_amount_debit = int(post_data.get('net_amount_debit'))
+            if tranx_mode=="CC":
+                # credit card
+                pass
+
+            timezone = pytz.timezone(settings.TIME_ZONE)
+            current_date = datetime.now(timezone)
+            
+            user_sub_obj = UserSubscription.objects.filter(mandate_tnx_id=transaction_id).first()
+            if user_sub_obj:
+                # for logs
+                user_id = user_sub_obj.user.id
+                user_subid = user_sub_obj.id
+                user_sub_logs['user_id'] = user_id
+                user_sub_logs['user_sub_id'] = user_subid
+                
+                user_sub_obj.last_paid_date = current_date
+                subscription_type = user_sub_obj.idb_sub.subscription_type
+                if subscription_type == "Monthly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(months=1)
+                elif subscription_type == "Yearly":
+                    user_sub_obj.next_payment_date = current_date + relativedelta(years=1)
+                
+                user_sub_obj.pg_subid = pg_subid
+                user_sub_obj.transaction_amount = net_amount_debit
+                if mnd_status == 'success':
+                    user_sub_obj.paid = True
+                    user_sub_obj.active = True
+                user_sub_obj.save()
+                
+            custom_response = self.get_response(
+                data=subscription_data_json,  # Use the data from the default response
+                status='success',
+                message="User Subscription Created",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+        except Exception as e:
+            user_sub_logs['error_message'] = str(e)
+            custom_response = self.get_error_response(
+                message=str(e), status="error",
+                errors=[],error_code="CALLBACK_ERRROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
+        # create log
+        UserSubscriptionLogs.objects.create(**user_sub_logs)   
+        return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='payu-payment-response',
+            url_name='payu-payment-response', permission_classes=[])
+    def payment_payu_response(self, request):
+        user_sub_logs = {"api_code":"CMN-CALBAK"}
+
+        try:
+            post_data = request.data
+            payment_data_json = json.dumps(post_data)
+            
+            transaction_id = post_data.get('txnid')
+            pg_subid = post_data.get('mihpayid')
+            user_sub_logs['pg_subid'] = pg_subid # log
+            user_sub_logs['tnx_id'] = transaction_id
+            user_sub_logs['status_response'] = payment_data_json
+
+            response_status = post_data.get('status')
+            # log
+            if response_status == "success":
+                user_sub_logs['status_code'] = 200
+            else:
+                user_sub_logs['status_code'] = 400
+
+            user_sub_obj = UserSubscription.objects.filter(
+                Q(mandate_tnx_id=transaction_id) | Q(pg_subid=pg_subid)).first()
+            print("user sub obj::", user_sub_obj)
+            if user_sub_obj:
+                user_id = user_sub_obj.user.id
+                user_subid = user_sub_obj.id
+
+                user_sub_logs['user_id'] = user_id
+                user_sub_logs['user_sub_id'] = user_subid
+
+            custom_response = self.get_response(
+                data=payment_data_json,  # Use the data from the default response
+                status='success',
+                message="Payu Subscription Response",
+                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+            )
+        except Exception as e:
+            user_sub_logs['error_message'] = str(e)
+            custom_response = self.get_error_response(
+                message=str(e), status="error",
+                errors=[],error_code="CALLBACK_ERRROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+        
         return custom_response
 
 
@@ -1577,7 +1788,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
                 auth_data = json_data.get('data', {})
                 pg_subscription_id = auth_data.get('subscriptionDetails', {}).get("subscriptionId", "")
-                pg_subscription_id = "OM2504191131437470597164"
+                #pg_subscription_id = "OM2504191131437470597164"
                 subscription_state = auth_data.get('subscriptionDetails', {}).get("state", "")
                 
                 if pg_subscription_id:
@@ -1628,6 +1839,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
             status_code=status.HTTP_200_OK,
         )
         return custom_response
+    
 
     @action(detail=False, methods=['POST'], url_path='recur-init/pe-callbackurl',
             url_name='recur-init-pe-callbackurl', permission_classes=[])
@@ -3092,3 +3304,206 @@ class GetDistrictStateView(APIView):
             elif query in data["districts"]:
                 return Response({"district": query, "state": data["state"]})
         return Response({"error": f"Query '{query}' not found."}, status=404)
+
+class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = FeatureSubscription.objects.all()
+    serializer_class = FeatureSubscriptionSerializer
+    http_method_names = ['get', 'post', 'patch', 'delete']
+    permission_classes_by_action = {
+        'create': [IsAuthenticated], 
+        'update': [IsAuthenticated],
+        'partial_update': [IsAuthenticated],
+        'list': [AllowAny], 
+        'retrieve': [AllowAny],
+        'destroy': [IsAuthenticated]
+    }
+    
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            return [permission() for permission in self.permission_classes]
+    
+    def feature_subscription_filter_ops(self):
+        filter_dict = {}
+        param_dict = self.request.query_params
+        
+        for key in param_dict:
+            param_value = param_dict[key]
+            if key in ('is_active', 'type', 'level', 'subscription'):
+                if key == 'is_active':
+                    if param_value.lower() in ('true', '1', 'yes'):
+                        filter_dict[key] = True
+                    elif param_value.lower() in ('false', '0', 'no'):
+                        filter_dict[key] = False
+                else:
+                    filter_dict[key] = param_value
+        
+        if filter_dict:
+            filtered_queryset = FeatureSubscription.objects.filter(**filter_dict)
+            self.queryset = filtered_queryset
+    
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        original_queryset = self.queryset
+        self.feature_subscription_filter_ops()
+
+        count, self.queryset = paginate_queryset(request, self.queryset)
+
+        response = super().list(request, *args, **kwargs)
+
+        custom_response = self.get_response(
+            data=response.data,
+            status='success',
+            message="Feature Subscriptions Retrieved",
+            count=count,
+            status_code=status.HTTP_200_OK,
+        )
+
+        self.log_response(custom_response)
+        return custom_response
+    
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        response = super().retrieve(request, *args, **kwargs)
+        custom_response = self.get_response(
+            data=response.data,
+            count=1,
+            status='success',
+            message="Feature Subscription Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        title = self.request.data.get('title', '')
+        feature_key = self.request.data.get('feature_key', '')
+        type_val = self.request.data.get('type', '')
+        level = self.request.data.get('level', None)
+        
+        # Check if a feature with the same title or key already exists for this level and type
+        is_feature_exist = self.queryset.filter(
+            feature_key__iexact=feature_key, 
+            type=type_val,
+            level=level
+        )
+        
+        if is_feature_exist:
+            custom_response = self.get_error_response(
+                message="Feature already exists", 
+                status="error",
+                errors=[],
+                error_code="DUPLICATE_FEATURE",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        # Create an instance of the serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            response = super().create(request, *args, **kwargs)
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,
+                status='success',
+                message="Feature Subscription Created",
+                status_code=status.HTTP_201_CREATED,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR", 
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        self.log_response(custom_response)
+        return custom_response
+    
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        
+        # Check if feature_key, type, or level is being updated
+        feature_key = request.data.get('feature_key')
+        type_val = request.data.get('type', instance.type)
+        level = request.data.get('level', instance.level)
+        
+        # Only validate if feature_key is being changed or type/level are being changed
+        if feature_key or ('type' in request.data) or ('level' in request.data):
+            key_to_check = feature_key if feature_key else instance.feature_key
+            
+            # Check if a feature with the same key already exists for this level and type (excluding this instance)
+            is_feature_exist = FeatureSubscription.objects.filter(
+                feature_key__iexact=key_to_check,
+                type=type_val,
+                level=level
+            ).exclude(id=instance.id)
+            
+            if is_feature_exist:
+                custom_response = self.get_error_response(
+                    message="Feature already exists", 
+                    status="error",
+                    errors=[],
+                    error_code="DUPLICATE_FEATURE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            if 'type' in request.data or 'level' in request.data:
+                try:
+                    matching_subscription = Subscription.objects.get(
+                        level=level,
+                        subscription_type=type_val
+                    )
+                    serializer.validated_data['subscription'] = matching_subscription
+                except Subscription.DoesNotExist:
+                    serializer.validated_data['subscription'] = None
+            
+            updated_instance = serializer.save()
+            
+            custom_response = self.get_response(
+                data=serializer.data,
+                status='success',
+                message="Feature Subscription Updated",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list, 
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        self.log_response(custom_response)
+        return custom_response
+    
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        instance.delete()
+        
+        custom_response = self.get_response(
+            data={},
+            status='success',
+            message="Feature Subscription Deleted",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response

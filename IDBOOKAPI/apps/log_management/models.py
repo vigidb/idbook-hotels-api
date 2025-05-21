@@ -69,13 +69,16 @@ class BookingRefundLog(models.Model):
 class UserSubscriptionLogs(models.Model):
     CODE_CHOICES = (('VPA-CHECK', 'VPA-CHECK'), ('CRT-SUB', 'CRT-SUB'),
                     ('MANDATE', 'MANDATE'), ('MNDT-CLBAK', 'MNDT-CLBAK'),
-                    ('RECUR-INIT', 'RECUR-INIT'), ('RECRINIT-CALBAK', 'RECRINIT-CALBAK'))
+                    ('RECUR-INIT', 'RECUR-INIT'), ('RECRINIT-CALBAK', 'RECRINIT-CALBAK'),
+                    ('SUB-CANC', 'SUB-CANC'), ('SUBCANC-CALBAK', 'SUBCANC-CALBAK'),
+                    ('CMN-CALBAK', 'CMN-CALBAK'),)
     user = models.ForeignKey(User, on_delete=models.DO_NOTHING, null=True,
                              related_name='usersub_log')
     user_sub = models.ForeignKey(UserSubscription, on_delete=models.DO_NOTHING,
                                  null=True, related_name='user_subscription_log')
     pg_subid = models.CharField(max_length=100, blank=True,
                                 help_text='payment gateway subscription id')
+    tnx_id = models.CharField(max_length=100, blank=True, help_text="transaction id")
     api_code = models.CharField(max_length=50, choices=CODE_CHOICES,
                                 blank=True, default='')
     status_code = models.IntegerField(null=True)

@@ -7,7 +7,7 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription
+    UserSubscription, FeatureSubscription
 )
 from apps.org_resources import db_utils as org_res_db_utils
 from apps.org_managements import utils as org_mng_utils
@@ -214,13 +214,43 @@ class UserNotificationSerializer(serializers.ModelSerializer):
                               'profile_pic':sender_profile_pic}
         return ret
 
+
 class SubscriptionSerializer(serializers.ModelSerializer):
+    features = serializers.SerializerMethodField()
+    
     class Meta:
         model = Subscription
         fields = '__all__'
 
+    def get_features(self, subscription):
+        features = FeatureSubscription.objects.filter(
+            level=subscription.level,
+            type=subscription.subscription_type,
+            is_active=True
+        ).order_by('order')
+        return [feature.title for feature in features]
+
 class UserSubscriptionSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='idb_sub.name', allow_null=True)
+    subscription_type = serializers.CharField(source='idb_sub.subscription_type',
+                                              allow_null=True)
     class Meta:
         model = UserSubscription
         fields = '__all__'
 
+class UserSubscriptionProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='idb_sub.name', allow_null=True)
+    subscription_type = serializers.CharField(source='idb_sub.subscription_type',
+                                              allow_null=True)
+    
+    class Meta:
+        model = UserSubscription
+        fields = ('id', 'idb_sub', 'name', 'subscription_type', 'pg_subid',
+                  'sub_start_date','sub_end_date', 'last_paid_date',
+                  'next_payment_date', 'subscription_amount')
+
+
+class FeatureSubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeatureSubscription
+        fields = '__all__'
