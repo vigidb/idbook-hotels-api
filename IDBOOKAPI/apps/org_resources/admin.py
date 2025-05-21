@@ -10,7 +10,7 @@ from .models import (
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
     TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
     Subscriber, MessageTemplate, BasicAdminConfig, UserSubscription, Subscription,
-    SubRecurringTransaction
+    SubRecurringTransaction, FeatureSubscription
 )
 
 
@@ -82,6 +82,14 @@ class BasicAdminConfigAdmin(admin.ModelAdmin):
     search_fields = ('code', 'value')
 
 admin.site.register(BasicAdminConfig, BasicAdminConfigAdmin)
+
+class FeatureSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'feature_key', 'type', 'level', 'subscription', 'order', 'is_active', 'created', 'updated')
+    list_filter = ('type', 'is_active', 'subscription')
+    search_fields = ('title', 'feature_key', 'type', 'level')
+    readonly_fields = ('created', 'updated')
+
+admin.site.register(FeatureSubscription, FeatureSubscriptionAdmin)
 
 admin.site.register(Enquiry)
 admin.site.register(Subscriber)

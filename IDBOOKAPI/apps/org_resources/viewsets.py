@@ -50,7 +50,7 @@ from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.org_resources.tasks import send_enquiry_email_task
 from apps.org_resources.utils.db_utils import (
     is_corporate_email_exist, is_corporate_number_exist, get_subscription,
-    update_subrecur_transaction)
+    update_subrecur_transaction, add_wallet_bonus_for_subscription)
 from apps.org_resources.utils.subscription_utils import (
     subscription_phone_pe_process, subscription_payu_process,
     subscription_cancel_payu_process)
@@ -1276,7 +1276,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         try:
             price = int(price)
             discount = int(discount)
-            final_price = self.calculate_final_price(price, discount, discount_type)
+            final_price = int(self.calculate_final_price(price, discount, discount_type))
 
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price
@@ -1345,7 +1345,7 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         try:
             price = int(price)
             discount = int(discount)
-            final_price = self.calculate_final_price(price, discount, discount_type)
+            final_price = int(self.calculate_final_price(price, discount, discount_type))
             
             data_copy = request.data.copy()
             data_copy['final_price'] = final_price
@@ -1587,7 +1587,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         user_sub_id = request.data.get('user_sub')
         payment_medium = request.data.get('payment_medium')
         data = {}
-        user_sub_logs = {"api_code":"SUB-CANC", "user_id":user_id} # log
+        user_sub_logs = {"api_code":"SUB-CANC"} # log
         
         user_sub = UserSubscription.objects.filter(id=user_sub_id).first()
         if not user_sub:
@@ -1596,7 +1596,8 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 errors=[],error_code="SUBSCRIPTION_MISSING",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
-        
+
+        user_sub_logs['user_id'] = user_sub.user.id
         user_sub_logs['user_sub_id'] = user_sub.id # log
         user_sub_logs['pg_subid'] = user_sub.pg_subid # log
         
@@ -1624,8 +1625,18 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         if payment_medium == 'PayU':
             response = subscription_cancel_payu_process(pg_subid, tnx_id)
             data = response.json()
+            if data.get('statusCode', '') == 1:
+                user_sub.mandate_status = "cancel_initiated"
+                user_sub_logs['status_code'] = 200
+            if data.get('statusCode', '') == 0:
+                user_sub.mandate_status = "cancel_failed"
+                user_sub_logs['status_code'] = 400
+            if data.get('status', '') == 0:
+                user_sub.mandate_status = "cancel_failed"
+                user_sub_logs['status_code'] = 400
+                
 
-        user_sub.save() # save sunscription with cancellation details
+        user_sub.save() # save subscription with cancellation details
 
         user_sub_logs['status_response'] = data # log      
         # log entry
@@ -1639,6 +1650,50 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         )
 
         return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='cancel-webhook',
+            url_name='cancel-webhook', permission_classes=[])
+    def cancel_subscription_webhook(self, request):
+
+        try:
+            status_response = request.data
+            user_sub_logs = {"api_code":"SUBCANC-CALBAK", "status_response":status_response} # log
+
+            pg_subid = request.data.get('authPayuId', '')
+            cancel_status = request.data.get('status', '')
+
+            user_sub = UserSubscription.objects.filter(pg_subid=pg_subid).first()
+            if user_sub:
+                user_sub_logs["user_id"] = user_sub.user_id
+                user_sub_logs["user_sub_id"] = user_sub.id
+                user_sub_logs["pg_subid"] = user_sub.pg_subid
+                user_sub_logs["tnx_id"] = user_sub.cancel_tnx_id
+                
+                
+                if cancel_status == "CANCEL_SUCCESS":
+                    user_sub.mandate_status = "cancelled"
+                    user_sub_logs["status_code"] = 200
+                else:
+                    user_sub.mandate_status = "cancel_failed"
+                    user_sub_logs["status_code"] = 400
+
+                user_sub.save()
+                
+        except Exception as e:
+            print(e)
+            user_sub_logs['error_message'] = str(e)
+
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
+
+        custom_response = self.get_response(
+            data=request.data,  # Use the data from the default response
+            status='success',
+            message="User Subscription Cancellation details",
+            status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+        )
+
+        return custom_response
+        
 
     @action(detail=False, methods=['POST'], url_path='payu-sucess',
             url_name='payu-sucess', permission_classes=[])
@@ -1682,15 +1737,24 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 user_sub_obj.last_paid_date = current_date
                 subscription_type = user_sub_obj.idb_sub.subscription_type
                 if subscription_type == "Monthly":
-                    user_sub_obj.next_payment_date = current_date + relativedelta(months=1)
+                    sub_next_payment_date = current_date + relativedelta(months=1)
+                    user_sub_obj.next_payment_date = sub_next_payment_date
+                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 elif subscription_type == "Yearly":
-                    user_sub_obj.next_payment_date = current_date + relativedelta(years=1)
+                    sub_next_payment_date = current_date + relativedelta(years=1)
+                    # user_sub_obj.next_payment_date = current_date + sub_next_payment_date
+                    user_sub_obj.next_payment_date = sub_next_payment_date
+                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 
                 user_sub_obj.pg_subid = pg_subid
                 user_sub_obj.transaction_amount = net_amount_debit
                 if mnd_status == 'success':
                     user_sub_obj.paid = True
                     user_sub_obj.active = True
+                    user_sub_obj.mandate_status = "initiated"
+
+                    # Add wallet bonus for pro members based on subscription level and type
+                    add_wallet_bonus_for_subscription(user_sub_obj)
                 user_sub_obj.save()
                 
             custom_response = self.get_response(

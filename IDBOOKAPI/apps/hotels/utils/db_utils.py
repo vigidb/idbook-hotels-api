@@ -1,7 +1,8 @@
 from apps.hotels.models import (
     Property, Room, PropertyGallery,
     RoomGallery, FavoriteList, BlockedProperty,
-    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility)
+    PayAtHotelSpendLimit, MonthlyPayAtHotelEligibility,
+    PropertyPayoutDetails)
 
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
@@ -799,4 +800,58 @@ def get_room_price(room, booking_slot):
         return float(room.room_price.get('price_8hrs', 0))
     else:  # 4 Hrs
         return float(room.room_price.get('price_4hrs', 0))
+
+def get_property_bank_details(property_ids):
+    property_obj = Property.objects.filter(id__in=property_ids)
+    property_obj = property_obj.prefetch_related('property_bank').values(
+        'id','name', 'property_bank__account_number','property_bank__ifsc',
+        'property_bank__bank_name')
+    return property_obj
+
+def bulk_create_property_payout_details(property_payout_list):
+    object_list = []
+    for property_payout in property_payout_list:
+        object_list.append(PropertyPayoutDetails(**property_payout))
+    
+    if object_list:
+        prop_payout_obj = PropertyPayoutDetails.objects.bulk_create(object_list)
+        return prop_payout_obj
+
+    return None
+
+def create_property_payout(property_payout:dict):
+    prop_payout_obj = PropertyPayoutDetails.objects.create(**property_payout)
+    return prop_payout_obj
+    
+
+def bulk_update_property_payout_details(payout_list, payout_data):
+    PropertyPayoutDetails.objects.filter(
+        id__in=payout_list).update(**payout_data)
+
+def update_property_payout_error_details(tnx_id, payout_data):
+    prop_payout_obj = PropertyPayoutDetails.objects.filter(transaction_id=tnx_id).first()
+    if payout_data.get('initiate_status', ''):
+        prop_payout_obj.initiate_status = payout_data.get('initiate_status')
+    if payout_data.get('initiate_message', ''):
+        prop_payout_obj.initiate_message = payout_data.get('initiate_message')
+    if payout_data.get('initiate_response', ''):
+        prop_payout_obj.initiate_message = payout_data.get('initiate_response')
+    if payout_data.get('initiate_date', ''):
+        prop_payout_obj.initiate_date = payout_data.get('initiate_date')
+    prop_payout_obj.save()
+
+    return prop_payout_obj.id
+
+def payout_prop_booking_aggregate(prop_booking_obj):
+    final_amount_dict = prop_booking_obj.aggregate(
+        total=Sum('commission_info__final_payout'))
+    final_amount = final_amount_dict.get('total')
+    return final_amount
+    
+        
+    
+    
+    
+    
+    
 

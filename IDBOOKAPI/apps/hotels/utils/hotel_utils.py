@@ -355,3 +355,57 @@ def send_agreement_email(property, pdf_content, context, is_verification=False):
     # Send the email
     status = email.send(fail_silently=False)
     print(f"Email send status: {status}")
+
+def generate_hotel_receipt_pdf(context, booking_id=None, booking_obj=None):
+
+    try:
+        html_content = render_to_string('email_template/hotelier-receipt-pdf.html', context)
+         
+        options = {
+            'page-size': 'A4',
+            'margin-top': '10mm',
+            'margin-right': '10mm',
+            'margin-bottom': '10mm',
+            'margin-left': '10mm',
+            'encoding': 'UTF-8',
+            'no-outline': None,
+            'disable-smart-shrinking': False,
+            'zoom': 0.9,  # Scale down content slightly
+            'dpi': 300,   # Higher DPI for better readability
+            'print-media-type': None,  # Use print media styling
+            'quiet': None
+        }
+        
+        # Generate PDF in memory
+        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        
+        if booking_obj:
+            file_name = f"hotel_receipt_{booking_obj.reference_code}_{datetime.now().strftime('%Y_%m_%d')}.pdf"
+            booking_obj.hotel_booking.hotelier_receipt_pdf.save(file_name, ContentFile(pdf_bytes), save=True)
+            print(f"Hotel receipt PDF saved to booking {booking_obj.reference_code}'s hotelier_receipt_pdf field")
+        
+        return pdf_bytes
+         
+    except Exception as e:
+        print(f"Error generating hotel receipt PDF: {str(e)}")
+        raise
+
+def send_receipt_email_with_attachment(subject, hotel, recipient_list, html_content, pdf_content, attachment_name):
+
+    try:
+        message = EmailMessage(
+            subject=subject,
+            body=html_content,
+            from_email=settings.EMAIL_HOST_USER,
+            to=recipient_list
+        )
+        message.content_subtype = "html"
+        
+        # Attach the PDF directly from memory
+        message.attach(attachment_name, pdf_content, 'application/pdf')
+        
+        message.send()
+        return True
+    except Exception as e:
+        print(f"Error sending email with attachment: {e}")
+        raise

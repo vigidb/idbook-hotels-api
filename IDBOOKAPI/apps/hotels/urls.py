@@ -3,6 +3,7 @@ from rest_framework import routers
 from apps.hotels.viewsets import *
 from apps.hotels.subviews import calendar_viewset
 from apps.hotels.subviews import related_viewset
+from apps.hotels.subviews import payout_viewset
 
 router = routers.DefaultRouter()
 
@@ -25,6 +26,8 @@ router.register(r'block/property', BlockedPropertyViewSet, basename='blocked-pro
 router.register(r'calendar', calendar_viewset.PropertyCalendarViewSet, basename='calendar')
 router.register(r'room/dynamic-pricing', calendar_viewset.RoomPricingCalendarViewset,
                 basename='room-dynamic-pricing')
+router.register(r'payout', payout_viewset.PropertyPayoutViewset,
+                basename='payout')
 
 urlpatterns = [
 ]

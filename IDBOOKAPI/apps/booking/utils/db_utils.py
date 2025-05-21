@@ -375,8 +375,8 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
         for item in items:
             if 'tax' in item and item['tax']:
                 total_tax += float(item['tax'])
-            if 'amount' in item and item['amount']:
-                total += float(item['amount'])
+            if 'room_amount_with_discount' in item and item['room_amount_with_discount']:
+                total += float(item['room_amount_with_discount'])
             if 'gst' in item and item['gst'] and not gst_percentage:
                 gst_percentage = float(item['gst'])
 
@@ -396,6 +396,7 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
             supply_details=payload.get('supplyDetails', {}),
             items=items,
             discount=payload.get('discount', 0),
+            pro_member_discount=payload.get('pro_member_discount', 0),
             GST=gst_percentage,
             GST_type=payload.get('GSTType', 'CGST/SGST'),
             total=total,
@@ -461,6 +462,7 @@ def update_invoice_in_database(invoice_number, payload, booking):
             invoice.total_amount = total + total_tax
             invoice.GST = gst_percentage
         invoice.discount = payload.get('discount', invoice.discount)
+        invoice.pro_member_discount = payload.get('pro_member_discount', invoice.pro_member_discount)
         invoice.GST_type = payload.get('GSTType', invoice.GST_type)
         invoice.status = payload.get('status', invoice.status)
         
@@ -505,3 +507,23 @@ def get_room_by_id(room_id):
         return Room.objects.get(id=room_id)
     except Room.DoesNotExist:
         return None
+
+def get_hotelier_amount_payout(property_id):
+    booking_obj = Booking.objects.filter(
+        hotel_booking__confirmed_property=property_id, status='completed').prefetch_related(
+            'commission_info')
+    booking_obj = booking_obj.filter(commission_info__booking__isnull=False,
+                                     commission_info__is_payment_approved=True)
+    booking_obj = booking_obj.filter(Q(commission_info__payout_status='PENDING')
+                                     | Q(commission_info__payout_status='INIT-FAIL'))
+
+    return booking_obj
+
+def update_payout_booking(booking_ids, payout_status, latest_payout_reference_id):
+    BookingCommission.objects.filter(
+        booking_id__in=booking_ids).update(payout_status=payout_status,
+        latest_payout_reference_id=latest_payout_reference_id)
+
+            
+            
+    

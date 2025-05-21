@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 
 from apps.coupons.models import Coupon
 from apps.authentication.models import User
-from apps.hotels.models import Property, Room
+from apps.hotels.models import Property, Room, PropertyPayoutDetails
 from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
 from apps.vehicle_management.models import VehicleDetail
@@ -79,6 +79,7 @@ class HotelBooking(models.Model):
                                     help_text="Sorted cancellation policies for the property")
     cancellation_details = models.JSONField(null=True, blank=True, 
                                               help_text="Applied cancellation policy for this booking")
+    hotelier_receipt_pdf = models.FileField(upload_to='hotels/booking_receipts/', blank=True, null=True)
 ##    room_subtotal = models.DecimalField(
 ##        max_digits=10, decimal_places=2, default=0.0, help_text="Price for stay in the room.")
 ##    service_tax =  models.DecimalField(
@@ -187,6 +188,8 @@ class Booking(models.Model):
     # deal_price = models.DecimalField(default=0, decimal_places=6)
     coupon_code = models.CharField(max_length=20, blank=True, default='')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount_percent = models.PositiveSmallIntegerField(default=0, help_text="Discount percent for pro member")
+    pro_member_discount_value = models.PositiveSmallIntegerField(default=0, help_text="Discount value")
 
     subtotal = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="Price for the booking")
     gst_percentage = models.DecimalField(default=0.0, max_digits=20, decimal_places=6, help_text="GST % for the booking")
@@ -194,6 +197,8 @@ class Booking(models.Model):
     gst_type = models.CharField(max_length=25, choices=GST_TYPE, default='', blank=True, help_text="GST Type")
     service_tax =  models.DecimalField(default=0.0, max_digits=20, decimal_places=6,
                                        help_text="Service tax for the booking")
+    total_discount = models.DecimalField(default=0, max_digits=20, decimal_places=6,
+                                       help_text="Total discount of a booking")
     
     final_amount = models.DecimalField(default=0, max_digits=20, decimal_places=6,
                                        help_text="Final amount after considering gst, discount")
@@ -212,6 +217,7 @@ class Booking(models.Model):
     updated = models.DateTimeField(auto_now=True)
     is_checkin = models.BooleanField(default=False, help_text="Check_in status")
     is_checkout = models.BooleanField(default=False, help_text="Check_out status")
+    is_direct_pay = models.BooleanField(default=False)
 
     # objects = BookingManager()
 
@@ -241,7 +247,9 @@ class Invoice(models.Model):
     billed_by = models.ForeignKey(BusinessDetail, on_delete=models.CASCADE, related_name='invoices_billed_by')
     billed_by_details = models.JSONField(default=dict, null=True)
 
-    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    # billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to')
+    billed_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices_billed_to', null=True, blank=True)
+
     billed_to_details = models.JSONField(default=dict, null=True)
 
     supply_details = models.JSONField(default=dict, null=True)
@@ -258,6 +266,7 @@ class Invoice(models.Model):
     tags = models.CharField(max_length=255, blank=True)
     reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
+    pro_member_discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
     created_by = models.CharField(max_length=50, default='', blank=True)
     updated_by = models.CharField(max_length=50, default='', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -301,6 +310,10 @@ class BookingMetaInfo(models.Model):
 
 
 class BookingCommission(models.Model):
+    PAYOUT_CHOICES = (('PENDING', 'PENDING'), ('ASSIGNED','ASSIGNED'),
+                      ('INITIATED', 'INITIATED'), ('INIT-FAIL', 'INIT-FAIL'),
+                      ('PAID', 'PAID'), ('FAILED', 'FAILED'),)
+    
     booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='commission_info')
     commission = models.DecimalField(max_digits=20, decimal_places=6)
     commission_type = models.CharField(max_length=20)
@@ -312,6 +325,17 @@ class BookingCommission(models.Model):
     tds = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
     hotelier_amount_with_tax = models.DecimalField(default=0.0, max_digits=20, decimal_places=6)
+    
+    # details related to payout
+    final_payout = models.DecimalField(default=0.0, max_digits=20, decimal_places=6,
+                                       help_text="for pay at hotel, the commision amount will be stored with\
+                                       negative value, other case it is hotelier_amount_with_tax")
+    is_payment_approved = models.BooleanField(default=True, help_text="Whether payment approved by admin")
+    payout_status = models.CharField(max_length=50, choices=PAYOUT_CHOICES, default='PENDING')
+    latest_payout_reference = models.ForeignKey(
+        PropertyPayoutDetails, on_delete=models.CASCADE,
+        related_name='booking_payout_reference', null=True)
+    
     
 
 class AppliedCoupon(models.Model):

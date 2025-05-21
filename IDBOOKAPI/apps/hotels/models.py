@@ -13,7 +13,7 @@ from IDBOOKAPI.basic_resources import (
     SERVICE_CATEGORY_TYPE_CHOICES, IMAGE_TYPE_CHOICES, ROOM_CHOICES,
     ROOM_VIEW_CHOICES, BED_TYPE_CHOICES, ROOM_MEASUREMENT, HOTEL_STATUS,
     PROPERTY_TYPE, RENTAL_FORM, MEAL_OPTIONS, EXTRA_BED_TYPE,
-    DISCOUNT_TYPE
+    DISCOUNT_TYPE, PAYMENT_MEDIUM
 )
 from django.core.validators import EmailValidator, RegexValidator
 
@@ -469,6 +469,37 @@ class PropertyBankDetails(models.Model):
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+class PropertyPayoutDetails(models.Model):
+    OWNERSHIP_CHOICES = (('ADMIN', 'ADMIN'),
+                         ('AUTO', 'AUTO'))
+    
+    payout_property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='property_payout')
+    amount = models.DecimalField(max_digits=20, decimal_places=6)
+    transaction_id = models.CharField(max_length=100, blank=True)
+    batch_id = models.CharField(max_length=100, blank=True)
+    batch_created_by = models.CharField(max_length=20, choices=OWNERSHIP_CHOICES, blank=True)
+    pg_ref_no = models.CharField(max_length=100, blank=True)
+
+    transaction_type = models.CharField(max_length=50, blank=True)
+    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default='')
+    booking_list = models.JSONField(default=list)
+    
+    initiate_status = models.PositiveSmallIntegerField(null=True)
+    initiate_message = models.CharField(max_length=200, blank=True)
+    initiate_response = models.JSONField(null=True)
+    initiate_date = models.DateTimeField(null=True)
+    transaction_response = models.JSONField(null=True)
+    
+    paid = models.BooleanField(default=False)
+    transaction_status = models.CharField(max_length=50, blank=True)
+    transaction_executed_by = models.CharField(max_length=20, choices=OWNERSHIP_CHOICES, blank=True)
+    payout_reference_file = models.FileField(upload_to='hotels/payout/transaction/',
+                                             blank=True, null=True)
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
 
 class PolicyDetails(models.Model):
     policy_details =  models.JSONField(null=True, default=default_hotel_policy_json)

@@ -513,6 +513,11 @@ class Subscription(models.Model):
         return self.name
 
 class UserSubscription(models.Model):
+    MANDATE_STATUS_CHOICES = (("pending", "pending"),("initiated","initiated"),
+                              ("active", "active"),("failed", "failed"),
+                              ("cancel_initiated", "cancel_initiated"), ("cancelled", "cancelled"),
+                              ("cancel_failed","cancel_failed"), ("expired", "expired"))
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_subscription')
     idb_sub = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='user_idbsub',
                                 null=True, help_text="Idbook subscription")
@@ -524,6 +529,7 @@ class UserSubscription(models.Model):
                                       help_text="Mandate transaction id")
     recrinit_tnx_id = models.CharField(max_length=100, blank=True,
                                       help_text="Recurring init transaction id")
+##    notify_request_id = models.CharField(max_length=100, blank=True)
     notification_id = models.CharField(max_length=100, blank=True)
 
     # payment_frequency = models.CharField(max_length=50, choices=PAYMENT_FREQUENCY, default='')
@@ -541,7 +547,14 @@ class UserSubscription(models.Model):
 
     subscription_amount = models.IntegerField(default=0)
     total_amount = models.IntegerField(default=0)
-    transaction_amount = models.IntegerField(default=0)
+    # mandate_tnx_amount = models.IntegerField(default=0)
+    transaction_amount = models.IntegerField(default=0, help_text="last transaction amount")
+
+    # is_mandate_paid = models.BooleanField(default=False)
+    mandate_status = models.CharField(max_length=50, choices=MANDATE_STATUS_CHOICES,
+                                      default='pending')
+    last_mandate_check = models.DateTimeField(null=True)
+    
     paid = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
@@ -560,7 +573,9 @@ class SubRecurringTransaction(models.Model):
                                  related_name='usersub_recur_transaction')
     recrinit_tnx_id = models.CharField(max_length=100, blank=True,
                                       help_text="Recurring init transaction id")
+    notify_request_id = models.CharField(max_length=100, blank=True)
     notification_id = models.CharField(max_length=100, blank=True)
+    invoice_display_no = models.CharField(max_length=100, blank=True)
     transaction_amount = models.IntegerField(default=0)
     paid = models.BooleanField(default=False)
     init_state = models.CharField(max_length=50, blank=True)
