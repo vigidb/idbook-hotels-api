@@ -27,7 +27,10 @@ import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
 from apps.org_resources.models import BasicAdminConfig, FeatureSubscription
 from IDBOOKAPI.utils import shorten_url
-import random
+import random, traceback
+
+from apps.hotels.utils.db_utils import get_property_commission
+from IDBOOKAPI.utils import calculate_tax
 
 def generate_booking_confirmation_code(booking_id, booking_type):
 ##    random_number = generate_otp(no_digits=4)
@@ -1078,3 +1081,52 @@ def calculate_subscription_discount(user, amount):
         discount_value = (amount * discount_percent) / 100
     
     return discount_percent, discount_value
+
+def hotelier_commission_calculation(commission_details, final_amount, final_tax_amount, pay_at_hotel):
+    
+    if commission_details:
+        hotelier_amount = (float(final_amount) - float(final_tax_amount))- float(commission_details.get('com_amnt_withtax', 0))
+        hotelier_amount_with_tax = float(final_amount) - float(commission_details.get('com_amnt_withtax', 0))
+        commission_details['hotelier_amount'] = hotelier_amount
+        commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
+        if pay_at_hotel:
+            commission_details['final_payout'] =  -float(commission_details.get('com_amnt_withtax', 0))
+        else:
+            commission_details['final_payout'] = hotelier_amount_with_tax
+
+    return commission_details
+
+def commission_calculation(property_id, subtotal, final_amount, final_tax_amount, pay_at_hotel=False):
+    com_amnt = 0
+    tax_amount, tax_in_percent = 0, 0
+    commission_details = None
+    try:
+        prop_comm = get_property_commission(property_id)
+        if prop_comm:
+            comm_type = prop_comm.commission_type
+            commission = prop_comm.commission
+            if comm_type == "PERCENT":
+                com_amnt = (commission * subtotal) / 100
+            elif comm_type == "AMOUNT":
+                com_amnt = commission
+
+            # tax_in_percent = get_tax_rate(com_amnt, self.tax_rules_dict)
+            config = BasicAdminConfig.objects.get(code='commission_tax_percent')
+            tax_in_percent = Decimal(config.value)
+            tax_amount = calculate_tax(tax_in_percent, com_amnt)
+
+            com_amnt_withtax = com_amnt + tax_amount
+            commission_details = {"com_amnt":com_amnt, "tax_amount":tax_amount,
+                                  "tax_percentage":tax_in_percent,
+                                  "com_amnt_withtax":com_amnt_withtax,
+                                  "commission": commission,
+                                  "tcs":0.0, "tds":0.0,
+                                  "commission_type": comm_type}
+            commission_details = hotelier_commission_calculation(commission_details, final_amount,
+                                                                 final_tax_amount, pay_at_hotel)
+    except Exception as e:
+        print(traceback.format_exc())
+        print(e)
+        
+          
+    return commission_details

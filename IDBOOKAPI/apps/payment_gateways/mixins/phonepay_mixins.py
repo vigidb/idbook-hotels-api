@@ -170,7 +170,7 @@ class PhonePayMixin:
         phonepay_base_url = settings.PHONEPE_BASE_URL
         endpoint = "/v3/recurring/auth/init"
         callback_url = settings.CALLBACK_URL + "/api/v1/org-resources/user-subscription/submit-auth-init/pe-callbackurl/" #"https://webhook.site/612a9220-e7f4-4c71-b44f-91d16f65773f"
-        #callback_url = "https://webhook.site/612a9220-e7f4-4c71-b44f-91d16f65773f"
+##        callback_url = "https://webhook.site/0ba4af22-d529-4f6c-9ea1-2141bab379e9"
         phonepay_sub_url = phonepay_base_url + endpoint
         req, auth_header = self.get_encrypted_header_and_payload(
             payload, endpoint=endpoint, callback_url=callback_url)
