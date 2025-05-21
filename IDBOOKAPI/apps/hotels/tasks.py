@@ -439,7 +439,8 @@ def send_hotel_receipt_email_task(self, booking_id):
             "num_rooms": room_details.get("no_of_rooms"),
 
             # Amount Details
-            "room_charges": float(booking.subtotal),
+            "room_charges": float(booking.subtotal - (booking.total_discount - booking.discount - booking.pro_member_discount_value)),
+            # "room_charges": float(booking.subtotal),
             "property_tax": float(booking.gst_amount),
             "extra_charges": float(room_details.get("extra_bed_price", 0)),
             "coupon_code": booking.coupon_code,

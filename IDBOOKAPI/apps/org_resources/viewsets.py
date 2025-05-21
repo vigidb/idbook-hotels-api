@@ -50,7 +50,7 @@ from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.org_resources.tasks import send_enquiry_email_task
 from apps.org_resources.utils.db_utils import (
     is_corporate_email_exist, is_corporate_number_exist, get_subscription,
-    update_subrecur_transaction)
+    update_subrecur_transaction, add_wallet_bonus_for_subscription)
 from apps.org_resources.utils.subscription_utils import (
     subscription_phone_pe_process, subscription_payu_process,
     subscription_cancel_payu_process)
@@ -1742,7 +1742,8 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                     user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 elif subscription_type == "Yearly":
                     sub_next_payment_date = current_date + relativedelta(years=1)
-                    user_sub_obj.next_payment_date = current_date + sub_next_payment_date
+                    # user_sub_obj.next_payment_date = current_date + sub_next_payment_date
+                    user_sub_obj.next_payment_date = sub_next_payment_date
                     user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
                 
                 user_sub_obj.pg_subid = pg_subid
@@ -1751,6 +1752,9 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                     user_sub_obj.paid = True
                     user_sub_obj.active = True
                     user_sub_obj.mandate_status = "initiated"
+
+                    # Add wallet bonus for pro members based on subscription level and type
+                    add_wallet_bonus_for_subscription(user_sub_obj)
                 user_sub_obj.save()
                 
             custom_response = self.get_response(

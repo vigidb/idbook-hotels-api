@@ -58,6 +58,11 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute="*/1"),
         'options': {'queue': "recpay-initiate-queue"}
     },
+    'wallet-expiry-task': {
+        'task': 'apps.booking.tasks.wallet_expiry_task',
+        'schedule': crontab(minute="*/30"),
+        'options': {'queue': "recpay-initiate-queue"}
+    },
 }
 
 ##CELERY_BEAT_SCHEDULE = {
