@@ -141,6 +141,9 @@ class PropertyListSerializer(serializers.ModelSerializer):
             else:
                 representation['available'] = True
 
+            user_booking_request_details = self.context.get("user_booking_request_details", {})
+            representation['user_booking_request_details'] = user_booking_request_details
+
             complete_pricing_details = self.context.get("complete_pricing_details", {})
     
             if property_id in complete_pricing_details:
