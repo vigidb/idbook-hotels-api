@@ -1,7 +1,7 @@
 import requests, json
 # authentication utils
 from apps.authentication.utils import db_utils
-from apps.authentication.models import User
+from apps.authentication.models import User, UserOtp
 from apps.authentication.tasks import (
     send_email_task, send_mobile_otp_task)
 
@@ -11,6 +11,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.customer.utils.db_utils import (
     update_wallet_transaction,add_user_wallet_amount)
 from apps.org_resources.models import BasicAdminConfig
+from datetime import datetime
+import pytz
 
 def user_representation(user, refresh_token=None):
     
@@ -220,4 +222,30 @@ def add_signup_bonus(user, group_name, role):
         }
         update_wallet_transaction(wallet_transact_dict)
        
+def check_otp_generation_limit(user_account):
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
         
+        # If no previous OTP exists, allow generation
+        if not user_otp:
+            return True, None
+        
+        # Check if user has exceeded the maximum attempts (5)
+        if user_otp.otp_generate_tries >= 5:
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+            time_difference = now - user_otp.last_attempt_time
+            minutes_passed = time_difference.total_seconds() / 60
+            
+            if minutes_passed < 30:
+                remaining_minutes = int(30 - minutes_passed)
+                return False, f"Maximum OTP attempts exceeded. Please try again after {remaining_minutes} minutes."
+            else:
+                # If 30 minutes have passed, reset the counter to 0
+                user_otp.otp_generate_tries = 0
+                user_otp.save()
+        
+        return True, None
+    except Exception as e:
+        print(f"Error checking OTP limit: {e}")
+        return False, "Error checking OTP limit. Please try again later."
