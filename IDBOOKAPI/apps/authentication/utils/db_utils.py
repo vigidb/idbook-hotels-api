@@ -40,22 +40,56 @@ def create_user(user_details, customer_details=None):
         Customer.objects.create(**customer_details)
     return user
 
+# def create_email_otp(otp, to_email, otp_for):
+#     # delete any previous otp for the user account
+#     UserOtp.objects.filter(user_account=to_email).delete()
+#     # save otp
+#     UserOtp.objects.create(
+#         otp=otp, otp_type='EMAIL',
+#         user_account=to_email, otp_for=otp_for)
+
 def create_email_otp(otp, to_email, otp_for):
-    # delete any previous otp for the user account
-    UserOtp.objects.filter(user_account=to_email).delete()
-    # save otp
-    UserOtp.objects.create(
-        otp=otp, otp_type='EMAIL',
-        user_account=to_email, otp_for=otp_for)
+    existing_otp = UserOtp.objects.filter(user_account=to_email).first()
+    
+    if existing_otp:
+        existing_otp.otp = otp
+        existing_otp.otp_for = otp_for
+        existing_otp.otp_generate_tries += 1
+        existing_otp.save()
+    else:
+        UserOtp.objects.create(
+            otp=otp, 
+            otp_type='EMAIL',
+            user_account=to_email, 
+            otp_for=otp_for,
+            otp_generate_tries=1
+        )
+
+# def create_mobile_otp(otp, mobile_number, otp_for):
+#     # delete any previous otp for the user account
+#     UserOtp.objects.filter(user_account=mobile_number).delete()
+#     # save otp
+#     UserOtp.objects.create(
+#         otp=otp, otp_type='MOBILE',
+#         user_account=mobile_number,
+#          otp_for=otp_for)
 
 def create_mobile_otp(otp, mobile_number, otp_for):
-    # delete any previous otp for the user account
-    UserOtp.objects.filter(user_account=mobile_number).delete()
-    # save otp
-    UserOtp.objects.create(
-        otp=otp, otp_type='MOBILE',
-        user_account=mobile_number,
-         otp_for=otp_for)
+    existing_otp = UserOtp.objects.filter(user_account=mobile_number).first()
+    
+    if existing_otp:
+        existing_otp.otp = otp
+        existing_otp.otp_for = otp_for
+        existing_otp.otp_generate_tries += 1
+        existing_otp.save()
+    else:
+        UserOtp.objects.create(
+            otp=otp, 
+            otp_type='MOBILE',
+            user_account=mobile_number, 
+            otp_for=otp_for,
+            otp_generate_tries=1
+        )
 
 def get_userid_list(username, group=None):
     user_objs = User.objects.filter(

@@ -852,7 +852,16 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                         status="error", errors=[], error_code="USERNAME_DUPLICATE",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
-                
+            
+            # Check if user has exceeded OTP generation limit
+            can_generate, error_message = authentication_utils.check_otp_generation_limit(username)
+            if not can_generate:
+                response = self.get_error_response(
+                    message=error_message,
+                    status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                return response
+                  
             # generate otp
             otp = generate_otp(no_digits=4)
 
