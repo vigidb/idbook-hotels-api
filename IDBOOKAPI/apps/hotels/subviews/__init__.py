@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import Sum, Q
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.utils import paginate_queryset, validate_date

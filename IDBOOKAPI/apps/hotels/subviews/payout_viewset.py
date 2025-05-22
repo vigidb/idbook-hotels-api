@@ -10,6 +10,8 @@ from apps.hotels.utils.hotel_payout_utils import (
 from apps.hotels.utils.db_utils import create_property_payout
 from apps.booking.utils.db_utils import update_payout_booking
 
+from apps.booking.serializers import BookingPayoutSerializer
+
 
 
 class PropertyPayoutViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -119,16 +121,50 @@ class PropertyPayoutViewset(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 status_code=status.HTTP_200_OK,  # 200 for successful update
         )
         return custom_response
+
+    def payout_filter(self):
+        filter_dict = {}
+        
+        # fetch filter parameters
+        param_dict= self.request.query_params
+        for key in param_dict:
+            param_value = param_dict[key]
+
+            if key in ('payout_property', 'batch_created_by',
+                       'paid', 'transaction_executed_by'):
+                filter_dict[key] = param_value
+
+        if filter_dict:
+            self.queryset = self.queryset.filter(**filter_dict)
+
+    def payout_search(self):
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = Q(transaction_id__icontains=search) | Q(batch_id__icontains=search) | Q(pg_ref_no__icontains=search)
+            self.queryset = self.queryset.filter(search_q_filter)
+
+    def payout_order(self):
+        ordering_params = self.request.query_params.get('ordering', None)
+        if ordering_params:
+            ordering_list = ordering_params.split(',')
+            self.queryset = self.queryset.order_by(*ordering_list)
             
 
     def list(self, request, *args, **kwargs):
+
+        self.payout_filter() # filter
+        self.payout_search() # search
+        self.payout_order() # order
+        
         # paginate the result
         count, self.queryset = paginate_queryset(self.request,  self.queryset)
 
         serializer = PropertyPayoutDetailsSerializer(self.queryset, many=True)
 
+        data = {"cdn_base_url":"", "payout_details": serializer.data}
+
         custom_response = self.get_response(
-            data=serializer.data, count=count, status="success",
+            data=data, count=count, status="success",
             message="payout list",
             status_code=status.HTTP_200_OK)
         return custom_response
@@ -147,19 +183,24 @@ class PropertyPayoutViewset(viewsets.ModelViewSet, StandardResponseMixin, Loggin
 
         prop_booking_obj, booking_ids, final_payout_amount = get_booking_payout_details(property_id)
 
-        prop_booking_dict = prop_booking_obj.values(
-            'id','confirmation_code', 'invoice_id', 'is_direct_pay', 'commission_info__commission',
-            'commission_info__commission_type', 'commission_info__tax_percentage', 'commission_info__tax_amount',
-            'commission_info__com_amnt',
-            'commission_info__com_amnt_withtax', 'commission_info__tcs', 'commission_info__tds',
-            'commission_info__hotelier_amount', 'commission_info__hotelier_amount_with_tax',
-            'commission_info__is_payment_approved','commission_info__payout_status',
-            'commission_info__latest_payout_reference', 'commission_info__final_payout')
+        # paginate the result
+        count, prop_booking_obj = paginate_queryset(self.request,  prop_booking_obj)
 
-        data = {"total_payout_amount":final_payout_amount, "payout_details":prop_booking_dict}
+        booking_payout_serialzer = BookingPayoutSerializer(prop_booking_obj, many=True)
+
+##        prop_booking_dict = prop_booking_obj.values(
+##            'id','confirmation_code', 'invoice_id', 'is_direct_pay', 'commission_info__commission',
+##            'commission_info__commission_type', 'commission_info__tax_percentage', 'commission_info__tax_amount',
+##            'commission_info__com_amnt',
+##            'commission_info__com_amnt_withtax', 'commission_info__tcs', 'commission_info__tds',
+##            'commission_info__hotelier_amount', 'commission_info__hotelier_amount_with_tax',
+##            'commission_info__is_payment_approved','commission_info__payout_status',
+##            'commission_info__latest_payout_reference', 'commission_info__final_payout')
+
+        data = {"total_payout_amount":final_payout_amount, "payout_details":booking_payout_serialzer.data}
 
         custom_response = self.get_response(
-            data=prop_booking_dict, count=1, status="success", message="pending payout list retrieved",
+            data=data, count=count, status="success", message="pending payout list retrieved",
             status_code=status.HTTP_200_OK
         )
         return custom_response
