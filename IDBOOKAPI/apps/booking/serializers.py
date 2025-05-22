@@ -40,10 +40,19 @@ class BookingCommissionSerializer(serializers.ModelSerializer):
     tcs = serializers.FloatField()
     tds = serializers.FloatField()
     hotelier_amount = serializers.FloatField()
+    #hotelier_amount_with_tax = serializers.FloatField()
+    final_payout = serializers.FloatField()
     
     class Meta:
         model = BookingCommission
         fields = '__all__'
+
+class BookingPayoutSerializer(serializers.ModelSerializer):
+    commission_info = BookingCommissionSerializer()
+    class Meta:
+        model = Booking
+        fields = ('id', 'confirmation_code', 'invoice_id',
+                  'status', 'is_direct_pay', 'commission_info')
 
 
 class BookingSerializer(serializers.ModelSerializer):
