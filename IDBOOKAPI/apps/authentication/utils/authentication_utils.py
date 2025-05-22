@@ -249,3 +249,30 @@ def check_otp_generation_limit(user_account):
     except Exception as e:
         print(f"Error checking OTP limit: {e}")
         return False, "Error checking OTP limit. Please try again later."
+
+def check_login_attempt_limit(user_account):
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        
+        # If no OTP record exists, don't allow login (should generate OTP first)
+        if not user_otp:
+            return False, "Please generate OTP first"
+        
+        if user_otp.login_tries >= 5:
+            if user_otp.last_login_attempt_time:
+                ist = pytz.timezone('Asia/Kolkata')
+                now = datetime.now(ist)
+                time_difference = now - user_otp.last_login_attempt_time
+                minutes_passed = time_difference.total_seconds() / 60
+                
+                if minutes_passed < 30:
+                    remaining_minutes = int(30 - minutes_passed)
+                    return False, f"Maximum login attempts exceeded. Please try again after {remaining_minutes} minutes."
+                else:
+                    user_otp.login_tries = 0
+                    user_otp.save()
+        
+        return True, None
+    except Exception as e:
+        print(f"Error checking login attempt limit: {e}")
+        return False, "Error checking login limit. Please try again later."
