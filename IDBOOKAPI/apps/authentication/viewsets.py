@@ -746,6 +746,18 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
+        # Check if user has exceeded login attempt limit
+        can_attempt, error_message = authentication_utils.check_login_attempt_limit(username)
+        if not can_attempt:
+            response = self.get_error_response(
+                message=error_message,
+                status="error", errors=[], error_code="LOGIN_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response
+        
+        # Increment login attempts before processing
+        db_utils.increment_login_attempts(username)
+
         # get the otp details
         user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for='LOGIN').first()
         if not user_otp:

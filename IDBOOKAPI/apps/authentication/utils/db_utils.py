@@ -140,13 +140,27 @@ def check_mobile_otp(mobile_number, otp, otp_for):
     return user_otp
     
 def reset_otp_counter(user_account):
-    """Reset the OTP attempt counter after successful verification"""
+    """Reset the OTP attempt counter and login attempts after successful operations"""
     try:
         user_otp = UserOtp.objects.filter(user_account=user_account).first()
         if user_otp:
             user_otp.otp_generate_tries = 0
+            user_otp.login_tries = 0  # Reset login attempts as well
             user_otp.save()
             return True
     except Exception as e:
         print(f"Error resetting OTP counter: {e}")
+    return False
+
+def increment_login_attempts(user_account):
+    """Increment the login attempt counter"""
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        if user_otp:
+            user_otp.login_tries += 1
+            user_otp.last_login_attempt_time = timezone.now()
+            user_otp.save()
+            return True
+    except Exception as e:
+        print(f"Error incrementing login attempts: {e}")
     return False
