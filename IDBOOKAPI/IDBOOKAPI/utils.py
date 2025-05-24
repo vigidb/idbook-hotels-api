@@ -251,6 +251,37 @@ def get_dates_from_range(start_date, end_date):
         date_list.append(start_date)
         start_date += datetime.timedelta(days=1)
     return date_list
+
+def get_datetime_split_with_slot(start_datetime, end_datetime):
+    slot_enabled_date = {}
+##    start_date_time = get_date_from_string(start_datetime)
+##    end_date_time = get_date_from_string(end_datetime)
+
+    time_diff = end_datetime - start_datetime
+    date_list = get_dates_from_range(start_datetime.date(), end_datetime.date())
+
+    if time_diff.seconds == 0:
+        date_list.pop()
+    else:
+        time_diff_in_hours = time_diff.seconds / 3600
+        print("time diff in hours ----", time_diff_in_hours)
+        slot_date = str(date_list[-1])
+        if time_diff_in_hours <= 4:
+            slot_enabled_date[slot_date] = "4 Hrs"
+        elif time_diff_in_hours <= 8:
+            slot_enabled_date[slot_date] = "8 Hrs"
+        elif time_diff_in_hours <= 12:
+            slot_enabled_date[slot_date] = "12 Hrs"
+        else:
+            date_list.pop()
+            #slot_enabled_date[slot_date] = "24 Hrs"
+            
+            
+    print("slot enabled date::", slot_enabled_date, "date_list:",date_list)
+    
+    return date_list, slot_enabled_date
+    
+    
     
 
 ##def quantize_decimal_value(value: Decimal):
