@@ -257,3 +257,54 @@ def admin_create_notification(user, notification_type, variables_values):
         create_notification(notification_dict)
     except Exception as e:
         print("Admin Notification Error", e)
+
+def create_pro_member_notification(user, notification_type, variables_values):
+    try:
+        titles = {
+            'PRO_MEMBER_REFFERAL_BONUS': 'Pro Membership Referral Bonus Available',
+            'PRO_MEMBER_AUTO_RENEWAL_FAILURE': 'Pro Membership Auto Renewal Failed',
+            'PRO_MEMBER_AUTO_RENEWAL_SUCCESS': 'Pro Membership Renewed Successfully',
+            'PRO_MEMBER_AUTO_RENEWAL_NOTICE': 'Pro Membership Auto Renewal Notice',
+            'PRO_MEMBER_WELCOME': 'Welcome to Idbook Pro',
+            'PRO_MEMBER_DISCOUNT': 'Pro Membership Discount Applied'
+        }
+        
+        # Determine appropriate notification_type (GENERAL or SUBSCRIPTION)
+        app_notification_type = 'MEMBERSHIP' if notification_type in [
+            'PRO_MEMBER_AUTO_RENEWAL_FAILURE',
+            'PRO_MEMBER_AUTO_RENEWAL_SUCCESS',
+            'PRO_MEMBER_AUTO_RENEWAL_NOTICE',
+            'PRO_MEMBER_WELCOME',
+            'PRO_MEMBER_DISCOUNT',
+            'PRO_MEMBER_REFFERAL_BONUS'
+        ] else 'GENERAL'
+        
+        # Get template message from DB
+        template_code = notification_type
+        template = MessageTemplate.objects.get(template_code=template_code)
+        raw_message = template.template_message
+        
+        raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
+        split_values = variables_values.split('|')
+        description = raw_message.format(*split_values)
+        
+        title = titles.get(notification_type, "Pro Member Notification")
+        
+        send_by = get_active_business().user
+        
+        # Create notification dictionary
+        notification_dict = {
+            'user': user,
+            'send_by': send_by,
+            'notification_type': app_notification_type,
+            'title': title,
+            'description': description,
+            'redirect_url': '',
+            'image_link': '',
+            'group_name': 'B2C-GRP'
+        }
+        
+        print("creating_pro_member_notification", notification_dict)
+        create_notification(notification_dict)
+    except Exception as e:
+        print("Pro Member Notification Error", e)
