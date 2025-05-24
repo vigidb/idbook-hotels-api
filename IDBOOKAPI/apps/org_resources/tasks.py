@@ -21,7 +21,9 @@ from apps.booking.models import Booking
 from django.contrib.auth.models import Group
 from apps.authentication.models import Role
 from apps.authentication.models import User
-from apps.org_resources.utils.notification_utils import admin_create_notification
+from apps.org_resources.models import UserSubscription
+from apps.org_resources.utils.notification_utils import (admin_create_notification,
+    create_pro_member_notification)
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 import traceback, pytz
 
@@ -201,5 +203,125 @@ def admin_send_sms_task(self, notification_type='', params=None):
     return None
         
 
+
+@celery_idbook.task(bind=True)
+def pro_member_send_sms_task(self, notification_type='', params=None):
+    if params is None:
+        params = {}
+    
+    print(f"Inside {notification_type} Pro Member SMS task")
+
+    try:
+        def get_user_from_id(user_id):
+            return User.objects.filter(id=user_id).first()
+
+        def get_user_subscription_from_id(user_sub_id):
+            return UserSubscription.objects.filter(id=user_sub_id).first()
+
+        def send_sms(mobile, template, variables):
+            print("variables_values", variables)
+            response = send_template_sms(mobile, template, variables)
+            print(f"SMS sent with template '{template}'. Response: {response}")
+            return response
+
+        def shorten_link(url):
+            print("website_link", url)
+            return shorten_url(url)
+
+        # Template logic
+        if notification_type == 'PRO_MEMBER_REFFERAL_BONUS':
+            user_id = params.get('user_id')
+            referral_code = params.get('referral_code', '')
+            bonus_amount = params.get('bonus_amount', 0)
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{referral_code}|{bonus_amount}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_REFFERAL_BONUS",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'PRO_MEMBER_AUTO_RENEWAL_FAILURE':
+            user_id = params.get('user_id')
+            failure_reason = params.get('failure_reason', 'payment failure')
+            renewal_deadline = params.get('renewal_deadline', '')
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{failure_reason}|{renewal_deadline}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_AUTO_RENEWAL_FAILURE",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'PRO_MEMBER_AUTO_RENEWAL_SUCCESS':
+            user_id = params.get('user_id')
+            renewal_date = params.get('renewal_date', '')
+            payment_amount = params.get('payment_amount', 0)
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{renewal_date}|{payment_amount}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_AUTO_RENEWAL_SUCCESS",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'PRO_MEMBER_AUTO_RENEWAL_NOTICE':
+            user_id = params.get('user_id')
+            renewal_date = params.get('renewal_date', '')
+            renewal_amount = params.get('renewal_amount', 0)
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{renewal_date}|{renewal_amount}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_AUTO_RENEWAL_NOTICE",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'PRO_MEMBER_WELCOME':
+            user_id = params.get('user_id')
+            membership_type = params.get('membership_type', '')
+            expiry_date = params.get('expiry_date', '')
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{membership_type}|{expiry_date}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_WELCOME",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+        elif notification_type == 'PRO_MEMBER_DISCOUNT':
+            user_id = params.get('user_id')
+            discount_amount = params.get('discount_amount', 0)
+            hotel_name = params.get('hotel_name', '')
+            
+            user = get_user_from_id(user_id)
+            if user and user.mobile_number:
+                variables_values = f"{user.name or 'User'}|{discount_amount}|{hotel_name}"
+                send_sms(
+                    user.mobile_number,
+                    "PRO_MEMBER_DISCOUNT",
+                    variables_values
+                )
+                create_pro_member_notification(user, notification_type, variables_values)
+
+    except Exception as e:
+        print(f'{notification_type} Pro Member SMS Task Error: {e}')
+
+    return None
     
 

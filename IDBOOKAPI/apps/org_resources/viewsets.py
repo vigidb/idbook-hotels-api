@@ -47,7 +47,7 @@ from apps.authentication.utils.authentication_utils import get_group_based_on_na
 from apps.customer.models import Customer
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 
-from apps.org_resources.tasks import send_enquiry_email_task
+from apps.org_resources.tasks import send_enquiry_email_task, pro_member_send_sms_task
 from apps.org_resources.utils.db_utils import (
     is_corporate_email_exist, is_corporate_number_exist, get_subscription,
     update_subrecur_transaction, add_wallet_bonus_for_subscription)
@@ -1755,6 +1755,18 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
                     # Add wallet bonus for pro members based on subscription level and type
                     add_wallet_bonus_for_subscription(user_sub_obj)
+
+                    # Send Pro Member Welcome SMS notification
+                    pro_member_send_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'PRO_MEMBER_WELCOME',
+                            'params': {
+                                'user_id': user_sub_obj.user.id,
+                                'membership_type': user_sub_obj.idb_sub.name,
+                                'expiry_date': user_sub_obj.sub_end_date.strftime('%d-%m-%Y') if user_sub_obj.sub_end_date else ''
+                            }
+                        }
+                    )
                 user_sub_obj.save()
                 
             custom_response = self.get_response(
