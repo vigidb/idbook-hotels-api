@@ -34,7 +34,8 @@ app.conf.task_routes = {
     'apps.booking.tasks.send_cancelled_booking_task':{'queue': email_send_queue},
     'apps.booking.tasks.send_completed_booking_task': {'queue': email_send_queue},
     'apps.org_resources.tasks.send_enquiry_email_task': {'queue': email_send_queue},
-    'apps.org_resources.tasks.admin_send_sms_task': {'queue': email_send_queue}
+    'apps.org_resources.tasks.admin_send_sms_task': {'queue': email_send_queue},
+    'apps.org_resources.tasks.pro_member_send_sms_task': {'queue': email_send_queue}
 
 }
 

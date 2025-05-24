@@ -229,12 +229,19 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             self.queryset = self.queryset.filter(id__in=property_list)
 
         # filter based on slot based property
-        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
-        is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
+        # is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
+        # is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
         
-        if is_slot_price_enabled:
-            property_slot_list = hotel_db_utils.get_slot_price_enabled_property()
-            self.queryset = self.queryset.filter(id__in=property_slot_list)
+        # if is_slot_price_enabled:
+        #     property_slot_list = hotel_db_utils.get_slot_price_enabled_property()
+        #     self.queryset = self.queryset.filter(id__in=property_slot_list)
+
+        is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', '').lower()
+    
+        if is_slot_price_enabled == "true":
+            self.queryset = self.queryset.filter(is_slot_price_enabled=True)
+        elif is_slot_price_enabled == "false":
+            self.queryset = self.queryset.filter(is_slot_price_enabled=False)
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
@@ -327,7 +334,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 self.child_count = child_count
                 self.child_age_list = child_age_list
                 self.booking_slot = booking_slot
-                self.no_of_days = (self.checkout_datetime - self.checkin_datetime).days
+                self.no_of_days = max((self.checkout_datetime - self.checkin_datetime).days, 1)
 
                 mock_request = type('obj', (object,), {'data': {'adult_count': adult_count, 'child_count': child_count, 'booking_slot': booking_slot}})
                 is_allocated, allocation_response = self.auto_room_allocation(mock_request, property_id)
@@ -671,6 +678,32 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             request, self.queryset, available_property_dict, nonavailable_property_list
         )
         
+        adult_count = int(request.query_params.get('adult_count', 1))
+        child_count = int(request.query_params.get('child_count', 0))
+        child_age_list = request.query_params.get('child_age_list', '')
+        booking_slot = request.query_params.get('booking_slot', '24 Hrs')
+        checkin = request.query_params.get('checkin', '')
+        checkout = request.query_params.get('checkout', '')
+
+        # Convert child_age_list from string to list
+        if isinstance(child_age_list, str) and child_age_list:
+            try:
+                child_age_list = [int(age.strip()) for age in child_age_list.split(',')]
+            except:
+                child_age_list = []
+
+        total_guest = adult_count + child_count
+
+        user_booking_request_details = {
+            'checkin': checkin,
+            'checkout': checkout,
+            'adult_count': adult_count,
+            'child_count': child_count,
+            'child_age_list': child_age_list,
+            'total_guest': total_guest,
+            'booking_slot': booking_slot
+        }
+
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset, many=True,
@@ -678,6 +711,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 'available_property_dict': available_property_dict,
                 'favorite_list': self.favorite_list,
                 'nonavailable_property_list': nonavailable_property_list,
+                'user_booking_request_details': user_booking_request_details,
                 'complete_pricing_details': complete_pricing_details
             })
 

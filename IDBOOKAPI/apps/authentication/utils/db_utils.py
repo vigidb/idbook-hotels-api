@@ -4,7 +4,7 @@ from django.contrib.auth.models import Group
 from apps.authentication.models import Role
 from apps.authentication.models import User, UserOtp
 from apps.customer.models import Customer
-
+from django.utils import timezone
 
 def get_group_by_name(name):
     #CORPORATE-GRP
@@ -40,22 +40,58 @@ def create_user(user_details, customer_details=None):
         Customer.objects.create(**customer_details)
     return user
 
+# def create_email_otp(otp, to_email, otp_for):
+#     # delete any previous otp for the user account
+#     UserOtp.objects.filter(user_account=to_email).delete()
+#     # save otp
+#     UserOtp.objects.create(
+#         otp=otp, otp_type='EMAIL',
+#         user_account=to_email, otp_for=otp_for)
+
 def create_email_otp(otp, to_email, otp_for):
-    # delete any previous otp for the user account
-    UserOtp.objects.filter(user_account=to_email).delete()
-    # save otp
-    UserOtp.objects.create(
-        otp=otp, otp_type='EMAIL',
-        user_account=to_email, otp_for=otp_for)
+    existing_otp = UserOtp.objects.filter(user_account=to_email).first()
+    
+    if existing_otp:
+        existing_otp.otp = otp
+        existing_otp.otp_for = otp_for
+        existing_otp.otp_generate_tries += 1
+        existing_otp.created = timezone.now()
+        existing_otp.save()
+    else:
+        UserOtp.objects.create(
+            otp=otp, 
+            otp_type='EMAIL',
+            user_account=to_email, 
+            otp_for=otp_for,
+            otp_generate_tries=1
+        )
+
+# def create_mobile_otp(otp, mobile_number, otp_for):
+#     # delete any previous otp for the user account
+#     UserOtp.objects.filter(user_account=mobile_number).delete()
+#     # save otp
+#     UserOtp.objects.create(
+#         otp=otp, otp_type='MOBILE',
+#         user_account=mobile_number,
+#          otp_for=otp_for)
 
 def create_mobile_otp(otp, mobile_number, otp_for):
-    # delete any previous otp for the user account
-    UserOtp.objects.filter(user_account=mobile_number).delete()
-    # save otp
-    UserOtp.objects.create(
-        otp=otp, otp_type='MOBILE',
-        user_account=mobile_number,
-         otp_for=otp_for)
+    existing_otp = UserOtp.objects.filter(user_account=mobile_number).first()
+    
+    if existing_otp:
+        existing_otp.otp = otp
+        existing_otp.otp_for = otp_for
+        existing_otp.otp_generate_tries += 1
+        existing_otp.created = timezone.now()
+        existing_otp.save()
+    else:
+        UserOtp.objects.create(
+            otp=otp, 
+            otp_type='MOBILE',
+            user_account=mobile_number, 
+            otp_for=otp_for,
+            otp_generate_tries=1
+        )
 
 def get_userid_list(username, group=None):
     user_objs = User.objects.filter(
@@ -103,8 +139,28 @@ def check_mobile_otp(mobile_number, otp, otp_for):
         otp_for=otp_for).first()
     return user_otp
     
-    
-    
-    
+def reset_otp_counter(user_account):
+    """Reset the OTP attempt counter and login attempts after successful operations"""
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        if user_otp:
+            user_otp.otp_generate_tries = 0
+            user_otp.login_tries = 0  # Reset login attempts as well
+            user_otp.save()
+            return True
+    except Exception as e:
+        print(f"Error resetting OTP counter: {e}")
+    return False
 
-    
+def increment_login_attempts(user_account):
+    """Increment the login attempt counter"""
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        if user_otp:
+            user_otp.login_tries += 1
+            user_otp.last_login_attempt_time = timezone.now()
+            user_otp.save()
+            return True
+    except Exception as e:
+        print(f"Error incrementing login attempts: {e}")
+    return False

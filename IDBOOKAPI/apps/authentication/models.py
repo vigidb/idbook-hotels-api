@@ -19,6 +19,10 @@ class UserOtp(models.Model):
     user_account =  models.CharField(max_length=100, help_text="Email or Mobile Number")
     otp_for = models.CharField(max_length=25, choices=OTP_FOR_CHOICES,
                                 default='OTHER')
+    otp_generate_tries = models.PositiveIntegerField(default=1, help_text="Number of OTP generation attempts")
+    login_tries = models.PositiveIntegerField(default=0, help_text="Number of OTP login attempts")
+    last_attempt_time = models.DateTimeField(auto_now=True, help_text="Last OTP generation attempt time")
+    last_login_attempt_time = models.DateTimeField(null=True, blank=True, help_text="Last OTP login attempt time")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

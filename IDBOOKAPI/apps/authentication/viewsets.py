@@ -78,6 +78,19 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         otp_mobile = request.data.get('otp_mobile', None)
         user = None
 
+        # Check mandatory OTP fields
+        errors = []
+        if not otp:
+            errors.append({"field": "otp", "message": "Email OTP is required"})
+        if not otp_mobile:
+            errors.append({"field": "otp_mobile", "message": "Mobile OTP is required"})
+
+        if errors:
+            return self.get_error_response(
+                message="Email or Mobile OTP is missing", status="error",
+                errors=errors, error_code="OTP_FIELDS_REQUIRED",
+                status_code=status.HTTP_400_BAD_REQUEST)
+
         user_otp = None
         if otp:
             # VERIFY
@@ -209,7 +222,12 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             refresh = RefreshToken.for_user(user)
             # user representation
             data = authentication_utils.user_representation(user, refresh_token = refresh)
-            
+
+            if user.email:
+                db_utils.reset_otp_counter(user.email)
+            if user.mobile_number:
+                db_utils.reset_otp_counter(user.mobile_number)
+
             response = self.get_response(
                 data=data,
                 status="success",
@@ -536,6 +554,11 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 ##                    }
 
             data = authentication_utils.user_representation(user, refresh_token=refresh)
+            # Reset OTP counter after successful login
+            if user.email:
+                db_utils.reset_otp_counter(user.email)
+            if user.mobile_number:
+                db_utils.reset_otp_counter(user.mobile_number)
             
             response = self.get_response(
                 data=data,
@@ -723,6 +746,18 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
 
+        # Check if user has exceeded login attempt limit
+        can_attempt, error_message = authentication_utils.check_login_attempt_limit(username)
+        if not can_attempt:
+            response = self.get_error_response(
+                message=error_message,
+                status="error", errors=[], error_code="LOGIN_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response
+        
+        # Increment login attempts before processing
+        db_utils.increment_login_attempts(username)
+
         # get the otp details
         user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for='LOGIN').first()
         if not user_otp:
@@ -760,6 +795,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             return response
         user_detail.default_group = group_name
         user_detail.save()
+        db_utils.reset_otp_counter(username)
         data = authentication_utils.generate_refresh_token(user_detail)
         response = self.get_response(data=data, status="success",
                                      message="Login successful",
@@ -828,7 +864,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
             if otp_for == 'LOGIN':
                 if not user_objs:
                     response = self.get_error_response(
-                        message="No user associated with the account!",
+                        message="Invalid User Credentials!",
                         status="error", errors=[], error_code="MISSING_USERNAME",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
@@ -839,7 +875,16 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                         status="error", errors=[], error_code="USERNAME_DUPLICATE",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE)
                     return response
-                
+            
+            # Check if user has exceeded OTP generation limit
+            can_generate, error_message = authentication_utils.check_otp_generation_limit(username)
+            if not can_generate:
+                response = self.get_error_response(
+                    message=error_message,
+                    status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                return response
+
             # generate otp
             otp = generate_otp(no_digits=4)
 
@@ -917,7 +962,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                 data = authentication_utils.generate_refresh_token(user_detail)
 
         
-
+        db_utils.reset_otp_counter(username)
         response = self.get_response(data=data, status="success",
                                      message="Otp Verification Success",
                                      status_code=status.HTTP_200_OK)

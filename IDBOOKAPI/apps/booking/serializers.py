@@ -567,9 +567,34 @@ class InvoiceSerializer(serializers.ModelSerializer):
             validated_data['updated_by'] = str(user.id)
         
         return super().update(instance, validated_data)
+
+    def transform_items(self, items):
+        """Transform items list to change 'price' key to 'rate'"""
+        if not items:
+            return items
+            
+        transformed_items = []
+        for item in items:
+            if isinstance(item, dict):
+                # Create a copy of the item
+                transformed_item = item.copy()
+                
+                # Change 'price' key to 'rate' if it exists
+                if 'price' in transformed_item:
+                    transformed_item['rate'] = transformed_item.pop('price')
+                
+                transformed_items.append(transformed_item)
+            else:
+                transformed_items.append(item)
+        
+        return transformed_items
     
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+        # Transform items if they exist in the representation
+        if 'items' in representation:
+            representation['items'] = self.transform_items(representation['items'])
+        
         # Get associated booking details
         bookings = Booking.objects.filter(invoice_id=instance.invoice_number)
         

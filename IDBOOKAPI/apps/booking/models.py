@@ -254,6 +254,8 @@ class Invoice(models.Model):
 
     supply_details = models.JSONField(default=dict, null=True)
     items = models.JSONField(default=list, null=True)
+    payment_details = models.JSONField(default=list, null=True)
+    additional_options = models.JSONField(default=dict, null=True)
 
     GST = models.PositiveIntegerField(default=0)
     GST_type = models.CharField(max_length=20, default='CGST/SGST', blank=True)

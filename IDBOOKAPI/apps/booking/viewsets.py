@@ -79,7 +79,7 @@ from apps.customer.models import Wallet
 from apps.hotels.tasks import update_monthly_pay_at_hotel_eligibility_task, send_hotel_receipt_email_task
 from apps.hotels.serializers import MonthlyPayAtHotelEligibilitySerializer
 from apps.customer.utils.db_utils import get_wallet_balance
-from apps.org_resources.tasks import admin_send_sms_task
+from apps.org_resources.tasks import admin_send_sms_task, pro_member_send_sms_task
 from apps.org_managements.utils import get_active_business
 from apps.org_resources.db_utils import get_company_details
 from apps.customer.utils.db_utils import get_user_based_customer
@@ -2180,7 +2180,17 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             }
         )
         print(f"Booking confirmation SMS scheduled for booking {booking_id}")
-            
+        if hasattr(instance, 'pro_member_discount_value') and instance.pro_member_discount_value > 0:
+            pro_member_send_sms_task.apply_async(
+                kwargs={
+                    'notification_type': 'PRO_MEMBER_DISCOUNT',
+                    'params': {
+                        'user_id': instance.user.id,
+                        'discount_amount': instance.pro_member_discount_value,
+                        'hotel_name': instance.hotel_booking.confirmed_property.name
+                    }
+                }
+            )  
         custom_response = self.get_response(
             status='success', data=None,
             message="Booking Confirmed", status_code=status.HTTP_200_OK,)
@@ -3182,6 +3192,19 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     print(f"[Cashback] No cashback applied for booking ID: {booking_id}")
             except Exception as cashback_error:
                 print(f"[Cashback ERROR] Failed to apply cashback for booking ID {booking_id}: {cashback_error}")
+
+            # Send Pro Member Discount SMS notification if discount applied
+            if hasattr(booking, 'pro_member_discount_value') and booking.pro_member_discount_value > 0:
+                pro_member_send_sms_task.apply_async(
+                    kwargs={
+                        'notification_type': 'PRO_MEMBER_DISCOUNT',
+                        'params': {
+                            'user_id': booking.user.id,
+                            'discount_amount': booking.pro_member_discount_value,
+                            'hotel_name': booking.hotel_booking.confirmed_property.name
+                        }
+                    }
+                )
             
     
     @action(detail=False, methods=['POST'], url_path='phone-pay/callbackurl',
