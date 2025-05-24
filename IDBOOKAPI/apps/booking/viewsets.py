@@ -1114,6 +1114,14 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             self.property_id = property_id
             self.booking_slot = booking_slot
 
+            if not room_list:
+                is_allocated, allocation_response = self.auto_room_allocation(request, property_id)
+                if not is_allocated:
+                    return allocation_response
+                room_list = self.room_list
+            else:
+                self.room_list = room_list
+
             # date range list and slot price
             self.date_list, self.slot_enabled_date = get_datetime_split_with_slot(
                 self.checkin_datetime, self.checkout_datetime)
