@@ -12,7 +12,7 @@ from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from IDBOOKAPI.utils import (
     paginate_queryset, validate_date, get_dates_from_range,
-    get_date_from_string)
+    get_date_from_string, get_datetime_split_with_slot)
 
 from .serializers import (
     PropertySerializer, GallerySerializer, RoomSerializer, RuleSerializer, InclusionSerializer,
@@ -351,8 +351,12 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                         }
                     }
                     continue
+
+                # date range list and slot price
+                self.date_list, self.slot_enabled_date = get_datetime_split_with_slot(
+                    self.checkin_datetime, self.checkout_datetime)
                 
-                self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+                self.room_dprice_dict, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
                     self.checkin_datetime.date(), self.checkout_datetime.date())
 
                 is_status, allocation_response = self.room_allocation()

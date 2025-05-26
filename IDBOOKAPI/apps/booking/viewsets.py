@@ -10,7 +10,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
-from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops
+from IDBOOKAPI.utils import paginate_queryset, calculate_tax, order_ops, get_datetime_split_with_slot
 from .serializers import (BookingSerializer, AppliedCouponSerializer,
                           PreConfirmHotelBookingSerializer, ReviewSerializer,
                           BookingPaymentDetailSerializer, HotelBookingSerializer,
@@ -1122,8 +1122,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             else:
                 self.room_list = room_list
 
+            # date range list and slot price
+            self.date_list, self.slot_enabled_date = get_datetime_split_with_slot(
+                self.checkin_datetime, self.checkout_datetime)
+
             # get dynamic pricing if applicable
-            self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+            self.room_dprice_dict, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
                 self.checkin_datetime.date(), self.checkout_datetime.date())
 
             is_status, custom_response = self.room_allocation()
@@ -1338,8 +1342,12 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             else:
                 self.room_list = room_list
 
+            # date range list and slot price
+            self.date_list, self.slot_enabled_date = get_datetime_split_with_slot(
+                self.checkin_datetime, self.checkout_datetime)
+
             # get dynamic pricing if applicable
-            self.room_dprice_dict, self.date_list, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
+            self.room_dprice_dict, self.dprice_roomids = self.get_dynamic_pricing_applicable_room(
                 self.checkin_datetime.date(), self.checkout_datetime.date())
 
             # print("room dynamic price dict::", room_dprice_dict)
