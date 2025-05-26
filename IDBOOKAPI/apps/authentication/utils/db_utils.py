@@ -145,7 +145,8 @@ def reset_otp_counter(user_account):
         user_otp = UserOtp.objects.filter(user_account=user_account).first()
         if user_otp:
             user_otp.otp_generate_tries = 0
-            user_otp.login_tries = 0  # Reset login attempts as well
+            user_otp.login_tries = 0
+            user_otp.pwd_reset_tries = 0
             user_otp.save()
             return True
     except Exception as e:
@@ -163,4 +164,17 @@ def increment_login_attempts(user_account):
             return True
     except Exception as e:
         print(f"Error incrementing login attempts: {e}")
+    return False
+
+def increment_pwd_reset_attempts(user_account):
+    """Increment the password reset attempt counter"""
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        if user_otp:
+            user_otp.pwd_reset_tries += 1
+            user_otp.last_pwd_reset_attempt_time = timezone.now()
+            user_otp.save()
+            return True
+    except Exception as e:
+        print(f"Error incrementing password reset attempts: {e}")
     return False

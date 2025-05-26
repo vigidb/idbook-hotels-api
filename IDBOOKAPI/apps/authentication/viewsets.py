@@ -413,16 +413,26 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                                                    errors=[], error_code="INVALID_EMAIL",
                                                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
                 return response
+
+            # Check if user has exceeded OTP generation limit
+            can_generate, error_message = authentication_utils.check_otp_generation_limit(to_email)
+            if not can_generate:
+                response = self.get_error_response(
+                    message=error_message,
+                    status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                return response
             
             # generate otp
             otp = generate_otp(no_digits=4)
             # delete any previous otp for the user account
-            UserOtp.objects.filter(user_account=to_email).delete()
+            # UserOtp.objects.filter(user_account=to_email).delete()
             # save otp
-            UserOtp.objects.create(otp=otp, otp_type='EMAIL', user_account=to_email)
+            # Use the same process as in the working example
+            authentication_utils.email_generate_otp_process(otp, to_email, 'PASSWORD_RESET')
             # send email
             # send_otp_email(otp, [to_email])
-            send_email_task.apply_async(args=[otp, [to_email]])
+            # send_email_task.apply_async(args=[otp, [to_email]])
             
             response = self.get_response(data={}, status="success",
                                          message="OTP Success",
@@ -1004,7 +1014,18 @@ class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
             return response
 
             
-            
+        # Check if user has exceeded password reset attempt limit
+        can_attempt, error_message = authentication_utils.check_pwd_reset_attempt_limit(email)
+        if not can_attempt:
+            response = self.get_error_response(
+                message=error_message,
+                status="error", errors=[], error_code="PWD_RESET_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response
+        
+        # Increment password reset attempts before processing
+        db_utils.increment_pwd_reset_attempts(email)
+
         user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
         print(user_otp)
 
@@ -1034,7 +1055,7 @@ class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
         
         user.set_password(password)
         user.save()
-
+        db_utils.reset_otp_counter(email)
         response = self.get_response(
             data={}, status="success", message="Password has been successfully reset. Please login",
             status_code=status.HTTP_201_CREATED,

@@ -21,8 +21,10 @@ class UserOtp(models.Model):
                                 default='OTHER')
     otp_generate_tries = models.PositiveIntegerField(default=1, help_text="Number of OTP generation attempts")
     login_tries = models.PositiveIntegerField(default=0, help_text="Number of OTP login attempts")
+    pwd_reset_tries = models.PositiveIntegerField(default=0, help_text="Number of password reset OTP attempts")
     last_attempt_time = models.DateTimeField(auto_now=True, help_text="Last OTP generation attempt time")
     last_login_attempt_time = models.DateTimeField(null=True, blank=True, help_text="Last OTP login attempt time")
+    last_pwd_reset_attempt_time = models.DateTimeField(null=True, blank=True, help_text="Last password reset OTP attempt time")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
