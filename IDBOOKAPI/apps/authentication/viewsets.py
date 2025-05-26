@@ -90,6 +90,16 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 message="Email or Mobile OTP is missing", status="error",
                 errors=errors, error_code="OTP_FIELDS_REQUIRED",
                 status_code=status.HTTP_400_BAD_REQUEST)
+        accept_term = request.data.get('acceptTerm', None)
+        if not accept_term:
+            response = self.get_error_response(
+                message="Please accept the terms and conditions",
+                status="error",
+                errors=[{"field": "acceptTerm", "message": "Please accept the terms and conditions"}],
+                error_code="TERMS_NOT_ACCEPTED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return response
 
         user_otp = None
         if otp:
@@ -937,6 +947,17 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
                                                errors=[], error_code="INVALID_PARAM",
                                                status_code=status.HTTP_406_NOT_ACCEPTABLE)
             return response
+
+        can_attempt, error_message = authentication_utils.check_verify_attempt_limit(username)
+        if not can_attempt:
+            response = self.get_error_response(
+                message=error_message,
+                status="error", errors=[], error_code="VERIFY_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response
+        
+        # Increment verification attempts before processing
+        db_utils.increment_verify_attempts(username)
         
         # get the otp details
         user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for=otp_for).first()
