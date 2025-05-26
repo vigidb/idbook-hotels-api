@@ -276,3 +276,33 @@ def check_login_attempt_limit(user_account):
     except Exception as e:
         print(f"Error checking login attempt limit: {e}")
         return False, "Error checking login limit. Please try again later."
+
+def check_pwd_reset_attempt_limit(user_account):
+    try:
+        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        
+        # If no OTP record exists, don't allow password reset (should generate OTP first)
+        if not user_otp:
+            return False, "Please generate OTP first"
+        
+        # Check if user has exceeded the maximum password reset attempts (5)
+        if user_otp.pwd_reset_tries >= 5:
+            # Check if 30 minutes have passed since last password reset attempt
+            if user_otp.last_pwd_reset_attempt_time:
+                ist = pytz.timezone('Asia/Kolkata')
+                now = datetime.now(ist)
+                time_difference = now - user_otp.last_pwd_reset_attempt_time
+                minutes_passed = time_difference.total_seconds() / 60
+                
+                if minutes_passed < 30:
+                    remaining_minutes = int(30 - minutes_passed)
+                    return False, f"Maximum password reset attempts exceeded. Please try again after {remaining_minutes} minutes."
+                else:
+                    # If 30 minutes have passed, reset the password reset counter to 0
+                    user_otp.pwd_reset_tries = 0
+                    user_otp.save()
+        
+        return True, None
+    except Exception as e:
+        print(f"Error checking password reset attempt limit: {e}")
+        return False, "Error checking password reset limit. Please try again later."
