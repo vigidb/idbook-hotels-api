@@ -568,7 +568,39 @@ class PropertyCommissionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
         )
 
         return custom_response
-                
+    
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        queryset = self.queryset
+
+        # Filter by 'is_active' if provided
+        is_active = request.query_params.get('is_active', None)
+        if is_active is not None:
+            if is_active.lower() == 'true':
+                queryset = queryset.filter(active=True)
+            elif is_active.lower() == 'false':
+                queryset = queryset.filter(active=False)
+
+        offset = request.query_params.get('offset')
+        limit = request.query_params.get('limit')
+
+        # If offset and limit are not provided, return all results without pagination
+        if offset is None and limit is None:
+            serializer = self.get_serializer(queryset, many=True)
+            count = queryset.count()
+        else:
+            count, queryset = paginate_queryset(request, queryset)
+            serializer = self.get_serializer(queryset, many=True)
+
+        custom_response = self.get_response(
+            status="success",
+            count=count,
+            data=serializer.data,
+            message="Property Commissions Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        return custom_response
             
 class TrendingPlacesViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = TrendingPlaces.objects.all()
