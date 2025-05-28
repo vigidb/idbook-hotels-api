@@ -23,7 +23,8 @@ from IDBOOKAPI.utils import get_timediff_in_minutes, validate_mobile_number
 from .models import User, UserOtp, Role
 from apps.customer.models import Customer
 from .serializers import (UserSignupSerializer, LoginSerializer,
-                          UserListSerializer, UserRefferalSerializer)
+                          UserListSerializer, UserRefferalSerializer,
+                          BilledUserSerializer)
 # from .emails import send_welcome_email
 
 from rest_framework.decorators import action
@@ -44,6 +45,7 @@ from django.db import transaction
 from apps.booking.models import Booking
 from apps.customer.models import Wallet, WalletTransaction
 from apps.log_management.models import WalletTransactionLog, BookingPaymentLog, BookingInvoiceLog
+from django.db.models import Q
 
 User = get_user_model()
 
@@ -219,6 +221,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 user.roles.add(role)
             user.default_group = group_name
             user.email_verified = True
+            user.mobile_verified = True
             user.save()
             authentication_utils.add_signup_bonus(user, group_name, role)
 
@@ -1613,6 +1616,110 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         )
         self.log_response(response)
         return response
+
+    @action(detail=False, methods=['post'], url_path='billed-to-user',
+        permission_classes=[IsAuthenticated], url_name='billed-to-user')
+    def billed_to_user(self, request):
+        """
+        Create a new user with group and role assignment for billing purposes
+        """
+        try:
+            # Validate request data
+            serializer = BilledUserSerializer(data=request.data)
+            if not serializer.is_valid():
+                return self.get_error_response(
+                    message="Invalid request data", 
+                    status="error", 
+                    errors=serializer.errors,
+                    error_code="INVALID_DATA", 
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            validated_data = serializer.validated_data
+            mobile_number = validated_data['mobile_number']
+            email = validated_data['email']
+            name = validated_data['name']
+            user_group = validated_data['user_group']
+
+            # Check if user already exists with same email or mobile
+            existing_user = User.objects.filter(
+                Q(email=email) | Q(mobile_number=mobile_number)
+            ).first()
+            
+            if existing_user:
+                return self.get_error_response(
+                    message="User already exists with this email or mobile number",
+                    status="error",
+                    errors=[],
+                    error_code="USER_ALREADY_EXISTS",
+                    status_code=status.HTTP_409_CONFLICT
+                )
+
+            # Get group and role based on user_group
+            grp, role = authentication_utils.get_group_based_on_name(user_group)
+            if not grp or not role:
+                return self.get_error_response(
+                    message="Group or role doesn't exist",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_ROLE_NOT_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE
+                )
+
+            # Create user within transaction
+            with transaction.atomic():
+                # Create the user
+                user = User.objects.create(
+                    email=email,
+                    mobile_number=mobile_number,
+                    name=name,
+                    first_name=name.split(' ')[0] if name else '',
+                    last_name=' '.join(name.split(' ')[1:]) if len(name.split(' ')) > 1 else '',
+                    default_group=user_group,
+                    is_active=True
+                )
+
+                # Create customer profile
+                Customer.objects.create(user_id=user.id, active=True)
+
+                # Assign group and role
+                if grp:
+                    user.groups.add(grp)
+                if role:
+                    user.roles.add(role)
+
+                # Prepare response data
+                user_data = {
+                    'id': user.id,
+                    'email': user.email,
+                    'mobile_number': user.mobile_number,
+                    'name': user.name,
+                    'user_group': user_group,
+                    'groups': [{'id': grp.id, 'name': grp.name}] if grp else [],
+                    'roles': [{'id': role.id, 'name': role.name}] if role else [],
+                    'default_group': user.default_group,
+                    'created': user.created,
+                    'is_active': user.is_active
+                }
+
+                return Response(
+                    {
+                        'status': 'success',
+                        'message': 'User created successfully for billing',
+                        'data': user_data
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+
+        except Exception as e:
+            return Response(
+                {
+                    'status': 'error',
+                    'message': f'Error creating billed user: {str(e)}',
+                    'data': {}
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()

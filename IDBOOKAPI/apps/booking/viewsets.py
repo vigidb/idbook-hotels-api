@@ -1182,15 +1182,15 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             total_discount = 0
             total_room_discount = self.total_room_amount_without_room_discount - self.total_room_amount_with_room_discount
             total_discount = float(total_room_discount) + float(discount) + float(pro_member_discount_value)
-            commission_details = self.commission_calculation()
-            if commission_details:
-                # self.final_amount = self.final_amount + float(
-                #     commission_details.get('com_amnt_withtax', 0))
-                # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount = (self.final_amount - self.final_tax_amount) - float(commission_details.get('com_amnt_withtax', 0))
-                hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
-                commission_details['hotelier_amount'] = hotelier_amount
-                commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
+            # commission_details = self.commission_calculation()
+            # if commission_details:
+            #     # self.final_amount = self.final_amount + float(
+            #     #     commission_details.get('com_amnt_withtax', 0))
+            #     # hotelier_amount = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+            #     hotelier_amount = (self.final_amount - self.final_tax_amount) - float(commission_details.get('com_amnt_withtax', 0))
+            #     hotelier_amount_with_tax = self.final_amount - float(commission_details.get('com_amnt_withtax', 0))
+            #     commission_details['hotelier_amount'] = hotelier_amount
+            #     commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
 
             booking_dict = {"user_id":user.id, "hotel_booking":hotel_booking_dict, "booking_type":'HOTEL',
@@ -1205,7 +1205,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                             "gst_amount": str(self.final_tax_amount), "adult_count":adult_count,
                             "child_count":child_count, "infant_count":infant_count,
                             "child_age_list":child_age_list, "additional_notes":additional_notes,
-                            "commission_info":commission_details}
+                            "commission_info":[]}
+                            # "commission_info":commission_details}
             
             if coupon:
 

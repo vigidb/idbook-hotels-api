@@ -254,3 +254,31 @@ class UserRefferalSerializer(serializers.ModelSerializer):
                 representation['amount'] = None
 
         return representation
+
+class BilledUserSerializer(serializers.Serializer):
+    mobile_number = serializers.CharField(
+        max_length=10, 
+        required=True,
+        help_text="Mobile number of the user (10 digits only)."
+    )
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the user."
+    )
+    name = serializers.CharField(
+        max_length=30,
+        required=True,
+        help_text="Name of the user."
+    )
+    user_group = serializers.CharField(
+        max_length=50,
+        required=True,
+        help_text="User group (FRANCHISE-GRP, HOTELIER-GRP, CORPORATE-GRP, B2C-GRP, BUSINESS-GRP)"
+    )
+
+    def validate_user_group(self, value):
+        """Validate user group"""
+        valid_groups = ['FRANCHISE-GRP', 'HOTELIER-GRP', 'CORPORATE-GRP', 'B2C-GRP', 'BUSINESS-GRP']
+        if value not in valid_groups:
+            raise serializers.ValidationError(f"Invalid user group. Must be one of: {', '.join(valid_groups)}")
+        return value
