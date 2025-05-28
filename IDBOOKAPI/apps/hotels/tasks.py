@@ -447,10 +447,10 @@ def send_hotel_receipt_email_task(self, booking_id):
             "discount_text": f"INR {float(booking.discount)}" if booking.discount else "None",
             "pro_discount": booking.pro_member_discount_percent,
             "pro_discount_value": booking.pro_member_discount_value,
-            "final_amount": float(booking.final_amount),
+            "final_amount": float(booking.final_amount - booking.gst_amount),
             "commission_amount": float(commission.com_amnt),
             "commission_tax": float(commission.tax_amount),
-            "payable_amount": float(commission.hotelier_amount),
+            "payable_amount": float(commission.hotelier_amount_with_tax),
         }
         
         # Generate the PDF receipt and save it to the booking object

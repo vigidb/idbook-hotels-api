@@ -324,9 +324,10 @@
 	        <tr>
 			  <td><b>Hotelier Amount</b></td>
 			  <td>
-		        Room Charges (INR {{ room_charges|floatformat:2 }}) 
+		        Final Booking Amount (INR {{ final_amount|floatformat:2 }}) 
 		        - Commission (INR {{ commission_amount|floatformat:2 }}) 
 		        + Commission GST (INR {{ commission_tax|floatformat:2 }})
+		        + Property Tax (INR {{ property_tax|floatformat:2 }})
 			  </td>
 			</tr>
 			<tr>
