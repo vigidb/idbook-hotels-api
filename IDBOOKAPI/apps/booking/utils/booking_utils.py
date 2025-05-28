@@ -1096,7 +1096,7 @@ def hotelier_commission_calculation(commission_details, final_amount, final_tax_
 
     return commission_details
 
-def commission_calculation(property_id, subtotal, final_amount, final_tax_amount, pay_at_hotel=False):
+def commission_calculation(property_id, subtotal, total_discount, final_amount, final_tax_amount, pay_at_hotel=False):
     com_amnt = 0
     tax_amount, tax_in_percent = 0, 0
     commission_details = None
@@ -1105,8 +1105,11 @@ def commission_calculation(property_id, subtotal, final_amount, final_tax_amount
         if prop_comm:
             comm_type = prop_comm.commission_type
             commission = prop_comm.commission
+            discounted_subtotal = Decimal(subtotal) - Decimal(total_discount)
+
             if comm_type == "PERCENT":
-                com_amnt = (commission * subtotal) / 100
+                com_amnt = (commission * discounted_subtotal) / Decimal(100)
+                # com_amnt = (commission * subtotal) / 100
             elif comm_type == "AMOUNT":
                 com_amnt = commission
 

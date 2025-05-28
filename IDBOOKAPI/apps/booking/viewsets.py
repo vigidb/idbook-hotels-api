@@ -2016,7 +2016,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
                     # save booking commission details
                     commission_details = commission_calculation(property_id, instance.subtotal,
-                                           instance.final_amount, instance.gst_amount, pay_at_hotel=True)
+                                           instance.total_discount, instance.final_amount,
+                                           instance.gst_amount, pay_at_hotel=True)
                     if commission_details:
                         add_or_update_booking_commission(instance.id, commission_details)
                     
@@ -2072,7 +2073,6 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             if wallet:
                 wallet_balance = wallet.balance
             try:
-                send_hotel_receipt_email_task.apply_async(args=[instance.id])
                 send_booking_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'WALLET_DEDUCTION_CONFIRMATION',
@@ -2140,7 +2140,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
         # save booking commission details
         commission_details = commission_calculation(property_id, instance.subtotal,
-                               instance.final_amount, instance.gst_amount)
+                               instance.total_discount, instance.final_amount, instance.gst_amount)
         if commission_details:
             add_or_update_booking_commission(instance.id, commission_details)
 
@@ -2180,6 +2180,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 }
             }
         )
+        send_hotel_receipt_email_task.apply_async(args=[instance.id])
         print(f"Booking confirmation SMS scheduled for booking {booking_id}")
         if hasattr(instance, 'pro_member_discount_value') and instance.pro_member_discount_value > 0:
             pro_member_send_sms_task.apply_async(
@@ -3036,8 +3037,8 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 
                         # save booking commission details
                         commission_details = commission_calculation(confirmed_property.id, booking.subtotal,
-                                                                    booking.final_amount, booking.gst_amount,
-                                                                    pay_at_hotel=True)
+                                                                    booking.total_discount, booking.final_amount, 
+                                                                    booking.gst_amount, pay_at_hotel=True)
                         if commission_details:
                             add_or_update_booking_commission(booking.id, commission_details)
                         
@@ -3173,7 +3174,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 
             # save booking commission details
             commission_details = commission_calculation(booking.hotel_booking.confirmed_property_id,
-                                                        booking.subtotal, booking.final_amount,
+                                                        booking.subtotal, booking.total_discount, booking.final_amount,
                                                         booking.gst_amount)
             if commission_details:
                 add_or_update_booking_commission(booking.id, commission_details)
