@@ -92,7 +92,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 message="Email or Mobile OTP is missing", status="error",
                 errors=errors, error_code="OTP_FIELDS_REQUIRED",
                 status_code=status.HTTP_400_BAD_REQUEST)
-        accept_term = request.data.get('acceptTerm', None)
+        accept_term = request.data.get('acceptTerms', None)
         if not accept_term:
             response = self.get_error_response(
                 message="Please accept the terms and conditions",
