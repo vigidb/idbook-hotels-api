@@ -634,7 +634,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not self.instance and not data.get('billed_by'):
             raise serializers.ValidationError({"billed_by": "Billed by is required"})
         
-        if not self.instance and not data.get('billed_to'):
-            raise serializers.ValidationError({"billed_to": "Billed to is required"})
+        # if not self.instance and not data.get('billed_to'):
+        #     raise serializers.ValidationError({"billed_to": "Billed to is required"})
         
         return data
