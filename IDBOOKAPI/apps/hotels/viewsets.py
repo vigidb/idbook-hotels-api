@@ -329,6 +329,7 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             property_id = property_obj.id
             
             try:
+                self.property_obj = property_obj
                 self.property_id = property_id
                 self.adult_count = adult_count
                 self.child_count = child_count

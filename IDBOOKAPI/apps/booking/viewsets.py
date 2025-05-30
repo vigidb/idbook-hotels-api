@@ -1080,6 +1080,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 errors=[],error_code="PROPERTY_MISSING",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
+        self.property_obj = property_obj
 
 ##        min_nights = property_obj.minimum_no_of_nights
 ##        max_nights = property_obj.maximum_no_of_nights
@@ -1298,6 +1299,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 errors=[],error_code="PROPERTY_MISSING",
                 status_code=status.HTTP_400_BAD_REQUEST)
             return custom_response
+        self.property_obj = property_obj
 
 ##        min_nights = property_obj.minimum_no_of_nights
 ##        max_nights = property_obj.maximum_no_of_nights
