@@ -152,6 +152,11 @@ class BookingMixins:
     def get_age_based_child_price(self, age, room_price, date_based_slot=None):
         age_price = None
         child_bed_price = room_price.get('child_bed_price')
+
+        # Check if child_bed_price is None or empty
+        if not child_bed_price:
+            raise ValueError("Child bed price configuration is missing for this room")
+
         for price_details in child_bed_price:
             age_list = price_details.get('age_limit', [])
             
@@ -414,11 +419,35 @@ class BookingMixins:
             if slot != "24 Hrs":
                 slot_price = self.get_slot_based_room_price(room_price, slot)
 
+            # ❗ Check for missing slot-based price
+            if self.property_obj.is_slot_price_enabled and slot != "24 Hrs" and slot_price == 0:
+                # Return error information in a dictionary format that can be handled by amount_calculation
+                return {
+                    "error": True,
+                    "custom_response": self.get_error_response(
+                        message=f"Price can't be calculated as no slot price existed for {slot} slot",
+                        status="error",
+                        errors=[], error_code="SLOT_PRICE_MISSING",
+                        status_code=status.HTTP_400_BAD_REQUEST)
+                }
+
             # calculate child price
             date_based_child_allotted = []
             for child_price in child_allotted:
                 age = child_price.get('age', 0)
-                age_price = self.get_age_based_child_price(age, room_price, date_based_slot=slot)
+                try:
+                    age_price = self.get_age_based_child_price(age, room_price, date_based_slot=slot)
+                except ValueError as e:
+                    # ❗ Handle child bed price missing error
+                    return {
+                        "error": True,
+                        "custom_response": self.get_error_response(
+                            message="Child bed price is missing for this room",
+                            status="error",
+                            errors=[], 
+                            error_code="CHILD_BED_PRICE_MISSING",
+                            status_code=status.HTTP_400_BAD_REQUEST)
+                    }
                 total_child_price = total_child_price + age_price
                 date_based_child_allotted.append({"age":age, "price":age_price})
             
@@ -687,6 +716,9 @@ class BookingMixins:
                     data_dict = self.combination_of_slot(
                         child_allotted, no_of_rooms, total_tax_amount, total_room_amount,
                         room_price, extra_adults_allotted)
+                    # Check if there's an error in the returned data
+                    if data_dict.get('error', False):
+                        return False, data_dict.get('custom_response')
                     
                     date_based_price_list = data_dict.get('date_based_price_list', [])
                     tax_in_percent = data_dict.get('max_tax_percent')
