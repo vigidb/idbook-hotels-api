@@ -191,6 +191,7 @@ PAYMENT_TYPE = (
     ('WALLET', 'WALLET'),
     ('NBFC', 'NBFC'),
     ('DIRECT', 'DIRECT'),
+    ('BANK TRANSFER', 'BANK TRANSFER'),
 )
 
 PAYMENT_MEDIUM = (
@@ -198,6 +199,12 @@ PAYMENT_MEDIUM = (
     ('PayU','PayU'),
     ('Idbook', 'Idbook'),
     ('Hotel', 'Hotel'),
+    ("NEFT", "NEFT"),
+    ("RTGS", "RTGS"), 
+    ("IMPS", "IMPS"),
+    ("UPI", "UPI"),
+    ("NET_BANKING", "Net Banking"),
+    ('Others', 'Others')
 )
 
 PAYMENT_STATUS_CHOICES = (
@@ -230,6 +237,7 @@ TRANSACTION_FOR = (
     ("signup_reward", "signup_reward"),
     ("pro_member_bonus", "pro_member_bonus"),
     ("pro_member_bonus_expiry", "pro_member_bonus_expiry"),
+    ("wallet_recharge", "wallet_recharge"),
     ("others", "others")
 )
 
@@ -1333,4 +1341,11 @@ REFERENCE_CHOICES = (
     ('Booking', 'Booking'),
     ('Subscription', 'Subscription'),
     ('Other', 'Other'),
+)
+
+WALLET_STATUS_CHOICES = (
+    ("Pending", "Pending"),
+    ("Completed", "Completed"),
+    ("Failed", "Failed"),
+    ("Others", "Others"),
 )
