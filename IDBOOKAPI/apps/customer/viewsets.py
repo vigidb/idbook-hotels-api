@@ -903,6 +903,11 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         is_transaction_success = self.request.query_params.get('is_transaction_success', '')
         if is_transaction_success:
             filter_dict['is_transaction_success'] = is_transaction_success
+
+        # status filter
+        status_param = self.request.query_params.get('status', '')
+        if status_param:
+            filter_dict['status__iexact'] = status_param
             
 
         company_id = self.request.query_params.get('company_id', '') 
