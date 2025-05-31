@@ -4,7 +4,7 @@ from apps.org_resources.models import Address, CompanyDetail
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES, KYC_DOCUMENT_CHOICES, LANGUAGES_CHOICES,
     CUSTOMER_GROUP, TXN_TYPE_CHOICES, PAYMENT_TYPE,
-    PAYMENT_MEDIUM, TRANSACTION_FOR)
+    PAYMENT_MEDIUM, TRANSACTION_FOR, WALLET_STATUS_CHOICES)
 
 
 class Customer(models.Model):
@@ -96,6 +96,8 @@ class WalletTransaction(models.Model):
     used_amount = models.DecimalField(max_digits=20, decimal_places=6, default=0, help_text="Amount used from pro wallet")
     remaining_amount = models.DecimalField(max_digits=20, decimal_places=6, default=0, help_text="Remaining amount from pro wallet")
     is_expired = models.BooleanField(default=False, help_text="Flag to indicate if a pro wallet credit has been expired and processed")
+    media = models.FileField(upload_to='wallet/transactions/', null=True, blank=True)
+    status = models.CharField(max_length=100, choices=WALLET_STATUS_CHOICES, default="Completed")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

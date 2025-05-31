@@ -16,12 +16,14 @@ from IDBOOKAPI.utils import paginate_queryset, get_unique_id_from_time
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.customer.utils.db_utils import (
     update_wallet_transaction, update_wallet_recharge_details,
-    update_wallet_transaction_detail)
+    update_wallet_transaction_detail, add_company_wallet_amount,
+    add_user_wallet_amount)
 from apps.log_management.utils.db_utils import create_wallet_payment_log
 
 from .serializers import (
     CustomerSerializer, WalletSerializer,
-    WalletTransactionSerializer)
+    WalletTransactionSerializer, WalletRechargeSerializer,
+    ApproveRechargeSerializer)
 # filter serializer for swagger
 from .serializers import QueryFilterCustomerSerializer, QueryFilterWalletTransactionSerializer
 from .models import (Customer, Wallet, WalletTransaction)
@@ -439,7 +441,8 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                          "transaction_id":merchant_transaction_id,
                          "transaction_type":"Credit",
                          "payment_type":"PAYMENT GATEWAY",
-                         "payment_medium":"PHONE PAY"
+                         "payment_medium":"PHONE PAY",
+                         "status": "Pending",
                          }
 
             payment_log['user_id'] = user.id
@@ -566,6 +569,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
 
             if code == "PAYMENT_SUCCESS":
                 payment_details["is_transaction_success"] = True
+                payment_details["status"] = "Completed"
 
                 # update wallet transaction and wallet
                 user_id, company_id = update_wallet_transaction_detail(
@@ -598,6 +602,7 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                     payment_log['company_id'] = company_id
             else:
                 payment_details["is_transaction_success"] = False
+                payment_details["status"] = "Failed"
                 user_id, company_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details)
                 if user_id:
@@ -637,7 +642,247 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             payment_log['response'] = {'message': str(e)}
             create_wallet_payment_log(payment_log)
             return custom_response
+
+    @action(detail=False, methods=['POST'], url_path='wallet-recharge',
+        url_name='wallet_recharge')
+    def wallet_bank_recharge(self, request):
+        """
+        API for wallet recharge through bank transfer
+        User uploads payment proof image along with transaction details
+        """
+        user = request.user
+        serializer = WalletRechargeSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation failed", 
+                status="error",
+                errors=serializer.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            validated_data = serializer.validated_data
+            amount = validated_data['amount']
+            company_id = validated_data.get('company_id')
+            payment_type = validated_data['payment_type']
+            payment_medium = validated_data['payment_medium']
+            media = validated_data['media']
+            transaction_id = validated_data['transaction_id']
             
+            # Create wallet transaction entry
+            wtransact_data = {
+                "user_id": user.id,
+                "amount": amount,
+                "transaction_type": "Credit",
+                "transaction_for": "wallet_recharge",
+                "transaction_id": transaction_id,
+                "transaction_details": f"Wallet recharge of {float(amount)} with transaction id {transaction_id}",
+                "payment_type": payment_type,
+                "payment_medium": payment_medium,
+                "is_transaction_success": False,
+                "code": "PAYMENT_PENDING",
+                "status": "Pending",
+                "media": media
+            }
+            
+            if company_id:
+                wtransact_data['company_id'] = company_id
+            
+            # Create wallet transaction
+            wallet_transaction = WalletTransaction.objects.create(**wtransact_data)
+
+            response_data = {
+                'transaction_id': transaction_id,
+                'amount': str(float(amount)),
+                'user_id': user.id,
+                'company_id': company_id,
+                'transaction_type': 'Credit',
+                'transaction_for': 'Wallet_Recharge',
+                'transaction_details': f"Wallet recharge of {float(amount)} with transaction id {transaction_id}",
+                'payment_type': payment_type,
+                'payment_medium': payment_medium,
+                'is_transaction_success': False,
+                'code': 'PAYMENT_PENDING',
+                'status': 'Pending',
+                'media_url': wallet_transaction.media.url if wallet_transaction.media else None,
+                'created_at': wallet_transaction.created.isoformat()
+            }
+            
+            return self.get_response(
+                status="success",
+                count=1,
+                data=response_data,
+                message="Bank recharge request submitted successfully, waiting for admin approval.",
+                status_code=status.HTTP_201_CREATED
+            )
+            
+        except Exception as e:
+            print(traceback.format_exc())
+            
+            # Update transaction status to failed if transaction was created
+            try:
+                failed_transaction = WalletTransaction.objects.get(
+                    transaction_id=transaction_id,
+                    status="Pending"
+                )
+                failed_transaction.status = "Failed"
+                failed_transaction.is_transaction_success = False
+                failed_transaction.code = "PAYMENT_ERROR"
+                failed_transaction.save()
+            except WalletTransaction.DoesNotExist:
+                pass  # Transaction might not have been created yet
+            
+            return self.get_error_response(
+                message=str(e), 
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['POST'], url_path='approve-recharge',
+        url_name='approve_recharge')
+    def approve_wallet_recharge(self, request):
+        """
+        API for admin to approve wallet recharge requests
+        Admin verifies the amount and approves the transaction
+        """
+        # Add admin permission check here if needed
+        # if not request.user.is_staff:
+        #     return self.get_error_response(...)
+        
+        serializer = ApproveRechargeSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation failed", 
+                status="error",
+                errors=serializer.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            validated_data = serializer.validated_data
+            transaction_id = validated_data['transaction_id']
+            approve_amount = validated_data['amount']
+            
+            # Get the wallet transaction
+            try:
+                wallet_transaction = WalletTransaction.objects.get(
+                    transaction_id=transaction_id,
+                    status__in=["Pending", "Failed"]
+                )
+            except WalletTransaction.DoesNotExist:
+                return self.get_error_response(
+                    message="Transaction not found", 
+                    status="error",
+                    errors=[],
+                    error_code="TRANSACTION_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )            
+            # Verify amount matches
+            if wallet_transaction.amount != approve_amount:
+                # Update transaction status to failed
+                wallet_transaction.status = "Failed"
+                wallet_transaction.is_transaction_success = False
+                wallet_transaction.code = "PAYMENT_ERROR"
+                wallet_transaction.save()
+                
+                return self.get_error_response(
+                    message=f"Amount mismatch. Transaction amount: {float(wallet_transaction.amount)}, Approval amount: {float(approve_amount)}", 
+                    status="error",
+                    errors=[{
+                        "transaction_amount": str(float(wallet_transaction.amount)),
+                        "approval_amount": str(float(approve_amount))
+                    }],
+                    error_code="AMOUNT_MISMATCH",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Credit the wallet amount
+            success = False
+            if wallet_transaction.company_id:
+                success = add_company_wallet_amount(wallet_transaction.company_id, approve_amount)
+            elif wallet_transaction.user_id:
+                success = add_user_wallet_amount(wallet_transaction.user_id, approve_amount)
+            
+            if not success:
+                # Update transaction status to failed
+                wallet_transaction.status = "Failed"
+                wallet_transaction.is_transaction_success = False
+                wallet_transaction.code = "PAYMENT_ERROR"
+                wallet_transaction.save()
+                
+                return self.get_error_response(
+                    message="Failed to credit wallet amount", 
+                    status="error",
+                    errors=[],
+                    error_code="WALLET_CREDIT_FAILED",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Update transaction status
+            wallet_transaction.code = "PAYMENT_SUCCESS"
+            wallet_transaction.is_transaction_success = True
+            wallet_transaction.status = "Completed"
+            wallet_transaction.save()
+            
+            # Create response data with complete transaction details
+            response_data = {
+                'transaction_id': transaction_id,
+                'amount': str(float(approve_amount)),
+                'user_id': wallet_transaction.user_id,
+                'company_id': wallet_transaction.company_id,
+                'transaction_type': wallet_transaction.transaction_type,
+                'transaction_for': wallet_transaction.transaction_for,
+                'transaction_details': wallet_transaction.transaction_details,
+                'payment_type': wallet_transaction.payment_type,
+                'payment_medium': wallet_transaction.payment_medium,
+                'is_transaction_success': True,
+                'code': 'PAYMENT_SUCCESS',
+                'status': 'Completed',
+                'media_url': wallet_transaction.media.url if wallet_transaction.media else None,
+                'approved_at': wallet_transaction.updated.isoformat(),
+                'created_at': wallet_transaction.created.isoformat(),
+                'message': 'Wallet recharge approved and amount credited successfully'
+            }
+            
+            return self.get_response(
+                status="success",
+                count=1,
+                data=response_data,
+                message="Wallet recharge approved and amount credited successfully",
+                status_code=status.HTTP_200_OK
+            )
+        except Exception as e:
+            print(traceback.format_exc())
+            
+            # Update transaction status to failed if it exists and is pending
+            try:
+                validated_data = serializer.validated_data if serializer.is_valid() else {}
+                transaction_id = validated_data.get('transaction_id')
+                if transaction_id:
+                    failed_transaction = WalletTransaction.objects.get(
+                        transaction_id=transaction_id,
+                        status="Pending"
+                    )
+                    failed_transaction.status = "Failed"
+                    failed_transaction.is_transaction_success = False
+                    failed_transaction.code = "PAYMENT_ERROR"
+                    failed_transaction.save()
+            except (WalletTransaction.DoesNotExist, KeyError):
+                pass  # Transaction might not exist or serializer data unavailable
+            
+            return self.get_error_response(
+                message=str(e), 
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
     
 

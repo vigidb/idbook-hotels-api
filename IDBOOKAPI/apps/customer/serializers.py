@@ -109,4 +109,30 @@ class QueryFilterWalletTransactionSerializer(serializers.ModelSerializer):
         model = WalletTransaction
         fields = ('transaction_type', 'offset', 'limit')
 
-        
+
+class WalletRechargeSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=20, decimal_places=6, required=True)
+    company_id = serializers.IntegerField(required=False, allow_null=True)
+    payment_type = serializers.CharField(max_length=50, required=True)
+    payment_medium = serializers.CharField(max_length=50, required=True)
+    media = serializers.FileField(required=True)
+    transaction_id = serializers.CharField(max_length=350, required=True)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than 0")
+        return value
+
+    def validate_transaction_id(self, value):
+        if WalletTransaction.objects.filter(transaction_id=value).exists():
+            raise serializers.ValidationError("Transaction ID already exists")
+        return value
+
+class ApproveRechargeSerializer(serializers.Serializer):
+    transaction_id = serializers.CharField(max_length=350)
+    amount = serializers.DecimalField(max_digits=20, decimal_places=6)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than 0")
+        return value
