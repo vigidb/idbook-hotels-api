@@ -136,3 +136,38 @@ class ApproveRechargeSerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than 0")
         return value
+
+class QueryFilterPendingRechargeSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(required=False, allow_null=True)
+    company_id = serializers.IntegerField(required=False, allow_null=True)
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, max_value=100)
+    transaction_id = serializers.CharField(required=False, allow_blank=True)
+    payment_type = serializers.CharField(required=False, allow_blank=True)
+    payment_medium = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.DateTimeField(required=False, allow_null=True)
+    end_date = serializers.DateTimeField(required=False, allow_null=True)
+
+class PendingRechargeSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    company_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WalletTransaction
+        fields = [
+            'id', 'user', 'company', 'user_name', 'company_name',
+            'code', 'amount', 'transaction_type', 'transaction_for',
+            'transaction_id', 'transaction_details', 'payment_type',
+            'payment_medium', 'status', 'media',
+            'created', 'updated'
+        ]
+    
+    def get_user_name(self, obj):
+        if obj.user:
+            return f"{obj.user.name}".strip() or obj.user.name
+        return None
+    
+    def get_company_name(self, obj):
+        if obj.company:
+            return obj.company.company_name if hasattr(obj.company, 'company_name') else str(obj.company)
+        return None

@@ -23,7 +23,8 @@ from apps.log_management.utils.db_utils import create_wallet_payment_log
 from .serializers import (
     CustomerSerializer, WalletSerializer,
     WalletTransactionSerializer, WalletRechargeSerializer,
-    ApproveRechargeSerializer)
+    ApproveRechargeSerializer, PendingRechargeSerializer,
+    QueryFilterPendingRechargeSerializer)
 # filter serializer for swagger
 from .serializers import QueryFilterCustomerSerializer, QueryFilterWalletTransactionSerializer
 from .models import (Customer, Wallet, WalletTransaction)
@@ -876,6 +877,74 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
             except (WalletTransaction.DoesNotExist, KeyError):
                 pass  # Transaction might not exist or serializer data unavailable
             
+            return self.get_error_response(
+                message=str(e), 
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    @swagger_auto_schema(
+        query_serializer=QueryFilterPendingRechargeSerializer,
+        operation_description="List all pending wallet recharge requests with filtering options",
+        responses={200: PendingRechargeSerializer(many=True)}
+    )
+    @action(detail=False, methods=['GET'], url_path='pending-recharges',
+            url_name='list_pending_recharges')
+    def list_pending_recharges(self, request):
+        try:
+            # Validate query parameters
+            query_serializer = QueryFilterPendingRechargeSerializer(data=request.query_params)
+            if not query_serializer.is_valid():
+                return self.get_error_response(
+                    message="Invalid query parameters", 
+                    status="error",
+                    errors=query_serializer.errors,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            validated_data = query_serializer.validated_data
+            
+            # Base queryset for pending wallet recharges
+            queryset = WalletTransaction.objects.filter(
+                status="Pending",
+                transaction_for="wallet_recharge"
+            ).select_related('user', 'company').order_by('-created')
+            
+            # Apply filters
+            user_id = validated_data.get('user_id')
+            if user_id:
+                queryset = queryset.filter(user_id=user_id)
+            
+            company_id = validated_data.get('company_id')
+            if company_id:
+                queryset = queryset.filter(company_id=company_id)
+            
+            transaction_id = validated_data.get('transaction_id')
+            if transaction_id:
+                queryset = queryset.filter(transaction_id__icontains=transaction_id)
+            
+            # Get total count before pagination
+            total_count = queryset.count()
+            
+            # Apply pagination using your existing paginate_queryset function
+            count, paginated_queryset = paginate_queryset(request, queryset)
+            
+            # Serialize the data
+            serializer = PendingRechargeSerializer(paginated_queryset, many=True)
+            
+            
+            return self.get_response(
+                status='success',
+                message="Pending wallet recharge requests retrieved successfully",
+                count=count,
+                data=serializer.data,
+                status_code=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            print(traceback.format_exc())
             return self.get_error_response(
                 message=str(e), 
                 status="error",
