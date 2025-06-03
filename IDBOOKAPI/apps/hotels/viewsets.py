@@ -557,7 +557,51 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                     message="Duplicate slug", status="error",
                     errors=[],error_code="DUPLICATE_SLUG",
                     status_code=status.HTTP_400_BAD_REQUEST)
-                return custom_response 
+                return custom_response
+
+        # Check if is_slot_price_enabled is being set to True
+        if instance.is_slot_price_enabled:
+            print("is_slot_price_enabled", instance.is_slot_price_enabled)
+            # Get all rooms for this property
+            rooms = Room.objects.filter(property=instance, active=True)
+            rooms_without_slot_prices = []
+            print("rooms", rooms)
+            for room in rooms:
+                room_price = room.room_price or {}
+                
+                # Check if slot prices are missing or zero/null
+                price_4hrs = room_price.get('price_4hrs')
+                price_8hrs = room_price.get('price_8hrs')
+                price_12hrs = room_price.get('price_12hrs')
+                
+                # Consider None, 0, '0', or empty string as missing prices
+                missing_slots = []
+                if not price_4hrs or float(price_4hrs or 0) <= 0:
+                    missing_slots.append('4hrs')
+                if not price_8hrs or float(price_8hrs or 0) <= 0:
+                    missing_slots.append('8hrs')
+                if not price_12hrs or float(price_12hrs or 0) <= 0:
+                    missing_slots.append('12hrs')
+                
+                if missing_slots:
+                    rooms_without_slot_prices.append({
+                        'room_id': room.id,
+                        'room_name': room.name,
+                        'room_type': room.room_type,
+                        'missing_slot_prices': missing_slots
+                    })
+            
+            # If there are rooms without slot prices, return validation error
+            if rooms_without_slot_prices:
+                error_message = "Please update the slot prices for 4hrs, 8hrs and 12hrs for all rooms before enabling slot pricing."
+                custom_response = self.get_error_response(
+                    message=error_message,
+                    status="error",
+                    errors=rooms_without_slot_prices,
+                    error_code="MISSING_SLOT_PRICES",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
         
         self.slug = ""
         # Create an instance of your serializer with the request data and the object to be updated
@@ -1611,7 +1655,33 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, Va
         self.log_request(request)  # Log the incoming request
         property_id = request.data.get('property', None)
         room_price = request.data.get('room_price', {})
-        
+        # Validate if property exists and check slot price requirements
+        if property_id:
+            try:
+                property_instance = Property.objects.get(id=property_id)
+                is_valid_slots, error_details = hotel_utils.validate_slot_prices(
+                    property_instance, room_price,
+                    context_info={'property_id': property_id, 'property_name': property_instance.name}
+                )
+                if not is_valid_slots:
+                    return self.get_error_response(
+                        message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this property has slot pricing enabled.",
+                        status="error",
+                        errors=[error_details],
+                        error_code="MISSING_SLOT_PRICES",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                        
+            except Property.DoesNotExist:
+                custom_response = self.get_error_response(
+                    message="Property not found.",
+                    status="error",
+                    errors=[{'property_id': property_id, 'message': 'Property does not exist'}],
+                    error_code="PROPERTY_NOT_FOUND",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
+            
 
         # Create an instance of your serializer with the request data
         # serializer = self.get_serializer(data=request.data)
@@ -1716,6 +1786,28 @@ class RoomViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, Va
 
         # Get the object to be updated
         instance = self.get_object()
+        
+        # Check if property has slot pricing enabled and validate accordingly
+        if instance.property.is_slot_price_enabled:
+            price_data_to_validate = room_price or instance.room_price or {}
+            is_valid_slots, error_details = hotel_utils.validate_slot_prices(
+                instance.property, price_data_to_validate,
+                context_info={
+                    'room_id': instance.id,
+                    'room_name': instance.name,
+                    'room_type': instance.room_type,
+                    'property_id': instance.property.id,
+                    'property_name': instance.property.name
+                }
+            )
+            if not is_valid_slots:
+                return self.get_error_response(
+                    message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this property has slot pricing enabled.",
+                    status="error",
+                    errors=[error_details],
+                    error_code="MISSING_SLOT_PRICES",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
         data = request.data.copy()
 
         # Validate and convert partial data
