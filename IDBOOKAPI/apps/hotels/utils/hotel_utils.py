@@ -409,3 +409,29 @@ def send_receipt_email_with_attachment(subject, hotel, recipient_list, html_cont
     except Exception as e:
         print(f"Error sending email with attachment: {e}")
         raise
+
+def validate_slot_prices(property_instance, room_price, context_info={}):
+    if not property_instance or not property_instance.is_slot_price_enabled:
+        return True, None
+
+    missing_slots = []
+    price_4hrs = room_price.get('price_4hrs')
+    price_8hrs = room_price.get('price_8hrs')
+    price_12hrs = room_price.get('price_12hrs')
+
+    if not price_4hrs or float(price_4hrs or 0) <= 0:
+        missing_slots.append('4hrs')
+    if not price_8hrs or float(price_8hrs or 0) <= 0:
+        missing_slots.append('8hrs')
+    if not price_12hrs or float(price_12hrs or 0) <= 0:
+        missing_slots.append('12hrs')
+
+    if missing_slots:
+        error_details = {
+            **context_info,
+            'missing_slot_prices': missing_slots,
+            'message': f'Slot prices are required for {", ".join(missing_slots)} as this property has slot pricing enabled.'
+        }
+        return False, error_details
+
+    return True, None
