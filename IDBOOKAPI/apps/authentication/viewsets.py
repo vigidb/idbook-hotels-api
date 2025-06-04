@@ -97,7 +97,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             response = self.get_error_response(
                 message="Please accept the terms and conditions",
                 status="error",
-                errors=[{"field": "acceptTerm", "message": "Please accept the terms and conditions"}],
+                errors=[{"field": "acceptTerms", "message": "Please accept the terms and conditions"}],
                 error_code="TERMS_NOT_ACCEPTED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
@@ -230,7 +230,8 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             # userlist_serializer = UserListSerializer(user)
             
             # send welcome email
-            send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email]])
+            send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email], group_name])
+            # send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email]])
             # generate token
             refresh = RefreshToken.for_user(user)
             # user representation

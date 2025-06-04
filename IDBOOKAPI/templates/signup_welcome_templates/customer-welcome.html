@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>Welcome to Idbook Hotels - Your Travel Journey Begins</title>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+        }
+        .header img {
+            max-width: 150px;
+            margin-bottom: 10px;
+        }
+        .header h1 {
+            color: #1d498d;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 20px;
+            background-color: #f8fafc;
+            border-radius: 10px;
+        }
+        .content h2 {
+            color: #3c65a4;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        .content p {
+            margin-bottom: 10px;
+        }
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+        .feature-list li {
+            margin-bottom: 15px;
+            padding-left: 30px;
+            position: relative;
+        }
+        .feature-list li:before {
+            content: "✅";
+            position: absolute;
+            left: 0;
+        }
+        .cta-button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3c65a4;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        .cta-button:hover {
+            background-color: #1d498d;
+        }
+        .highlight-box {
+            background-color: #e8f0fe;
+            border-left: 4px solid #3c65a4;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 5px 5px 0;
+        }
+        .app-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .app-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #333;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .app-button:hover {
+            background-color: #444;
+        }
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 20px;
+        }
+        .footer-left {
+            text-align: left;
+        }
+        .footer-left img {
+            max-width: 100px;
+        }
+        .footer-right {
+            text-align: right;
+            font-size: 14px;
+        }
+        .footer-right a {
+            color: #333;
+            text-decoration: none;
+        }
+        .footer-right a:hover {
+            text-decoration: underline;
+        }
+        .social-icons {
+            margin-top: 10px;
+        }
+        .social-icons img {
+            width: 25px;
+            margin: 0 5px;
+        }
+        .legal-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* Dark Mode */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #181818;
+                color: #f5f5f5;
+            }
+            .container {
+                background-color: #333;
+            }
+            .content {
+                background-color: #222;
+            }
+            .header h1, .content h2 {
+                color: #e5e5e5;
+            }
+            .cta-button {
+                background-color: #4f8cd1;
+            }
+            .cta-button:hover {
+                background-color: #3a72a5;
+            }
+            .highlight-box {
+                background-color: #2a3a4a;
+                border-left-color: #4f8cd1;
+            }
+            .app-button {
+                background-color: #444;
+            }
+            .app-button:hover {
+                background-color: #555;
+            }
+            .footer-right a {
+                color: #ddd;
+            }
+            .footer-right a:hover {
+                color: #fff;
+            }
+            .footer {
+                color: #aaa;
+            }
+            .legal-info {
+                color: #999;
+            }
+            /* Pro Membership Dark Mode Styles */
+            .highlight-box div[style*="background: #fff"] {
+                background-color: #2a3a4a !important;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+            }
+            .highlight-box h4[style*="color: #3c65a4"] {
+                color: #4f8cd1 !important;
+            }
+            .highlight-box p[style*="color: #666"] {
+                color: #aaa !important;
+            }
+            .highlight-box .feature-list li {
+                color: #e5e5e5;
+            }
+            .highlight-box .feature-list li:before {
+                color: #4f8cd1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+            <h1>✨ Welcome to a World of Smarter Travel with Idbook!</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{name}},</h2>
+            <p>We're thrilled to have you on board! 🌍<br>
+            You've just joined <strong>Idbook Hotels</strong>, India's most rewarding travel platform — designed for smart travelers like you who love great stays, top deals, and unbeatable experiences. Book by the hour or stay longer, the choice is yours!</p>
+
+            <div class="highlight-box">
+                <h3>💸 Here's What You Get as a New Member</h3>
+                <ul class="feature-list">
+                    <li><strong>₹250 Welcome Bonus</strong> – Ready to use on your first booking</li>
+                    <li><strong>Member-Only Discounts</strong> – Save more every time you book</li>
+                    <li><strong>Flexible Check-in/Check-out</strong> – Book by the hour or stay longer</li>
+                    <li><strong>Refer & Earn ₹250</strong> – Share the love, earn rewards</li>
+                    <li><strong>Secure Payments</strong> – Book confidently, pay securely</li>
+                    <li><strong>24/7 Support</strong> – We're always here when you need us</li>
+                </ul>
+            </div>
+
+            <h3>🧳 What's Next? Start Exploring!</h3>
+            <p>Your bonus is live! Just log in and book your dream destination in a few clicks. Whether you need a quick rest, a day stay, or a longer vacation, we've got you covered.</p>
+            <a href="https://www.idbookhotels.com?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=book_now_button" class="cta-button">Book Now with ₹250 Bonus</a>
+
+            <h3>🏡 Why Idbook?</h3>
+            <ul class="feature-list">
+                <li>Book by the hour or stay longer - complete flexibility</li>
+                <li>Flexible check-in and check-out times</li>
+                <li>Instant booking confirmations</li>
+                <li>Personalized stay recommendations</li>
+                <li>1500+ hotels across 500+ cities</li>
+                <li>Ongoing deals and seasonal discounts</li>
+            </ul>
+
+            <div class="highlight-box">
+                <h3>📲 Get the App for Easy Access Anywhere</h3>
+                <p>Your travel buddy, always in your pocket. Book hourly stays or longer stays with just a few taps!</p>
+                <div class="app-buttons">
+                    <a href="https://play.google.com/store/apps/details?id=com.idbookhotels&utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=android_app" class="app-button">📥 Download on Google Play</a>
+                    <a href="https://apps.apple.com/app/idbook-hotels&utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=ios_app" class="app-button">📲 Get it on App Store</a>
+                </div>
+            </div>
+
+            <div class="highlight-box">
+                <h3>💎 Upgrade to Pro Membership</h3>
+                <p>Unlock Smarter Stays with Idbook Pro — More Savings. More Flexibility. More Freedom.</p>
+                <p>Experience premium travel benefits with our three membership tiers:</p>
+                
+                <div style="margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h4 style="color: #3c65a4; margin: 0 0 10px 0;">Starter Pro</h4>
+                    <ul class="feature-list" style="margin: 10px 0;">
+                        <li>Exclusive Discounts up to 15%</li>
+                        <li>Priority Check-in and Guaranteed Bookings</li>
+                        <li>Flexible Check-in/Check-out Times</li>
+                        <li>Zero Service Fees</li>
+                        <li>Special Access to Village Tourism</li>
+                        <li>Book Now, Pay at Hotel</li>
+                    </ul>
+                </div>
+
+                <div style="margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h4 style="color: #3c65a4; margin: 0 0 10px 0;">Plus Pro</h4>
+                    <ul class="feature-list" style="margin: 10px 0;">
+                        <li>Up to 20% off on every booking</li>
+                        <li>Assured cash-back on every 5th booking</li>
+                        <li>Higher Pay at Hotel limit</li>
+                        <li>Priority Check-in and Guaranteed Bookings</li>
+                        <li>Extended Check-in/Check-out Flexibility</li>
+                        <li>Zero Service Fees</li>
+                    </ul>
+                </div>
+
+                <div style="margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h4 style="color: #3c65a4; margin: 0 0 10px 0;">Premium Pro</h4>
+                    <ul class="feature-list" style="margin: 10px 0;">
+                        <li>Up to 30% off on every booking</li>
+                        <li>Assured cash-back on every 3rd booking</li>
+                        <li>Highest Pay at Hotel limit</li>
+                        <li>Premium Customer Support</li>
+                        <li>Maximum Check-in/Check-out Flexibility</li>
+                        <li>Valid on hotel booking and holiday packages</li>
+                    </ul>
+                </div>
+
+                <p style="font-size: 14px; color: #666; margin-top: 15px;">✨ All Pro plans include Book Now, Pay Later with unlimited credit limit and special yearly subscription benefits!</p>
+                <a href="https://www.idbookhotels.com/subscription?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=pro_membership" class="cta-button">Explore Pro Benefits</a>
+            </div>
+
+            <div class="highlight-box">
+                <h3>💌 Need Help?</h3>
+                <p>Check out our <a href="https://www.idbookhotels.com/faq?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=faq_link">FAQ</a>, or reach us anytime at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a></p>
+                <p>We're excited to be part of your next journey. From quick hourly stays to longer vacations, <strong>Idbook Hotels</strong> is here to make every trip smoother, smarter, and more memorable.</p>
+            </div>
+        </div>
+
+        <!-- Footer with contact info and social icons -->
+        <div class="footer">
+            <div class="footer-left">
+                <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg?updatedAt=1726207466015" alt="Idbook Hotels Logo">
+            </div>
+            <div class="footer-right">
+                <p>Central reservation</p>
+                <p>📞 <a href="tel:+919218077408">+91 9218077408</a> / <a href="tel:+918800150924">+91 8800150924</a><br> ✉️ <a href="mailto:Booking@idbookhotels.com">Booking@idbookhotels.com</a><br> 🌐 <a href="https://www.idbookhotels.com?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=website_link">www.idbookhotels.com</a></p>
+                <p>📍 WeWork Vi-John Tower, 393, Phase III, Udyog Vihar, Gurugram, Haryana 122016</p>
+                <div class="social-icons">
+                    <a href="https://www.facebook.com/p/Idbook-hotels-100063459046918/?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=facebook">
+                        <img src="https://cdn-icons-png.flaticon.com/512/174/174848.png" alt="Facebook">
+                    </a>
+                    <a href="https://www.instagram.com/idbook_hotels/?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=instagram">
+                        <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram">
+                    </a>
+                    <a href="https://in.linkedin.com/company/idbook-hotels?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=linkedin">
+                        <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="LinkedIn">
+                    </a>
+                    <a href="https://x.com/idbookhotels?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=twitter">
+                        <img src="https://cdn-icons-png.flaticon.com/512/733/733579.png" alt="X (Twitter)">
+                    </a>
+                    <a href="https://www.youtube.com/channel/UCv6CYWYoDo9Kyow5BMzJfAQ?utm_source=email&utm_medium=welcome&utm_campaign=customer_onboarding&utm_content=youtube">
+                        <img src="https://cdn-icons-png.flaticon.com/512/1384/1384060.png" alt="YouTube">
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="legal-info">
+            <p>Idbook Hospitality Private Limited<br>
+            WeWork Vi-John Tower, 393, Phase III, Udyog Vihar, Gurugram, Haryana – 122016<br>
+            CIN: U74999HR2018PTC073257 | GST: 06AAECI8163K1Z9 | PAN: AAECI8163K | TAN: RTKI02839E</p>
+        </div>
+    </div>
+</body>
+</html> 

@@ -47,8 +47,7 @@ def send_signup_link_email(signup_link, to_emails, html_content):
                        fail_silently=False, html_message=html_content)
     print("email status::", status)
 
-def send_welcome_email(template, to_emails):
-    subject = 'Welcome to Idbook Hotels!'
+def send_welcome_email(subject, template, to_emails):
     from_email = settings.EMAIL_HOST_USER
     status = send_mail(subject, template, from_email, to_emails,
                        fail_silently=False, html_message=template)
