@@ -10,7 +10,7 @@ from .models import (
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
     TermsAndConditions, Legality, Career, FAQs, Address, CountryDetails, UserNotification,
     Subscriber, MessageTemplate, BasicAdminConfig, UserSubscription, Subscription,
-    SubRecurringTransaction, FeatureSubscription
+    SubRecurringTransaction, FeatureSubscription, BasicRulesConfig
 )
 
 
@@ -90,6 +90,14 @@ class FeatureSubscriptionAdmin(admin.ModelAdmin):
     readonly_fields = ('created', 'updated')
 
 admin.site.register(FeatureSubscription, FeatureSubscriptionAdmin)
+
+class BasicRulesConfigAdmin(admin.ModelAdmin):
+    list_display = ('id', 'rules_for', 'start_limit', 'end_limit', 'value', 'created', 'updated')
+    search_fields = ('rules_for',)
+    list_filter = ('rules_for',)
+    ordering = ('-created',)
+
+admin.site.register(BasicRulesConfig, BasicRulesConfigAdmin)
 
 admin.site.register(Enquiry)
 admin.site.register(Subscriber)
