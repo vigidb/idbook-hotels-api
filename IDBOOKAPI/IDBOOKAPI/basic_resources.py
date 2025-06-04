@@ -1349,3 +1349,9 @@ WALLET_STATUS_CHOICES = (
     ("Failed", "Failed"),
     ("Others", "Others"),
 )
+
+RULES_CHOICES = (
+    ('PRO_DISCOUNT', 'PRO_DISCOUNT'),
+    ('PRO_CASHBACK', 'PRO_CASHBACK'),
+    ('OTHERS', 'OTHERS'),
+)

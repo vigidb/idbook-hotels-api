@@ -25,10 +25,10 @@ from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
 import pytz
 from apps.hotels.models import MonthlyPayAtHotelEligibility
-from apps.org_resources.models import BasicAdminConfig, FeatureSubscription
+from apps.org_resources.models import BasicAdminConfig, FeatureSubscription, BasicRulesConfig
 from IDBOOKAPI.utils import shorten_url
 import random, traceback
-
+from django.db.models import Sum
 from apps.hotels.utils.db_utils import get_property_commission
 from IDBOOKAPI.utils import calculate_tax
 
@@ -1060,7 +1060,7 @@ def booking_cashback_notification_template(booking_id, cashback_amount, booking_
         print('Cashback Notification Error', e)
     return notification_dict
 
-def calculate_subscription_discount(user, amount):
+def calculate_subscription_discount(user, current_booking_subtotal):
     discount_percent = 0
     discount_value = 0
     
@@ -1070,15 +1070,40 @@ def calculate_subscription_discount(user, amount):
     if user_subscription and user_subscription.idb_sub:
         subscription_level = user_subscription.idb_sub.level
         
-        # Apply discount based on subscription level
-        if subscription_level == 1:
-            discount_percent = random.randint(1, 15)
-        elif subscription_level == 2:
-            discount_percent = random.randint(1, 20)
-        elif subscription_level >= 3:
-            discount_percent = random.randint(1, 30)
+        # Get user's total payment made from confirmed and completed bookings
+        total_payment_made = Booking.objects.filter(
+            user=user,
+            status__in=['confirmed', 'completed'],
+            booking_payment__is_transaction_success=True,
+        ).aggregate(
+            total=Sum('total_payment_made')
+        )['total'] or 0
+        print("total_payment_made", total_payment_made)
+        # If user has no previous bookings, use current booking subtotal
+        if total_payment_made == 0:
+            amount_to_check = current_booking_subtotal
+        else:
+            amount_to_check = total_payment_made
         
-        discount_value = (amount * discount_percent) / 100
+        # Find applicable discount rule based on subscription level
+        discount_rule = None
+        
+        # Find the rule that matches the amount range for PRO_DISCOUNT
+        try:
+            discount_rule = BasicRulesConfig.objects.filter(
+                rules_for='PRO_DISCOUNT',
+                start_limit__lte=amount_to_check,
+                end_limit__gte=amount_to_check
+            ).first()
+            
+            if discount_rule:
+                discount_percent = discount_rule.value
+                print("discount_percent", discount_percent)
+                discount_value = (current_booking_subtotal * discount_percent) / 100
+                
+        except BasicRulesConfig.DoesNotExist:
+            # No applicable rule found, no discount
+            pass
     
     return discount_percent, discount_value
 

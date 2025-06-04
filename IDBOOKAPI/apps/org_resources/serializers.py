@@ -7,7 +7,7 @@ from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription, FeatureSubscription
+    UserSubscription, FeatureSubscription, BasicRulesConfig
 )
 from apps.org_resources import db_utils as org_res_db_utils
 from apps.org_managements import utils as org_mng_utils
@@ -259,3 +259,32 @@ class FeatureSubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeatureSubscription
         fields = '__all__'
+
+class BasicRulesConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BasicRulesConfig
+        fields = '__all__'
+    
+    def validate(self, data):
+        """
+        Validate that start_limit is not greater than end_limit
+        """
+        start_limit = data.get('start_limit')
+        end_limit = data.get('end_limit')
+        
+        if start_limit is not None and end_limit is not None:
+            if start_limit > end_limit:
+                raise serializers.ValidationError("start_limit cannot be greater than end_limit")
+        
+        # If updating only start_limit, check against existing end_limit
+        if hasattr(self, 'instance') and self.instance:
+            if start_limit is not None and end_limit is None:
+                if start_limit > self.instance.end_limit:
+                    raise serializers.ValidationError(f"start_limit cannot be greater than existing end_limit ({self.instance.end_limit})")
+            
+            # If updating only end_limit, check against existing start_limit
+            if end_limit is not None and start_limit is None:
+                if end_limit < self.instance.start_limit:
+                    raise serializers.ValidationError(f"end_limit cannot be less than existing start_limit ({self.instance.start_limit})")
+        
+        return data

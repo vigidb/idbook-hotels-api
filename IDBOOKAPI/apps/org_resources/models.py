@@ -19,7 +19,8 @@ from IDBOOKAPI.validators import get_filename, validate_file_extension, calculat
 from IDBOOKAPI.basic_resources import (
     ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
     COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE,
-    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW, DISCOUNT_TYPE)
+    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW, DISCOUNT_TYPE,
+    RULES_CHOICES)
 
 from django.core.validators import (EmailValidator, RegexValidator)
 
@@ -622,3 +623,18 @@ class FeatureSubscription(models.Model):
             except Subscription.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+
+class BasicRulesConfig(models.Model):
+    start_limit = models.PositiveIntegerField(default=0, help_text="Start range of bookings or other things")
+    end_limit = models.PositiveIntegerField(default=0, help_text="End range of bookings or other things")
+    value = models.PositiveIntegerField(default=0, help_text="Percent or value of the respective discount, cashback etc.")
+    rules_for = models.CharField(max_length=50, choices=RULES_CHOICES, default='OTHERS')
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('created',)
+
+    def __str__(self):
+        return f"{self.rules_for} ({self.start_limit}-{self.end_limit}) => {self.value}"
+
