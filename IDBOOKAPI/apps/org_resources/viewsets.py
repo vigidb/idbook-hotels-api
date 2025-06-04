@@ -16,13 +16,14 @@ from .serializers import (
     AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
     TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
     UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer,
-    SubscriptionSerializer, UserSubscriptionSerializer, FeatureSubscriptionSerializer
+    SubscriptionSerializer, UserSubscriptionSerializer, FeatureSubscriptionSerializer,
+    BasicRulesConfigSerializer
 )
 from .models import (
     CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
     AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
     Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription, FeatureSubscription
+    UserSubscription, FeatureSubscription, BasicRulesConfig
     )
 from apps.log_management.models import UserSubscriptionLogs
 
@@ -3578,6 +3579,215 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
             data={},
             status='success',
             message="Feature Subscription Deleted",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
+
+class BasicRulesConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = BasicRulesConfig.objects.all()
+    serializer_class = BasicRulesConfigSerializer
+    http_method_names = ['get', 'post', 'patch', 'delete']
+    permission_classes_by_action = {
+        'create': [IsAuthenticated], 
+        'update': [IsAuthenticated],
+        'partial_update': [IsAuthenticated],
+        'list': [IsAuthenticated], 
+        'retrieve': [IsAuthenticated],
+        'destroy': [IsAuthenticated]
+    }
+    
+    def get_permissions(self):
+        try: 
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError: 
+            return [permission() for permission in self.permission_classes]
+    
+    def basic_rules_filter_ops(self):
+        filter_dict = {}
+        param_dict = self.request.query_params
+        
+        for key in param_dict:
+            param_value = param_dict[key]
+            if key in ('start_limit', 'end_limit', 'value', 'rules_for'):
+                if key in ('start_limit', 'end_limit', 'value'):
+                    try:
+                        filter_dict[key] = int(param_value)
+                    except ValueError:
+                        continue  # Skip invalid integer values
+                else:
+                    filter_dict[key] = param_value
+        
+        if filter_dict:
+            filtered_queryset = BasicRulesConfig.objects.filter(**filter_dict)
+            self.queryset = filtered_queryset
+    
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        original_queryset = self.queryset
+        self.basic_rules_filter_ops()
+
+        count, self.queryset = paginate_queryset(request, self.queryset)
+
+        response = super().list(request, *args, **kwargs)
+
+        custom_response = self.get_response(
+            data=response.data,
+            status='success',
+            message="Basic Rules Config Retrieved",
+            count=count,
+            status_code=status.HTTP_200_OK,
+        )
+
+        self.log_response(custom_response)
+        return custom_response
+    
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        response = super().retrieve(request, *args, **kwargs)
+        custom_response = self.get_response(
+            data=response.data,
+            count=1,
+            status='success',
+            message="Basic Rules Config Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        start_limit = self.request.data.get('start_limit')
+        end_limit = self.request.data.get('end_limit')
+        value = self.request.data.get('value')
+        rules_for = self.request.data.get('rules_for')
+        
+        # Validate mandatory fields
+        if start_limit is None or end_limit is None or value is None or not rules_for:
+            custom_response = self.get_error_response(
+                message="start_limit, end_limit, value, and rules_for are mandatory fields", 
+                status="error",
+                errors=[],
+                error_code="MISSING_REQUIRED_FIELDS",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+        
+        # Check if a rule with overlapping range already exists for this rules_for
+        overlapping_rules = BasicRulesConfig.objects.filter(
+            rules_for=rules_for
+        ).filter(
+            # Check for range overlap: new range overlaps if:
+            # new_start <= existing_end AND new_end >= existing_start
+            start_limit__lte=end_limit,
+            end_limit__gte=start_limit
+        )
+        
+        if overlapping_rules.exists():
+            custom_response = self.get_error_response(
+                message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}", 
+                status="error",
+                errors=[],
+                error_code="OVERLAPPING_RANGE",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        # Create an instance of the serializer with the request data
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            response = super().create(request, *args, **kwargs)
+            # Create a custom response
+            custom_response = self.get_response(
+                data=response.data,
+                count=1,
+                status='success',
+                message="Basic Rules Config Created",
+                status_code=status.HTTP_201_CREATED,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR", 
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            return custom_response
+            
+        self.log_response(custom_response)
+        return custom_response
+    
+    def partial_update(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        
+        # Get values from request or use existing instance values
+        start_limit = request.data.get('start_limit', instance.start_limit)
+        end_limit = request.data.get('end_limit', instance.end_limit)
+        rules_for = request.data.get('rules_for', instance.rules_for)
+        
+        # Only validate range overlap if start_limit, end_limit, or rules_for is being updated
+        if ('start_limit' in request.data) or ('end_limit' in request.data) or ('rules_for' in request.data):
+            # Check if a rule with overlapping range already exists for this rules_for (excluding this instance)
+            overlapping_rules = BasicRulesConfig.objects.filter(
+                rules_for=rules_for
+            ).filter(
+                # Check for range overlap
+                start_limit__lte=end_limit,
+                end_limit__gte=start_limit
+            ).exclude(id=instance.id)
+            
+            if overlapping_rules.exists():
+                custom_response = self.get_error_response(
+                    message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}", 
+                    status="error",
+                    errors=[],
+                    error_code="OVERLAPPING_RANGE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                return custom_response
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            updated_instance = serializer.save()
+            
+            custom_response = self.get_response(
+                data=serializer.data,
+                status='success',
+                message="Basic Rules Config Updated",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error", 
+                status="error",
+                errors=error_list, 
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        self.log_response(custom_response)
+        return custom_response
+    
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        
+        instance = self.get_object()
+        instance.delete()
+        
+        custom_response = self.get_response(
+            data={},
+            status='success',
+            message="Basic Rules Config Deleted",
             status_code=status.HTTP_200_OK,
         )
         
