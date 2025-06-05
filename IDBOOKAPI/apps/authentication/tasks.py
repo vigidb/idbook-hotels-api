@@ -52,7 +52,7 @@ def customer_signup_link_task(self, signup_link, name, to_emails):
 #     send_welcome_email(html_content, to_emails)
 
 @celery_idbook.task(bind=True)
-def send_signup_email_task(self, name, to_emails, group_name):
+def send_signup_email_task(self, name, to_emails, group_name, extra_context=None):
     print("Initiated Welcome Email")
 
     # Decide template and subject based on group
@@ -62,10 +62,16 @@ def send_signup_email_task(self, name, to_emails, group_name):
     elif group_name == "HOTELIER-GRP":
         email_template = get_template('signup_welcome_templates/hotelier-welcome.html')
         subject = "Welcome to Idbook Hotels Family - Hotelier Partner"
+    elif group_name == "CORPORATE-GRP":
+        email_template = get_template('signup_welcome_templates/corporate-welcome.html')
+        subject = "Welcome to Idbook Corporate - Business Travel Program"
     else:
         email_template = get_template('email_template/signup.html')
         subject = "Welcome to Idbook Hotels!"
 
     context = {'name': name}
+    if extra_context:
+        context.update(extra_context)
+
     html_content = email_template.render(context)
     send_welcome_email(subject, html_content, to_emails)

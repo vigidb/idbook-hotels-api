@@ -191,20 +191,20 @@
             <h1>🚀 Welcome to Idbook Hotels Corporate Travel Program</h1>
         </div>
         <div class="content">
-            <h2>Hi [Corporate Contact Name],</h2>
+            <h2>Hi {{name}},</h2>
             <p>We're excited to welcome you to <strong>Idbook Corporate</strong>, India's most trusted platform for smart, efficient, and cost-effective business travel. You're now part of a network that empowers 1000+ forward-thinking companies across 50+ countries and 500+ cities.</p>
 
             <div class="highlight-box">
                 <h3>🏢 Your Company Details</h3>
                 <!-- Placeholder for Company Logo -->
-                <img src="https://placehold.co/150x80?text=Company+Logo" alt="[Company Name] Logo" style="max-width: 150px; margin-bottom: 15px;">
-                <p><strong>Company Name:</strong> [Company Name]</p>
-                <p><strong>Brand Name:</strong> [Brand Name]</p>
-                <p><strong>Company Email:</strong> [Company Email]</p>
-                <p><strong>Company Website:</strong> [Company Website]</p>
-                <p><strong>GSTIN Number:</strong> [GSTIN Number]</p>
-                <p><strong>PAN Number:</strong> [PAN Number]</p>
-                <p><strong>Registered Address:</strong> [Registered Address], [Pin Code]</p>
+                <img src="{{ company_logo }}" alt="{{ company_name }} Logo" width="150" height="80" style="object-fit: contain; margin-bottom: 15px;">
+                <p><strong>Company Name:</strong> {{company_name}}</p>
+                <p><strong>Brand Name:</strong> {{brand_name}}</p>
+                <p><strong>Company Email:</strong> {{company_email}}</p>
+                <p><strong>Company Website:</strong> {{company_website}}</p>
+                <p><strong>GSTIN Number:</strong> {{GSTIN_number}}</p>
+                <p><strong>PAN Number:</strong> {{PAN_number}}</p>
+                <p><strong>Registered Address:</strong> {{registered_address}}, {{pincode}}</p>
             </div>
 
             <div class="highlight-box">
