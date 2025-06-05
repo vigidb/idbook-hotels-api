@@ -451,6 +451,7 @@ def send_hotel_receipt_email_task(self, booking_id):
             "commission_amount": float(commission.com_amnt),
             "commission_tax": float(commission.tax_amount),
             "payable_amount": float(commission.hotelier_amount_with_tax),
+            "tax_percent": round((booking.gst_amount / booking.subtotal) * 100, 2) if booking.subtotal else 0,
         }
         
         # Generate the PDF receipt and save it to the booking object
