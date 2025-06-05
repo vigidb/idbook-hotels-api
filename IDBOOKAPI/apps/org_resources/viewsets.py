@@ -34,6 +34,7 @@ from IDBOOKAPI.utils import (
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
+from apps.authentication.tasks import send_signup_email_task
 import requests, json
 import traceback
 import base64
@@ -339,6 +340,27 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                     user.groups.add(self.grp)
                 if self.role:
                     user.roles.add(self.role)
+                print("default_group", user.default_group)
+                if user.default_group == "CORPORATE-GRP":
+                    print("calling email")
+                    extra_context = {
+                        'company_name': company_detail.company_name,
+                        'brand_name': company_detail.brand_name,
+                        'company_email': company_detail.company_email,
+                        'company_website': company_detail.company_website,
+                        'GSTIN_number': company_detail.gstin_no,
+                        'PAN_number': company_detail.pan_no,
+                        'registered_address': company_detail.registered_address,
+                        'pincode': company_detail.pin_code,
+                        'company_logo': company_detail.company_logo.url
+                    }
+                    print("extra_context", extra_context)
+                    send_signup_email_task.apply_async(args=[
+                        company_detail.contact_person_name,
+                        [company_detail.contact_email_address],
+                        user.default_group,
+                        extra_context  # context with company info
+                    ])
                     
                 refresh = RefreshToken.for_user(user)
 
