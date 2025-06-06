@@ -1,4 +1,4 @@
-from apps.hotels.models import Room, Property
+from apps.hotels.models import Room, Property, PayAtHotelSpendLimit
 from apps.hotels.utils.db_utils import (
     get_slot_based_starting_room_price,
     update_property_with_starting_price,
@@ -68,3 +68,23 @@ def create_or_update_property_commissions():
             print(f"Updated commission for Property ID {prop.id}") 
     
         
+def create_default_property_spend_limits():
+    properties = Property.objects.all()
+    created_count = 0
+    skipped_count = 0
+
+    for prop in properties:
+        if PayAtHotelSpendLimit.objects.filter(property=prop).exists():
+            print(f" Skipped Property ID: {prop.id} (spend limit already exists)")
+            skipped_count += 1
+            continue
+
+        PayAtHotelSpendLimit.objects.create(
+            property=prop,
+            property_spend_limit=50000
+        )
+        created_count += 1
+
+    print("\n Spend Limit Insertion Summary:")
+    print(f" Created for: {created_count} properties")
+    print(f" Skipped (already existed): {skipped_count} properties")

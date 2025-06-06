@@ -1313,8 +1313,8 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if serializer.is_valid():
             serializer.save()
 
-            all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
-            response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+            created_objects = serializer.instance if is_many else [serializer.instance]
+            response_data = PayAtHotelSpendLimitSerializer(created_objects, many=True).data
 
             return self.get_response(
                 data=response_data,
@@ -1336,72 +1336,76 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @action(detail=False, methods=['PATCH'], url_path='update/spend-limit',
         url_name='update-spend-limit', permission_classes=[IsAuthenticated])
     def update_pay_at_hotel_spend_limit(self, request):
-        """
-        Update a spend limit based on ID or start/end limit range
-        """
         id = request.data.get('id')
         start_limit = request.data.get('start_limit')
         end_limit = request.data.get('end_limit')
-        
+        pro_level = request.data.get('pro_level')
+        property_id = request.data.get('property')
+
         try:
+            # Determine the spend_limit object
             if id is not None:
                 spend_limit = PayAtHotelSpendLimit.objects.get(id=id)
             elif start_limit is not None and end_limit is not None:
                 spend_limit = PayAtHotelSpendLimit.objects.get(start_limit=start_limit, end_limit=end_limit)
+            elif pro_level is not None:
+                spend_limit = PayAtHotelSpendLimit.objects.get(pro_level=pro_level)
+            elif property_id is not None:
+                spend_limit = PayAtHotelSpendLimit.objects.get(property_id=property_id)
             else:
                 return self.get_error_response(
-                    message="Either 'id' or both 'start_limit' and 'end_limit' must be provided",
+                    message="ID or identifiers (start/end, pro_level, or property) must be provided",
                     status="error",
-                    errors={"non_field_errors": ["Either 'id' or both 'start_limit' and 'end_limit' must be provided"]},
+                    errors={"non_field_errors": ["Provide valid update identifier"]},
                     error_code="VALIDATION_ERROR",
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
-            
-            update_data = request.data.copy()
-            
-            if 'start_limit' not in update_data:
-                update_data['start_limit'] = spend_limit.start_limit
-            if 'end_limit' not in update_data:
-                update_data['end_limit'] = spend_limit.end_limit
-            if 'spend_limit' not in update_data:
-                update_data['spend_limit'] = spend_limit.spend_limit
-                
 
-            if PayAtHotelSpendLimit.objects.filter(
-                start_limit__lte=update_data['end_limit'],
-                end_limit__gte=update_data['start_limit']
-            ).exclude(id=spend_limit.id).exists():
-                return self.get_error_response(
-                    message="Validation Failed",
-                    status="error",
-                    errors={"non_field_errors": ["Overlapping booking range already exists"]},
-                    error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-                
-            if update_data['end_limit'] < update_data['start_limit']:
-                return self.get_error_response(
-                    message="Validation Failed",
-                    status="error",
-                    errors={"non_field_errors": ["End limit cannot be less than start limit"]},
-                    error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-                
+            # Copy update data
+            update_data = request.data.copy()
+
+            # Optional range validation for regular spend_limit
+            if spend_limit.start_limit and spend_limit.end_limit:
+                if 'start_limit' not in update_data:
+                    update_data['start_limit'] = spend_limit.start_limit
+                if 'end_limit' not in update_data:
+                    update_data['end_limit'] = spend_limit.end_limit
+
+                if update_data['end_limit'] < update_data['start_limit']:
+                    return self.get_error_response(
+                        message="Validation Failed",
+                        status="error",
+                        errors={"non_field_errors": ["End limit cannot be less than start limit"]},
+                        error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if PayAtHotelSpendLimit.objects.filter(
+                    start_limit__lte=update_data['end_limit'],
+                    end_limit__gte=update_data['start_limit']
+                ).exclude(id=spend_limit.id).exists():
+                    return self.get_error_response(
+                        message="Validation Failed",
+                        status="error",
+                        errors={"non_field_errors": ["Overlapping booking range already exists"]},
+                        error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Perform update
             for key, value in update_data.items():
                 if key != 'id':
                     setattr(spend_limit, key, value)
             spend_limit.save()
-            
-            all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
-            response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+
+            response_data = PayAtHotelSpendLimitSerializer(spend_limit).data
             return self.get_response(
                 data=response_data,
-                count=len(response_data),
+                count=1,
                 message="Spend limit updated successfully",
                 status_code=status.HTTP_200_OK
             )
-            
+
         except PayAtHotelSpendLimit.DoesNotExist:
             return self.get_error_response(
                 message="Spend limit not found",
@@ -1452,12 +1456,44 @@ class PropertyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @action(detail=False, methods=['GET'], url_path='get/spend-limit',
         url_name='get-spend-limits', permission_classes=[IsAuthenticated])
     def get_pay_at_hotel_spend_limits(self, request):
-        all_data = PayAtHotelSpendLimit.objects.all().order_by('start_limit')
-        response_data = PayAtHotelSpendLimitSerializer(all_data, many=True).data
+        query_type = request.query_params.get('type')  # can be 'admin', 'pro', or 'property'
+        filters = {}
 
+        if query_type == 'admin':
+            # Regular booking-based spend limits
+            queryset = PayAtHotelSpendLimit.objects.filter(
+                start_limit__isnull=False,
+                end_limit__isnull=False,
+                pro_level__isnull=True,
+                property__isnull=True
+            ).order_by('start_limit')
+
+        elif query_type == 'pro':
+            queryset = PayAtHotelSpendLimit.objects.filter(
+                pro_spend_limit__gt=0,
+                pro_level__isnull=False,
+                start_limit=0,
+                end_limit=0,
+                property__isnull=True
+            ).order_by('created')
+
+        elif query_type == 'property':
+            queryset = PayAtHotelSpendLimit.objects.filter(
+                property_spend_limit__gt=0,
+                property__isnull=False,
+                start_limit=0,
+                end_limit=0,
+                pro_level__isnull=True
+            ).order_by('created')
+
+        else:
+            # Default: return all (admin + pro + property)
+            queryset = PayAtHotelSpendLimit.objects.all().order_by('created')
+
+        serializer = PayAtHotelSpendLimitSerializer(queryset, many=True)
         return self.get_response(
-            data=response_data,
-            count=len(response_data),
+            data=serializer.data,
+            count=len(serializer.data),
             message="Spend limit list retrieved successfully",
             status_code=status.HTTP_200_OK
         )

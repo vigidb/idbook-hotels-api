@@ -539,20 +539,35 @@ class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def validate(self, data):
-        start = data.get('start_limit')
-        end = data.get('end_limit')
+        if data.get('start_limit') is not None and data.get('end_limit') is not None and data.get('spend_limit') is not None:
+            start = data['start_limit']
+            end = data['end_limit']
 
-        if start is None or end is None or data.get('spend_limit') is None:
-            raise serializers.ValidationError("start_limit, end_limit, and spend_limit are required")
+            if end < start:
+                raise serializers.ValidationError("End limit cannot be less than start limit")
 
-        if end < start:
-            raise serializers.ValidationError("End limit cannot be less than start limit")
+            if PayAtHotelSpendLimit.objects.filter(
+                start_limit__lte=end,
+                end_limit__gte=start
+            ).exists():
+                raise serializers.ValidationError("Overlapping booking range already exists")
 
-        if PayAtHotelSpendLimit.objects.filter(
-            start_limit__lte=end,
-            end_limit__gte=start
-        ).exists():
-            raise serializers.ValidationError("Overlapping booking range already exists")
+        elif data.get('pro_spend_limit') is not None and data.get('pro_level') is not None:
+            if data.get('property') or data.get('start_limit') or data.get('end_limit'):
+                raise serializers.ValidationError("For pro spend limit, only pro_spend_limit and pro_level should be provided")
+            
+            if PayAtHotelSpendLimit.objects.filter(pro_level=data['pro_level']).exists():
+                raise serializers.ValidationError({"pro_level": "Spend limit for this pro level already exists"})
+
+        elif data.get('property_spend_limit') is not None and data.get('property') is not None:
+            if data.get('start_limit') or data.get('end_limit') or data.get('pro_level'):
+                raise serializers.ValidationError("For hotelier spend limit, only property_spend_limit and property should be provided")
+
+            if PayAtHotelSpendLimit.objects.filter(property=data['property']).exists():
+                raise serializers.ValidationError({"property": "Spend limit for this property already exists"})
+
+        else:
+            raise serializers.ValidationError("Provide valid fields for either range-based, pro, or hotelier spend limit")
 
         return data
 
