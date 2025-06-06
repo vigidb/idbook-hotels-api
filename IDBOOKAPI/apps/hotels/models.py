@@ -523,6 +523,16 @@ class PayAtHotelSpendLimit(models.Model):
     cancel_count = models.PositiveIntegerField(default=0, help_text="Number of cancellation for this booking range")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+    # For pro membership
+    pro_spend_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    pro_level = models.PositiveIntegerField(null=True, blank=True)
+
+    # For hotelier-specific spend limits
+    property_spend_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    property = models.ForeignKey(
+        Property, on_delete=models.DO_NOTHING,
+        null=True, blank=True, verbose_name="booking_property"
+    )
 
     class Meta:
         ordering = ('created',)
