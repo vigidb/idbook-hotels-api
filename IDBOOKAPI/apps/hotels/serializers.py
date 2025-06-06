@@ -491,10 +491,19 @@ class PropertyLandmarkSerializer(serializers.ModelSerializer):
         fields = ['id', 'property', 'landmark', 'distance']
 
 class PropertyCommissionSerializer(serializers.ModelSerializer):
-    commission = serializers.FloatField()
+    commission = serializers.FloatField(required=True)
+    code = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = PropertyCommission
         fields = '__all__'
+
+    def create(self, validated_data):
+        # Auto-generate code if not provided
+        if not validated_data.get('code'):
+            property_obj = validated_data.get('property_comm')
+            validated_data['code'] = f"Idb_comm_{property_obj.id}"
+        return super().create(validated_data)
     
 class TrendingPlacesSerializer(serializers.ModelSerializer):
     class Meta:
