@@ -609,6 +609,20 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             url_name='update-contact', permission_classes=[IsAuthenticated])
     def update_contact(self, request, pk):
 
+        # Check if company_name is provided (mandatory field)
+        company_name = self.request.data.get('company_name', '')
+        if not company_name or company_name.strip() == '':
+            error_list = [{
+                "field": "company_name",
+                "error_code": "REQUIRED_FIELD", 
+                "message": "company_name is required and cannot be empty"
+            }]
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
+
         company_email = self.request.data.get('company_email', '')
         company_phone = self.request.data.get('company_phone', '')
         contact_number = self.request.data.get('contact_number', '')
@@ -627,6 +641,9 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 status_code=status.HTTP_400_BAD_REQUEST)
             return response
 
+        # Update company_name (mandatory field)
+        if company_name and instance.company_name != company_name:
+            instance.company_name = company_name
         if company_email and instance.company_email != company_email:
             instance.company_email = company_email
         if company_phone and instance.company_phone != company_phone:
