@@ -166,10 +166,16 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def update_corporate_verification(self, instance):
         error_list = []
         # daneshvar.khot@sandnetwork.in
+        company_name = self.request.data.get('company_name', '')
         company_email = self.request.data.get('company_email', '')
         company_phone = self.request.data.get('company_phone', '')
         contact_number = self.request.data.get('contact_number', '')
         contact_email_address = self.request.data.get('contact_email_address', '')
+
+        if company_name and instance.company_name != company_name:
+            error_list.append({"field":"company_name",
+                               "error_code":"UPDATE_NOT_PERMITTED",
+                               "message": "company name update not allowed"})
 
         if company_email and instance.company_email != company_email:
             error_list.append({"field":"company_email",
@@ -411,6 +417,20 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         # Get the object to be updated
         instance = self.get_object()
+
+        # Check if company_name is provided (mandatory field)
+        company_name = request.data.get('company_name', '')
+        if not company_name or company_name.strip() == '':
+            error_list = [{
+                "field": "company_name",
+                "error_code": "REQUIRED_FIELD",
+                "message": "company_name is required and cannot be empty"
+            }]
+            response = self.get_error_response(
+                message="Validation Error", status="error",
+                errors=error_list, error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST)
+            return response
 
         error_list = self.update_corporate_verification(instance)
         if error_list:
@@ -656,18 +676,95 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         
 
     def destroy(self, request, pk=None):
-
-        instance = self.get_object()
-        instance.is_active=False
-        instance.save()
-
-        custom_response = self.get_response(
-            status='success', data=None,
-            message="Company set to inactive status",
-            status_code=status.HTTP_200_OK,
+        try:
+            instance = self.get_object()
+            company_id = instance.id
+            
+            # Find the user associated with this company (contact person)
+            user = User.objects.filter(email=instance.contact_email_address).first()
+            
+            if user:
+                # Get user's current groups and roles
+                user_groups = user.groups.all()
+                user_roles = user.roles.all()
+                
+                # Check if user has only CORPORATE-GRP group and CORP-ADMIN role
+                corporate_group = user_groups.filter(name='CORPORATE-GRP').first()
+                corp_admin_role = user_roles.filter(name='CORP-ADMIN').first()
+                
+                has_only_corporate_access = (
+                    user_groups.count() == 1 and corporate_group and
+                    user_roles.count() == 1 and corp_admin_role
+                )
+                
+                if has_only_corporate_access:
+                    # Delete customer details only when deleting user completely
+                    customer = Customer.objects.filter(user_id=user.id).first()
+                    if customer:
+                        customer.delete()
+                        print(f"Deleted customer for user: {user.email}")
+                if has_only_corporate_access:
+                    # Delete customer details only when deleting user completely
+                    customer = Customer.objects.filter(user_id=user.id).first()
+                    if customer:
+                        customer.delete()
+                        print(f"Deleted customer for user: {user.email}")
+                    
+                    # User has only corporate access - delete the user completely
+                    user_email = user.email
+                    user.delete()
+                    print(f"Deleted user completely: {user_email}")
+                else:
+                    # User has other groups/roles - remove only corporate access
+                    # DO NOT delete customer data when user has other groups/roles
+                    if corporate_group:
+                        user.groups.remove(corporate_group)
+                        print(f"Removed CORPORATE-GRP from user: {user.email}")
+                    
+                    if corp_admin_role:
+                        user.roles.remove(corp_admin_role)
+                        print(f"Removed CORP-ADMIN role from user: {user.email}")
+                    
+                    # Clear company_id if it matches the company being deleted
+                    if user.company_id == company_id:
+                        user.company_id = None
+                        
+                    # Update default_group if it was CORPORATE-GRP
+                    if user.default_group == 'CORPORATE-GRP':
+                        # Set to the first available group or empty string
+                        remaining_groups = user.groups.all()
+                        if remaining_groups.exists():
+                            user.default_group = remaining_groups.first().name
+                        else:
+                            user.default_group = ''
+                    
+                    user.save()
+                    print(f"Updated user access for: {user.email} (Customer data preserved)")
+            
+            # Delete the company details completely
+            company_name = instance.company_name
+            instance.delete()
+            print(f"Deleted company: {company_name}")
+            
+            custom_response = self.get_response(
+                status='success', 
+                data=None,
+                message="Company and associated data deleted successfully",
+                status_code=status.HTTP_200_OK,
             )
+            
+        except Exception as e:
+            print(f"Error during company deletion: {str(e)}")
+            custom_response = self.get_error_response(
+                message="Error occurred while deleting company",
+                status="error",
+                errors=[str(e)],
+                error_code="DELETION_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        self.log_response(custom_response)
         return custom_response
-
         
 
 
