@@ -1323,9 +1323,13 @@ SMS_TYPES_CHOICES = [
 ] 
     
 STATUS_CHOICES = (
+    ('PI', "PI"),
     ('Pending', 'Pending'),
     ('Paid', 'Paid'),
     ('Overdue', 'Overdue'),
+    ('Refunded', 'Refunded'),
+    ('Cancelled', 'Cancelled'),
+    ('Refund Pending', 'Refund Pending'),  
 )
 
 PAYMENT_MODES = (

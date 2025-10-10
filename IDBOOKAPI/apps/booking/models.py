@@ -263,7 +263,7 @@ class Invoice(models.Model):
     total_amount = models.PositiveIntegerField(default=0)
     total_tax = models.PositiveIntegerField(default=0)
 
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
     next_schedule_date = models.DateField(null=True)
     tags = models.CharField(max_length=255, blank=True)
     reference = models.CharField(max_length=20, choices=REFERENCE_CHOICES, default='Other')

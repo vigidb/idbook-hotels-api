@@ -9,3 +9,16 @@ media/
 *.sh
 ../fake_data_producer.py
 *.pdf
+*.sql
+*.env.local
+*.env.development
+*.env.production
+*.env.test
+*.env.staging
+*.env
+*.env.local
+*.env.development
+*.env.production
+*.env.test
+*.env.staging
+*.env

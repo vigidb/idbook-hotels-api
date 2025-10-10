@@ -8,6 +8,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
 from django.core.mail import send_mail
+from django.db.models import Q
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets
@@ -18,6 +19,7 @@ from rest_framework.generics import (
     CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
+from IDBOOKAPI.utils import paginate_queryset, order_ops
 
 from .models import BusinessDetail
 from apps.authentication.models import User
@@ -47,7 +49,92 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
     queryset = BusinessDetail.objects.all()
     serializer_class = BusinessDetailSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'list']
+
+    def business_filter_ops(self):
+        """Apply filtering operations for business details"""
+        # Filter by active status
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            if active.lower() == 'true':
+                self.queryset = self.queryset.filter(active=True)
+            elif active.lower() == 'false':
+                self.queryset = self.queryset.filter(active=False)
+
+        # Filter by country
+        country = self.request.query_params.get('country', None)
+        if country:
+            self.queryset = self.queryset.filter(country__icontains=country)
+
+        # Filter by state
+        state = self.request.query_params.get('state', None)
+        if state:
+            self.queryset = self.queryset.filter(state__icontains=state)
+
+        # Filter by domain name
+        domain = self.request.query_params.get('domain', None)
+        if domain:
+            self.queryset = self.queryset.filter(domain_name__icontains=domain)
+
+        # Search functionality
+        search = self.request.query_params.get('search', '')
+        if search:
+            search_q_filter = (
+                Q(business_name__icontains=search) |
+                Q(business_email__icontains=search) |
+                Q(business_phone__icontains=search) |
+                Q(domain_name__icontains=search) |
+                Q(gstin_no__icontains=search) |
+                Q(pan_no__icontains=search) |
+                Q(hsn_sac_no__icontains=search) |
+                Q(full_address__icontains=search)
+            )
+            self.queryset = self.queryset.filter(search_q_filter)
+
+    def delete(self, request, *args, **kwargs):
+        self.log_request(request) # log the incoming request
+        # Get the object to be deleted
+        instance = self.get_object()
+        instance.active = False
+        instance.save()
+        return self.get_response(status='success', data={}, message="Business Details Deleted", status_code=status.HTTP_200_OK)
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request) # log the incoming request
+        
+        # Apply filtering operations
+        self.business_filter_ops()
+        
+        # Apply ordering
+        self.queryset = order_ops(request, self.queryset)
+        
+        # Apply pagination
+        count, self.queryset = paginate_queryset(request, self.queryset)
+        
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                status='success',
+                data=response.data,  # Use the data from the default response
+                message="Business Details List Retrieved",
+                count=count,
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_response(
+                data=None,
+                message="Error Occurred",
+                status_code=response.status_code,  # Use the status code from the default response
+                is_error=True
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
 
     def create(self, request, *args, **kwargs):
         user_id = request.user.id
@@ -55,12 +142,13 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         # Create an instance of your serializer with the request data
         #serializer = self.get_serializer(data=request.data, context={'user_id': user_id})
         
-        existing_detail = BusinessDetail.objects.filter(user=request.user)
-        if existing_detail:
-            custom_response = self.get_error_response(message="Business deatil is already available", status="error",
-                                               errors=[],error_code="VALIDATION_ERROR",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
-            return custom_response
+        #TODO: Check user permission for business detail create
+        # existing_detail = BusinessDetail.objects.filter(user=request.user)
+        # if existing_detail:
+        #     custom_response = self.get_error_response(message="Business deatil is already available", status="error",
+        #                                        errors=[],error_code="VALIDATION_ERROR",
+        #                                        status_code=status.HTTP_406_NOT_ACCEPTABLE)
+        #     return custom_response
         
         serializer = self.get_serializer(data=request.data)
 
