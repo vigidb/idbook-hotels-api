@@ -9,6 +9,10 @@ from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.booking.utils.invoice_utils import create_invoice_number, manual_generate_invoice_pdf
 from apps.hotels.tasks import send_hotel_sms_task
 import json
+from django.db.models import Sum, Count, Min, Max
+from django.db.models.functions import TruncDay, TruncMonth, TruncYear
+from django.utils.dateparse import parse_date
+from datetime import date, timedelta
 
 class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Review.objects.all()
@@ -207,7 +211,8 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         'partial_update': [IsAuthenticated],
         'destroy': [IsAuthenticated],
         'list': [AllowAny],
-        'retrieve': [AllowAny]
+        'retrieve': [AllowAny],
+        'summary': [AllowAny]
     }
 
     def get_permissions(self):
@@ -223,7 +228,19 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         # Filter by booking_id, invoice_id or invoice_number
         for key in param_dict:
             if key in ('billed_by', 'billed_to'):
-                filter_dict[key] = param_dict[key]
+                # support comma-separated ids
+                value = param_dict[key]
+                if ',' in value:
+                    filter_dict[f"{key}__in"] = [v for v in value.split(',') if v]
+                else:
+                    filter_dict[key] = value
+            elif key in ('billed_by_id', 'billed_to_id'):
+                fk = key.replace('_id', '')
+                value = param_dict[key]
+                if ',' in value:
+                    filter_dict[f"{fk}__in"] = [v for v in value.split(',') if v]
+                else:
+                    filter_dict[fk] = value
             elif key == 'booking_id':
                 bookings = Booking.objects.filter(id=param_dict[key])
                 if bookings.exists():
@@ -232,9 +249,38 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 filter_dict['invoice_number'] = param_dict[key]
             elif key == 'invoice_id':
                 filter_dict['id'] = param_dict[key]
+            elif key == 'status':
+                value = param_dict[key]
+                if ',' in value:
+                    filter_dict['status__in'] = [v for v in value.split(',') if v]
+                else:
+                    filter_dict['status'] = value
+            elif key == 'client':
+                # alias for billed_to
+                value = param_dict[key]
+                if ',' in value:
+                    filter_dict['billed_to__in'] = [v for v in value.split(',') if v]
+                else:
+                    filter_dict['billed_to'] = value
+            elif key == 'reference':
+                filter_dict['reference'] = param_dict[key]
+            elif key == 'tags':
+                filter_dict['tags__icontains'] = param_dict[key]
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
+
+        # Date range filters (invoice_date)
+        start_date_str = param_dict.get('start_date') or param_dict.get('from_date')
+        end_date_str = param_dict.get('end_date') or param_dict.get('to_date')
+        start_date = parse_date(start_date_str) if start_date_str else None
+        end_date = parse_date(end_date_str) if end_date_str else None
+        if start_date and end_date:
+            self.queryset = self.queryset.filter(invoice_date__range=[start_date, end_date])
+        elif start_date:
+            self.queryset = self.queryset.filter(invoice_date__gte=start_date)
+        elif end_date:
+            self.queryset = self.queryset.filter(invoice_date__lte=end_date)
 
     def get_object(self):
         """
@@ -393,6 +439,185 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         
         self.log_response(custom_response)
         return custom_response
+
+    @action(detail=False, methods=['GET'], url_path='summary', permission_classes=[AllowAny])
+    def summary(self, request):
+        self.log_request(request)
+
+        # Apply filters without pagination
+        self.invoice_filter_ops()
+        qs = self.queryset
+
+        # Overall aggregates
+        base_aggs = qs.aggregate(
+            invoices=Count('id'),
+            total_amount=Sum('total_amount'),
+            gst_amount=Sum('total_tax'),
+            discount_amount=Sum('discount')
+        )
+
+        # Status-wise sums
+        def status_sum(status_label):
+            return qs.filter(status=status_label).aggregate(
+                count=Count('id'), amount=Sum('total_amount')
+            )
+
+        paid = status_sum('Paid')
+        pending = status_sum('Pending')
+        overdue = status_sum('Overdue')
+        refunded = status_sum('Refunded')
+        cancelled = status_sum('Cancelled')
+        pi = status_sum('PI')
+
+        # Payments and refunds through payment history
+        invoice_ids = list(qs.values_list('id', flat=True))
+        payments_received = 0
+        refunds_amount = 0
+        if invoice_ids:
+            pay_qs = BookingPaymentDetail.objects.filter(
+                invoice_id__in=invoice_ids, is_transaction_success=True
+            )
+            payments_received = pay_qs.exclude(transaction_for='booking_refund').aggregate(
+                total=Sum('amount')
+            )['total'] or 0
+            refunds_amount = pay_qs.filter(transaction_for='booking_refund').aggregate(
+                total=Sum('amount')
+            )['total'] or 0
+
+        total_amount = base_aggs.get('total_amount') or 0
+        total_due = total_amount - (payments_received or 0)
+
+        # Optional time-series for charts
+        group_by = request.query_params.get('group_by', 'day').lower()
+        if group_by == 'month':
+            trunc_fn = TruncMonth
+        elif group_by == 'year':
+            trunc_fn = TruncYear
+        else:
+            trunc_fn = TruncDay
+
+        raw_series = list(
+            qs.annotate(period=trunc_fn('invoice_date'))
+              .values('period')
+              .annotate(
+                  invoices=Count('id'),
+                  total_amount=Sum('total_amount'),
+                  gst_amount=Sum('total_tax'),
+                  discount_amount=Sum('discount')
+              )
+              .order_by('period')
+        )
+
+        # Build continuous time series including empty periods
+        start_date_str = request.query_params.get('start_date') or request.query_params.get('from_date')
+        end_date_str = request.query_params.get('end_date') or request.query_params.get('to_date')
+        start_dt = parse_date(start_date_str) if start_date_str else None
+        end_dt = parse_date(end_date_str) if end_date_str else None
+        if not start_dt or not end_dt:
+            bounds = qs.aggregate(min_date=Min('invoice_date'), max_date=Max('invoice_date'))
+            start_dt = start_dt or bounds.get('min_date')
+            end_dt = end_dt or bounds.get('max_date')
+
+        series_map = {row['period'].date() if hasattr(row['period'], 'date') else row['period']:
+                      {k: row[k] for k in ('invoices','total_amount','gst_amount','discount_amount')}
+                      for row in raw_series}
+
+        def month_iter(d1, d2):
+            if not d1 or not d2:
+                return []
+            cur_y, cur_m = d1.year, d1.month
+            end_y, end_m = d2.year, d2.month
+            out = []
+            while (cur_y < end_y) or (cur_y == end_y and cur_m <= end_m):
+                out.append(date(cur_y, cur_m, 1))
+                if cur_m == 12:
+                    cur_m = 1
+                    cur_y += 1
+                else:
+                    cur_m += 1
+            return out
+
+        def year_iter(d1, d2):
+            if not d1 or not d2:
+                return []
+            return [date(y, 1, 1) for y in range(d1.year, d2.year + 1)]
+
+        filled_series = []
+        if start_dt and end_dt:
+            if trunc_fn is TruncDay:
+                cur = start_dt
+                while cur <= end_dt:
+                    key = cur
+                    vals = series_map.get(key, {})
+                    filled_series.append({
+                        'period': key,
+                        'invoices': vals.get('invoices', 0) or 0,
+                        'total_amount': vals.get('total_amount', 0) or 0,
+                        'gst_amount': vals.get('gst_amount', 0) or 0,
+                        'discount_amount': vals.get('discount_amount', 0) or 0,
+                    })
+                    cur = cur + timedelta(days=1)
+            elif trunc_fn is TruncMonth:
+                for key in month_iter(start_dt, end_dt):
+                    vals = series_map.get(key, {})
+                    filled_series.append({
+                        'period': key,
+                        'invoices': vals.get('invoices', 0) or 0,
+                        'total_amount': vals.get('total_amount', 0) or 0,
+                        'gst_amount': vals.get('gst_amount', 0) or 0,
+                        'discount_amount': vals.get('discount_amount', 0) or 0,
+                    })
+            else:  # year
+                for key in year_iter(start_dt, end_dt):
+                    vals = series_map.get(key, {})
+                    filled_series.append({
+                        'period': key,
+                        'invoices': vals.get('invoices', 0) or 0,
+                        'total_amount': vals.get('total_amount', 0) or 0,
+                        'gst_amount': vals.get('gst_amount', 0) or 0,
+                        'discount_amount': vals.get('discount_amount', 0) or 0,
+                    })
+        else:
+            filled_series = raw_series
+
+        by_status = (
+            qs.values('status')
+              .annotate(count=Count('id'), amount=Sum('total_amount'))
+              .order_by('status')
+        )
+
+        data = {
+            'totals': {
+                'invoices': base_aggs.get('invoices') or 0,
+                'total_amount': total_amount,
+                'total_due': total_due,
+                'payment_received': payments_received or 0,
+                'gst_amount': base_aggs.get('gst_amount') or 0,
+                'discount_amount': base_aggs.get('discount_amount') or 0,
+                'refund_amount': refunds_amount or 0,
+                'pi_amount': pi.get('amount') or 0,
+            },
+            'by_status': {
+                'PI': pi,
+                'Paid': paid,
+                'Pending': pending,
+                'Overdue': overdue,
+                'Refunded': refunded,
+                'Cancelled': cancelled,
+            },
+            'distribution': list(by_status),
+            'timeseries': list(filled_series),
+        }
+
+        response = self.get_response(
+            status='success',
+            data=data,
+            message='Invoice summary retrieved',
+            status_code=status.HTTP_200_OK
+        )
+
+        self.log_response(response)
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)
