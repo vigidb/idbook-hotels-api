@@ -157,7 +157,9 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
 
             if not booking.invoice_id:
                 # invoice_number = get_invoice_number()
-                invoice_number = create_invoice_number()
+                # Pass the billed_by_id to generate unique invoice numbers per business
+                billed_by_id = bus_details.id if bus_details else None
+                invoice_number = create_invoice_number(billed_by_id=billed_by_id)
                 print("invoice_number", invoice_number)
                 payload = invoice_json_data(booking, bus_details,
                                             company_details, customer_details, invoice_number, pay_at_hotel=pay_at_hotel)

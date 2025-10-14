@@ -303,9 +303,12 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         
         data = request.data.copy()
 
-        # Check if invoice_number is provided, if not generate one
+        # Check if invoice_number is provided, if not generate one (scoped per billed_by)
         if not data.get('invoice_number'):
-            data['invoice_number'] = create_invoice_number()
+            billed_by_id = data.get('billed_by')
+            print(f"DEBUG: Creating invoice with billed_by_id = {billed_by_id}")
+            data['invoice_number'] = create_invoice_number(billed_by_id=billed_by_id)
+            print(f"DEBUG: Generated invoice_number = {data['invoice_number']}")
 
         items = data.get('items', [])
         total = 0
@@ -819,7 +822,21 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
     @action(detail=False, methods=['POST'], url_path='generate-invoice-number', permission_classes=[IsAuthenticated])
     def generate_invoice_number(self, request):
-        invoice_number = create_invoice_number()
+        # Get billed_by_id from request if provided
+        billed_by_id = request.data.get('billed_by_id') or request.data.get('billed_by')
+        
+        print(f"DEBUG generate_invoice_number: Received billed_by_id = {billed_by_id}")
+        
+        # If not provided, try to get from active business
+        if not billed_by_id:
+            from apps.org_managements.utils import get_active_business
+            active_business = get_active_business()
+            if active_business:
+                billed_by_id = active_business.id
+                print(f"DEBUG generate_invoice_number: Using active business ID = {billed_by_id}")
+        
+        invoice_number = create_invoice_number(billed_by_id=billed_by_id)
+        print(f"DEBUG generate_invoice_number: Generated invoice_number = {invoice_number}")
         data = {"invoice_number": invoice_number}
 
         custom_response = self.get_response(

@@ -1,7 +1,9 @@
 # invoice
 import requests
 import json
+import re
 from apps.booking.models import Invoice, BookingPaymentDetail
+from apps.org_managements.models import BusinessDetail
 from datetime import datetime
 from IDBOOKAPI.utils import (
     get_current_date, last_calendar_month_day)
@@ -32,27 +34,117 @@ def get_invoice_number():
         print(response.json())
     return invoice_number
 
-def create_invoice_number():
+def generate_business_code(business_detail):
+    """
+    Generate a consistent, unique code for a business.
+    Uses state code (or country code as fallback) + business ID for guaranteed uniqueness.
+    
+    Priority:
+    1. State code (first 2-3 chars)
+    2. Country code (first 2-3 chars) 
+    3. Default 'XX' if neither exists
+    Then append business ID
+    
+    Args:
+        business_detail: BusinessDetail object
+        
+    Returns:
+        str: A unique business code (e.g., 'MH5', 'IND12', 'XX3', etc.)
+    """
+    if not business_detail:
+        return "GLB0"  # Global fallback
+    
+    location_code = ""
+    
+    # Priority 1: Try to get state code
+    if business_detail.state:
+        # Remove special characters and spaces, get alphanumeric only
+        clean_state = re.sub(r'[^A-Z0-9]', '', business_detail.state.upper())
+        location_code = clean_state[:3] if len(clean_state) >= 3 else clean_state[:2]
+    
+    # Priority 2: If no state, try country code
+    if not location_code and business_detail.country:
+        clean_country = re.sub(r'[^A-Z0-9]', '', business_detail.country.upper())
+        location_code = clean_country[:3] if len(clean_country) >= 3 else clean_country[:2]
+    
+    # Priority 3: Default if neither state nor country exists
+    if not location_code:
+        location_code = "XX"
+    
+    # Always append business ID for guaranteed uniqueness
+    business_code = location_code + str(business_detail.id)
+    
+    return business_code.upper()
+
+
+def create_invoice_number(billed_by_id=None, gstin=None):
+    """
+    Generate an invoice number scoped per billed_by with unique business code.
+    Format: Idb-<BUSINESS_CODE><BUS_ID>-YYYY-MM-<running_sequence>
+    
+    Examples:
+        - ABC Company (ID=5): Idb-ABC5-2025-01-50239, Idb-ABC5-2025-01-50240, ...
+        - XYZ Hotel (ID=12): Idb-XYZ12-2025-01-50239, Idb-XYZ12-2025-01-50240, ...
+        - Without billed_by: Idb-GLB0-2025-01-50239, Idb-GLB0-2025-01-50240, ...
+
+    - Business code + ID ensures complete uniqueness across all businesses
+    - Sequence number increments per billed_by and month
+    - Each business has its own sequence starting from 50239
+    
+    Args:
+        billed_by_id: ID of the BusinessDetail object
+        gstin: GSTIN number (optional, not used currently)
+        
+    Returns:
+        str: Generated invoice number
+    """
+    print(f"DEBUG create_invoice_number called with billed_by_id={billed_by_id}, gstin={gstin}")
+    
     current_year = datetime.now().year
     current_month = str(datetime.now().month).zfill(2)
-
     initial_invoice_number = 50239
 
-    last_invoice = Invoice.objects.filter(invoice_number__startswith=f"Idb-{current_year}-{current_month}-") \
-                                  .order_by('-invoice_number') \
-                                  .first()
+    # Get business code (includes ID for uniqueness)
+    business_code = "GLB0"  # Default for global scope
+    if billed_by_id:
+        try:
+            business_detail = BusinessDetail.objects.get(id=billed_by_id)
+            business_code = generate_business_code(business_detail)
+            print(f"DEBUG: Found BusinessDetail, generated code={business_code}")
+        except BusinessDetail.DoesNotExist:
+            print(f"BusinessDetail with id {billed_by_id} not found, using global code")
+            business_code = "GLB0"
+    else:
+        print(f"DEBUG: No billed_by_id provided, using global code={business_code}")
+
+    prefix = f"Idb-{business_code}-{current_year}-{current_month}-"
+    print(f"DEBUG: Generated prefix={prefix}")
+
+    # Filter invoices for this specific business and month
+    if billed_by_id:
+        qs = Invoice.objects.filter(
+            billed_by_id=billed_by_id,
+            invoice_number__startswith=prefix
+        )
+    else:
+        qs = Invoice.objects.filter(invoice_number__startswith=prefix)
+
+    last_invoice = qs.order_by('-invoice_number').first()
 
     if not last_invoice or not last_invoice.invoice_number:
-        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+        # First invoice for this business/month combination
+        return f"{prefix}{initial_invoice_number}"
 
     try:
+        # Extract the last sequence number and increment it
         last_number = int(last_invoice.invoice_number.split('-')[-1])
+        new_invoice_number = last_number + 1
     except ValueError:
-        return f"Idb-{current_year}-{current_month}-{initial_invoice_number}"
+        # If parsing fails, start from initial number
+        new_invoice_number = initial_invoice_number
 
-    new_invoice_number = last_number + 1
-
-    invoice_number = f"Idb-{current_year}-{current_month}-{new_invoice_number}"
+    invoice_number = f"{prefix}{new_invoice_number}"
+    print(f"DEBUG: Final invoice_number={invoice_number}")
     return invoice_number
 
 def invoice_json_hotel_booking(hotel_booking):

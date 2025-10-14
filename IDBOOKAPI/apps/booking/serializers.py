@@ -634,6 +634,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not self.instance and not data.get('billed_by'):
             raise serializers.ValidationError({"billed_by": "Billed by is required"})
         
+        # Validate that billed_by exists if provided
+        if 'billed_by' in data and data['billed_by'] is not None:
+            from apps.org_managements.models import BusinessDetail
+            billed_by_id = data['billed_by'].id if hasattr(data['billed_by'], 'id') else data['billed_by']
+            if not BusinessDetail.objects.filter(id=billed_by_id).exists():
+                raise serializers.ValidationError({
+                    "billed_by": f"BusinessDetail with id {billed_by_id} does not exist. Please ensure an active business is configured."
+                })
+        
         # if not self.instance and not data.get('billed_to'):
         #     raise serializers.ValidationError({"billed_to": "Billed to is required"})
         

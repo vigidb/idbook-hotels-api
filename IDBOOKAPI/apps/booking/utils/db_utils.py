@@ -360,6 +360,11 @@ def save_invoice_to_database(booking, payload_json, invoice_number):
         payload = json.loads(payload_json)
         billed_by = get_active_business()
         
+        # Validate that billed_by exists
+        if not billed_by:
+            print("Error: No active business found. Cannot create invoice without billed_by.")
+            return None
+        
         if booking.user:
             billed_to = booking.user
         else:
