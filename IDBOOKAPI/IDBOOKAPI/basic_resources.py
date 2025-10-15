@@ -89,6 +89,111 @@ FLIGHT_CLASS = (
     ('FIRST', 'FIRST'),
 ) 
 
+# =============================================================================
+# AirIQ API Specific Constants (for new flight booking integration)
+# =============================================================================
+
+# AirIQ Trip Types (compatible with their API)
+AIRIQ_TRIP_TYPE = (
+    ('O', 'One-way'),
+    ('R', 'Round-trip'),
+    ('Y', 'Round-trip Special'),
+)
+
+# AirIQ Flight Classes (compatible with their API) 
+AIRIQ_FLIGHT_CLASS = (
+    ('E', 'Economy'),
+    ('P', 'Premium Economy'),
+    ('B', 'Business'),
+    ('F', 'First'),
+)
+
+# AirIQ Fare Types
+AIRIQ_FARE_TYPE = (
+    ('N', 'Normal Fare'),
+    ('C', 'Corporate Fare'),
+    ('R', 'Retail Fare'),
+)
+
+# Flight booking mode choices (Pre-booked vs Real-time)
+FLIGHT_BOOKING_MODE = (
+    ('REALTIME', 'Real-time Booking'),
+    ('INVENTORY', 'Pre-booked Inventory'),
+)
+
+# Flight booking statuses specific to AirIQ workflow
+FLIGHT_BOOKING_STATUS = (
+    ('SEARCH_COMPLETED', 'Search Completed'),
+    ('FLIGHT_SELECTED', 'Flight Selected'),
+    ('PRICING_COMPLETED', 'Pricing Completed'),
+    ('BOOKING_INITIATED', 'Booking Initiated'),
+    ('BOOKING_HELD', 'Booking Held'),
+    ('BOOKING_CONFIRMED', 'Booking Confirmed'),
+    ('TICKET_ISSUED', 'Ticket Issued'),
+    ('BOOKING_CANCELLED', 'Booking Cancelled'),
+    ('BOOKING_REFUNDED', 'Booking Refunded'),
+)
+
+# Passenger types for AirIQ
+PASSENGER_TYPE = (
+    ('ADT', 'Adult'),
+    ('CHD', 'Child'),
+    ('INF', 'Infant'),
+)
+
+# Title choices for passengers (AirIQ compatible)
+PASSENGER_TITLE = (
+    ('MR', 'Mr'),
+    ('MRS', 'Mrs'),
+    ('MISS', 'Miss'),
+    ('MS', 'Ms'),
+    ('MSTR', 'Master'),
+    ('DR', 'Dr'),
+)
+
+# Airline category types
+AIRLINE_CATEGORY = (
+    ('LCC', 'Low Cost Carrier'),
+    ('FSC', 'Full Service Carrier'),
+)
+
+# Seat types and groups (from AirIQ seatmap)
+SEAT_TYPE = (
+    ('NS', 'Normal Seat'),
+    ('ES', 'Emergency Seat'),
+    ('PS', 'Premium Seat'),
+    ('WS', 'Window Seat'),
+    ('AS', 'Aisle Seat'),
+)
+
+# AirIQ Payment modes
+AIRIQ_PAYMENT_MODE = (
+    ('T', 'Agent Deposit'),
+    ('C', 'Credit Card'),
+    ('D', 'Debit Card'),
+    ('W', 'Wallet'),
+)
+
+# AirIQ API result codes
+AIRIQ_RESULT_CODES = (
+    ('1', 'Success'),
+    ('0', 'Failure'),
+    ('-1', 'Exception'),
+    ('2', 'Pending'),
+    ('-2', 'Processing'),
+)
+
+# SSR (Special Service Request) categories
+SSR_CATEGORY = (
+    ('MEAL', 'Meal'),
+    ('BAGGAGE', 'Baggage'),
+    ('SEAT', 'Seat'),
+    ('ASSURANCE', 'Travel Assurance'),
+    ('PRIORITY_CHECK_IN', 'Priority Check-in'),
+    ('BAGOUT', 'Baggage First'),
+    ('OTHER', 'Other Services'),
+)
+
 TIME_SLOTS = (
     ('4 Hrs', '4 Hrs'),
     ('8 Hrs', '8 Hrs'),

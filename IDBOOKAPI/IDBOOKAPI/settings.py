@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'apps.hotels',
     'apps.holiday_package',
     'apps.vehicle_management',
+    'apps.flights',
     'apps.log_management',
     'apps.analytics'
 ]
@@ -291,6 +292,13 @@ PAYU_KEY = env("PAYU_KEY")
 FAST2SMS_APIKEY = env("FAST2SMS_APIKEY")
 FAST_DLT_SENDER_ID = env("FAST_DLT_SENDER_ID")
 FAST_MESSAGE_ID = env("FAST_MESSAGE_ID")
+
+# AirIQ Flight API Configuration
+AIRIQ_BASE_URL = env("AIRIQ_BASE_URL")
+AIRIQ_AGENT_ID = env("AIRIQ_AGENT_ID", default="")
+AIRIQ_USERNAME = env("AIRIQ_USERNAME")
+AIRIQ_PASSWORD = env("AIRIQ_PASSWORD")
+AIRIQ_API_VERSION = env("AIRIQ_API_VERSION", default="2.0")
 
 # PAGINATION_PAGE_SIZE = env_config("PAGINATION_PAGE_SIZE")
 # NDR_EMAIL_HOST_USER = env_config("NDR_EMAIL_HOST_USER")
