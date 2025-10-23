@@ -35,7 +35,15 @@ app.conf.task_routes = {
     'apps.booking.tasks.send_completed_booking_task': {'queue': email_send_queue},
     'apps.org_resources.tasks.send_enquiry_email_task': {'queue': email_send_queue},
     'apps.org_resources.tasks.admin_send_sms_task': {'queue': email_send_queue},
-    'apps.org_resources.tasks.pro_member_send_sms_task': {'queue': email_send_queue}
+    'apps.org_resources.tasks.pro_member_send_sms_task': {'queue': email_send_queue},
+    # AirIQ token management tasks
+    'apps.flights.tasks.refresh_airiq_token_task': {'queue': 'airiq-token-queue'},
+    'apps.flights.tasks.cleanup_expired_airiq_tokens_task': {'queue': 'airiq-token-queue'},
+    'apps.flights.tasks.check_airiq_token_status_task': {'queue': 'airiq-token-queue'},
+    'apps.flights.tasks.emergency_airiq_token_refresh_task': {'queue': 'airiq-token-queue'},
+    # Flight notification tasks
+    'apps.flights.tasks.send_flight_booking_confirmation_task': {'queue': email_send_queue},
+    'apps.flights.tasks.send_flight_status_update_task': {'queue': email_send_queue}
 
 }
 
@@ -63,6 +71,22 @@ app.conf.beat_schedule = {
         'task': 'apps.booking.tasks.wallet_expiry_task',
         'schedule': crontab(minute="*/30"),
         'options': {'queue': "recpay-initiate-queue"}
+    },
+    # AirIQ Token Management Scheduled Tasks
+    'airiq-token-daily-refresh': {
+        'task': 'apps.flights.tasks.refresh_airiq_token_task',
+        'schedule': crontab(hour=6, minute=0),  # Daily at 6:00 AM
+        'options': {'queue': 'airiq-token-queue'}
+    },
+    'airiq-token-cleanup': {
+        'task': 'apps.flights.tasks.cleanup_expired_airiq_tokens_task',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2:00 AM
+        'options': {'queue': 'airiq-token-queue'}
+    },
+    'airiq-token-status-check': {
+        'task': 'apps.flights.tasks.check_airiq_token_status_task',
+        'schedule': crontab(minute="*/60"),  # Every hour
+        'options': {'queue': 'airiq-token-queue'}
     },
 }
 

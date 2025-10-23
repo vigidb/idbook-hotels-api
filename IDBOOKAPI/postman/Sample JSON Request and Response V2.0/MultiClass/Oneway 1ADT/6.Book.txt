@@ -1,0 +1,213 @@
+
+Header:- 
+
+TOKEN : Ky04bTJGaDJIZzVxMmNjY1N3WTM5Yi9SRldxcWhZeEQwTGlWaHltTU41NDhLRmJXYjNsN3hHbFJGOEhzSUVCczQrLWJkVFhyV1YrLUVLN1VaRG5la3hIaTQvN1N5OGk2UGZkZ29MaFFvT1dvNENhclZvM3lqT0s3blR0MVFxMnoxdndmODdqV2dZcHJHU3k5bVpERVB4MWp1WDN4QVlUcUhuaDhFeDgyamhCWWlnaisteWFWbFpDWkhyUmZzTTJ3eUxxYUk5OWtldjRlcnNkLzZBOUUrLXlGaEpRK0FEMEFQUS0= 
+
+
+
+Request:-
+
+{
+    "AgentInfo": {
+        "AgentId": "XXXXXXXX",
+        "UserName": "XXXXXXXXXXX",
+        "AppType": "API",
+        "Version": "XXX"
+    },
+    "AdultCount": 1,
+    "ChildCount": 0,
+    "InfantCount": 0,
+    "ItineraryFlightsInfo": [
+        {
+            "Token": "AQAG0D9569010049458",
+            "FlighstInfo": [
+                {
+                    "FlightID": "1747"
+                }
+            ],
+            "PaymentMode": "T",
+            "SeatsSSRInfo": [],
+            "BaggSSRInfo": [],
+            "MealsSSRInfo": [],
+            "OtherSSRInfo": [],
+            "PaymentInfo": [
+                {
+                    "TotalAmount": "23589"
+                }
+            ]
+        }
+    ],
+    "PaxDetailsInfo": [
+        {
+            "PaxRefNumber": "1",
+            "Title": "MR",
+            "FirstName": "ARAVIND",
+            "LastName": "RAJA",
+            "DOB": "12/06/1997",
+            "Gender": "Male",
+            "PaxType": "ADT",
+            "PassportNo": "",
+            "PassportExpiry": "",
+            "PassportIssuedDate": "",
+            "PassportCountryCode": "",
+            "InfantRef": ""
+        }
+    ],
+    "AddressDetails": {
+        "CountryCode": "91",
+        "ContactNumber": "9876543210",
+        "EmailID": "test123@gmail.com"
+    },
+    "GSTInfo": {
+        "GSTNumber": "",
+        "GSTCompanyName": "",
+        "GSTAddress": "",
+        "GSTEmailID": "",
+        "GSTMobileNumber": ""
+    },
+    "TripType": "O",
+    "BlockPNR": false,
+    "BaseOrigin": "BOM",
+    "BaseDestination": "DEL",
+    "TrackId": "AQ144529557214025871445325803546PZMUM4NSWBB"
+}
+
+Responces:-
+
+{
+    "TrackId": "AQAG0D956901397230820251318001374850020902",
+    "Bookingresponse": {
+        "ItinearyDetails": [
+            {
+                "AdultCount": "1",
+                "ChildCount": "0",
+                "InfantCount": "0",
+                "IssuedDate": "23/08/2025 14:48:32",
+                "Item": [
+                    {
+                        "Resultcode": "1",
+                        "BookingTrackId": "AQAG0D956901397230820251318001374850020902",
+                        "AirIqPNR": "AF23HC0016",
+                        "CRSPNR": "CN1T63",
+                        "BaseOrigin": "BOM",
+                        "BaseDestination": "DEL",
+                        "GST_Number": "",
+                        "TicketingTimeLimit": "",
+                        "PromoCode": "",
+                        "Class": "B",
+                        "PrintTicket": "",
+                        "SegmentType": "D",
+                        "Special": "N",
+                        "Stock": "UAI",
+                        "TripType": "O",
+                        "PaymentDetails": {
+                            "Item": [
+                                {
+                                    "Amount": "23589.00",
+                                    "CurrencyCode": "INR"
+                                }
+                            ]
+                        },
+                        "TourCode": "",
+                        "TravellerInfo": {
+                            "Item": [
+                                {
+                                    "Title": "MR",
+                                    "FirstName": "ARAVIND",
+                                    "LastName": "RAJA",
+                                    "DateOfBirth": "12/06/1997",
+                                    "PaxType": "Adult",
+                                    "TicketNumber": "0982866296692",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "ArrTerminal": null,
+                                                "DepTerminal": null,
+                                                "FareTypeDescription": null,
+                                                "PlatingCarrier": null,
+                                                "AirlinePNR": "F743CU",
+                                                "TicketNo": "0982866296692",
+                                                "FlightNumber": "2986",
+                                                "Origin": "BOM",
+                                                "Destination": "DEL",
+                                                "DepartureDateTime": "30/09/2025 22:50",
+                                                "ArrivalDateTime": "01/10/2025 01:00",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "AI",
+                                                "ClassCode": "B",
+                                                "FareBasis": "BU1YXSII",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "15Kg ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "21811.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "23589.00",
+                                            "PLBAmount": "0.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "1099.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "K3"
+                                                    },
+                                                    {
+                                                        "Amount": "236.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "P2"
+                                                    },
+                                                    {
+                                                        "Amount": "170.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "YR"
+                                                    },
+                                                    {
+                                                        "Amount": "273.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "IN"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "OtherCharges": "0.00",
+                "SegmentType": "D",
+                "TerminalContactDetails": {
+                    "Address1": "chennai",
+                    "Address2": "",
+                    "City": "MAA",
+                    "Country": "CX",
+                    "Email": "sakthivelapi@gmail.com",
+                    "Phone": "8855425745",
+                    "State": "",
+                    "TerminalName": "API Agent Testing"
+                },
+                "TotalAmount": "23589.00",
+                "TotalSegments": "1",
+                "TripType": "O"
+            }
+        ]
+    },
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "14475870685478422"
+    }
+}

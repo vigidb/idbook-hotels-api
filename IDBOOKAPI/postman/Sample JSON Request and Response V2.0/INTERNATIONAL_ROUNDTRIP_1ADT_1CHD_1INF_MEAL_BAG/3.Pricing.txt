@@ -1,0 +1,804 @@
+
+
+Header:-
+
+TOKEN : NVBLbENSdlJuMXBWTnlqY3hodXRmRDhySTlVdVlqd2hkQ3JueU5qZUFOVDR3enBiL0ViQnpOWndlWkVka3ZYcllQekE4YlVKZURTSkRYbnR5ZCstYWNxR0oxL3B6Tm9ueUxJQU9RVTRjOXRDSzVZSm5DKy1QNHZwMWtRSHBxSTFqZDBvKy1MRDBFYjUzUS9EYXdZNEVDTVBPRElHR2p5WGg3UmUyKy1KNHRWSFU1bWowaVh6NU4wVzQ4aWxsWTh6YWRTcjRSQWx3ekZGZGNoUDJnMzlzbExpYkErQUQwQVBRLQ==
+
+
+
+
+Request :- 
+
+
+
+{
+    "AgentInfo": {
+        "AgentId": "XXXXXXXXXX",
+        "UserName": "XXXXXXXXXX",
+        "AppType": "API",
+        "Version": "V1.0"
+    },
+    "SegmentInfo": {
+        "BaseOrigin": "DEL",
+        "BaseDestination": "DXB",
+        "TripType": "R",
+        "AdultCount": "1",
+        "ChildCount": "1",
+        "InfantCount": "1"
+    },
+    "Trackid": "AQ1652581208798089886986387811653202198759QOUAN9PYUVY",
+    "ItineraryInfo": [
+        {
+            "FlightDetails": [
+                {
+                    "FlightID": "5413",
+                    "FlightNumber": "6E 2111",
+                    "Origin": "DEL",
+                    "Destination": "DXB",
+                    "DepartureDateTime": "15 Mar 2023 07:01",
+                    "ArrivalDateTime": "15 Mar 2023 09:41"
+                },
+                {
+                    "FlightID": "5414",
+                    "FlightNumber": "6E 2111",
+                    "Origin": "DXB",
+                    "Destination": "DEL",
+                    "DepartureDateTime": "20 Mar 2023 00:26",
+                    "ArrivalDateTime": "20 Mar 2023 05:26"
+                }
+            ],
+            "BaseAmount": "39218",
+            "GrossAmount": "49398"
+        }
+    ]
+}
+
+
+
+
+Response :- 
+
+
+
+{
+    "PriceItenaryInfo": [
+        {
+            "Trackid": "AQ170049142778176677275839080017005531466751BKDLP0J2VA",
+            "AvailabilityResponse": [
+                {
+                    "Token": "RSNKL0400101070140732",
+                    "Flights": [
+                        {
+                            "FlightID": "9278",
+                            "Stock": "6E",
+                            "FlightNumber": "6E 23",
+                            "Origin": "DEL",
+                            "Destination": "DXB",
+                            "DepartureTerminal": "3",
+                            "ArrivalTerminal": "1",
+                            "DepartureDateTime": "15 Mar 2023 07:01",
+                            "ArrivalDateTime": "15 Mar 2023 09:41",
+                            "Class": "P",
+                            "JourneyTime": "",
+                            "ReferenceToken": "RzTgh7k2Y1Cp2hg6Hpij/id9ZS0Qa4VtPIyYH4LFPJ+ym0P4tEtOKOTznvfFK3INiu7tOunx5vBhCZBSaky5AgX6FIaj9auM+Dtt8KYY2Ur9DJ1rW4JsIGSQOe8Nr1/VEhFjRLdudjem8H2zNjVjY5cbAGamkBSTaDIuH5yu0f5yCwO4FywX9c0icR1OOlkZFUEeOvStjVM9DScx/dBPuF9xX0VsnVSC5kDzuxjvc7XB08on1kIF7itFdLdCHF0pfglRVkP7IcM6RqzJzZ/NS+IzKFnztoYeYjNUvIvtEO/yoWG3qJGfaHdIjELXkbz69skKboS5KA9bEF6d8zBTId0gzsTSsFVqTqwld1jOI3GMTSWIhW3em30UgY1fi0ao+jQEg5RPPQuvhSXdynAeyIfKDv9fJTFL+dgFWcpcj+bqSqnAK0JmPqU5SWFYCoGSJwLRnt5JUlTnXkkq5WAYM2yhAgeQyCNiTkbud3m49x/TktfyNTwrtllbmOZg0Ahpo8yJFStXgoWXbEOluTvoZEShjyrsqiPsFScehzdT5KCilErVmAOb9nAalzSYEUqdEj8C7Rr2DPJYReFhoNYFeGzEDICzr6cOqNMj6JKhHAJ5y4jFfEzT+D+0sK+TyxC8nwQObIozagTa+vDZKpWkRAhIWM6DdMe2/b/kcxdb9SwO3XQLamKKjPwwoSke7DtY/gXNqvvl9uUaNmhPc7BlBgr8Eo5K3898xqQK5DVe1DuXBSw8BYE/xqjWbeG1OTKXyifJbhkU5s2Ej5XrpHxSMu4/INhigvtRTQQ0IJfahUka9i6ERt2NHEweJnxDlTv0cJTYIywrju+4qcvDTdGPqejXLaBAmJS0Z/aogRybl+HRB5+34jZs280oY6QZmcbklTw3wGAuhYc+R+wtgPihcI0wbiUCesDwOEJPnoAP215Dgy/HzWClrH/Dr16FTelcIO8yfaP09qviVMYrw4J7VOSub49JaF5WwceyKALidXRIrFt3ZB4+3WM93n3xwjxHOY6iCf4loP+M+suzhH1hiWH6x5ObQz9pumXAYMyC1qqHi6SgYrVkddScmnA55NLB3k7/nQTNQ1GFhCr4pZqIQyJNkp76NiznAIBzoj7YeZtpJ32tDHHn9R1MhJnRnix+l3mI4Qdu+X8wzBGTuku3shwSaXTRSPzJGG2GWEyN2Fgsc8dCvOJhj3gEYu1LJSir",
+                            "SegRef": "1",
+                            "ItinRef": "0",
+                            "ConnectionFlag": "N",
+                            "FareId": "6E1",
+                            "Cabin": "",
+                            "FareBasisCode": "PL0INT",
+                            "Stops": null,
+                            "Via": "",
+                            "AirlineCategory": "LCC",
+                            "CNX": "N",
+                            "PlatingCarrier": "6E",
+                            "OperatingCarrier": "6E",
+                            "SegmentDetails": "Aircraft Type : 320\r\nJourney Time : 250\r\nStart Terminal : 3\r\nEndTerminal : 1\r\nBaggage : 30kg",
+                            "FlyingTime": "250",
+                            "OfflineIndicator": false,
+                            "MultiClass": null,
+                            "AllowFQT": false,
+                            "AvailSeat": "",
+                            "PromoCode": "",
+                            "PromoCodeDesc": "",
+                            "FareTypeDescription": "Normal",
+                            "FareDescription": null,
+                            "FareRuleInfo": null,
+                            "Refundable": "True",
+                            "Baggage": null
+                        },
+                        {
+                            "FlightID": "9279",
+                            "Stock": "6E",
+                            "FlightNumber": "6E 1836",
+                            "Origin": "AUH",
+                            "Destination": "DEL",
+                            "DepartureTerminal": "1",
+                            "ArrivalTerminal": "3",
+                            "DepartureDateTime": "20 Mar 2023 00:26",
+                            "ArrivalDateTime": "20 Mar 2023 05:26",
+                            "Class": "Q",
+                            "JourneyTime": "",
+                            "ReferenceToken": "+5C8/XDPALhSOIm9PNS5qOwXAmeoplfZewblIMprPQ07B8RFw7Zx6ZPKxv904C8UTqiRa0OtJt+U5zpxdbLUuOR7RMGDxiv6X7KNTqcqERLjyLS1JnGkVGdW3UiKWaoKUVpiejQpJ0z88CPBi/e46gvmpjjcQFBzexhCCjCgQCwVgHusPE1BYW9XHHYucE84CFg5Riap445h0mC7WnHr6cRFskbBtv/gxwRvIxhRK5VwKubJItbqIn3DmwdIiOubZSAJagWLy/mdv59nZkHCO/+50aSazwlX7pvtC5rJPeXOhsfM/2kwHHYElFlSw4tnRr8HlyNvz9cfHHzgKsLUMjjpbSnhpRqNFEeVJiFJy8ZhcmZ1gZw4PdH/6pwk/xL5vXIGZchFLmfg2j6Fr3+kwVoWNEGo7+F4HZz7XsIHzZodNF8QulIHJ6i/GU2Jat4cqduEeY2EzDzuogGPRY2qVCXoh/mnk/+TeZFN07mYS3QZMOMD82LaKXnU8wM1usyta+JssY7WaxH/ctw9h6ZV+GLgwakn7hiBECIPHoj9VLrGDUbzZO+igHc5ePWPKmRgyj/+tiZNxNJi/1t4eeSCM1bknb/KoaJnO77DG1pOqF8RmuGcQQicG5PziaQ7zUylVB4tTPgYi0RJRt/DmKnxBjCEAEU59U44Ozx8is269XbPtchMLBbfOuZetrHfKVTRTGckQ8vnyFWtdn6uavZk0U5KRGBeYBGzBMPz/SSZoofppQB2G8LG9FKt4i7DzZbuyMiDG6cuj2MOh96Ss9nvdL/etTKJUveLPJ19YCQH+WY19UHQLEXxW5d5f8QKriPtRsFwf8Cg7/xX0jNvZ7ExoZLo+5YbNzjQdYbaeU6MOSVRQxoSo48t2wkL4TrMF7W/txxeNnPgpngKvhw2j5hsNmLX52R++e3qOPFp5emfONNGHlvy1Jns6luCCcZjxwRX4omiTuAJJAEjy9N1hqgI31yya/70CPodzjF6Tn7SNEDO/awq2u36ThJL2wtXWUt9vz7Io0i9d6SKyCubRCA8wRpnGGki7NZAg6Sgbhs2nTf/PGocTG1ECOekD76aGlG4AChDhtU7iuEiM/Pcxr8sWTh9HEdG80Pyje8y0O2mKbMQxC8gvVg6/SOohK5D84NCA63eQiKoIiXbUQo42b8npCZhUZfuY1LNvNxDC7NbSwW86lg192ufgSCekVYhkh6cZlyf8cub7GK5HQr6r/KKqM375AvrUj/i2sByWou9HbnWCL6kD+xpQ+94HJwrzNP6T9QE3o4dW7BAHV2vI2BgJQ==",
+                            "SegRef": "2",
+                            "ItinRef": "1",
+                            "ConnectionFlag": "N",
+                            "FareId": "6E2",
+                            "Cabin": "",
+                            "FareBasisCode": "Q0INT",
+                            "Stops": null,
+                            "Via": "",
+                            "AirlineCategory": "LCC",
+                            "CNX": "N",
+                            "PlatingCarrier": "6E",
+                            "OperatingCarrier": "6E",
+                            "SegmentDetails": "Aircraft Type : 320\r\nJourney Time : 210\r\nStart Terminal : 1\r\nEndTerminal : 3\r\nBaggage : 30kg",
+                            "FlyingTime": "210",
+                            "OfflineIndicator": false,
+                            "MultiClass": null,
+                            "AllowFQT": false,
+                            "AvailSeat": "",
+                            "PromoCode": "",
+                            "PromoCodeDesc": "",
+                            "FareTypeDescription": "Normal",
+                            "FareDescription": null,
+                            "FareRuleInfo": null,
+                            "Refundable": "True",
+                            "Baggage": null
+                        }
+                    ],
+                    "Fares": [
+                        {
+                            "Currency": "INR",
+                            "FareType": "Normal",
+                            "Faredescription": [
+                                {
+                                    "Paxtype": "ADT",
+                                    "BaseAmount": "17259",
+                                    "TotalTaxAmount": "5090",
+                                    "GrossAmount": "22349",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "106",
+                                            "Code": "TP"
+                                        },
+                                        {
+                                            "Amount": "599",
+                                            "Code": "07GST"
+                                        },
+                                        {
+                                            "Amount": "212",
+                                            "Code": "ZR"
+                                        },
+                                        {
+                                            "Amount": "1029",
+                                            "Code": "ASF"
+                                        },
+                                        {
+                                            "Amount": "1593",
+                                            "Code": "AE"
+                                        },
+                                        {
+                                            "Amount": "50",
+                                            "Code": "PHF"
+                                        },
+                                        {
+                                            "Amount": "604",
+                                            "Code": "TTF"
+                                        },
+                                        {
+                                            "Amount": "62",
+                                            "Code": "UDF"
+                                        },
+                                        {
+                                            "Amount": "744",
+                                            "Code": "F6"
+                                        },
+                                        {
+                                            "Amount": "91",
+                                            "Code": "PSF"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Paxtype": "CHD",
+                                    "BaseAmount": "17259",
+                                    "TotalTaxAmount": "5090",
+                                    "GrossAmount": "22349",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "106",
+                                            "Code": "TP"
+                                        },
+                                        {
+                                            "Amount": "599",
+                                            "Code": "07GST"
+                                        },
+                                        {
+                                            "Amount": "212",
+                                            "Code": "ZR"
+                                        },
+                                        {
+                                            "Amount": "1029",
+                                            "Code": "ASF"
+                                        },
+                                        {
+                                            "Amount": "1593",
+                                            "Code": "AE"
+                                        },
+                                        {
+                                            "Amount": "50",
+                                            "Code": "PHF"
+                                        },
+                                        {
+                                            "Amount": "604",
+                                            "Code": "TTF"
+                                        },
+                                        {
+                                            "Amount": "62",
+                                            "Code": "UDF"
+                                        },
+                                        {
+                                            "Amount": "744",
+                                            "Code": "F6"
+                                        },
+                                        {
+                                            "Amount": "91",
+                                            "Code": "PSF"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Paxtype": "INF",
+                                    "BaseAmount": "5538",
+                                    "TotalTaxAmount": "0",
+                                    "GrossAmount": "5538",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "0",
+                                            "Code": "Tax"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "FlightId": "6E1"
+                        },
+                        {
+                            "Currency": "INR",
+                            "FareType": "Normal",
+                            "Faredescription": [
+                                {
+                                    "Paxtype": "ADT",
+                                    "BaseAmount": "17259",
+                                    "TotalTaxAmount": "5090",
+                                    "GrossAmount": "22349",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "106",
+                                            "Code": "TP"
+                                        },
+                                        {
+                                            "Amount": "599",
+                                            "Code": "07GST"
+                                        },
+                                        {
+                                            "Amount": "212",
+                                            "Code": "ZR"
+                                        },
+                                        {
+                                            "Amount": "1029",
+                                            "Code": "ASF"
+                                        },
+                                        {
+                                            "Amount": "1593",
+                                            "Code": "AE"
+                                        },
+                                        {
+                                            "Amount": "50",
+                                            "Code": "PHF"
+                                        },
+                                        {
+                                            "Amount": "604",
+                                            "Code": "TTF"
+                                        },
+                                        {
+                                            "Amount": "62",
+                                            "Code": "UDF"
+                                        },
+                                        {
+                                            "Amount": "744",
+                                            "Code": "F6"
+                                        },
+                                        {
+                                            "Amount": "91",
+                                            "Code": "PSF"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Paxtype": "CHD",
+                                    "BaseAmount": "17259",
+                                    "TotalTaxAmount": "5090",
+                                    "GrossAmount": "22349",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "106",
+                                            "Code": "TP"
+                                        },
+                                        {
+                                            "Amount": "599",
+                                            "Code": "07GST"
+                                        },
+                                        {
+                                            "Amount": "212",
+                                            "Code": "ZR"
+                                        },
+                                        {
+                                            "Amount": "1029",
+                                            "Code": "ASF"
+                                        },
+                                        {
+                                            "Amount": "1593",
+                                            "Code": "AE"
+                                        },
+                                        {
+                                            "Amount": "50",
+                                            "Code": "PHF"
+                                        },
+                                        {
+                                            "Amount": "604",
+                                            "Code": "TTF"
+                                        },
+                                        {
+                                            "Amount": "62",
+                                            "Code": "UDF"
+                                        },
+                                        {
+                                            "Amount": "744",
+                                            "Code": "F6"
+                                        },
+                                        {
+                                            "Amount": "91",
+                                            "Code": "PSF"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Paxtype": "INF",
+                                    "BaseAmount": "5538",
+                                    "TotalTaxAmount": "0",
+                                    "GrossAmount": "5538",
+                                    "Commission": "0",
+                                    "Incentive": "0",
+                                    "Servicecharge": "0",
+                                    "TDS": "0",
+                                    "Discount": "0",
+                                    "PLBAmount": "0",
+                                    "SF": "0",
+                                    "SFGST": "0",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "0",
+                                            "Code": "Tax"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "FlightId": "6E2"
+                        }
+                    ],
+                    "Meal": [
+                        {
+                            "Amount": "275",
+                            "Code": "VEG BIRYANI  Combo|VBIR",
+                            "Description": "VEG BIRYANI  Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7102",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "275",
+                            "Code": "RAVA UPMA  Combo|UPMA",
+                            "Description": "RAVA UPMA  Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7103",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "400",
+                            "Code": "Tomato Cucumber Cheese Lettuce Sandwich Combo|TCSW",
+                            "Description": "Tomato Cucumber Cheese Lettuce Sandwich Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7104",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "400",
+                            "Code": "Paneer Tikka Sandwich  Combo|PTSW",
+                            "Description": "Paneer Tikka Sandwich  Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7105",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "225",
+                            "Code": "POHA Combo|POHA",
+                            "Description": "POHA Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7106",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "275",
+                            "Code": "DAL CHAWAL  Combo|DACH",
+                            "Description": "DAL CHAWAL  Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7107",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "425",
+                            "Code": "Chicken Tikka Sandwich Combo|CTSW",
+                            "Description": "Chicken Tikka Sandwich Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7108",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "350",
+                            "Code": "Complimentary meal|CPML",
+                            "Description": "Complimentary meal",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7109",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "425",
+                            "Code": "Chicken Junglee Sandwich  Combo|CJSW",
+                            "Description": "Chicken Junglee Sandwich  Combo",
+                            "Destination": "DXB",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "7110",
+                            "Orgin": "DEL",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "275",
+                            "Code": "VEG BIRYANI  Combo|VBIR",
+                            "Description": "VEG BIRYANI  Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7111",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "275",
+                            "Code": "RAVA UPMA  Combo|UPMA",
+                            "Description": "RAVA UPMA  Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7112",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "400",
+                            "Code": "Tomato Cucumber Cheese Lettuce Sandwich Combo|TCSW",
+                            "Description": "Tomato Cucumber Cheese Lettuce Sandwich Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7113",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "400",
+                            "Code": "Paneer Tikka Sandwich  Combo|PTSW",
+                            "Description": "Paneer Tikka Sandwich  Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7114",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "225",
+                            "Code": "POHA Combo|POHA",
+                            "Description": "POHA Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7115",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "275",
+                            "Code": "DAL CHAWAL  Combo|DACH",
+                            "Description": "DAL CHAWAL  Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7116",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "425",
+                            "Code": "Chicken Tikka Sandwich Combo|CTSW",
+                            "Description": "Chicken Tikka Sandwich Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7117",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "350",
+                            "Code": "Complimentary meal|CPML",
+                            "Description": "Complimentary meal",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7118",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "425",
+                            "Code": "Chicken Junglee Sandwich  Combo|CJSW",
+                            "Description": "Chicken Junglee Sandwich  Combo",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "1",
+                            "MealID": "7119",
+                            "Orgin": "AUH",
+                            "SegRef": "2",
+                            "Url": ""
+                        }
+                    ],
+                    "Bagg": [
+                        {
+                            "Amount": "18000",
+                            "BaggageID": "7102",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 20KG|XBPJ",
+                            "Description": "ExcessBaggage 20KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "0",
+                            "BaggageID": "7103",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 20KG|XBPF",
+                            "Description": "ExcessBaggage 20KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "27000",
+                            "BaggageID": "7104",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 30KG|XBPD",
+                            "Description": "ExcessBaggage 30KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "13500",
+                            "BaggageID": "7105",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 15KG|XBPC",
+                            "Description": "ExcessBaggage 15KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "9000",
+                            "BaggageID": "7106",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 10KG|XBPB",
+                            "Description": "ExcessBaggage 10KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "4500",
+                            "BaggageID": "7107",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 5KG|XBPA",
+                            "Description": "ExcessBaggage 5KG",
+                            "Destination": "DXB",
+                            "Itinref": "0",
+                            "Orgin": "DEL",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "12748",
+                            "BaggageID": "7108",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 20KG|XBPJ",
+                            "Description": "ExcessBaggage 20KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        },
+                        {
+                            "Amount": "0",
+                            "BaggageID": "7109",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 20KG|XBPF",
+                            "Description": "ExcessBaggage 20KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        },
+                        {
+                            "Amount": "19121",
+                            "BaggageID": "7110",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 30KG|XBPD",
+                            "Description": "ExcessBaggage 30KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        },
+                        {
+                            "Amount": "9561",
+                            "BaggageID": "7111",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 15KG|XBPC",
+                            "Description": "ExcessBaggage 15KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        },
+                        {
+                            "Amount": "7436",
+                            "BaggageID": "7112",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 10KG|XBPB",
+                            "Description": "ExcessBaggage 10KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        },
+                        {
+                            "Amount": "4887",
+                            "BaggageID": "7113",
+                            "BaggageText": "",
+                            "Code": "ExcessBaggage 5KG|XBPA",
+                            "Description": "ExcessBaggage 5KG",
+                            "Destination": "DEL",
+                            "Itinref": "1",
+                            "Orgin": "AUH",
+                            "SegRef": "2"
+                        }
+                    ],
+                    "CacheAvail": false,
+                    "OtherService": [],
+                    "IsCurChange": false,
+                    "OfficeId": "OTI018",
+                    "Sqe": "17004934548816",
+                    "Status": null,
+                    "Stock": "6E"
+                }
+            ],
+            "AllowBlockPNR": "true",
+            "AllowGST": "true",
+            "AllowSeatMap": "true",
+            "DOBMandatory": "false",
+            "FareTypeDescription": "N",
+            "PassportMandatory": "false"
+        }
+    ],
+    "ResponseStatus": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "1700491427781766772758390800"
+    }
+}

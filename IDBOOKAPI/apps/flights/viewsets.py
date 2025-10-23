@@ -1,25 +1,23 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
-from django.db import transaction, models
+from django.db import models
 from datetime import datetime, timedelta
 import logging
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.utils import paginate_queryset
 from .models import (
-    Airline, Airport, FlightRoute, FlightInventory, FlightSearchSession, 
-    FlightOption, FlightBooking, PassengerDetail, AncillaryService,
-    SeatSelection, FlightBookingPayment
+    Airline, Airport, FlightRoute, FlightInventory, FlightSearchSession,
+    FlightOption
 )
 from .serializers import (
-    FlightSearchSerializer, FlightOptionSerializer, FlightBookingSerializer,
-    PassengerDetailSerializer, FlightSearchResultSerializer, FlightPricingSerializer,
-    BookingCreateSerializer, BookingRetrieveSerializer
+    FlightSearchSerializer, FlightOptionSerializer,
+    FlightSearchResultSerializer, FlightPricingSerializer
 )
 from .services.airiq_service import airiq_service, AirIQException
 from .services.inventory_service import inventory_service
@@ -678,25 +676,30 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
             "children": 0,
             "infants": 0,
             "trip_type": "O",
-            "track_id": "AQ144316163728603151443236663904RSCN5INQMIX"
+            "track_id": "<Trackid from Availability>"
         }
         """
+        missing = []
         if not request.data.get('flight_ids'):
+            missing.append('flight_ids')
+        if not request.data.get('track_id'):
+            missing.append('track_id')
+        if missing:
             return self.get_error_response(
-                message="flight_ids required",
+                message=f"Missing required fields: {', '.join(missing)}",
                 status="error",
-                error_code="MISSING_PARAMETER",
+                error_code="MISSING_FIELDS",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
         try:
             response_data = airiq_service.get_multi_class(
-                flight_ids=request.data['flight_ids'],
-                adults=request.data.get('adults', 1),
-                children=request.data.get('children', 0),
-                infants=request.data.get('infants', 0),
+                flight_ids=[str(fid) for fid in request.data['flight_ids']],
+                adults=int(request.data.get('adults', 1)),
+                children=int(request.data.get('children', 0)),
+                infants=int(request.data.get('infants', 0)),
                 trip_type=request.data.get('trip_type', 'O'),
-                track_id=request.data.get('track_id', '')
+                track_id=request.data['track_id']
             )
             
             return self.get_response(
@@ -711,7 +714,7 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
                 message=f"Multi-class request failed: {e}",
                 status="error",
                 error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Multi-class error: {e}")
@@ -735,10 +738,10 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
             "children": 0,
             "infants": 0,
             "trip_type": "O",
-            "track_id": "AQ144316163728603151443236663904RSCN5INQMIX"
+            "track_id": "<Trackid from Availability>"
         }
         """
-        required_fields = ['flight_ids', 'class_fare']
+        required_fields = ['flight_ids', 'class_fare', 'track_id']
         missing_fields = [field for field in required_fields if not request.data.get(field)]
         if missing_fields:
             return self.get_error_response(
@@ -748,15 +751,24 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
+        # Validate counts for roundtrip: ClassFare length should match FlightIDs length
+        if len(request.data['class_fare']) != len(request.data['flight_ids']):
+            return self.get_error_response(
+                message="class_fare count must match flight_ids count (one class per segment)",
+                status="error",
+                error_code="INVALID_CLASS_FARE",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
         try:
             response_data = airiq_service.get_multi_class_fare(
-                flight_ids=request.data['flight_ids'],
+                flight_ids=[str(fid) for fid in request.data['flight_ids']],
                 class_fare=request.data['class_fare'],
-                adults=request.data.get('adults', 1),
-                children=request.data.get('children', 0),
-                infants=request.data.get('infants', 0),
+                adults=int(request.data.get('adults', 1)),
+                children=int(request.data.get('children', 0)),
+                infants=int(request.data.get('infants', 0)),
                 trip_type=request.data.get('trip_type', 'O'),
-                track_id=request.data.get('track_id', '')
+                track_id=request.data['track_id']
             )
             
             return self.get_response(
@@ -771,7 +783,7 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
                 message=f"Multi-class fare request failed: {e}",
                 status="error",
                 error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Multi-class fare error: {e}")
@@ -779,6 +791,74 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
                 message="Failed to get multi-class fare",
                 status="error",
                 error_code="MULTI_CLASS_FARE_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], url_path='seatmap')
+    def get_seat_map(self, request):
+        """
+        Get seat map for selected flight segments
+        POST /api/v1/flights/pricing/seatmap/
+        
+        Body: {
+            "flight_segments": [
+                {
+                    "FlightID": "7368",
+                    "FlightNumber": "6E 292",
+                    "Origin": "IXB",
+                    "Destination": "CCU",
+                    "DepartureDateTime": "14 Nov 2023 14:20",
+                    "ArrivalDateTime": "14 Nov 2023 15:25"
+                }
+            ],
+            "passengers": [
+                {
+                    "reference": 1,
+                    "title": "Mr",
+                    "type": "ADT",
+                    "first_name": "TESTA",
+                    "last_name": "TEST"
+                }
+            ],
+            "track_id": "<TrackId from Pricing response>"
+        }
+        """
+        required_fields = ['flight_segments', 'passengers', 'track_id']
+        missing_fields = [field for field in required_fields if not request.data.get(field)]
+        if missing_fields:
+            return self.get_error_response(
+                message=f"Missing required fields: {', '.join(missing_fields)}",
+                status="error",
+                error_code="MISSING_FIELDS",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            response_data = airiq_service.get_seat_map(
+                flight_segments=request.data['flight_segments'],
+                passengers=request.data['passengers'],
+                track_id=request.data['track_id']
+            )
+            
+            return self.get_response(
+                data=response_data,
+                message="Seat map retrieved successfully",
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+        except AirIQException as e:
+            return self.get_error_response(
+                message=f"Seat map request failed: {e}",
+                status="error",
+                error_code="AIRIQ_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            logger.error(f"Seat map error: {e}")
+            return self.get_error_response(
+                message="Failed to get seat map",
+                status="error",
+                error_code="SEATMAP_ERROR",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -815,431 +895,3 @@ class FlightPricingViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
             )
 
 
-class FlightBookingViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
-    """Flight booking management endpoints"""
-    queryset = FlightBooking.objects.all()
-    serializer_class = FlightBookingSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        """Filter bookings by authenticated user"""
-        return self.queryset.filter(user=self.request.user)
-
-    def get_serializer_class(self):
-        """Use different serializers for different actions"""
-        if self.action == 'create':
-            return BookingCreateSerializer
-        elif self.action in ['retrieve', 'list']:
-            return BookingRetrieveSerializer
-        return self.serializer_class
-
-    def create(self, request):
-        """Create a new flight booking"""
-        serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return self.get_error_response(
-                message="Invalid booking data",
-                status="error",
-                errors=self.custom_serializer_error(serializer.errors),
-                error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            with transaction.atomic():
-                # Create the booking
-                booking_data = serializer.validated_data
-                booking = self._create_flight_booking(request.user, booking_data)
-                
-                # Return booking details
-                response_serializer = BookingRetrieveSerializer(booking)
-                return self.get_response(
-                    data=response_serializer.data,
-                    message="Booking created successfully",
-                    status="success",
-                    count=1,
-                    status_code=status.HTTP_201_CREATED
-                )
-                
-        except Exception as e:
-            logger.error(f"Booking creation error: {e}")
-            return self.get_error_response(
-                message="Failed to create booking",
-                status="error",
-                error_code="BOOKING_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def _create_flight_booking(self, user, booking_data):
-        """Handle the actual booking creation logic"""
-        # This method would contain the complex booking logic
-        # For now, creating a simplified version
-        flight_option = booking_data['flight_option']
-        
-        # Create booking
-        booking = FlightBooking.objects.create(
-            user=user,
-            selected_flight=flight_option,
-            search_session=flight_option.search_session,
-            booking_mode=flight_option.search_session.search_mode,
-            base_amount=booking_data['pricing']['base_amount'],
-            tax_amount=booking_data['pricing']['tax_amount'],
-            total_amount=booking_data['pricing']['total_amount'],
-            status='BOOKING_INITIATED'
-        )
-        
-        # Create passenger details
-        for i, passenger_data in enumerate(booking_data['passengers'], 1):
-            PassengerDetail.objects.create(
-                booking=booking,
-                passenger_reference=i,
-                passenger_type=passenger_data['passenger_type'],
-                title=passenger_data['title'],
-                first_name=passenger_data['first_name'],
-                last_name=passenger_data['last_name'],
-                date_of_birth=passenger_data['date_of_birth'],
-                gender=passenger_data['gender']
-            )
-        
-        return booking
-
-    @action(detail=True, methods=['post'], url_path='reschedule-availability')
-    def reschedule_availability(self, request, pk=None):
-        """
-        Get reschedule availability for existing booking
-        POST /api/v1/flights/bookings/{id}/reschedule-availability/
-        """
-        try:
-            booking = self.get_object()
-            
-            # Validate request data
-            required_fields = ['departure_station', 'arrival_station', 'flight_date']
-            missing_fields = [field for field in required_fields if not request.data.get(field)]
-            if missing_fields:
-                return self.get_error_response(
-                    message=f"Missing required fields: {', '.join(missing_fields)}",
-                    status="error",
-                    error_code="MISSING_FIELDS",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if not booking.airiq_pnr:
-                return self.get_error_response(
-                    message="This booking cannot be rescheduled - no AirIQ PNR",
-                    status="error",
-                    error_code="NOT_RESCHEDULE_ELIGIBLE",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ reschedule availability API
-            response_data = airiq_service.reschedule_availability(
-                trip_type=request.data.get('trip_type', 'O'),
-                departure_station=request.data['departure_station'],
-                arrival_station=request.data['arrival_station'],
-                flight_date=request.data['flight_date'],
-                airiq_pnr=booking.airiq_pnr,
-                remarks=request.data.get('remarks', '')
-            )
-            
-            return self.get_response(
-                data=response_data,
-                message="Reschedule availability retrieved successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"Reschedule availability failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Reschedule availability error: {e}")
-            return self.get_error_response(
-                message="Failed to get reschedule availability",
-                status="error",
-                error_code="RESCHEDULE_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['post'], url_path='reschedule')
-    def reschedule_booking(self, request, pk=None):
-        """
-        Reschedule existing booking
-        POST /api/v1/flights/bookings/{id}/reschedule/
-        """
-        try:
-            booking = self.get_object()
-            
-            if not booking.airiq_pnr:
-                return self.get_error_response(
-                    message="This booking cannot be rescheduled - no AirIQ PNR",
-                    status="error",
-                    error_code="NOT_RESCHEDULE_ELIGIBLE",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            required_fields = ['track_id', 'flight_details', 'contact_no']
-            missing_fields = [field for field in required_fields if not request.data.get(field)]
-            if missing_fields:
-                return self.get_error_response(
-                    message=f"Missing required fields: {', '.join(missing_fields)}",
-                    status="error",
-                    error_code="MISSING_FIELDS",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ reschedule API
-            response_data = airiq_service.reschedule_booking(
-                airiq_pnr=booking.airiq_pnr,
-                track_id=request.data['track_id'],
-                flight_details=request.data['flight_details'],
-                contact_no=request.data['contact_no'],
-                remarks=request.data.get('remarks', ''),
-                flag=request.data.get('flag', 'CONFIRM')
-            )
-            
-            return self.get_response(
-                data=response_data,
-                message="Booking rescheduled successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"Reschedule failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Reschedule error: {e}")
-            return self.get_error_response(
-                message="Failed to reschedule booking",
-                status="error",
-                error_code="RESCHEDULE_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['get'], url_path='ssr-services')
-    def get_ssr_services(self, request, pk=None):
-        """
-        Get available SSR services for booking
-        GET /api/v1/flights/bookings/{id}/ssr-services/
-        """
-        try:
-            booking = self.get_object()
-            
-            if not booking.airiq_pnr or not booking.airline_pnr:
-                return self.get_error_response(
-                    message="SSR services not available for this booking",
-                    status="error",
-                    error_code="NOT_SSR_ELIGIBLE",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ SSR services API
-            response_data = airiq_service.get_ssr_services(
-                airiq_pnr=booking.airiq_pnr,
-                airline_pnr=booking.airline_pnr
-            )
-            
-            return self.get_response(
-                data=response_data,
-                message="SSR services retrieved successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"SSR services request failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"SSR services error: {e}")
-            return self.get_error_response(
-                message="Failed to get SSR services",
-                status="error",
-                error_code="SSR_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['post'], url_path='add-ssr')
-    def add_ssr_services(self, request, pk=None):
-        """
-        Add SSR services to existing booking
-        POST /api/v1/flights/bookings/{id}/add-ssr/
-        
-        Body: {
-            "track_id": "string",
-            "meals_ssr": [{"PaxRefId": "1", "SegmentNo": "1", "MealId": "6785"}],
-            "baggage_ssr": [{"PaxRefId": "1", "BaggId": "9735"}],
-            "seats_ssr": [{"PaxRefId": "1", "SeatId": "6600"}],
-            "other_ssr": [{"OtherSSRId": "2142", "PaxRefId": "1"}],
-            "payment_amount": 5109,
-            "remarks": "Additional services"
-        }
-        """
-        try:
-            booking = self.get_object()
-            
-            if not booking.airiq_pnr or not booking.airline_pnr:
-                return self.get_error_response(
-                    message="Cannot add SSR services to this booking",
-                    status="error",
-                    error_code="NOT_SSR_ELIGIBLE",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if not request.data.get('track_id'):
-                return self.get_error_response(
-                    message="Track ID is required",
-                    status="error",
-                    error_code="MISSING_TRACK_ID",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ add SSR API
-            response_data = airiq_service.add_ssr_services(
-                airiq_pnr=booking.airiq_pnr,
-                airline_pnr=booking.airline_pnr,
-                track_id=request.data['track_id'],
-                meals_ssr=request.data.get('meals_ssr', []),
-                baggage_ssr=request.data.get('baggage_ssr', []),
-                seats_ssr=request.data.get('seats_ssr', []),
-                other_ssr=request.data.get('other_ssr', []),
-                payment_amount=request.data.get('payment_amount', 0),
-                remarks=request.data.get('remarks', '')
-            )
-            
-            return self.get_response(
-                data=response_data,
-                message="SSR services added successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"Add SSR services failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Add SSR error: {e}")
-            return self.get_error_response(
-                message="Failed to add SSR services",
-                status="error",
-                error_code="SSR_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['post'], url_path='cancel-hold')
-    def cancel_hold(self, request, pk=None):
-        """
-        Cancel held booking
-        POST /api/v1/flights/bookings/{id}/cancel-hold/
-        """
-        try:
-            booking = self.get_object()
-            
-            if not booking.airiq_pnr or not booking.airline_pnr:
-                return self.get_error_response(
-                    message="Cannot cancel hold for this booking",
-                    status="error",
-                    error_code="NOT_HOLD_ELIGIBLE",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if booking.status != 'BOOKING_HELD':
-                return self.get_error_response(
-                    message="Booking is not on hold",
-                    status="error",
-                    error_code="NOT_ON_HOLD",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ hold cancel API
-            response_data = airiq_service.hold_cancel(
-                airiq_pnr=booking.airiq_pnr,
-                airline_pnr=booking.airline_pnr
-            )
-            
-            # Update booking status
-            booking.status = 'HOLD_CANCELLED'
-            booking.save()
-            
-            return self.get_response(
-                data=response_data,
-                message="Hold cancelled successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"Hold cancellation failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Hold cancel error: {e}")
-            return self.get_error_response(
-                message="Failed to cancel hold",
-                status="error",
-                error_code="HOLD_CANCEL_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['get'], url_path='track-status')
-    def track_booking_status(self, request, pk=None):
-        """
-        Track booking status
-        GET /api/v1/flights/bookings/{id}/track-status/
-        """
-        try:
-            booking = self.get_object()
-            
-            if not booking.airiq_track_id:
-                return self.get_error_response(
-                    message="Cannot track status for this booking",
-                    status="error",
-                    error_code="NO_TRACK_ID",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Call AirIQ track status API
-            response_data = airiq_service.track_booking_status(
-                booking_track_id=booking.airiq_track_id
-            )
-            
-            return self.get_response(
-                data=response_data,
-                message="Booking status retrieved successfully",
-                status="success",
-                status_code=status.HTTP_200_OK
-            )
-            
-        except AirIQException as e:
-            return self.get_error_response(
-                message=f"Status tracking failed: {e}",
-                status="error",
-                error_code="AIRIQ_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Track status error: {e}")
-            return self.get_error_response(
-                message="Failed to track booking status",
-                status="error",
-                error_code="TRACK_STATUS_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )

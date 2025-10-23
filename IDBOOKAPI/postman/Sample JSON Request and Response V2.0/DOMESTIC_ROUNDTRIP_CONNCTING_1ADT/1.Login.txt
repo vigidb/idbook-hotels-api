@@ -1,0 +1,24 @@
+Request :- 
+
+
+
+
+Method: POST
+
+Headers : Base64string(AgentID + "*" + UserName + ":" + Password) --> Always in Every Request
+-------------------------------------------------------------------------------------------------
+
+
+Response :- 
+
+{
+    "AgentID": "XXXXXXXXXX",
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "16242128753082616"
+    },
+    "TerminalID": "XXXXXXXXXX",
+    "Token": "Z2JnWSstek1mRE1LMjhkTmN4UHMrLSstbWphdFJvTGZnZHcwRWdHU1FhRjJaOVc1aVF5anE3TGN5Z1NCWjNPU3pka3BJSXVZcjMvM0piNG9QOUxPN1BJeHU2blFOUHNBYVN6WlUyYXFpNXJjR2QwRUV3cml6eXozcFNnUVVzU1ErLWkxYXJqRzdYMkJxMkdCNHI2eWREbjdWcGhYeG5QY0tueDZSNUFoU2M1Q214YnUvL1M3aCstVHo0bDl6eXFpT3MwTHJWZlBQbkRlY0dEeDlwcW11VWt3ZW9BK0FEMEFQUS0=",
+    "UserName": "8855425745"
+}

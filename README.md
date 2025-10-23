@@ -1,5 +1,41 @@
 # IDBOOK_API
 
+## Running Development Server
+
+#### Activate virtual environment, navigate to project directory, and run development server:
+
+**On Unix/macOS:**
+```
+source venv/bin/activate
+cd IDBOOKAPI
+python manage.py runserver
+```
+
+**On Windows (cmd):**
+```
+venv\Scripts\activate
+cd IDBOOKAPI
+python manage.py runserver
+```
+
+**On Windows (PowerShell):**
+```
+venv\Scripts\Activate.ps1
+cd IDBOOKAPI
+python manage.py runserver
+```
+
+## Celery Background Service
+```
+celery -A IDBOOKAPI worker -l info -Q email-send-queue
+```
+
+## Celery beat Scheduler Service
+```
+celery -A IDBOOKAPI worker -l INFO -Q recpay-initiate-queue -B -s recpay-task.schedule
+
+```
+
 
 
 ## Getting started

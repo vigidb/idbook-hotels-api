@@ -123,28 +123,98 @@ class VehicleBooking(models.Model):
     
 
 class FlightBooking(models.Model):
+    """Enhanced flight booking model with AirIQ integration"""
+    # Basic flight details
     flight_no = models.CharField(max_length=50, default='', blank=True)
+    airline_code = models.CharField(max_length=3, blank=True, help_text="Airline code (e.g., 6E, UK)")
     flight_trip = models.CharField(max_length=25, choices=FLIGHT_TRIP,
                                    default='ROUND', help_text="flight trip (one-way or round).")
     flight_class  = models.CharField(max_length=25, choices=FLIGHT_CLASS,
                                    default='ECONOMY', help_text="flight class")
+    
+    # Flight schedule
     departure_date = models.DateTimeField(null=True, blank=True, help_text="Departure Date")
     arrival_date = models.DateTimeField(null=True, blank=True, help_text="Arrival Date")
     return_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
     return_arrival_date = models.DateTimeField(blank=True, null=True, help_text="Return Date")
     
+    # Route details
     flying_from = models.CharField(max_length=255, null=True, blank=True)
     flying_to = models.CharField(max_length=255, null=True, blank=True)
     return_from = models.CharField(max_length=255, null=True, blank=True)
     return_to = models.CharField(max_length=255, null=True, blank=True)
-##    flight_subtotal = models.DecimalField(
-##        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
-##    service_tax =  models.DecimalField(
-##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
+    
+    # AirIQ Integration fields
+    booking_reference = models.CharField(max_length=20, blank=True, 
+                                       help_text="Unique booking reference")
+    airiq_pnr = models.CharField(max_length=20, blank=True, help_text="AirIQ PNR")
+    airline_pnr = models.CharField(max_length=20, blank=True, help_text="Airline PNR")
+    airiq_track_id = models.CharField(max_length=255, blank=True, 
+                                     help_text="AirIQ tracking ID for API calls")
+    
+    # Booking status and workflow
+    status = models.CharField(max_length=20, choices=[
+        ('INITIATED', 'Booking Initiated'),
+        ('PENDING_PAYMENT', 'Pending Payment'),
+        ('HELD', 'Booking Held'),
+        ('CONFIRMED', 'Confirmed'),
+        ('TICKETED', 'Ticketed'),
+        ('CANCELLED', 'Cancelled'),
+        ('COMPLETED', 'Completed'),
+    ], default='INITIATED', help_text="Flight booking status")
+    
+    booking_mode = models.CharField(max_length=10, choices=[
+        ('REALTIME', 'Real-time'),
+        ('INVENTORY', 'Inventory'),
+    ], default='REALTIME', help_text="Booking mode")
+    
+    # Flight option and search session data (stored as JSON)
+    selected_flight_data = models.JSONField(default=dict, blank=True,
+                                          help_text="Selected flight option data")
+    search_session_data = models.JSONField(default=dict, blank=True,
+                                         help_text="Flight search session data")
+    
+    # Hold/Expiry management
+    hold_expires_at = models.DateTimeField(null=True, blank=True,
+                                          help_text="Booking hold expiry time")
+    payment_expires_at = models.DateTimeField(null=True, blank=True,
+                                            help_text="Payment lock expiry time (5 minutes)")
+    
+    # Data storage for enhanced booking flow
+    airiq_request_data = models.JSONField(default=dict, blank=True,
+                                        help_text="Original AirIQ request data for booking")
+    pricing_validation_data = models.JSONField(default=dict, blank=True,
+                                             help_text="Pricing validation response data")
+    fare_rules = models.JSONField(default=dict, blank=True,
+                                 help_text="Fare rules response from AirIQ for selected flights")
+    
+    # Ticket details
+    ticket_numbers = models.JSONField(default=list, blank=True,
+                                    help_text="List of ticket numbers for passengers")
     flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
     
+    # Timestamp tracking
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    
+    ##    flight_subtotal = models.DecimalField(
+    ##        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")
+    ##    service_tax =  models.DecimalField(
+    ##        max_digits=10, decimal_places=2, default=0.0, help_text="Service tax for flight ticket.")
+    ## NOTE: Pricing fields are handled by main Booking model (subtotal, service_tax, final_amount)
+    
     def __str__(self):
+        if self.airline_code and self.flight_no:
+            return f"{self.airline_code} {self.flight_no} - {self.flying_from} to {self.flying_to}"
         return str(self.id)
+    
+    @property
+    def is_expired(self):
+        """Check if booking hold is expired"""
+        if not self.hold_expires_at:
+            return False
+        from django.utils import timezone
+        return timezone.now() > self.hold_expires_at
 
     class Meta:
         verbose_name_plural = 'FlightBookings'
@@ -300,6 +370,110 @@ class BookingMetaInfo(models.Model):
     booking_created_date = models.DateTimeField(auto_now_add=True)
     booking_confirmed_date = models.DateTimeField(null=True, blank=True)
     booking_cancelled_date = models.DateTimeField(null=True, blank=True)
+
+
+# Flight-specific models for passenger and ancillary services
+class FlightPassenger(models.Model):
+    """Passenger details for flight bookings"""
+    flight_booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, related_name='passengers')
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='flight_passengers')
+    
+    # Passenger identification
+    passenger_reference = models.PositiveSmallIntegerField(help_text="Passenger reference number (1, 2, 3...)")
+    passenger_type = models.CharField(max_length=3, choices=[
+        ('ADT', 'Adult'),
+        ('CHD', 'Child'), 
+        ('INF', 'Infant'),
+    ], help_text="Passenger type")
+    
+    # Personal details
+    title = models.CharField(max_length=5, choices=[
+        ('MR', 'Mr'),
+        ('MRS', 'Mrs'),
+        ('MISS', 'Miss'),
+        ('MS', 'Ms'),
+        ('MSTR', 'Master'),
+        ('DR', 'Dr'),
+    ])
+    first_name = models.CharField(max_length=50)
+    last_name = models.CharField(max_length=50)
+    date_of_birth = models.DateField()
+    gender = models.CharField(max_length=10, choices=[
+        ('male', 'Male'),
+        ('female', 'Female'),
+    ])
+    
+    # Travel documents
+    passport_number = models.CharField(max_length=20, blank=True)
+    passport_expiry = models.DateField(null=True, blank=True)
+    passport_issued_date = models.DateField(null=True, blank=True)
+    passport_country_code = models.CharField(max_length=2, blank=True)
+    
+    # For infant passengers
+    infant_with_passenger = models.PositiveSmallIntegerField(null=True, blank=True, 
+                                                          help_text="Passenger reference traveling with infant")
+    
+    # Frequent flyer
+    frequent_flyer_number = models.CharField(max_length=20, blank=True)
+    frequent_flyer_airline = models.CharField(max_length=3, blank=True)
+    
+    # Ticket details
+    ticket_number = models.CharField(max_length=20, blank=True)
+    seat_number = models.CharField(max_length=5, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_flight_passenger'
+        verbose_name = 'Flight Passenger'
+        verbose_name_plural = 'Flight Passengers'
+        unique_together = ['flight_booking', 'passenger_reference']
+        ordering = ['passenger_reference']
+
+    def __str__(self):
+        return f"{self.title} {self.first_name} {self.last_name} ({self.passenger_type})"
+
+    @property
+    def full_name(self):
+        return f"{self.title} {self.first_name} {self.last_name}"
+
+
+class FlightAncillaryService(models.Model):
+    """Ancillary services like meals, baggage, etc. for flight bookings"""
+    flight_booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, related_name='ancillary_services')
+    passenger = models.ForeignKey(FlightPassenger, on_delete=models.CASCADE, related_name='services')
+    
+    # Service details
+    service_type = models.CharField(max_length=20, choices=[
+        ('MEAL', 'Meal'),
+        ('BAGGAGE', 'Baggage'),
+        ('SEAT', 'Seat'),
+        ('ASSURANCE', 'Travel Assurance'),
+        ('PRIORITY_CHECK_IN', 'Priority Check-in'),
+        ('BAGOUT', 'Baggage First'),
+        ('OTHER', 'Other Services'),
+    ])
+    airiq_service_id = models.CharField(max_length=100, blank=True)
+    service_code = models.CharField(max_length=20)
+    service_description = models.CharField(max_length=200)
+    
+    # Segment details
+    segment_reference = models.PositiveSmallIntegerField(default=1)
+    
+    # Pricing
+    service_price = models.DecimalField(max_digits=8, decimal_places=2)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_flight_ancillary'
+        verbose_name = 'Flight Ancillary Service'
+        verbose_name_plural = 'Flight Ancillary Services'
+
+    def __str__(self):
+        return f"{self.service_description} for {self.passenger.full_name} - ₹{self.service_price}"
     booking_completed_date = models.DateTimeField(null=True, blank=True)
     date_updated = models.DateTimeField(auto_now=True)
 

@@ -33,6 +33,11 @@ from apps.booking.utils.booking_utils import (
     update_no_show_status, check_pay_at_hotel_eligibility,
     handle_pay_at_hotel_payment_cancellation, get_gst_type, process_subscription_cashback,
     calculate_subscription_discount, commission_calculation)
+from apps.booking.utils.flight_payment_utils import (
+    FlightPaymentProcessor, FlightPaymentCallbackProcessor, 
+    validate_flight_booking_for_payment, get_flight_payment_methods)
+from apps.booking.utils.flight_status_utils import (
+    FlightBookingStatusTracker, FlightBookingRetriever)
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
@@ -83,6 +88,11 @@ from apps.org_resources.tasks import admin_send_sms_task, pro_member_send_sms_ta
 from apps.org_managements.utils import get_active_business
 from apps.org_resources.db_utils import get_company_details
 from apps.customer.utils.db_utils import get_user_based_customer
+from django.shortcuts import get_object_or_404
+import logging
+
+logger = logging.getLogger(__name__)
+
 ##test_param = openapi.Parameter(
 ##    'test', openapi.IN_QUERY, description="test manual param",
 ##    type=openapi.TYPE_BOOLEAN)
@@ -297,6 +307,176 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Verify guest flight booking with OTP and complete booking",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['booking_id', 'otp'],
+            properties={
+                'booking_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Booking ID"),
+                'otp': openapi.Schema(type=openapi.TYPE_STRING, description="OTP from email"),
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description="Email address")
+            }
+        ),
+        responses={
+            200: BookingSerializer,
+            400: openapi.Response(description="Invalid OTP or booking data"),
+            404: openapi.Response(description="Booking not found")
+        }
+    )
+    @action(detail=False, methods=['post'], url_path='verify-flight-booking', permission_classes=[AllowAny])
+    def verify_flight_booking(self, request):
+        """Verify guest flight booking OTP and complete the booking process"""
+        try:
+            booking_id = request.data.get('booking_id')
+            otp = request.data.get('otp')
+            email = request.data.get('email')
+            
+            if not all([booking_id, otp, email]):
+                return self.get_error_response(
+                    message="Booking ID, OTP, and email are required",
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get the booking
+            booking = get_object_or_404(
+                Booking.objects.select_related('flight_booking'),
+                id=booking_id,
+                booking_type='FLIGHT'
+            )
+            
+            if not booking.flight_booking:
+                return self.get_error_response(
+                    message="Flight booking not found",
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if booking is in verification pending state
+            if booking.flight_booking.status != 'VERIFICATION_PENDING':
+                return self.get_error_response(
+                    message="Booking is not in verification pending state",
+                    error_code="INVALID_STATE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verify OTP
+            from apps.booking.utils.flight_booking_utils import FlightBookingAuthManager
+            
+            flight_data = booking.flight_booking.search_session_data.get('guest_booking_data', {})
+            auth_manager = FlightBookingAuthManager(flight_data)
+            auth_manager.contact_email = email
+            
+            success, message, user = auth_manager.verify_guest_booking_otp(otp)
+            if not success:
+                return self.get_error_response(
+                    message=message,
+                    error_code="VERIFICATION_FAILED",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Complete the flight booking process
+            from apps.booking.utils.flight_booking_utils import FlightBookingProcessor
+            from apps.flights.services.airiq_service import airiq_service, AirIQException
+            
+            # Update booking with verified user
+            booking.user = user
+            
+            # Process full flight booking
+            processor = FlightBookingProcessor(user, flight_data)
+            
+            # Create AirIQ booking
+            try:
+                airiq_booking_data = {
+                    'adults': flight_data['adult_count'],
+                    'children': flight_data['child_count'],
+                    'infants': flight_data['infant_count'],
+                    'token': flight_data['pricing_token'],
+                    'flight_segments': flight_data['flight_segments'],
+                    'passengers': flight_data['passengers'],
+                    'contact': flight_data['contact'],
+                    'gst': flight_data['gst_info'],
+                    'seats': flight_data['seats'],
+                    'baggage': flight_data['baggage'],
+                    'meals': flight_data['meals'],
+                    'other_services': flight_data['other_services'],
+                    'frequent_flyer': flight_data['frequent_flyer'],
+                    'trip_type': flight_data['trip_type'],
+                    'origin': flight_data['base_origin'],
+                    'destination': flight_data['base_destination'],
+                    'total_amount': flight_data['total_amount']
+                }
+                
+                airiq_response = airiq_service.create_booking(
+                    booking_data=airiq_booking_data,
+                    track_id=flight_data['track_id'],
+                    block_pnr=flight_data.get('block_pnr', False)
+                )
+                
+                # Update flight booking with AirIQ data
+                booking.flight_booking.airiq_pnr = airiq_response.get('AirIqPNR', '')
+                booking.flight_booking.airline_pnr = airiq_response.get('AirlinePNR', '')
+                booking.flight_booking.airiq_track_id = airiq_response.get('BookingTrackId', '')
+                booking.flight_booking.status = 'CONFIRMED' if not flight_data.get('block_pnr') else 'HELD'
+                booking.flight_booking.booking_reference = processor.generate_confirmation_code()
+                booking.flight_booking.save()
+                
+                # Update main booking
+                pricing = processor.calculate_pricing()
+                booking.subtotal = pricing['subtotal']
+                booking.gst_amount = pricing['gst_amount']
+                booking.gst_percentage = pricing['gst_percentage']
+                booking.gst_type = pricing['gst_type']
+                booking.service_tax = pricing['service_tax']
+                booking.final_amount = pricing['final_amount']
+                booking.confirmation_code = booking.flight_booking.booking_reference
+                booking.status = 'confirmed' if booking.flight_booking.status == 'CONFIRMED' else 'pending'
+                booking.save()
+                
+                # Create passengers and services
+                passengers = processor.create_passengers(booking, booking.flight_booking)
+                services = processor.create_ancillary_services(booking.flight_booking, passengers)
+                
+                # Send notifications
+                if booking.status == 'confirmed':
+                    send_booking_email_task.delay(booking.id, 'flight-booking-confirmation')
+                    send_booking_sms_task.delay(booking.id, 'FLIGHT_BOOKING_CONFIRMATION')
+                
+                self.log_info(
+                    f"Flight booking verification completed for booking {booking_id}",
+                    extra={
+                        'booking_id': booking_id,
+                        'user_id': user.id,
+                        'email': email
+                    }
+                )
+                
+                # Return updated booking
+                serializer = self.get_serializer(booking)
+                return self.get_response(
+                    status="success",
+                    data=serializer.data,
+                    message="Flight booking verified and completed successfully",
+                    status_code=status.HTTP_200_OK
+                )
+                
+            except AirIQException as e:
+                logger.error(f"AirIQ error during verification: {str(e)}")
+                return self.get_error_response(
+                    message=f"Flight booking failed: {str(e)}",
+                    error_code="AIRIQ_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in verify_flight_booking: {str(e)}")
+            return self.get_error_response(
+                message="Verification failed",
+                error_code="VERIFICATION_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @swagger_auto_schema(
         query_serializer=QueryFilterBookingSerializer, operation_description="List Booking Based on User Roles",
@@ -1927,7 +2107,41 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         instance = self.get_object()
         user = self.request.user
 
-        # Add check for pay_at_hotel parameter
+        # If this is a flight booking, handle payment (wallet) via flight flow and return early
+        if instance.booking_type == 'FLIGHT':
+            print("flight booking", instance.id)
+            is_valid, msg = validate_flight_booking_for_payment(instance)
+            if not is_valid:
+                return self.get_error_response(
+                    message=msg,
+                    status="error", errors=[], error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Default to WALLET payment for this endpoint
+            amount = request.data.get('amount', float(instance.final_amount))
+            payment_data = {
+                'amount': amount,
+                'payment_channel': 'WALLET'
+            }
+            print("payment_data::", payment_data)
+            processor = FlightPaymentProcessor(instance, user, payment_data)
+            result = processor.initiate_payment()
+            if not result.get('success'):
+                error_msg = result.get('error') or "; ".join(result.get('errors', [])) or "Payment failed"
+                error_code = result.get('error_code', 'PAYMENT_ERROR')
+                return self.get_error_response(
+                    message=error_msg,
+                    status="error", errors=result.get('errors', []), error_code=error_code,
+                    status_code=status.HTTP_400_BAD_REQUEST)
+
+            return self.get_response(
+                status='success', data={
+                    'transaction_id': result.get('transaction_id'),
+                    'payment_method': 'WALLET'
+                },
+                message="Booking Confirmed", status_code=status.HTTP_200_OK,)
+
+        # Add check for pay_at_hotel parameter (HOTEL flow)
         pay_at_hotel = request.data.get('pay_at_hotel', False)
         
         if not instance.hotel_booking:
@@ -2586,6 +2800,476 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             status_code=status.HTTP_200_OK
         )
 
+    # Flight Payment Integration Endpoints
+    @action(detail=True, methods=['POST'], url_path='flight-payment/initiate',
+            url_name='flight-payment-initiate', permission_classes=[IsAuthenticated])
+    def initiate_flight_payment(self, request, pk):
+        """Initiate payment for flight booking"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking instance
+            booking = self.get_object()
+            
+            # Validate flight booking
+            is_valid, message = validate_flight_booking_for_payment(booking)
+            if not is_valid:
+                return self.get_error_response(
+                    message=message,
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize payment processor
+            user = request.user
+            payment_data = request.data
+            
+            processor = FlightPaymentProcessor(booking, user, payment_data)
+            result = processor.initiate_payment()
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Flight payment initiated successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Payment initiation failed'),
+                    status="error",
+                    errors=result.get('errors', []),
+                    error_code=result.get('error_code', 'PAYMENT_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Flight payment initiation error: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['GET'], url_path='flight-payment/methods',
+            url_name='flight-payment-methods', permission_classes=[IsAuthenticated])
+    def get_flight_payment_methods(self, request, pk):
+        """Get available payment methods for flight booking"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking instance
+            booking = self.get_object()
+            
+            # Validate flight booking
+            is_valid, message = validate_flight_booking_for_payment(booking)
+            if not is_valid:
+                return self.get_error_response(
+                    message=message,
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get available payment methods
+            payment_methods = get_flight_payment_methods(request.user)
+            
+            return self.get_response(
+                status="success",
+                data={
+                    'booking_id': booking.id,
+                    'booking_amount': float(booking.final_amount),
+                    'payment_methods': payment_methods
+                },
+                message="Payment methods retrieved successfully",
+                status_code=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting flight payment methods: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['POST'], url_path='flight-payment/phonepe-callback',
+            url_name='flight-payment-phonepe-callback', permission_classes=[])
+    def flight_payment_phonepe_callback(self, request):
+        """Handle PhonePe payment callback for flight bookings"""
+        
+        try:
+            self.log_request(request)
+            
+            result = FlightPaymentCallbackProcessor.process_phonepe_callback(request.data)
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Payment callback processed successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Callback processing failed'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'CALLBACK_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"PhonePe callback processing error: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="CALLBACK_PROCESSING_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['POST'], url_path='flight-payment/payu-success',
+            url_name='flight-payment-payu-success', permission_classes=[])
+    def flight_payment_payu_success(self, request):
+        """Handle PayU success callback for flight bookings"""
+        
+        try:
+            self.log_request(request)
+            
+            result = FlightPaymentCallbackProcessor.process_payu_callback(request.data, is_success=True)
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Payment successful",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Payment processing failed'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'PAYMENT_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"PayU success callback error: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="CALLBACK_PROCESSING_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['POST'], url_path='flight-payment/payu-failure',
+            url_name='flight-payment-payu-failure', permission_classes=[])
+    def flight_payment_payu_failure(self, request):
+        """Handle PayU failure callback for flight bookings"""
+        
+        try:
+            self.log_request(request)
+            
+            result = FlightPaymentCallbackProcessor.process_payu_callback(request.data, is_success=False)
+            
+            return self.get_response(
+                status="success",
+                data=result,
+                message="Payment failure processed",
+                status_code=status.HTTP_200_OK
+            )
+                
+        except Exception as e:
+            logger.error(f"PayU failure callback error: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="CALLBACK_PROCESSING_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    # Flight Booking Status and Retrieval Endpoints
+    @action(detail=True, methods=['GET'], url_path='flight-details',
+            url_name='flight-details', permission_classes=[IsAuthenticated])
+    def get_flight_booking_details(self, request, pk):
+        """Get comprehensive flight booking details"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking details
+            result = FlightBookingRetriever.get_booking_details(pk, request.user)
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Flight booking details retrieved successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Failed to retrieve booking details'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'RETRIEVAL_ERROR'),
+                    status_code=status.HTTP_404_NOT_FOUND if result.get('error_code') == 'BOOKING_NOT_FOUND' else status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Error getting flight booking details: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['POST'], url_path='flight-status/update',
+            url_name='flight-status-update', permission_classes=[IsAuthenticated])
+    def update_flight_status_from_airiq(self, request, pk):
+        """Update flight booking status from AirIQ"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking and validate
+            booking = self.get_object()
+            if booking.booking_type != 'FLIGHT':
+                return self.get_error_response(
+                    message="Not a flight booking",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_BOOKING_TYPE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize status tracker
+            tracker = FlightBookingStatusTracker(booking=booking)
+            result = tracker.update_status_from_airiq()
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Flight status updated successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Failed to update status'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'STATUS_UPDATE_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Error updating flight status: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['GET'], url_path='flight-status',
+            url_name='flight-status', permission_classes=[IsAuthenticated])
+    def get_flight_booking_status(self, request, pk):
+        """Get current flight booking status"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking and validate
+            booking = self.get_object()
+            if booking.booking_type != 'FLIGHT':
+                return self.get_error_response(
+                    message="Not a flight booking",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_BOOKING_TYPE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize status tracker
+            tracker = FlightBookingStatusTracker(booking=booking)
+            current_status = tracker.get_current_status()
+            
+            return self.get_response(
+                status="success",
+                data=current_status,
+                message="Flight status retrieved successfully",
+                status_code=status.HTTP_200_OK
+            )
+                
+        except Exception as e:
+            logger.error(f"Error getting flight status: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['GET'], url_path='flight-timeline',
+            url_name='flight-timeline', permission_classes=[IsAuthenticated])
+    def get_flight_booking_timeline(self, request, pk):
+        """Get flight booking timeline"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking and validate
+            booking = self.get_object()
+            if booking.booking_type != 'FLIGHT':
+                return self.get_error_response(
+                    message="Not a flight booking",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_BOOKING_TYPE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize status tracker
+            tracker = FlightBookingStatusTracker(booking=booking)
+            timeline = tracker.get_booking_timeline()
+            
+            return self.get_response(
+                status="success",
+                data={
+                    'booking_id': booking.id,
+                    'timeline': timeline
+                },
+                message="Flight booking timeline retrieved successfully",
+                status_code=status.HTTP_200_OK
+            )
+                
+        except Exception as e:
+            logger.error(f"Error getting flight timeline: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['GET'], url_path='my-flights',
+            url_name='my-flights', permission_classes=[IsAuthenticated])
+    def get_user_flight_bookings(self, request):
+        """Get user's flight bookings with filters"""
+        
+        try:
+            self.log_request(request)
+            
+            # Parse filters from query parameters
+            filters = {}
+            if request.query_params.get('status'):
+                filters['status'] = request.query_params.get('status')
+            if request.query_params.get('date_from'):
+                filters['date_from'] = request.query_params.get('date_from')
+            if request.query_params.get('date_to'):
+                filters['date_to'] = request.query_params.get('date_to')
+            if request.query_params.get('origin'):
+                filters['origin'] = request.query_params.get('origin')
+            if request.query_params.get('destination'):
+                filters['destination'] = request.query_params.get('destination')
+            
+            # Get user bookings
+            result = FlightBookingRetriever.get_user_flight_bookings(request.user, filters)
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="User flight bookings retrieved successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Failed to retrieve bookings'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'RETRIEVAL_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Error getting user flight bookings: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['POST'], url_path='flight-schedule/check',
+            url_name='flight-schedule-check', permission_classes=[IsAuthenticated])
+    def check_flight_schedule_updates(self, request, pk):
+        """Check for flight schedule updates"""
+        
+        try:
+            self.log_request(request)
+            
+            # Get booking and validate
+            booking = self.get_object()
+            if booking.booking_type != 'FLIGHT':
+                return self.get_error_response(
+                    message="Not a flight booking",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_BOOKING_TYPE",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize status tracker
+            tracker = FlightBookingStatusTracker(booking=booking)
+            result = tracker.check_flight_schedule_updates()
+            
+            if result['success']:
+                return self.get_response(
+                    status="success",
+                    data=result,
+                    message="Flight schedule checked successfully",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return self.get_error_response(
+                    message=result.get('error', 'Failed to check schedule'),
+                    status="error",
+                    errors=[],
+                    error_code=result.get('error_code', 'SCHEDULE_CHECK_ERROR'),
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Error checking flight schedule: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 ##class ReviewViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 ##    queryset = Review.objects.all()
 ##    serializer_class = ReviewSerializer
@@ -2833,6 +3517,10 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
     permission_classes = []
 
     def cross_check_booking_availability(self, instance):
+        # Only check availability for hotel bookings
+        if instance.booking_type != 'HOTEL':
+            return []  # No availability check needed for non-hotel bookings
+            
         property_id = instance.hotel_booking.confirmed_property_id
         room_details = instance.hotel_booking.confirmed_room_details
         checkin_time = instance.hotel_booking.confirmed_checkin_time
@@ -2911,12 +3599,16 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 ##                                                          status_code=status.HTTP_400_BAD_REQUEST)
 ##                return custom_response
                 
-            amount = request.data.get('amount', None)
-            if not amount:
-                custom_response = self.get_error_response(message="Amount is required", status="error",
-                                                          errors=[],error_code="VALIDATION_ERROR",
-                                                          status_code=status.HTTP_400_BAD_REQUEST)
-                return custom_response
+            # For flight bookings, use the booking's final amount instead of requiring user input
+            if booking.booking_type == 'FLIGHT':
+                amount = str(booking.final_amount)  # Use booking amount for flights
+            else:
+                amount = request.data.get('amount', None)
+                if not amount:
+                    custom_response = self.get_error_response(message="Amount is required", status="error",
+                                                              errors=[],error_code="VALIDATION_ERROR",
+                                                              status_code=status.HTTP_400_BAD_REQUEST)
+                    return custom_response
 
             #https://mercury-uat.phonepe.com/transact/simulator?token=87tM6GJCcJ142nCtz6gGhFHm9DCL3H4LepDHs5
 
@@ -3007,8 +3699,8 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 booking.user_id = user.id
                 booking.save()
             
-            # Handling for pay_at_hotel case
-            if pay_at_hotel:
+            # Handling for pay_at_hotel case (only for hotel bookings)
+            if pay_at_hotel and booking.booking_type == 'HOTEL':
                 confirmed_property = booking.hotel_booking.confirmed_property
                 if not confirmed_property or not confirmed_property.pay_at_hotel:
                     print("Property does not support Pay-at-Hotel. Proceeding with PhonePe payment.")
@@ -3036,7 +3728,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                         booking.save()
                         booking.meta_info.booking_confirmed_date = datetime.now()
                         booking.meta_info.save()
-
+                        
                         # save booking commission details
                         commission_details = commission_calculation(confirmed_property.id, booking.subtotal,
                                                                     booking.total_discount, booking.final_amount, 
@@ -3082,6 +3774,10 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                             status_code=status.HTTP_200_OK,
                         )
                         return custom_response
+                        
+            elif pay_at_hotel and booking.booking_type == 'FLIGHT':
+                # Pay-at-hotel is not applicable for flight bookings
+                print("Pay-at-hotel is not applicable for flight bookings. Proceeding with PhonePe payment.")
             # payment_channel = 'PHONE PAY'
             if payment_channel == 'PHONE PAY':
                 merchant_id = settings.MERCHANT_ID
@@ -3091,7 +3787,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                     "merchantId": merchant_id,
                     "merchantTransactionId": merchant_transaction_id,
                     "merchantUserId": user_id,
-                    "amount": int(amount) * 100,
+                    "amount": int(float(amount)) * 100,
                     "redirectUrl": redirect_url, # "https://webhook.site/redirect-url",
                     "redirectMode": "REDIRECT",
                     "callbackUrl": callback_url, #https://webhook.site/592b9daf-b744-4fe8-97f1-652f1d4b65bd
@@ -3174,19 +3870,26 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             booking.meta_info.booking_confirmed_date = datetime.now()
             booking.meta_info.save()
 
-            # save booking commission details
-            commission_details = commission_calculation(booking.hotel_booking.confirmed_property_id,
-                                                        booking.subtotal, booking.total_discount, booking.final_amount,
-                                                        booking.gst_amount)
-            if commission_details:
-                add_or_update_booking_commission(booking.id, commission_details)
+            # save booking commission details (only for hotel bookings)
+            if booking.booking_type == 'HOTEL':
+                commission_details = commission_calculation(booking.hotel_booking.confirmed_property_id,
+                                                            booking.subtotal, booking.total_discount, booking.final_amount,
+                                                            booking.gst_amount)
+                if commission_details:
+                    add_or_update_booking_commission(booking.id, commission_details)
 
-            # update property confirmed booking count
-            property_id = booking.hotel_booking.confirmed_property_id
-            process_property_confirmed_booking_total(property_id)
+                # update property confirmed booking count
+                property_id = booking.hotel_booking.confirmed_property_id
+                process_property_confirmed_booking_total(property_id)
         
             create_invoice_task.apply_async(args=[booking_id])
-            send_hotel_receipt_email_task.apply_async(args=[booking_id])
+            
+            # Send appropriate email based on booking type
+            if booking.booking_type == 'HOTEL':
+                send_hotel_receipt_email_task.apply_async(args=[booking_id])
+            elif booking.booking_type == 'FLIGHT':
+                # Add flight-specific email task here if needed
+                pass
 
             try:
                 cashback_applied = process_subscription_cashback(booking.user, booking_id)
@@ -3199,13 +3902,20 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
 
             # Send Pro Member Discount SMS notification if discount applied
             if hasattr(booking, 'pro_member_discount_value') and booking.pro_member_discount_value > 0:
+                if booking.booking_type == 'HOTEL':
+                    hotel_name = booking.hotel_booking.confirmed_property.name
+                elif booking.booking_type == 'FLIGHT':
+                    hotel_name = f"Flight Booking {booking.flight_booking.booking_reference}"
+                else:
+                    hotel_name = f"{booking.booking_type} Booking"
+                    
                 pro_member_send_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'PRO_MEMBER_DISCOUNT',
                         'params': {
                             'user_id': booking.user.id,
                             'discount_amount': booking.pro_member_discount_value,
-                            'hotel_name': booking.hotel_booking.confirmed_property.name
+                            'hotel_name': hotel_name
                         }
                     }
                 )
@@ -3270,15 +3980,36 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 )
 
             if code == "PAYMENT_SUCCESS":
-                self.set_booking_as_confirmed(booking_id, amount)
-                send_booking_sms_task.apply_async(
-                    kwargs={
-                        'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
-                        'params': {
-                            'booking_id': booking_id
-                        }
+                # Handle flight bookings differently
+                booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+                
+                if booking.booking_type == 'FLIGHT':
+                    # Use flight-specific payment success handler
+                    from apps.booking.utils.flight_payment_utils import handle_flight_payment_success
+                    
+                    payment_details = {
+                        'amount': amount,
+                        'payment_channel': 'PHONE_PAY',
+                        'transaction_id': transaction_id,
+                        'payment_data': sub_json_data
                     }
-                )
+                    
+                    success = handle_flight_payment_success(booking_id, payment_details)
+                    if success:
+                        print(f"Flight booking {booking_id} confirmed and ticket issued automatically")
+                    else:
+                        print(f"Error processing flight booking {booking_id} payment success")
+                else:
+                    # Handle hotel bookings as before
+                    self.set_booking_as_confirmed(booking_id, amount)
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            'notification_type': 'HOTEL_BOOKING_CONFIRMATION',
+                            'params': {
+                                'booking_id': booking_id
+                            }
+                        }
+                    )
                 send_hotel_sms_task.apply_async(
                     kwargs={
                         'notification_type': 'HOTELIER_BOOKING_NOTIFICATION',

@@ -216,49 +216,117 @@ def invoice_json_vehicle_booking(vehicle_booking):
     return item
 
 def invoice_json_flight_booking(flight_booking):
-    flight_no = flight_booking.flight_no
-    flight_trip = flight_booking.flight_trip
+    """Generate comprehensive flight booking invoice items including passengers and ancillary services"""
+    items = []
     
+    # Flight base details
+    flight_no = flight_booking.flight_no or 'TBD'
+    flight_trip = flight_booking.flight_trip
     flying_from = flight_booking.flying_from
     flying_to = flight_booking.flying_to
-
+    flight_class = flight_booking.flight_class
+    
     departure_date = flight_booking.departure_date
     arrival_date = flight_booking.arrival_date
-    departure_time = departure_date.strftime('%H:%M %Z%z') if departure_date else ''
-    arrival_time = arrival_date.strftime('%H:%M %Z%z') if arrival_date else ''
-    #flight_subtotal = float(flight_booking.flight_subtotal)
+    departure_time = departure_date.strftime('%d-%m-%Y %H:%M') if departure_date else 'TBD'
+    arrival_time = arrival_date.strftime('%d-%m-%Y %H:%M') if arrival_date else 'TBD'
     
-    flight_class = flight_booking.flight_class
-    flight_trip = flight_booking.flight_trip
-
+    # Main flight item description
     if flight_trip == 'ONE-WAY':
-        description = "Flight Class: {flight_class}, Flight trip {flight_trip}, \
-Date- {departure_date}, Flight Destination- {flying_from} to {flying_to} \
-Flight Number- {flight_no} \
-Time - {flying_from} departure {departure_time} and \
-{flying_to} arrival {arrival_time}".format(
-            flight_class=flight_class, flight_trip=flight_trip,
-            departure_date=departure_date, flying_from=flying_from, flying_to=flying_to,
-            flight_no=flight_no, departure_time = departure_time, arrival_time=arrival_time)
+        description = f"Flight Class: {flight_class}, Trip: {flight_trip}\n" + \
+                     f"Route: {flying_from} → {flying_to}\n" + \
+                     f"Flight Number: {flight_no}\n" + \
+                     f"Departure: {departure_time}\n" + \
+                     f"Arrival: {arrival_time}"
     elif flight_trip == 'ROUND':
         return_date = flight_booking.return_date
         return_arrival_date = flight_booking.return_arrival_date
-        return_from = flight_booking.return_from
-        return_to = flight_booking.return_to
+        return_from = flight_booking.return_from or flying_to
+        return_to = flight_booking.return_to or flying_from
         
-        description = f"Flight Class: {flight_class}, Flight trip {flight_trip}, \
-Date- {departure_date}, Flight Destination- {flying_from} to {flying_to} \
-Flight Number- {flight_no} \
-Time - {flying_from} departure {departure_date} and \
-{flying_to} arrival {arrival_date} \
-Return Time - {return_from} departure {return_date} and \
-{return_to} arrival {return_arrival_date}"
-
+        return_dep_time = return_date.strftime('%d-%m-%Y %H:%M') if return_date else 'TBD'
+        return_arr_time = return_arrival_date.strftime('%d-%m-%Y %H:%M') if return_arrival_date else 'TBD'
+        
+        description = f"Flight Class: {flight_class}, Trip: {flight_trip}\n" + \
+                     f"Outbound: {flying_from} → {flying_to} on {departure_time}\n" + \
+                     f"Return: {return_from} → {return_to} on {return_dep_time}\n" + \
+                     f"Flight Number: {flight_no}"
+    else:
+        description = f"Flight Class: {flight_class}, Route: {flying_from} → {flying_to}"
     
-    name = "FLIGHT ({flight_no})".format(flight_no=flight_no)
-    item = { "name": name, "description": description, "quantity": 1,
-         "price": "", "amount": ""}
-    return item
+    # Add passenger count to description
+    passengers = flight_booking.flight_passengers.all()
+    passenger_count = {
+        'adult': passengers.filter(passenger_type='ADULT').count(),
+        'child': passengers.filter(passenger_type='CHILD').count(),
+        'infant': passengers.filter(passenger_type='INFANT').count()
+    }
+    
+    passenger_info = []
+    if passenger_count['adult'] > 0:
+        passenger_info.append(f"{passenger_count['adult']} Adult(s)")
+    if passenger_count['child'] > 0:
+        passenger_info.append(f"{passenger_count['child']} Child(ren)")
+    if passenger_count['infant'] > 0:
+        passenger_info.append(f"{passenger_count['infant']} Infant(s)")
+    
+    if passenger_info:
+        description += f"\nPassengers: {', '.join(passenger_info)}"
+    
+    # Main flight booking item
+    flight_name = f"Flight Booking - {flying_from} to {flying_to}"
+    if flight_no != 'TBD':
+        flight_name += f" ({flight_no})"
+        
+    main_item = {
+        "name": flight_name,
+        "description": description,
+        "quantity": 1,
+        "price": float(flight_booking.base_fare or 0),
+        "amount": float(flight_booking.base_fare or 0),
+        "gst": float(flight_booking.gst_percentage or 0),
+        "tax": float(flight_booking.gst_amount or 0),
+        "discount": 0,  # Flight discounts handled at booking level
+        "final_total": float(flight_booking.base_fare or 0)
+    }
+    items.append(main_item)
+    
+    # Add ancillary services as separate line items
+    ancillary_services = flight_booking.flight_ancillary_services.all()
+    if ancillary_services.exists():
+        # Group services by type for better presentation
+        service_groups = {}
+        for service in ancillary_services:
+            service_type = service.service_type
+            if service_type not in service_groups:
+                service_groups[service_type] = []
+            service_groups[service_type].append(service)
+        
+        for service_type, services in service_groups.items():
+            total_price = sum(float(s.service_price or 0) for s in services)
+            service_count = len(services)
+            
+            # Create descriptions for each service type
+            service_descriptions = []
+            for service in services:
+                passenger_name = f"{service.passenger.first_name} {service.passenger.last_name}" if service.passenger else 'Unknown'
+                service_desc = f"{passenger_name}: {service.service_description or service_type}"
+                service_descriptions.append(service_desc)
+            
+            service_item = {
+                "name": f"{service_type.title()} Services",
+                "description": "\n".join(service_descriptions),
+                "quantity": service_count,
+                "price": total_price / service_count if service_count > 0 else 0,
+                "amount": total_price,
+                "gst": 0,  # Ancillary services may have different GST rules
+                "tax": 0,
+                "discount": 0,
+                "final_total": total_price
+            }
+            items.append(service_item)
+    
+    return items
 
 def invoice_json_data(booking, bus_details, company_details, customer_details,
                       invoice_number, invoice_action='create', pay_at_hotel=False):
@@ -358,8 +426,13 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
         elif booking_type == 'FLIGHT':
             if booking.flight_booking:
                 item = invoice_json_flight_booking(booking.flight_booking)
-                item = [item] # temp need to change
-                gst, gst_type  = "", ""
+                # item is already a list from the enhanced function
+                
+                # Extract GST information from booking
+                gst = float(booking.gst_percentage) if booking.gst_percentage else 0
+                gst_type = booking.gst_type if booking.gst_type else (
+                    "CGST/SGST" if is_same_state else "IGST"
+                )
                 subtotal = float(booking.subtotal)
                 
             
@@ -533,6 +606,65 @@ def create_invoice_response_data(invoice, payload_json):
     except Exception as e:
         print(f"Error creating invoice response data: {e}")
         return {"success": False, "error": str(e)}
+
+def calculate_flight_gst(booking, business_state=None):
+    """
+    Calculate GST for flight bookings based on business rules
+    
+    Args:
+        booking: Flight booking object
+        business_state: State of the business issuing invoice
+        
+    Returns:
+        dict: GST calculation details
+    """
+    # Flight booking GST is typically 5% for domestic flights
+    base_amount = float(booking.subtotal or 0)
+    
+    if not base_amount or base_amount <= 0:
+        return {
+            'gst_percentage': 0,
+            'gst_amount': 0,
+            'gst_type': 'NO_GST'
+        }
+    
+    # Check if GST is applicable based on booking details
+    gst_info = getattr(booking, 'gst_info', {}) or {}
+    if isinstance(gst_info, str):
+        import json
+        try:
+            gst_info = json.loads(gst_info)
+        except json.JSONDecodeError:
+            gst_info = {}
+    
+    # If GST number is provided, it's a business booking - apply GST
+    is_business_booking = bool(gst_info.get('gst_number'))
+    
+    if not is_business_booking:
+        return {
+            'gst_percentage': 0,
+            'gst_amount': 0,
+            'gst_type': 'NO_GST'
+        }
+    
+    # 5% GST for domestic flights (business bookings)
+    gst_percentage = 5.0
+    gst_amount = (base_amount * gst_percentage) / 100
+    
+    # Determine GST type based on states
+    customer_state = gst_info.get('state', '').lower()
+    business_state_lower = business_state.lower() if business_state else ''
+    
+    if customer_state and business_state_lower and customer_state == business_state_lower:
+        gst_type = "CGST/SGST"
+    else:
+        gst_type = "IGST"
+    
+    return {
+        'gst_percentage': gst_percentage,
+        'gst_amount': gst_amount,
+        'gst_type': gst_type
+    }
 
 def generate_invoice_pdf(payload, booking_id=None):
     """

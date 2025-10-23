@@ -1,0 +1,64 @@
+{
+  "booking_type": "FLIGHT",
+  "adult_count": 1,
+  "child_count": 0,
+  "infant_count": 0,
+  "flight_trip": "ONE-WAY",
+  "flight_class": "ECONOMY",
+  "departure_date": null,
+  "return_date": null,
+  "flying_from": "DEL",
+  "flying_to": "BOM",
+  "flight_no": "",
+  "airline_code": "",
+  "track_id": "{{track_id}}",
+  "pricing_token": "{{pricing_token}}",
+  "trip_type": "O",
+  "total_amount": 5000,
+  "base_origin": "DEL",
+  "base_destination": "BOM",
+  "block_pnr": false,
+  "commission_info": {
+    "commission": 0,
+    "tax_percentage": 0,
+    "tax_amount": 0,
+    "com_amnt": 0,
+    "com_amnt_withtax": 0,
+    "tcs": 0,
+    "tds": 0,
+    "hotelier_amount": 5000,
+    "final_payout": 5000
+  },
+  "flight_segments": [
+    {
+      "FlightID": "7786",
+      "FlightNumber": "I5 821",
+      "Origin": "DEL",
+      "Destination": "BOM",
+      "DepartureDateTime": "20 Nov 2025 10:00",
+      "ArrivalDateTime": "20 Nov 2025 12:10"
+    }
+  ],
+  "passengers": [
+    {
+      "passenger_ref": 1,
+      "passenger_type": "ADT",
+      "title": "MR",
+      "first_name": "JOHN",
+      "last_name": "DOE",
+      "date_of_birth": "1990-01-01",
+      "gender": "male"
+    }
+  ],
+  "contact": {
+    "country_code": "91",
+    "phone": "7338085595",
+    "email": "vighnesha@idbookhotels.com"
+  },
+  "gst_info": {},
+  "seats": [],
+  "baggage": [],
+  "meals": [],
+  "other_services": [],
+  "frequent_flyer": []
+}

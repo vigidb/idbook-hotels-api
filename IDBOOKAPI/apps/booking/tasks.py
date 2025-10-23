@@ -31,6 +31,9 @@ from apps.authentication.models import User
 from apps.customer.models import Wallet, WalletTransaction
 from datetime import datetime
 import pytz
+import logging
+
+logger = logging.getLogger(__name__)
 
 @celery_idbook.task(bind=True)
 def send_booking_email_task(self, booking_id, booking_type='search-booking'):
@@ -240,7 +243,13 @@ def send_cancelled_booking_task(self, booking_id):
             # send cancellation email
             subject = "Booking Cancelled"
             user_email = booking.user.email
-            email_template = get_template('email_template/cancel-confirmation.html')
+            
+            # Select appropriate email template based on booking type
+            if booking.booking_type == 'FLIGHT':
+                email_template = get_template('email_template/cancel-confirmation-flight.html')
+            else:
+                email_template = get_template('email_template/cancel-confirmation.html')
+                
             context = generate_context_cancelled_booking(booking)
             html_content = email_template.render(context)
             send_booking_email(subject, booking, [user_email], html_content)
@@ -262,6 +271,42 @@ def send_cancelled_booking_task(self, booking_id):
             
     except Exception as e:
         print('Cancelled Email Task', e)
+
+@celery_idbook.task(bind=True)
+def send_flight_booking_task(self, booking_id, notification_type='confirmed'):
+    """Send flight booking notifications via SMS and email"""
+    print(f"Initiated Flight Booking {notification_type} Process")
+    
+    try:
+        booking = get_booking(booking_id)
+        if not booking or booking.booking_type != 'FLIGHT':
+            print(f"Flight booking not found or invalid type for booking_id: {booking_id}")
+            return
+            
+        if notification_type == 'confirmed':
+            # Send confirmation SMS
+            send_booking_sms_task.delay(
+                notification_type='FLIGHT_BOOKING_CONFIRMATION',
+                params={'booking_id': booking_id}
+            )
+            
+        elif notification_type == 'ticket_issued':
+            # Send ticket issued notification
+            send_booking_sms_task.delay(
+                notification_type='FLIGHT_TICKET_ISSUED', 
+                params={'booking_id': booking_id}
+            )
+            
+        elif notification_type == 'cancelled':
+            # Send cancellation SMS with refund amount if provided
+            refund_amount = booking.refund_amount if hasattr(booking, 'refund_amount') and booking.refund_amount else 0
+            send_booking_sms_task.delay(
+                notification_type='FLIGHT_BOOKING_CANCEL',
+                params={'booking_id': booking_id, 'refund_amount': refund_amount}
+            )
+            
+    except Exception as e:
+        print(f'Flight Booking {notification_type} Task Error: {e}')
         
 @celery_idbook.task(bind=True)
 def send_completed_booking_task(self, booking_id):
@@ -427,6 +472,77 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 #     variables_values=variables_values,
                 #     booking_id=booking.id
                 # )
+
+        elif notification_type == 'FLIGHT_BOOKING_CONFIRMATION':
+            booking_id = params.get('booking_id')
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "FLIGHT_BOOKING_CONFIRMATION"
+
+                flight_route = ""
+                if booking.flight_booking:
+                    flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+
+                variables_values = f"{booking.user.name}|{flight_route}|{booking.reference_code}"
+
+                print("flight booking confirmation variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='FLIGHT_BOOKING_CONFIRMATION',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'FLIGHT_BOOKING_CANCEL':
+            booking_id = params.get('booking_id')
+            refund_amount = params.get('refund_amount', 0)
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "FLIGHT_BOOKING_CANCEL"
+                variables_values = f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
+
+                print("flight booking cancellation variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='FLIGHT_BOOKING_CANCEL',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
+
+        elif notification_type == 'FLIGHT_TICKET_ISSUED':
+            booking_id = params.get('booking_id')
+
+            booking = get_booking(booking_id)
+            if booking and booking.user.mobile_number:
+                mobile_number = booking.user.mobile_number
+                template_code = "FLIGHT_TICKET_ISSUED"
+                
+                flight_route = ""
+                if booking.flight_booking:
+                    flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+
+                variables_values = f"{booking.user.name}|{flight_route}|{booking.reference_code}"
+
+                print("flight ticket issued variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                generate_user_notification(
+                    notification_type='FLIGHT_TICKET_ISSUED',
+                    user=booking.user,
+                    variables_values=variables_values,
+                    booking_id=booking.id,
+                    group_name=group_name
+                )
 
         elif notification_type == 'PAYMENT_FAILED_INFO':
             booking_id = params.get('booking_id', None)
@@ -712,3 +828,87 @@ def wallet_expiry_task(self):
     except Exception as e:
         print(f"Error in wallet_expiry_task: {e}")
         return f"Error in wallet_expiry_task: {e}"
+
+
+@celery_idbook.task(bind=True, max_retries=3)
+def issue_flight_ticket_task(self, booking_id):
+    """
+    Issue flight ticket after successful payment
+    This task is called automatically after payment confirmation
+    """
+    from django.utils import timezone
+    
+    try:
+        from apps.booking.models import Booking
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        
+        # Get booking
+        booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+        
+        if booking.booking_type != 'FLIGHT' or not booking.flight_booking:
+            logger.error(f"Invalid booking for ticket issuance: {booking_id}")
+            return {'success': False, 'error': 'Invalid flight booking'}
+        
+        flight_booking = booking.flight_booking
+        
+        # Check if already ticketed
+        if flight_booking.status == 'TICKETED' or flight_booking.ticket_numbers:
+            logger.info(f"Flight booking {booking_id} already ticketed")
+            return {'success': True, 'message': 'Already ticketed'}
+        
+        # Check if booking has AirIQ data
+        if not all([flight_booking.airiq_track_id, flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+            logger.error(f"Missing AirIQ data for booking {booking_id}")
+            return {'success': False, 'error': 'Missing AirIQ booking data'}
+        
+        try:
+            # Issue ticket via AirIQ
+            ticket_response = airiq_service.issue_ticket(
+                booking_track_id=flight_booking.airiq_track_id,
+                airiq_pnr=flight_booking.airiq_pnr,
+                airline_pnr=flight_booking.airline_pnr,
+                booking_amount=float(booking.final_amount)
+            )
+            
+            # Update flight booking with ticket info
+            if 'TicketNumbers' in ticket_response:
+                flight_booking.ticket_numbers = ticket_response['TicketNumbers']
+                flight_booking.status = 'TICKETED'
+                flight_booking.ticketed_at = timezone.now()
+                flight_booking.save()
+                
+                # Update main booking
+                booking.status = 'confirmed'
+                booking.save()
+                
+                logger.info(f"Flight ticket issued successfully for booking {booking_id}")
+                
+                # Send ticket email
+                send_booking_email_task.delay(booking_id, 'confirmed-booking')
+                
+                return {
+                    'success': True, 
+                    'ticket_numbers': ticket_response['TicketNumbers'],
+                    'status': 'TICKETED'
+                }
+            else:
+                logger.error(f"No ticket numbers in AirIQ response: {ticket_response}")
+                return {'success': False, 'error': 'No ticket numbers received'}
+                
+        except AirIQException as e:
+            logger.error(f"AirIQ ticket issuance failed for booking {booking_id}: {e}")
+            
+            # Retry logic
+            if self.request.retries < self.max_retries:
+                logger.info(f"Retrying ticket issuance for booking {booking_id} (attempt {self.request.retries + 1})")
+                raise self.retry(countdown=60 * (2 ** self.request.retries))  # Exponential backoff
+            else:
+                # Mark as failed after max retries
+                flight_booking.status = 'TICKET_FAILED'
+                flight_booking.save()
+                
+                return {'success': False, 'error': str(e), 'max_retries_reached': True}
+                
+    except Exception as e:
+        logger.error(f"Ticket issuance task error for booking {booking_id}: {e}")
+        return {'success': False, 'error': str(e)}

@@ -1,0 +1,264 @@
+{
+  "id": "7c3c4e0c-3f0f-45f7-9b10-idaa-flights-collection",
+  "name": "IDBOOK Flights - AirIQ E2E",
+  "description": "Postman collection to test flight workflows (search, pricing, booking, ticketing, cancel, reschedule) across domestic/international, one-way/round-trip, direct/connecting, with/without SSR (seats, meals, baggage).",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:8000/api/v1"},
+    {"key": "token", "value": ""},
+    {"key": "email", "value": "user@example.com"},
+    {"key": "password", "value": "password"},
+    {"key": "flight_option_id", "value": ""},
+    {"key": "track_id", "value": ""},
+    {"key": "pricing_token", "value": ""},
+    {"key": "booking_id", "value": ""},
+    {"key": "airiq_pnr", "value": ""},
+    {"key": "airline_pnr", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Login (JWT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/auth/token/", "host": ["{{baseUrl}}"], "path": ["auth","token","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "let json;",
+                  "try { json = pm.response.json(); } catch(e){}",
+                  "if (json && json.access) { pm.environment.set('token', json.access); }",
+                  "pm.test('Login succeeded', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Flights - Search & Pricing",
+      "item": [
+        {
+          "name": "Search Flights (AirIQ/BOTH)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/flights/search/search/", "host": ["{{baseUrl}}"], "path": ["flights","search","search","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"DEL\",\n  \"destination\": \"BOM\",\n  \"departure_date\": \"2025-11-20\",\n  \"return_date\": null,\n  \"trip_type\": \"O\",\n  \"flight_class\": \"E\",\n  \"adults\": 1,\n  \"children\": 0,\n  \"infants\": 0,\n  \"search_mode\": \"BOTH\",\n  \"direct_only\": true,\n  \"fare_type\": \"N\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Pricing (select flight_option_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/flights/pricing/price/", "host": ["{{baseUrl}}"], "path": ["flights","pricing","price","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flight_option_id\": {{flight_option_id}},\n  \"passenger_count\": {\n    \"adults\": 1,\n    \"children\": 0,\n    \"infants\": 0\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Fare Rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/flights/pricing/fare-rules/", "host": ["{{baseUrl}}"], "path": ["flights","pricing","fare-rules","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flight_option_ids\": [{{flight_option_id}}]\n}"
+            }
+          }
+        },
+        {
+          "name": "Account Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"}
+            ],
+            "url": {"raw": "{{baseUrl}}/flights/pricing/account-balance/", "host": ["{{baseUrl}}"], "path": ["flights","pricing","account-balance","/"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Booking - Create",
+      "item": [
+        {
+          "name": "Create Flight Booking (authenticated user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/bookings/", "host": ["{{baseUrl}}"], "path": ["booking","bookings","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"booking_type\": \"FLIGHT\",\n  \"adult_count\": 1,\n  \"child_count\": 0,\n  \"infant_count\": 0,\n  \"flight_trip\": \"ONE-WAY\",\n  \"flight_class\": \"ECONOMY\",\n  \"departure_date\": null,\n  \"return_date\": null,\n  \"flying_from\": \"DEL\",\n  \"flying_to\": \"BOM\",\n  \"flight_no\": \"\",\n  \"airline_code\": \"\",\n  \"track_id\": \"{{track_id}}\",\n  \"pricing_token\": \"{{pricing_token}}\",\n  \"trip_type\": \"O\",\n  \"total_amount\": 5000,\n  \"base_origin\": \"DEL\",\n  \"base_destination\": \"BOM\",\n  \"block_pnr\": false,\n  \"flight_segments\": [\n    {\n      \"FlightID\": \"<FlightID>\",\n      \"FlightNumber\": \"<FlightNumber>\",\n      \"Origin\": \"DEL\",\n      \"Destination\": \"BOM\",\n      \"DepartureDateTime\": \"14 Nov 2025 10:00\",\n      \"ArrivalDateTime\": \"14 Nov 2025 12:00\"\n    }\n  ],\n  \"passengers\": [\n    {\n      \"passenger_ref\": 1,\n      \"passenger_type\": \"ADT\",\n      \"title\": \"MR\",\n      \"first_name\": \"JOHN\",\n      \"last_name\": \"DOE\",\n      \"date_of_birth\": \"1990-01-01\",\n      \"gender\": \"male\"\n    }\n  ],\n  \"contact\": {\n    \"country_code\": \"91\",\n    \"phone\": \"9999999999\",\n    \"email\": \"test@example.com\"\n  },\n  \"gst_info\": {},\n  \"seats\": [],\n  \"baggage\": [],\n  \"meals\": [],\n  \"other_services\": [],\n  \"frequent_flyer\": []\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "let json; try{ json = pm.response.json(); }catch(e){}",
+                  "if (json && json.data && json.data.id) { pm.environment.set('booking_id', json.data.id); }",
+                  "pm.test('Booking created', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. FlightBookings - Manage",
+      "item": [
+        {
+          "name": "Seat Map",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/seatmap/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","seatmap","/"]}
+          }
+        },
+        {
+          "name": "Issue Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/ticket/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","ticket","/"]}
+          }
+        },
+        {
+          "name": "Cancel - Penalty",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/cancel/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","cancel","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"flag\": \"PENALTY\"\n}"}
+          }
+        },
+        {
+          "name": "Cancel - Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/cancel/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","cancel","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"flag\": \"CANCEL\",\n  \"remarks\": \"User requested cancellation\"\n}"}
+          }
+        },
+        {
+          "name": "Reschedule - Availability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/reschedule/availability/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","reschedule","availability","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"flight_date\": \"2025-11-21\",\n  \"departure_station\": \"DEL\",\n  \"arrival_station\": \"BOM\"\n}"}
+          }
+        },
+        {
+          "name": "Reschedule - Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/reschedule/confirm/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","reschedule","confirm","/"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"track_id\": \"{{track_id}}\",\n  \"contact_no\": \"9999999999\",\n  \"flag\": \"CONFIRM\",\n  \"flight_details\": {\n    \"origin\": \"DEL\",\n    \"destination\": \"BOM\",\n    \"trip_type\": \"O\",\n    \"segments\": [\n      {\n        \"FlightID\": \"<NewFlightID>\",\n        \"FlightNumber\": \"<NewFlightNo>\",\n        \"Origin\": \"DEL\",\n        \"Destination\": \"BOM\",\n        \"DepartureDateTime\": \"15 Nov 2025 10:00\",\n        \"ArrivalDateTime\": \"15 Nov 2025 12:00\"\n      }\n    ],\n    \"base_amount\": 4500,\n    \"gross_amount\": 5200\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Scenarios (Templates)",
+      "description": "Duplicate and customize these for each listed test case (1-22).",
+      "item": [
+        {
+          "name": "Scenario 1 - DOM Oneway Direct (1 ADT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/bookings/", "host": ["{{baseUrl}}"], "path": ["booking","bookings","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"booking_type\": \"FLIGHT\",\n  \"adult_count\": 1, \n  \"child_count\": 0, \n  \"infant_count\": 0,\n  \"trip_type\": \"O\",\n  \"block_pnr\": false,\n  \"track_id\": \"{{track_id}}\",\n  \"pricing_token\": \"{{pricing_token}}\",\n  \"base_origin\": \"DEL\",\n  \"base_destination\": \"BOM\",\n  \"flight_segments\": [],\n  \"passengers\": [],\n  \"contact\": {\"country_code\": \"91\", \"phone\": \"9999999999\", \"email\": \"test@example.com\"},\n  \"total_amount\": 5000\n}"}
+          }
+        },
+        {
+          "name": "Scenario 5 - DOM Round Direct (1 ADT) Reschedule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/flight-bookings/{{booking_id}}/reschedule/availability/", "host": ["{{baseUrl}}"], "path": ["booking","flight-bookings","{{booking_id}}","reschedule","availability","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"flight_date\": \"2025-11-25\",\n  \"departure_station\": \"DEL\",\n  \"arrival_station\": \"BOM\"\n}"}
+          }
+        },
+        {
+          "name": "Scenario 9 - DOM Oneway Connecting (1 ADT 1 CHD 1 INF) with Meals, Seats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "url": {"raw": "{{baseUrl}}/booking/bookings/", "host": ["{{baseUrl}}"], "path": ["booking","bookings","/"]},
+            "body": {"mode": "raw", "raw": "{\n  \"booking_type\": \"FLIGHT\",\n  \"adult_count\": 1, \n  \"child_count\": 1, \n  \"infant_count\": 1,\n  \"trip_type\": \"O\",\n  \"block_pnr\": false,\n  \"track_id\": \"{{track_id}}\",\n  \"pricing_token\": \"{{pricing_token}}\",\n  \"base_origin\": \"DEL\",\n  \"base_destination\": \"COK\",\n  \"flight_segments\": [],\n  \"passengers\": [],\n  \"seats\": [],\n  \"baggage\": [],\n  \"meals\": [],\n  \"contact\": {\"country_code\": \"91\", \"phone\": \"9999999999\", \"email\": \"test@example.com\"},\n  \"total_amount\": 12000\n}"}
+          }
+        }
+      ]
+    }
+  ]
+}

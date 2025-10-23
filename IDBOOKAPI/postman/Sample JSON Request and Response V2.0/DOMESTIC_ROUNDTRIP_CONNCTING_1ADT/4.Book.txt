@@ -1,0 +1,447 @@
+
+
+Header:-
+
+TOKEN : NVBLbENSdlJuMXBWTnlqY3hodXRmRDhySTlVdVlqd2hkQ3JueU5qZUFOVDR3enBiL0ViQnpOWndlWkVka3ZYcllQekE4YlVKZURTSkRYbnR5ZCstYWNxR0oxL3B6Tm9ueUxJQU9RVTRjOXRDSzVZSm5DKy1QNHZwMWtRSHBxSTFqZDBvKy1MRDBFYjUzUS9EYXdZNEVDTVBPRElHR2p5WGg3UmUyKy1KNHRWSFU1bWowaVh6NU4wVzQ4aWxsWTh6YWRTcjRSQWx3ekZGZGNoUDJnMzlzbExpYkErQUQwQVBRLQ==
+
+
+
+Request :- 
+
+
+
+{
+    "AgentInfo": {
+        "AgentId": "XXXXXXXXX",
+        "UserName": "XXXXXXXXXXXX",
+        "AppType": "API",
+        "Version": "V1.0"
+    },
+    "AdultCount": 1,
+    "ChildCount": 0,
+    "InfantCount": 0,
+    "ItineraryFlightsInfo": [
+        {
+            "Token": "AQAG0D9569010007671",
+            "FlightsInfo": [
+                {
+                    "FlightID": "7786",
+                    "FlightNumber": "I5 1532",
+                    "Origin": "BLR",
+                    "Destination": "DEL",
+                    "DepartureDateTime": "20 Oct 2023 19:10",
+                    "ArrivalDateTime": "20 Oct 2023 22:05"
+                },
+                {
+                    "FlightID": "7787",
+                    "FlightNumber": "UK 822",
+                    "Origin": "MAA",
+                    "Destination": "BOM",
+                    "DepartureDateTime": "25 May 2023 09:30",
+                    "ArrivalDateTime": "25 May 2023 11:30"
+                }
+            ],
+            "PaymentMode": "T",
+            "SeatsSSRInfo": [],
+            "BaggSSRInfo": [],
+            "MealsSSRInfo": [],
+            "OtherSSRInfo": [],
+            "PaymentInfo": [
+                {
+                    "TotalAmount": "5382"
+                }
+            ]
+        },
+        {
+            "Token": "AQAG0D9569010007672",
+            "FlightsInfo": [
+                {
+                    "FlightID": "1683",
+                    "FlightNumber": "I5 1532",
+                    "Origin": "BLR",
+                    "Destination": "DEL",
+                    "DepartureDateTime": "20 Oct 2023 19:10",
+                    "ArrivalDateTime": "20 Oct 2023 22:05"
+                },
+                {
+                    "FlightID": "1684",
+                    "FlightNumber": "UK 822",
+                    "Origin": "MAA",
+                    "Destination": "BOM",
+                    "DepartureDateTime": "25 May 2023 09:30",
+                    "ArrivalDateTime": "25 May 2023 11:30"
+                }
+            ],
+            "PaymentMode": "T",
+            "SeatsSSRInfo": [],
+            "BaggSSRInfo": [],
+            "MealsSSRInfo": [],
+            "OtherSSRInfo": [],
+            "PaymentInfo": [
+                {
+                    "TotalAmount": "4877"
+                }
+            ]
+        }
+    ],
+    "PaxDetailsInfo": [
+        {
+            "PaxRefNumber": "1",
+            "Title": "MR",
+            "FirstName": "RAJINI",
+            "LastName": "RAM",
+            "DOB": "11/05/1992",
+            "Gender": "Male",
+            "PaxType": "ADT",
+            "PassportNo": "",
+            "PassportExpiry": "",
+            "PassportIssuedDate": "",
+            "InfantRef": ""
+        }
+    ],
+    "AddressDetails": {
+        "CountryCode": "91",
+        "ContactNumber": "9876543210",
+        "EmailID": "test123@gmail.com"
+    },
+    "GSTInfo": {
+        "GSTNumber": "",
+        "GSTCompanyName": "",
+        "GSTAddress": "",
+        "GSTEmailID": "",
+        "GSTMobileNumber": ""
+    },
+    "TripType": "R",
+    "BlockPNR": false,
+    "BaseOrigin": "MAA",
+    "BaseDestination": "DEL",
+    "TrackId": "AQ122626502716876381226315332063XMSOCTIOYL9"
+}
+
+
+
+Response :- 
+
+
+
+{
+    "TrackId": "AQAG0D956901497290920231129200063040003213|AQAG0D956901101290920231129233622580003214",
+    "Bookingresponse": {
+        "ItinearyDetails": [
+            {
+                "AdultCount": "1",
+                "ChildCount": "0",
+                "InfantCount": "0",
+                "IssuedDate": "29/09/2023 12:29:22",
+                "Item": [
+                    {
+                        "Resultcode": "1",
+                        "BookingTrackId": "AQAG0D956901497290920231129200063040003213",
+                        "AirIqPNR": "AF29IA0010",
+                        "CRSPNR": "N/A",
+                        "BaseOrigin": "MAA",
+                        "BaseDestination": "DEL",
+                        "GST_Number": "",
+                        "TicketingTimeLimit": "",
+                        "PromoCode": "",
+                        "Class": "K",
+                        "PrintTicket": "",
+                        "SegmentType": "D",
+                        "Special": "N",
+                        "Stock": "I5",
+                        "TripType": "O",
+                        "PaymentDetails": {
+                            "Item": [
+                                {
+                                    "Amount": "5382.00",
+                                    "CurrencyCode": "INR"
+                                }
+                            ]
+                        },
+                        "TourCode": "",
+                        "TravellerInfo": {
+                            "Item": [
+                                {
+                                    "Title": "MR",
+                                    "FirstName": "RAJINI",
+                                    "LastName": "RAM",
+                                    "DateOfBirth": "11/05/1992",
+                                    "PaxType": "Adult",
+                                    "TicketNumber": "AF29IA00101-1",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "AirlinePNR": "LVH2YV",
+                                                "TicketNo": "AF29IA00101-1",
+                                                "FlightNumber": "821",
+                                                "Origin": "MAA",
+                                                "Destination": "BLR",
+                                                "DepartureDateTime": "20/10/2023 22:10",
+                                                "ArrivalDateTime": "20/10/2023 23:25",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "I5",
+                                                "ClassCode": "K",
+                                                "FareBasis": "KCRA000",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "15Kg ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            },
+                                            {
+                                                "AirlinePNR": "LVH2YV",
+                                                "TicketNo": "AF29IA00101-1",
+                                                "FlightNumber": "613",
+                                                "Origin": "BLR",
+                                                "Destination": "DEL",
+                                                "DepartureDateTime": "21/10/2023 09:15",
+                                                "ArrivalDateTime": "21/10/2023 12:50",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "I5",
+                                                "ClassCode": "K",
+                                                "FareBasis": "KCRA000",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "15Kg ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "4325.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "5382.00",
+                                            "PLBAmount": "0.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "45.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "CUTE"
+                                                    },
+                                                    {
+                                                        "Amount": "236.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "P2"
+                                                    },
+                                                    {
+                                                        "Amount": "114.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "SGST"
+                                                    },
+                                                    {
+                                                        "Amount": "114.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "CGST"
+                                                    },
+                                                    {
+                                                        "Amount": "348.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "IN"
+                                                    },
+                                                    {
+                                                        "Amount": "200.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "RCS"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "OtherCharges": "0.00",
+                "SegmentType": "D",
+                "TerminalContactDetails": {
+                    "Address1": "chennai",
+                    "Address2": "",
+                    "City": "Chennai",
+                    "Country": "CX",
+                    "Email": "sakthivelapi@gmail.com",
+                    "Phone": "8855425745",
+                    "State": "",
+                    "TerminalName": "API Agent Testing"
+                },
+                "TotalAmount": "5382.00",
+                "TotalSegments": "2",
+                "TripType": "R"
+            },
+            {
+                "AdultCount": "1",
+                "ChildCount": "0",
+                "InfantCount": "0",
+                "IssuedDate": "29/09/2023 12:29:25",
+                "Item": [
+                    {
+                        "Resultcode": "1",
+                        "BookingTrackId": "AQAG0D956901101290920231129233622580003214",
+                        "AirIqPNR": "AF29IA0011",
+                        "CRSPNR": "N/A",
+                        "BaseOrigin": "DEL",
+                        "BaseDestination": "MAA",
+                        "GST_Number": "",
+                        "TicketingTimeLimit": "",
+                        "PromoCode": "",
+                        "Class": "K",
+                        "PrintTicket": "",
+                        "SegmentType": "D",
+                        "Special": "N",
+                        "Stock": "I5",
+                        "TripType": "O",
+                        "PaymentDetails": {
+                            "Item": [
+                                {
+                                    "Amount": "4877.00",
+                                    "CurrencyCode": "INR"
+                                }
+                            ]
+                        },
+                        "TourCode": "",
+                        "TravellerInfo": {
+                            "Item": [
+                                {
+                                    "Title": "MR",
+                                    "FirstName": "RAJINI",
+                                    "LastName": "RAM",
+                                    "DateOfBirth": "11/05/1992",
+                                    "PaxType": "Adult",
+                                    "TicketNumber": "AF29IA00111-1",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "AirlinePNR": "CZPEVC",
+                                                "TicketNo": "AF29IA00111-1",
+                                                "FlightNumber": "740",
+                                                "Origin": "DEL",
+                                                "Destination": "BLR",
+                                                "DepartureDateTime": "25/10/2023 07:50",
+                                                "ArrivalDateTime": "25/10/2023 10:40",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "I5",
+                                                "ClassCode": "K",
+                                                "FareBasis": "KCRA000",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "15Kg ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            },
+                                            {
+                                                "AirlinePNR": "CZPEVC",
+                                                "TicketNo": "AF29IA00111-1",
+                                                "FlightNumber": "2461",
+                                                "Origin": "BLR",
+                                                "Destination": "MAA",
+                                                "DepartureDateTime": "25/10/2023 16:15",
+                                                "ArrivalDateTime": "25/10/2023 17:15",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "I5",
+                                                "ClassCode": "K",
+                                                "FareBasis": "KCRA000",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "15Kg ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "4000.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "4877.00",
+                                            "PLBAmount": "0.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "75.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "CUTE"
+                                                    },
+                                                    {
+                                                        "Amount": "91.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "WO"
+                                                    },
+                                                    {
+                                                        "Amount": "107.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "SGST"
+                                                    },
+                                                    {
+                                                        "Amount": "107.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "CGST"
+                                                    },
+                                                    {
+                                                        "Amount": "236.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "P2"
+                                                    },
+                                                    {
+                                                        "Amount": "61.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "IN"
+                                                    },
+                                                    {
+                                                        "Amount": "200.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "RCS"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "OtherCharges": "0.00",
+                "SegmentType": "D",
+                "TerminalContactDetails": {
+                    "Address1": "chennai",
+                    "Address2": "",
+                    "City": "Chennai",
+                    "Country": "CX",
+                    "Email": "sakthivelapi@gmail.com",
+                    "Phone": "8855425745",
+                    "State": "",
+                    "TerminalName": "API Agent Testing"
+                },
+                "TotalAmount": "4877.00",
+                "TotalSegments": "2",
+                "TripType": "R"
+            }
+        ]
+    },
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "12290676805471762"
+    }
+}

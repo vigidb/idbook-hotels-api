@@ -1,0 +1,132 @@
+
+Header:-
+
+TOKEN : Ky04bTJGaDJIZzVxMmNjY1N3WTM5Yi9SRldxcWhZeEQwTGlWaHltTU41NDhLRmJXYjNsN3hHbFJGOEhzSUVCczQrLWJkVFhyV1YrLUVLN1VaRG5la3hIaTQvN1N5OGk2UGZkZ29MaFFvT1dvNENhclZvM3lqT0s3blR0MVFxMnoxdndmODdqV2dZcHJHU3k5bVpERVB4MWp1WDN4QVlUcUhuaDhFeDgyamhCWWlnaisteWFWbFpDWkhyUmZzTTJ3eUxxYUk5OWtldjRlcnNkLzZBOUUrLXlGaEpRK0FEMEFQUS0=
+
+
+Request:-
+
+{
+    "AgentInfo": {
+    "AgentId": "XXXXXXXX",
+    "UserName": "XXXXXXXXXXX",
+    "AppType": "API",
+    "Version": "XXX"
+    },
+    "FlightsInfo": [
+        {
+            "FlightID": "9603"
+        }
+    ],
+    "PassengersInfo": {
+        "AdultCount": 1,
+        "ChildCount": 0,
+        "InfantCount": 0
+    },
+    "TripType": "O",
+    "Trackid": "AQ144316163728603151443236663904RSCN5INQMIX"
+}
+
+Responces:-
+
+{
+    "AvailDetails": [
+        {
+            "Origin": "BOM",
+            "Destination": "DEL",
+            "CarrierCode": "AI",
+            "FlightNumber": "AI 2986",
+            "Classes": [
+                {
+                    "Cabin": "Economy",
+                    "Class": "P",
+                    "FareBasisCode": "P",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "U",
+                    "FareBasisCode": "U",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "L",
+                    "FareBasisCode": "L",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "G",
+                    "FareBasisCode": "G",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "W",
+                    "FareBasisCode": "W",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "V",
+                    "FareBasisCode": "V",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "Q",
+                    "FareBasisCode": "Q",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "K",
+                    "FareBasisCode": "K",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "H",
+                    "FareBasisCode": "H",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "M",
+                    "FareBasisCode": "M",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "B",
+                    "FareBasisCode": "B",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "Economy",
+                    "Class": "Y",
+                    "FareBasisCode": "Y",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "PremiumEconomy",
+                    "Class": "A",
+                    "FareBasisCode": "A",
+                    "Seats": "9"
+                },
+                {
+                    "Cabin": "PremiumEconomy",
+                    "Class": "R",
+                    "FareBasisCode": "R",
+                    "Seats": "9"
+                }
+            ]
+        }
+    ],
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "14440165448615750"
+    }
+}

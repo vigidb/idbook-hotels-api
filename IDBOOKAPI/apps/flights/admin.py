@@ -3,8 +3,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 from .models import (
     Airline, Airport, FlightRoute, FlightInventory, FlightSearchSession,
-    FlightOption, FlightBooking, PassengerDetail, AncillaryService,
-    SeatSelection, FlightBookingPayment, AirIQApiLog, AirIQTokenCache
+    FlightOption, AirIQApiLog, AirIQTokenCache
 )
 
 
@@ -78,85 +77,8 @@ class FlightInventoryAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related('route__origin', 'route__destination', 'route__airline')
 
 
-class PassengerDetailInline(admin.TabularInline):
-    model = PassengerDetail
-    extra = 0
-    fields = [
-        'passenger_reference', 'passenger_type', 'title', 'first_name', 'last_name', 
-        'date_of_birth', 'gender'
-    ]
-    readonly_fields = ['passenger_reference']
 
 
-class FlightBookingPaymentInline(admin.TabularInline):
-    model = FlightBookingPayment
-    extra = 0
-    fields = ['payment_mode', 'payment_status', 'amount', 'payment_reference']
-    readonly_fields = ['payment_reference']
-
-
-@admin.register(FlightBooking)
-class FlightBookingAdmin(admin.ModelAdmin):
-    list_display = [
-        'booking_reference', 'user_email', 'get_route', 'departure_date', 
-        'status', 'total_amount', 'booking_mode', 'created_at'
-    ]
-    list_filter = [
-        'status', 'booking_mode', 'created_at', 'selected_flight__departure_datetime',
-        'selected_flight__origin', 'selected_flight__destination'
-    ]
-    search_fields = [
-        'booking_reference', 'user__email', 'contact_email', 'airiq_pnr', 'airline_pnr'
-    ]
-    readonly_fields = [
-        'booking_reference', 'created_at', 'updated_at', 'cancelled_at'
-    ]
-    date_hierarchy = 'created_at'
-    raw_id_fields = ['user', 'selected_flight', 'search_session']
-    inlines = [PassengerDetailInline, FlightBookingPaymentInline]
-
-    fieldsets = (
-        ('Booking Information', {
-            'fields': (
-                'booking_reference', 'user', 'selected_flight', 'search_session', 
-                'status', 'booking_mode'
-            )
-        }),
-        ('Contact Details', {
-            'fields': ('contact_email', 'contact_phone', 'special_requests')
-        }),
-        ('Pricing', {
-            'fields': ('base_amount', 'tax_amount', 'total_amount', 'cancellation_fee', 'refund_amount')
-        }),
-        ('External References', {
-            'fields': ('airiq_pnr', 'airline_pnr', 'ticket_numbers', 'ticket_status')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at', 'cancelled_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def user_email(self, obj):
-        return obj.user.email if obj.user else '-'
-    user_email.short_description = 'User Email'
-
-    def get_route(self, obj):
-        if obj.selected_flight:
-            return f"{obj.selected_flight.origin} → {obj.selected_flight.destination}"
-        return '-'
-    get_route.short_description = 'Route'
-
-    def departure_date(self, obj):
-        if obj.selected_flight:
-            return obj.selected_flight.departure_datetime.date()
-        return '-'
-    departure_date.short_description = 'Departure Date'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            'user', 'selected_flight', 'search_session'
-        ).prefetch_related('passengers', 'payments')
 
 
 @admin.register(FlightSearchSession)
@@ -206,112 +128,12 @@ class FlightOptionAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related('search_session', 'inventory_flight')
 
 
-@admin.register(PassengerDetail)
-class PassengerDetailAdmin(admin.ModelAdmin):
-    list_display = [
-        'get_passenger_name', 'passenger_type', 'date_of_birth', 'gender', 
-        'get_booking_reference', 'get_departure_date'
-    ]
-    list_filter = [
-        'passenger_type', 'gender', 'booking__status', 'booking__created_at'
-    ]
-    search_fields = [
-        'first_name', 'last_name', 'booking__booking_reference', 
-        'passport_number', 'frequent_flyer_number'
-    ]
-    raw_id_fields = ['booking']
-
-    def get_passenger_name(self, obj):
-        return f"{obj.title} {obj.first_name} {obj.last_name}"
-    get_passenger_name.short_description = 'Passenger Name'
-
-    def get_booking_reference(self, obj):
-        return obj.booking.booking_reference
-    get_booking_reference.short_description = 'Booking Reference'
-
-    def get_departure_date(self, obj):
-        if obj.booking.selected_flight:
-            return obj.booking.selected_flight.departure_datetime.date()
-        return '-'
-    get_departure_date.short_description = 'Departure Date'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('booking', 'booking__selected_flight')
 
 
-@admin.register(AncillaryService)
-class AncillaryServiceAdmin(admin.ModelAdmin):
-    list_display = [
-        'service_type', 'service_code', 'service_description', 'service_price',
-        'get_passenger_name', 'get_booking_reference'
-    ]
-    list_filter = ['service_type', 'booking__status']
-    search_fields = [
-        'service_code', 'service_description', 'passenger__first_name', 
-        'passenger__last_name', 'booking__booking_reference'
-    ]
-    raw_id_fields = ['booking', 'passenger']
-
-    def get_passenger_name(self, obj):
-        if obj.passenger:
-            return f"{obj.passenger.first_name} {obj.passenger.last_name}"
-        return '-'
-    get_passenger_name.short_description = 'Passenger'
-
-    def get_booking_reference(self, obj):
-        return obj.booking.booking_reference
-    get_booking_reference.short_description = 'Booking Reference'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('booking', 'passenger')
 
 
-@admin.register(SeatSelection)
-class SeatSelectionAdmin(admin.ModelAdmin):
-    list_display = [
-        'seat_number', 'seat_type', 'seat_price', 'get_passenger_name', 
-        'get_booking_reference'
-    ]
-    list_filter = ['seat_type', 'passenger__booking__status']
-    search_fields = [
-        'seat_number', 'passenger__first_name', 'passenger__last_name', 
-        'passenger__booking__booking_reference'
-    ]
-    raw_id_fields = ['passenger']
-
-    def get_passenger_name(self, obj):
-        if obj.passenger:
-            return f"{obj.passenger.first_name} {obj.passenger.last_name}"
-        return '-'
-    get_passenger_name.short_description = 'Passenger'
-
-    def get_booking_reference(self, obj):
-        return obj.passenger.booking.booking_reference
-    get_booking_reference.short_description = 'Booking Reference'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('passenger__booking')
 
 
-@admin.register(FlightBookingPayment)
-class FlightBookingPaymentAdmin(admin.ModelAdmin):
-    list_display = [
-        'get_booking_reference', 'payment_mode', 'payment_status', 'amount', 
-        'payment_reference', 'created_at'
-    ]
-    list_filter = ['payment_mode', 'payment_status', 'created_at']
-    search_fields = [
-        'payment_reference', 'booking__booking_reference', 'booking__user__email'
-    ]
-    readonly_fields = ['created_at', 'updated_at']
-    raw_id_fields = ['booking']
-
-    def get_booking_reference(self, obj):
-        return obj.booking.booking_reference
-    get_booking_reference.short_description = 'Booking Reference'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('booking')
 
 
 @admin.register(AirIQApiLog)

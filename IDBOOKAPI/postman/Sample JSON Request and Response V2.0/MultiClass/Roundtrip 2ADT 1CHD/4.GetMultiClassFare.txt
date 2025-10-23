@@ -1,0 +1,150 @@
+
+Header:- 
+
+TOKEN : Ky04bTJGaDJIZzVxMmNjY1N3WTM5Yi9SRldxcWhZeEQwTGlWaHltTU41NDhLRmJXYjNsN3hHbFJGOEhzSUVCczQrLWJkVFhyV1YrLUVLN1VaRG5la3hIaTQvN1N5OGk2UGZkZ29MaFFvT1dvNENhclZvM3lqT0s3blR0MVFxMnoxdndmODdqV2dZcHJHU3k5bVpERVB4MWp1WDN4QVlUcUhuaDhFeDgyamhCWWlnaisteWFWbFpDWkhyUmZzTTJ3eUxxYUk5OWtldjRlcnNkLzZBOUUrLXlGaEpRK0FEMEFQUS0= 
+
+
+
+Request:- 
+
+{
+    "AgentInfo": {
+    "AgentId": "XXXXXXXX",
+    "UserName": "XXXXXXXXXXX",
+    "AppType": "API",
+    "Version": "XXX"
+    },
+    "FlightsInfo": [
+        {
+            "FlightID": "4189"
+        },
+        {
+            "FlightID": "4660"
+        }
+    ],
+    "ClassFare": [
+        {
+            "AirlineClass": "B",
+            "SeatAvailFlag": "9"
+        },
+        {
+            "AirlineClass": "B",
+            "SeatAvailFlag": "9"
+        }
+    ],
+    "PassengersInfo": {
+        "AdultCount": 1,
+        "ChildCount": 0,
+        "InfantCount": 0
+    },
+    "TripType": "R",
+    "Trackid": "AQ151748892188667271518007243525WHIHETAP0LE"
+}
+
+ Responces:- 
+
+{
+    "Trackid": "AQ152152807341872611521554328663JNU6NXL0TRV",
+    "FlightDetails": [
+        {
+            "FlightID": "4315",
+            "Stock": "UAI",
+            "FlightNumber": "AI 2952",
+            "Origin": "BOM",
+            "Destination": "DEL",
+            "DepartureTerminal": "2",
+            "ArrivalTerminal": "3",
+            "DepartureDateTime": "30 Aug 2025 12:30",
+            "ArrivalDateTime": "30 Aug 2025 14:55",
+            "Class": "B",
+            "ReferenceToken": "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",
+            "SegRef": "1",
+            "ItinRef": "0",
+            "FareId": "UAI_N_0",
+            "Cabin": "E",
+            "FareBasisCode": "BL1YXSII",
+            "Stops": "",
+            "AirlineCategory": "FSC",
+            "CNX": "Y",
+            "PlatingCarrier": "AI",
+            "OperatingCarrier": "",
+            "SegmentDetails": "Aircraft Type : \r\nJourney Time : \r\nStart Terminal : \r\nEndTerminal : \r\nBaggage : 15 KG",
+            "FlyingTime": "",
+            "AvailSeat": "9",
+            "FareTypeDescription": "ECO VALUE",
+            "FareDescription": "ECO VALUE",
+            "Baggage": "15 KG"
+        },
+        {
+            "FlightID": "4316",
+            "Stock": "UAI",
+            "FlightNumber": "AI 2999",
+            "Origin": "DEL",
+            "Destination": "BOM",
+            "DepartureTerminal": "3",
+            "ArrivalTerminal": "2",
+            "DepartureDateTime": "10 Sep 2025 22:00",
+            "ArrivalDateTime": "11 Sep 2025 00:25",
+            "Class": "B",
+            "ReferenceToken": "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",
+            "SegRef": "2",
+            "ItinRef": "1",
+            "FareId": "UAI_N_0",
+            "Cabin": "E",
+            "FareBasisCode": "BL1YXSII",
+            "Stops": "",
+            "AirlineCategory": "FSC",
+            "CNX": "N",
+            "PlatingCarrier": "AI",
+            "OperatingCarrier": "",
+            "SegmentDetails": "Aircraft Type : \r\nJourney Time : \r\nStart Terminal : \r\nEndTerminal : \r\nBaggage : 15 KG",
+            "FlyingTime": "",
+            "AvailSeat": "9",
+            "FareTypeDescription": "ECO VALUE",
+            "FareDescription": "ECO VALUE",
+            "Baggage": "15 KG"
+        }
+    ],
+    "Fares": [
+        {
+            "Faredescription": [
+                {
+                    "Paxtype": "ADT",
+                    "BaseAmount": "36864",
+                    "TotalTaxAmount": "3187",
+                    "GrossAmount": "40051",
+                    "Commission": "0",
+                    "Incentive": null,
+                    "Servicecharge": null,
+                    "TDS": "0",
+                    "Discount": "0",
+                    "PLBAmount": "0",
+                    "SF": "0",
+                    "SFGST": "0",
+                    "Taxes": [
+                        {
+                            "Amount": "340",
+                            "Code": "YR"
+                        },
+                        {
+                            "Amount": "340",
+                            "Code": "YR"
+                        },
+                        {
+                            "Amount": "340",
+                            "Code": "YR"
+                        }
+                    ]
+                }
+            ],
+            "FlightId": "UAI_N_0",
+            "FareType": "N",
+            "Currency": "INR"
+        }
+    ],
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "15215280734187261"
+    }
+}

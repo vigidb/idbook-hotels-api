@@ -1,0 +1,455 @@
+
+Header:- 
+
+TOKEN : Ky04bTJGaDJIZzVxMmNjY1N3WTM5Yi9SRldxcWhZeEQwTGlWaHltTU41NDhLRmJXYjNsN3hHbFJGOEhzSUVCczQrLWJkVFhyV1YrLUVLN1VaRG5la3hIaTQvN1N5OGk2UGZkZ29MaFFvT1dvNENhclZvM3lqT0s3blR0MVFxMnoxdndmODdqV2dZcHJHU3k5bVpERVB4MWp1WDN4QVlUcUhuaDhFeDgyamhCWWlnaisteWFWbFpDWkhyUmZzTTJ3eUxxYUk5OWtldjRlcnNkLzZBOUUrLXlGaEpRK0FEMEFQUS0= 
+
+
+
+Request:-
+
+
+{
+    "AgentInfo": {
+        "AgentId": "XXXXXXXX",
+    "UserName": "XXXXXXXXXXX",
+    "AppType": "API",
+    "Version": "XXX"
+    },
+    "SegmentInfo": {
+        "BaseOrigin": "BOM",
+        "BaseDestination": "DEL",
+        "TripType": "O",
+        "AdultCount": "1",
+        "ChildCount": "0",
+        "InfantCount": "0"
+    },
+    "Trackid": "AQ144437042453852611444393406755UA0DH8126OE",
+    "ItineraryInfo": [
+        {
+            "FlightDetails": [
+                {
+                    "FlightID": "8495"
+                }
+            ],
+            "BaseAmount": "21811",
+            "GrossAmount": "23589"
+        }
+    ]
+}
+
+Responces:-
+
+{
+    "PriceItenaryInfo": [
+        {
+            "Trackid": "AQ144529557214025871445325803546PZMUM4NSWBB",
+            "AvailabilityResponse": [
+                {
+                    "Token": "AQAG0D9569010049458",
+                    "Flights": [
+                        {
+                            "FlightID": "1747",
+                            "FlightNumber": "AI 2986",
+                            "Origin": "BOM",
+                            "Destination": "DEL",
+                            "DepartureTerminal": "2",
+                            "ArrivalTerminal": "3",
+                            "DepartureDateTime": "30 Sep 2025 22:50",
+                            "ArrivalDateTime": "01 Oct 2025 01:00",
+                            "Class": "B",
+                            "JourneyTime": "",
+                            "ReferenceToken": "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",
+                            "SegRef": "1",
+                            "ItinRef": "0",
+                            "ConnectionFlag": "N",
+                            "FareId": "UAI_N_1",
+                            "Cabin": "E",
+                            "FareBasisCode": "BU1YXSII",
+                            "Via": "",
+                            "AirlineCategory": "FSC",
+                            "CNX": "N",
+                            "PlatingCarrier": "AI",
+                            "OperatingCarrier": "AI",
+                            "SegmentDetails": "Aircraft Type : \r\nJourney Time : \r\nStart Terminal : \r\nEndTerminal : \r\nBaggage : 15 KG",
+                            "FlyingTime": "",
+                            "AllowFQT": true,
+                            "AvailSeat": "9",
+                            "PromoCode": "",
+                            "PromoCodeDesc": "",
+                            "FareTypeDescription": "ECO VALUE",
+                            "FareDescription": "ECO VALUE",
+                            "Refundable": "True",
+                            "Baggage": "15 KG"
+                        }
+                    ],
+                    "Fares": [
+                        {
+                            "Currency": "INR",
+                            "FareType": "N",
+                            "Faredescription": [
+                                {
+                                    "Paxtype": "ADT",
+                                    "BaseAmount": "21811.00",
+                                    "TotalTaxAmount": "1778",
+                                    "GrossAmount": "23589",
+                                    "NetAmount": "23589",
+                                    "Incentive": "0.00",
+                                    "Servicecharge": "0.00",
+                                    "TDS": "0.00",
+                                    "Discount": "0.00",
+                                    "PLBAmount": "0.00",
+                                    "SF": "0.00",
+                                    "SFGST": "0.00",
+                                    "Taxes": [
+                                        {
+                                            "Amount": "1099.00",
+                                            "Code": "K3"
+                                        },
+                                        {
+                                            "Amount": "236.00",
+                                            "Code": "P2"
+                                        },
+                                        {
+                                            "Amount": "170.00",
+                                            "Code": "YR"
+                                        },
+                                        {
+                                            "Amount": "273.00",
+                                            "Code": "IN"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "FlightId": "UAI_N_1"
+                        }
+                    ],
+                    "Meal": [
+                        {
+                            "Amount": "0.00",
+                            "Code": "AVML|1",
+                            "Description": "VEGETARIAN INDIAN MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5985",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "BBML|1",
+                            "Description": "BABY MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5986",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "BLML|1",
+                            "Description": "BLAND MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5987",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "CHML|1",
+                            "Description": "CHILD MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5988",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "DBML|1",
+                            "Description": "DIABETIC MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5989",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "FPML|1",
+                            "Description": "FRUIT PLATTER MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5990",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "GFML|1",
+                            "Description": "GLUTEN INTOLERANT MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5991",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "HNML|1",
+                            "Description": "HINDU NON-VEGETARIAN MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5992",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "KSML|1",
+                            "Description": " KOSHER MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5993",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "LCML|1",
+                            "Description": " LOW CALORIE MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5994",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "LFML|1",
+                            "Description": "LOW FAT MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5995",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "LSML|1",
+                            "Description": "LOW SALT MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5996",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "MOML|1",
+                            "Description": "MOSLEM MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5997",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "NBML|1",
+                            "Description": "NO BEEF MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5998",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "NLML|1",
+                            "Description": "LOW LACTOSE MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "5999",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "NOML|1",
+                            "Description": "NO MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6000",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "RVML|1",
+                            "Description": "VEGETARIAN RAW MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6001",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "SFML|1",
+                            "Description": "SEA FOOD MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6002",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "SPML|1",
+                            "Description": "SPECIAL MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6003",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "VGML|1",
+                            "Description": "VEGETARIAN VEGAN MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6004",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "VJML|1",
+                            "Description": "VEGETARIAN JAIN MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6005",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "VLML|1",
+                            "Description": "VEGETARIAN LACTO-OVO MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6006",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        },
+                        {
+                            "Amount": "0.00",
+                            "Code": "VOML|1",
+                            "Description": "VEGETARIAN ORIENTAL MEAL",
+                            "Destination": "DEL",
+                            "IsBundleServiceMeal": false,
+                            "Itinref": "0",
+                            "MealID": "6007",
+                            "Orgin": "BOM",
+                            "SegRef": "1",
+                            "Url": ""
+                        }
+                    ],
+                    "Bagg": [],
+                    "CacheAvail": false,
+                    "OtherService": [
+                        {
+                            "Amount": "0",
+                            "Description": "Wheelchair(Traveler is completely immobile)",
+                            "Destination": "DEL",
+                            "Itinref": "0",
+                            "Orgin": "BOM",
+                            "OtherID": "8868",
+                            "OtherSSRtext": null,
+                            "SSRCode": "WCHC|1",
+                            "SSRRef": "",
+                            "SSRType": "Wheelchair(Traveler is completely immobile)",
+                            "SegRef": "1"
+                        },
+                        {
+                            "Amount": "0",
+                            "Description": "Wheelchair(Traveler can ascend/descend stairs)",
+                            "Destination": "DEL",
+                            "Itinref": "0",
+                            "Orgin": "BOM",
+                            "OtherID": "8869",
+                            "OtherSSRtext": null,
+                            "SSRCode": "WCHR|1",
+                            "SSRRef": "",
+                            "SSRType": "Wheelchair(Traveler can ascend/descend stairs)",
+                            "SegRef": "1"
+                        }
+                    ],
+                    "IsCurChange": false,
+                    "OfficeId": "HQ8",
+                    "Sqe": "14452984139319",
+                    "Status": null,
+                    "Stock": "UAI"
+                }
+            ],
+            "AllowBlockPNR": "true",
+            "AllowGST": "false",
+            "AllowSeatMap": "true",
+            "DOBMandatory": "true",
+            "FareTypeDescription": "ECO VALUE",
+            "PassportMandatory": "false",
+            "MandateSSR": ""
+        }
+    ],
+    "ResponseStatus": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "14452955721402587"
+    }
+}

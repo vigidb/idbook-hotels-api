@@ -611,6 +611,10 @@ def check_wallet_balance_for_booking(booking, user, company_id=None):
             notification_dict = wallet_booking_balance_notification_template(
                     booking, balance, notification_dict)
             create_notification(notification_dict)
+            
+            return False, balance
+        else:
+            return True, balance
     except Exception as e:
         print(e)
     

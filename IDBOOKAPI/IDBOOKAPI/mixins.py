@@ -48,15 +48,40 @@ class LoggingMixin:
     logger = logging.getLogger(__name__)
 
     def log_request(self, request):
-        user_info = f"User: {request.user}" if request.user.is_authenticated else "Anonymous User"
+        user_info = f"User: {request.user}" if getattr(request, "user", None) and request.user.is_authenticated else "Anonymous User"
         self.logger.info(
             f"Request: {request.method} {request.get_full_path()} | {user_info}"
         )
 
     def log_response(self, response):
         self.logger.info(
-            f"Response: {response.status_code}"
+            f"Response: {getattr(response, 'status_code', '')}"
         )
+
+    # Convenience helpers used across viewsets
+    def log_info(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.info(message, extra=extra)
+        else:
+            self.logger.info(message)
+
+    def log_error(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.error(message, extra=extra)
+        else:
+            self.logger.error(message)
+
+    def log_warning(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.warning(message, extra=extra)
+        else:
+            self.logger.warning(message)
+
+    def log_debug(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.debug(message, extra=extra)
+        else:
+            self.logger.debug(message)
 
     # def log_request(self, request):
     #     self.logger.info(

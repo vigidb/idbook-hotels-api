@@ -1,0 +1,71 @@
+
+
+Header:- TOKEN : NVBLbENSdlJuMXBWTnlqY3hodXRmRDhySTlVdVlqd2hkQ3JueU5qZUFOVDR3enBiL0ViQnpOWndlWkVka3ZYcllQekE4YlVKZURTSkRYbnR5ZCstYWNxR0oxL3B6Tm9ueUxJQU9RVTRjOXRDSzVZSm5DKy1QNHZwMWtRSHBxSTFqZDBvKy1MRDBFYjUzUS9EYXdZNEVDTVBPRElHR2p5WGg3UmUyKy1KNHRWSFU1bWowaVh6NU4wVzQ4aWxsWTh6YWRTcjRSQWx3ekZGZGNoUDJnMzlzbExpYkErQUQwQVBRLQ== 
+
+
+Request
+
+{
+  "AgentInfo": {
+    "AgentId": "*****",
+    "UserName": "*******",
+    "AppType": "API",
+    "Version": "2.0"
+  },
+  "SegmentInfo": {
+    "BaseOrigin": "DEL",
+    "BaseDestination": "DXB",
+    "TripType": "R"
+  },
+  "Trackid": "AQ171315121735406821713247686250JXZLQUOHVAN",
+  "AirIqPNR": "AF21GC0040",
+  "Remarks": "TESTSES",
+  "Flag": "CONFIRM",
+  "ContactNo": "9845155622",
+  "ItineraryInfo": [
+    {
+      "FlightDetails": [
+        {
+          "FlightNumber": "6E 1461",
+          "Origin": "DEL",
+          "Destination": "DXB",
+          "DepartureDateTime": "12 Sep 2025 08:40",
+          "ArrivalDateTime": "12 Sep 2025 10:50",
+          "FlightID": "9635"
+        },
+        {
+          "FlightNumber": "6E 1406",
+          "Origin": "DXB",
+          "Destination": "DEL",
+          "DepartureDateTime": "20 Sep 2025 00:20",
+          "ArrivalDateTime": "20 Sep 2025 05:25",
+          "FlightID": "9636"
+        }
+      ],
+      "BaseAmount": 43953.0,
+      "GrossAmount": 56974.0
+    }
+  ]
+}
+
+
+Response
+
+ {
+  "ResheduleStatus": "SUCCESS",
+  "Flag": "CONFIRMED",
+  "AirIqPNR": "AF21GC0040",
+  "Remarks": "Your request to Reschedule has been processed successfully.",
+  "New_PNR": "AF22GC0045",
+  "Penalty": "14638",
+  "FareDifference": "48078.0",
+  "NewBookingAmount": "84645.0",
+  "OldBookingAmount": "36567",
+  "AlertMsg": "",
+  "Status": {
+    "ResultCode": "1",
+    "Error": "",
+    "SequenceID": "19360727764658020"
+  }
+}
+

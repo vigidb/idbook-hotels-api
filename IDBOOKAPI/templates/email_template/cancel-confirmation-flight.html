@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Flight Booking Cancelled</title>
+  <style>
+    /* General Styles */
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #f5f6fa;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 20px auto;
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(90.11deg, #dc3545 -1.97%, #c82333 99.93%);
+      padding: 20px;
+      text-align: center;
+      color: white;
+    }
+
+    .header img {
+      max-width: 150px;
+    }
+
+    .content {
+      padding: 20px;
+    }
+
+    .content h1 {
+      font-size: 22px;
+      margin-bottom: 10px;
+      text-align: center;
+      color: #dc3545;
+    }
+
+    .sub-heading {
+      font-size: 16px;
+      color: #666;
+      text-align: center;
+    }
+
+    /* Information Box */
+    .info-box {
+      background-color: #f7f9fc;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .info-box h2 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #dc3545;
+    }
+
+    .info-box p {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .info-box strong {
+      color: #333;
+    }
+
+    /* Flexbox for side by side layout */
+    .flex-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .flex-item {
+      flex: 1;
+      margin-right: 15px;
+    }
+
+    .flex-item:last-child {
+      margin-right: 0;
+    }
+
+    /* CTA Buttons */
+    .cta {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .cta a {
+      text-decoration: none;
+      padding: 12px 25px;
+      border-radius: 6px;
+      color: white;
+      background-color: #dc3545;
+      margin-right: 10px;
+      font-size: 14px;
+      display: inline-block;
+    }
+
+    /* Footer Section */
+    .footer {
+      text-align: center;
+      background-color: #f5f6fa;
+      padding: 15px;
+      font-size: 12px;
+      color: #888;
+      margin-top: 20px;
+    }
+
+    .footer a {
+      color: #345b9c;
+      text-decoration: none;
+    }
+
+    /* Warning Box */
+    .warning-box {
+      background-color: #fff3cd;
+      border: 1px solid #ffeaa7;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .warning-box h3 {
+      color: #856404;
+      margin-bottom: 10px;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 600px) {
+      .content {
+        padding: 15px;
+      }
+
+      .flex-container {
+        flex-direction: column;
+      }
+
+      .cta a {
+        padding: 10px 20px;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section -->
+    <div class="header">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook%20logo.png?updatedAt=1726323905017" alt="Idbook Hotels Logo">
+    </div>
+
+    <!-- Cancellation Content -->
+    <div class="content">
+      <h1>Flight Booking Cancelled</h1>
+      <p class="sub-heading">Hi {{ name }}, Your flight booking has been successfully cancelled. Please find the details below.</p>
+
+      <!-- Booking Information -->
+      <div class="info-box">
+        <h2>Cancelled Flight Information</h2>
+        
+        <div class="flex-container">
+          <!-- Flight Route -->
+          <div class="flex-item">
+            <p><strong>Flight Route:</strong> {{ flying_from }} → {{ flying_to }}</p>
+          </div>
+          <div class="flex-item">
+            <p><strong>Flight Class:</strong> {{ flight_class }}</p>
+          </div>
+        </div>
+        
+        <div class="flex-container">
+          <!-- Departure Date -->
+          <div class="flex-item">
+            <p><strong>Departure Date:</strong> {{ departure_date }}</p>
+          </div>
+          {% if flight_trip == "ROUND" %}
+          <div class="flex-item">
+            <p><strong>Return Date:</strong> {{ return_date }}</p>
+          </div>
+          {% endif %}
+        </div>
+        
+        <div class="flex-container">
+          <!-- Reference and Payment -->
+          <div class="flex-item">
+            <p><strong>Reference Number:</strong> {{ reference_number }}</p>
+          </div>
+          <div class="flex-item">
+            <p><strong>Total Payment Made:</strong> ₹{{ total_payment_made }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Customer Details -->
+      <div class="info-box">
+        <h2>Customer Details</h2>
+        <p><strong>Name:</strong> {{ name }}</p>
+        <p><strong>Email:</strong> {{ email }}</p>
+        <p><strong>Phone:</strong> {{ mobile_number }}</p>
+      </div>
+
+      <!-- Refund Information -->
+      <div class="warning-box">
+        <h3>Refund Information</h3>
+        <p>Your refund will be processed according to the airline's cancellation policy and payment method used during booking.</p>
+        <p><strong>Expected Refund Timeline:</strong></p>
+        <ul>
+          <li>Wallet Payment: Instant refund</li>
+          <li>Card/UPI Payment: 5-7 business days</li>
+          <li>Net Banking: 7-10 business days</li>
+        </ul>
+      </div>
+
+      <!-- Call-to-Action Button -->
+      <div class="cta">
+        <a href="{{ booking_link }}">View Booking Details</a>
+      </div>
+
+      <!-- Notice Section -->
+      <div class="info-box">
+        <p>If you have any questions about your cancellation or refund, please contact our support team.</p>
+        <p><strong>Note:</strong> Refund amount may vary based on airline cancellation policies and timing of cancellation.</p>
+      </div>
+    </div>
+
+    <!-- Footer Section -->
+    <div class="footer">
+      <p>Idbook Hotels | Address: Gangtok, Sikkim, India</p>
+      <p>Email: support@idbookhotels.com | Phone: +91-1234567890</p>
+      <p><a href="#">Privacy Policy</a> | <a href="#">Terms and Conditions</a></p>
+    </div>
+  </div>
+</body>
+</html>

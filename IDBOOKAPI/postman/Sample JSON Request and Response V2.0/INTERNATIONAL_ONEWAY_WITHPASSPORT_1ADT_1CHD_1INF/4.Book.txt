@@ -1,0 +1,401 @@
+
+
+
+Header:-
+
+TOKEN : NVBLbENSdlJuMXBWTnlqY3hodXRmRDhySTlVdVlqd2hkQ3JueU5qZUFOVDR3enBiL0ViQnpOWndlWkVka3ZYcllQekE4YlVKZURTSkRYbnR5ZCstYWNxR0oxL3B6Tm9ueUxJQU9RVTRjOXRDSzVZSm5DKy1QNHZwMWtRSHBxSTFqZDBvKy1MRDBFYjUzUS9EYXdZNEVDTVBPRElHR2p5WGg3UmUyKy1KNHRWSFU1bWowaVh6NU4wVzQ4aWxsWTh6YWRTcjRSQWx3ekZGZGNoUDJnMzlzbExpYkErQUQwQVBRLQ==
+
+
+
+Request :- 
+
+
+
+{
+    "AgentInfo": {
+        "AgentId": "XXXXXXXXXX",
+        "UserName": "XXXXXXXXXX",
+        "AppType": "API",
+        "Version": "V1.0"
+    },
+    "AdultCount": 1,
+    "ChildCount": 1,
+    "InfantCount": 1,
+    "ItineraryFlightsInfo": [
+        {
+            "Token": "AQNKL0400101070141497",
+            "FlighstInfo": [
+                {
+                    "FlightID": "6542",
+                    "FlightNumber": "6E 2111",
+                    "Origin": "DEL",
+                    "Destination": "DXB",
+                    "DepartureDateTime": "19 Mar 2023 20:36",
+                    "ArrivalDateTime": "19 Mar 2023 23:26"
+                }
+            ],
+            "PaymentMode": "T",
+            "SeatsSSRInfo": [
+            ],
+            "BaggSSRInfo": [
+            ],
+            "MealsSSRInfo": [
+            ],
+            "OtherSSRInfo": [],
+            "PaymentInfo": [
+                {
+                    "TotalAmount": "20163"
+                }
+            ]
+        }
+    ],
+    "PaxDetailsInfo": [
+        {
+            "PaxRefNumber": "1",
+            "Title": "MR",
+            "FirstName": "MOHAN",
+            "LastName": "api",
+            "DOB": "12/06/1997",
+            "Gender": "Male",
+            "PaxType": "ADT",
+            "PassportNo": "R4325645",
+            "PassportExpiry": "12/06/2040",
+            "PassportIssuedDate": "12/06/2019",
+            "PassportCountryCode": "IN",
+            "InfantRef": ""
+        },
+        {
+            "PaxRefNumber": "2",
+            "Title": "MSTR",
+            "FirstName": "RAJ",
+            "LastName": "api",
+            "DOB": "12/06/2014",
+            "Gender": "Male",
+            "PaxType": "CHD",
+            "PassportNo": "G4325645",
+            "PassportExpiry": "12/06/2042",
+            "PassportIssuedDate": "12/06/2023",
+            "PassportCountryCode": "IN",
+            "InfantRef": ""
+        },
+        {
+            "PaxRefNumber": "3",
+            "Title": "MSTR",
+            "FirstName": "ALEX",
+            "LastName": "api",
+            "DOB": "12/06/2021",
+            "Gender": "Male",
+            "PaxType": "INF",
+            "PassportNo": "H4325645",
+            "PassportExpiry": "12/06/2042",
+            "PassportIssuedDate": "12/06/2029",
+            "PassportCountryCode": "IN",
+            "InfantRef": "1"
+        }
+    ],
+    "AddressDetails": {
+        "CountryCode": "91",
+        "ContactNumber": "9886325377",
+        "EmailID": "test123@gmail.com"
+    },
+    "GSTInfo": {
+        "GSTNumber": "",
+        "GSTCompanyName": "",
+        "GSTAddress": "",
+        "GSTEmailID": "",
+        "GSTMobileNumber": ""
+    },
+    "TripType": "O",
+    "BlockPNR": false,
+    "BaseOrigin": "DEL",
+    "BaseDestination": "DXB",
+    "TrackId": "AQ15132878278883577797968671513308517154Q23MWAUJHT0"
+}
+
+
+
+Response :- 
+
+
+
+{
+     "TrackId": "RSNKL040010107138020320231346041346170027413",
+    "Bookingresponse": {
+        "ItinearyDetails": [
+            {
+                "AdultCount": "1",
+                "ChildCount": "1",
+                "InfantCount": "1",
+                "IssuedDate": "02/03/2023 15:16:06",
+                "Item": [
+                    {
+                        "Resultcode": "1",
+                        "BookingTrackId": "RSNKL040010107138020320231346041346170027413",
+                        "AirIqPNR": "BX02EC0009",
+                        "CRSPNR": "N/A",
+                        "BaseOrigin": "DEL ",
+                        "BaseDestination": "AUH ",
+                        "GST_Number": "",
+                        "TicketingTimeLimit": "",
+                        "PromoCode": "",
+                        "Class": "R",
+                        "PrintTicket": "?SECKEY=Amo/D6xxjAr8jRORtMUokXVXPiYCeBIoZkAzd4xHuqY=",
+                        "SegmentType": "I",
+                        "Special": "N",
+                        "Stock": "6E",
+                        "TripType": "O",
+                        "PaymentDetails": {
+                            "Item": [
+                                {
+                                    "Amount": "20163.00",
+                                    "CurrencyCode": "INR"
+                                }
+                            ]
+                        },
+                        "TourCode": "",
+                        "TravellerInfo": {
+                            "Item": [
+                                {
+                                    "Title": "MR",
+                                    "FirstName": "MOHAN",
+                                    "LastName": "API",
+                                    "DateOfBirth": "12/06/1997",
+                                    "PaxType": "Adult",
+                                    "TicketNumber": "BX02EC00091-1",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "AirlinePNR": "SIPVGT",
+                                                "TicketNo": "BX02EC00091-1",
+                                                "FlightNumber": "1833",
+                                                "Origin": "DEL ",
+                                                "Destination": "AUH ",
+                                                "DepartureDateTime": "19/03/2023 20:36",
+                                                "ArrivalDateTime": "19/03/2023 23:26",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "6E",
+                                                "ClassCode": "R",
+                                                "FareBasis": "R0INT",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "30KG ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "6769.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "8697.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "353.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "07GST"
+                                                    },
+                                                    {
+                                                        "Amount": "106.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "ZR"
+                                                    },
+                                                    {
+                                                        "Amount": "1029.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "ASF"
+                                                    },
+                                                    {
+                                                        "Amount": "50.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "PHF"
+                                                    },
+                                                    {
+                                                        "Amount": "237.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "TTF"
+                                                    },
+                                                    {
+                                                        "Amount": "62.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "UDF"
+                                                    },
+                                                    {
+                                                        "Amount": "91.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "PSF"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                },
+                                {
+                                    "Title": "MSTR",
+                                    "FirstName": "RAJ",
+                                    "LastName": "API",
+                                    "DateOfBirth": "12/06/2014",
+                                    "PaxType": "Child",
+                                    "TicketNumber": "BX02EC00091-2",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "AirlinePNR": "SIPVGT",
+                                                "TicketNo": "BX02EC00091-2",
+                                                "FlightNumber": "1833",
+                                                "Origin": "DEL ",
+                                                "Destination": "AUH ",
+                                                "DepartureDateTime": "19/03/2023 20:36",
+                                                "ArrivalDateTime": "19/03/2023 23:26",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "6E",
+                                                "ClassCode": "R",
+                                                "FareBasis": "R0INT",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "30KG ",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "6769.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "8697.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "353.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "07GST"
+                                                    },
+                                                    {
+                                                        "Amount": "106.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "ZR"
+                                                    },
+                                                    {
+                                                        "Amount": "1029.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "ASF"
+                                                    },
+                                                    {
+                                                        "Amount": "50.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "PHF"
+                                                    },
+                                                    {
+                                                        "Amount": "237.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "TTF"
+                                                    },
+                                                    {
+                                                        "Amount": "62.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "UDF"
+                                                    },
+                                                    {
+                                                        "Amount": "91.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "PSF"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                },
+                                {
+                                    "Title": "MSTR",
+                                    "FirstName": "ALEX",
+                                    "LastName": "API",
+                                    "DateOfBirth": "12/06/2021",
+                                    "PaxType": "Infant",
+                                    "TicketNumber": "BX02EC00091-3",
+                                    "SegmentInformation": {
+                                        "Item": [
+                                            {
+                                                "AirlinePNR": "SIPVGT",
+                                                "TicketNo": "BX02EC00091-3",
+                                                "FlightNumber": "1833",
+                                                "Origin": "DEL ",
+                                                "Destination": "AUH ",
+                                                "DepartureDateTime": "19/03/2023 20:36",
+                                                "ArrivalDateTime": "19/03/2023 23:26",
+                                                "AirCraftType": "",
+                                                "CarrierCode": "6E",
+                                                "ClassCode": "R",
+                                                "FareBasis": "R0INT",
+                                                "FrequentFlyerNumber": "",
+                                                "SpRequest": "",
+                                                "MealsPreference": "",
+                                                "MealsAmount": "0.00",
+                                                "BaggagePreference": "",
+                                                "BaggageAmount": "0.00",
+                                                "SeatPreference": "",
+                                                "SeatAmount": "0.00"
+                                            }
+                                        ],
+                                        "MonetaryDetail": {
+                                            "BasicAmount": "2769.00",
+                                            "BasicCurrencyCode": "INR",
+                                            "CurrencyCode": "INR",
+                                            "GrossAmount": "2769.00",
+                                            "ServiceTax": "ServiceTax",
+                                            "ServiceTaxAmount": "0.00",
+                                            "TaxDetails": {
+                                                "item": [
+                                                    {
+                                                        "Amount": "0.00",
+                                                        "CurrencyCode": "INR",
+                                                        "TaxCode": "Tax"
+                                                    }
+                                                ]
+                                            },
+                                            "TransactionFee": "TransactionFee",
+                                            "TransactionFeeAmount": "0.00"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "OtherCharges": "0.00",
+                "SegmentType": "I",
+                "TerminalContactDetails": {
+                    "Address1": "NAMAKKAL",
+                    "Address2": "NAMAKKAL",
+                    "City": "BOM",
+                    "Country": "IN",
+                    "Email": "harigopi.sts@gmail.com",
+                    "Phone": "-",
+                    "State": "MH",
+                    "TerminalName": "VK INT TRAVEL"
+                },
+                "TotalAmount": "20163.00",
+                "TotalSegments": "1",
+                "TripType": "O"
+            }
+        ]
+    },
+    "Status": {
+        "Error": "",
+        "ResultCode": "1",
+        "SequenceID": "1538596768017187807374869081"
+    }
+}

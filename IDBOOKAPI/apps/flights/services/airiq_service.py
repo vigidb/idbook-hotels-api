@@ -13,6 +13,11 @@ from ..models import AirIQApiLog, FlightSearchSession, FlightOption, AirIQTokenC
 
 logger = logging.getLogger(__name__)
 
+proxies = {
+    'http': 'http://localhost:8888',
+    'https': 'http://localhost:8888',
+}
+
 
 class AirIQException(Exception):
     """Custom exception for AirIQ API errors"""
@@ -59,11 +64,15 @@ class AirIQService:
             'multi_class_fare': f'{self.base_url}/GetMultiClassFare',
         }
 
-    def _create_auth_header(self) -> str:
-        """Create Base64 encoded authentication header"""
+    def _create_basic_auth_header(self) -> str:
+        """
+        Create Base64 encoded HTTP Basic Authentication header
+        Format: AgentID*Username:Password (Base64 encoded)
+        """
         auth_string = f"{self.agent_id}*{self.username}:{self.password}"
         auth_bytes = auth_string.encode('ascii')
         auth_base64 = base64.b64encode(auth_bytes).decode('ascii')
+        logger.debug(f"Created basic auth header for login: {auth_string[:10]}...")
         return auth_base64
 
     def _log_api_call(self, endpoint: str, method: str, request_data: dict, 
@@ -95,25 +104,33 @@ class AirIQService:
             'Content-Type': 'application/json',
         }
         
-        # Add authentication header only for non-login requests
+        # Add authentication header based on endpoint type
         if 'Login' not in endpoint:
+            # For regular API calls, use TOKEN authentication
             if not self._is_token_valid():
                 self.authenticate()
             headers['TOKEN'] = self._auth_token
         else:
-            headers['TOKEN'] = self._create_auth_header()
+            # For login endpoint, this should not be used anymore
+            # Login is handled by dedicated _perform_login method
+            logger.warning("_make_request called for login endpoint - should use _perform_login instead")
         
         try:
-            response = requests.request(
+            # Build request kwargs and include proxies only if configured
+            request_kwargs = dict(
                 method=method,
                 url=endpoint,
                 headers=headers,
                 json=data,
-                timeout=30
+                timeout=30,
             )
+            if proxies:
+                request_kwargs['proxies'] = proxies
+
+            response = requests.request(**request_kwargs)
             
             response_time_ms = int((time.time() - start_time) * 1000)
-            
+
             # Try to parse JSON response
             try:
                 response_data = response.json()
@@ -139,7 +156,7 @@ class AirIQService:
                     # Some successful responses might not have explicit status
                     is_success = response.status_code == 200
                     result_code = '1' if is_success else '0'
-            
+
             # Log the API call
             self._log_api_call(
                 endpoint=endpoint.split('/')[-1],
@@ -176,49 +193,255 @@ class AirIQService:
         if not self._auth_token or not self._token_expires_at:
             return False
         return timezone.now() < self._token_expires_at
+    
+    def _should_refresh_token(self) -> bool:
+        """Check if token should be refreshed (daily refresh logic)"""
+        # Check if we have a valid cached token from database
+        cached_token_record = AirIQTokenCache.objects.filter(
+            is_active=True,
+            expires_at__gt=timezone.now()
+        ).first()
+        
+        if not cached_token_record:
+            logger.info("No valid cached token found - refresh needed")
+            return True
+        
+        # Check if token was created yesterday or earlier
+        now = timezone.now()
+        token_created_date = cached_token_record.created_at.date()
+        current_date = now.date()
+        
+        if token_created_date < current_date:
+            logger.info(f"Token created on {token_created_date}, current date is {current_date} - daily refresh needed")
+            return True
+        
+        # Check if token expires within the next 2 hours (proactive refresh)
+        if cached_token_record.expires_at <= now + timedelta(hours=2):
+            logger.info(f"Token expires at {cached_token_record.expires_at}, within 2 hours - proactive refresh")
+            return True
+        
+        return False
+    
+    def _perform_login(self) -> Tuple[dict, bool]:
+        """
+        Perform login with AirIQ using HTTP Basic Authentication
+        Returns (response_data, is_success)
+        """
+        start_time = time.time()
+        
+        # Create HTTP Basic Authentication header
+        auth_header = self._create_basic_auth_header()
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': auth_header  # HTTP Basic Authentication
+        }
+        
+        # Login payload (can be empty or minimal as per AirIQ docs)
+        login_payload = {
+            "AgentID": self.agent_id,
+            "Username": self.username,
+            "Password": self.password
+        }
+        
+        try:
+            logger.info(f"Attempting AirIQ login with Basic Auth for agent: {self.agent_id}")
+            
+            # Build request kwargs and include proxies only if configured
+            request_kwargs = dict(
+                url=self.endpoints['login'],
+                headers=headers,
+                json=login_payload,
+                timeout=30,
+            )
+            if proxies:
+                request_kwargs['proxies'] = proxies
+            
+            response = requests.post(**request_kwargs)
+            
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Parse JSON response
+            try:
+                response_data = response.json()
+            except ValueError:
+                response_data = {'error': 'Invalid JSON response', 'raw': response.text}
+                logger.error(f"Login failed - Invalid JSON response: {response.text}")
+                
+            # Determine success based on AirIQ's result codes
+            is_success = False
+            result_code = '-1'
+            error_message = ''
+            
+            if isinstance(response_data, dict):
+                # Check for status in response
+                if 'Status' in response_data:
+                    result_code = response_data['Status'].get('ResultCode', '-1')
+                    error_message = response_data['Status'].get('Error', '')
+                    is_success = result_code == '1'
+                elif 'ResultCode' in response_data:
+                    result_code = response_data.get('ResultCode', '-1')
+                    error_message = response_data.get('Error', '')
+                    is_success = result_code == '1'
+                elif response.status_code == 200 and 'Token' in response_data:
+                    # Some successful responses might not have explicit status but contain Token
+                    is_success = True
+                    result_code = '1'
+                    logger.info("Login successful - Token received")
+                else:
+                    logger.error(f"Login failed - No token in response: {response_data}")
+            
+            # Log the login attempt
+            self._log_api_call(
+                endpoint='Login',
+                method='POST',
+                request_data={
+                    'AgentID': self.agent_id,
+                    'Username': self.username,
+                    'Password': '***HIDDEN***'  # Don't log password
+                },
+                response_data=response_data,
+                result_code=result_code,
+                error_message=error_message,
+                response_time_ms=response_time_ms
+            )
+            
+            if is_success:
+                logger.info(f"AirIQ login successful (response time: {response_time_ms}ms)")
+            else:
+                logger.error(f"AirIQ login failed - Code: {result_code}, Error: {error_message}")
+            
+            return response_data, is_success
+            
+        except requests.RequestException as e:
+            response_time_ms = int((time.time() - start_time) * 1000)
+            error_response = {'error': str(e), 'type': 'request_error'}
+            
+            logger.error(f"AirIQ login request failed: {str(e)}")
+            
+            # Log the failed request
+            self._log_api_call(
+                endpoint='Login',
+                method='POST',
+                request_data={
+                    'AgentID': self.agent_id,
+                    'Username': self.username,
+                    'Password': '***HIDDEN***'
+                },
+                response_data=error_response,
+                result_code='-1',
+                error_message=str(e),
+                response_time_ms=response_time_ms
+            )
+            
+            return error_response, False
 
     def authenticate(self) -> bool:
         """
         Authenticate with AirIQ API and get access token
-        Uses database caching to avoid hitting daily API limit
+        Uses database caching with daily refresh to avoid hitting daily API limit
         Returns True if successful, False otherwise
         """
-        # Check database cache first for valid token
-        cached_token = AirIQTokenCache.get_valid_token()
-        if cached_token:
-            self._auth_token = cached_token
-            self._token_expires_at = timezone.now() + timedelta(hours=23)  # Assume close to expiry
-            logger.info("Using cached AirIQ authentication token")
-            return True
+        # Check if we should refresh the token (daily refresh or expiry)
+        if not self._should_refresh_token():
+            # Use existing valid token
+            cached_token = AirIQTokenCache.get_valid_token()
+            if cached_token:
+                self._auth_token = cached_token
+                # Get actual expiry from database
+                cached_token_record = AirIQTokenCache.objects.filter(
+                    is_active=True,
+                    expires_at__gt=timezone.now()
+                ).first()
+                if cached_token_record:
+                    self._token_expires_at = cached_token_record.expires_at
+                    logger.info(f"Using cached AirIQ token (expires: {self._token_expires_at})")
+                    return True
         
-        logger.info("No valid cached token, authenticating with AirIQ API")
+        logger.info("Refreshing AirIQ authentication token (daily refresh or expiry)")
         
-        # Authenticate with API
-        response_data, is_success = self._make_request(
-            self.endpoints['login'],
-            {
-                "AgentID": self.agent_id,
-                "Username": self.username,
-                "Password": self.password
-            }
-        )
+        # Authenticate with API using dedicated login method
+        response_data, is_success = self._perform_login()
         
         if is_success and 'Token' in response_data:
             self._auth_token = response_data['Token']
-            # Tokens are valid until end of day according to docs
-            self._token_expires_at = timezone.now().replace(
+            # Set token expiry to end of current day (AirIQ tokens expire daily)
+            today_end = timezone.now().replace(
                 hour=23, minute=59, second=59, microsecond=0
             )
+            self._token_expires_at = today_end
             
-            # Cache the token in database (safer than cache for daily limits)
-            AirIQTokenCache.cache_token(self._auth_token, expires_in_hours=24)
+            # Cache the token in database with daily expiry
+            token_cache = AirIQTokenCache.cache_token(self._auth_token, expires_at=today_end)
             
-            logger.info("AirIQ authentication successful - token cached in database")
+            logger.info(f"AirIQ authentication successful - new token cached (expires: {today_end})")
+            logger.info(f"Token created on: {token_cache.created_at.date()}")
             return True
         else:
             error_msg = response_data.get('Status', {}).get('Error', 'Unknown authentication error')
             logger.error(f"AirIQ authentication failed: {error_msg}")
             raise AirIQException(f"Authentication failed: {error_msg}")
+    
+    def refresh_token_if_needed(self) -> bool:
+        """
+        Refresh token if needed (daily refresh or near expiry)
+        This method can be called by scheduled tasks
+        """
+        try:
+            if self._should_refresh_token():
+                logger.info("Refreshing AirIQ token via scheduled refresh")
+                return self.authenticate()
+            else:
+                logger.info("AirIQ token refresh not needed")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to refresh AirIQ token: {str(e)}")
+            return False
+    
+    @classmethod
+    def cleanup_expired_tokens(cls):
+        """
+        Clean up expired tokens from database
+        """
+        from django.utils import timezone
+        
+        expired_count = AirIQTokenCache.objects.filter(
+            expires_at__lte=timezone.now()
+        ).update(is_active=False)
+        
+        if expired_count > 0:
+            logger.info(f"Deactivated {expired_count} expired AirIQ tokens")
+        
+        return expired_count
+    
+    @classmethod
+    def get_token_status(cls) -> dict:
+        """
+        Get current token status for monitoring
+        """
+        from django.utils import timezone
+        
+        active_token = AirIQTokenCache.objects.filter(
+            is_active=True,
+            expires_at__gt=timezone.now()
+        ).first()
+        
+        if active_token:
+            now = timezone.now()
+            hours_until_expiry = (active_token.expires_at - now).total_seconds() / 3600
+            
+            return {
+                'has_valid_token': True,
+                'created_date': active_token.created_at.date(),
+                'expires_at': active_token.expires_at,
+                'hours_until_expiry': round(hours_until_expiry, 2),
+                'needs_refresh': active_token.created_at.date() < now.date() or hours_until_expiry < 2
+            }
+        else:
+            return {
+                'has_valid_token': False,
+                'needs_refresh': True
+            }
 
     def search_flights(self, search_params: dict) -> Tuple[dict, str]:
         """
@@ -326,7 +549,7 @@ class AirIQService:
         
         return response_data
 
-    def price_flight(self, flight_details: dict, track_id: str) -> dict:
+    def price_flight(self, track_id: str, segment_info: dict, itinerary_info: dict) -> dict:
         """
         Get detailed pricing for selected flight
         Args:
@@ -343,22 +566,9 @@ class AirIQService:
                 "AppType": "API",
                 "Version": float(self.api_version)
             },
-            "SegmentInfo": {
-                "BaseOrigin": flight_details['origin'],
-                "BaseDestination": flight_details['destination'],
-                "TripType": flight_details.get('trip_type', 'O'),
-                "AdultCount": str(flight_details.get('adults', 1)),
-                "ChildCount": str(flight_details.get('children', 0)),
-                "InfantCount": str(flight_details.get('infants', 0))
-            },
+            "SegmentInfo": segment_info,
             "Trackid": track_id,
-            "ItineraryInfo": [
-                {
-                    "FlightDetails": flight_details['segments'],
-                    "BaseAmount": str(flight_details['base_amount']),
-                    "GrossAmount": str(flight_details['gross_amount'])
-                }
-            ]
+            "ItineraryInfo": itinerary_info
         }
         
         response_data, is_success = self._make_request(
@@ -705,6 +915,96 @@ class AirIQService:
             raise AirIQException(f"Balance request failed: {error_msg}")
         
         return response_data
+    
+    def get_agent_balance(self) -> dict:
+        """Get agent balance with success/failure wrapper for enhanced flight booking"""
+        try:
+            response_data = self.get_account_balance()
+            
+            # Check if response indicates success
+            status = response_data.get('Status', {})
+            result_code = status.get('ResultCode', '')
+            error = status.get('Error', '')
+            
+            # Check for success (ResultCode "1" indicates success)
+            if result_code != "1" or error:
+                logger.error(f"AirIQ balance check failed - ResultCode: {result_code}, Error: {error}")
+                return {
+                    'success': False,
+                    'message': error or f"Balance check failed with ResultCode: {result_code}",
+                    'balance': 0,
+                    'raw_response': response_data
+                }
+            
+            # Extract balance from AirIQ response - use TopupBalance as primary balance
+            balance = 0
+            if 'TopupBalance' in response_data:
+                balance = float(response_data['TopupBalance'])
+            elif 'CreditBalance' in response_data:
+                balance = float(response_data['CreditBalance'])
+            elif 'AgentDetails' in response_data:
+                balance = float(response_data['AgentDetails'].get('AgentBalance', 0))
+            elif 'Balance' in response_data:
+                balance = float(response_data['Balance'])
+            elif 'AccountBalance' in response_data:
+                balance = float(response_data['AccountBalance'])
+            
+            return {
+                'success': True,
+                'balance': balance,
+                'topup_balance': float(response_data.get('TopupBalance', 0)),
+                'credit_balance': float(response_data.get('CreditBalance', 0)),
+                'raw_response': response_data
+            }
+            
+        except AirIQException as e:
+            logger.error(f"Agent balance check failed: {str(e)}")
+            return {
+                'success': False,
+                'message': str(e),
+                'balance': 0
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error in agent balance check: {str(e)}")
+            return {
+                'success': False,
+                'message': 'Unable to retrieve balance',
+                'balance': 0
+            }
+    
+    def get_pricing(self, pricing_data: dict) -> dict:
+        """Get current pricing for flight booking validation"""
+        if not self._is_token_valid():
+            self.authenticate()
+        
+        # Build pricing request from provided data
+        track_id = pricing_data.get('TrackId')
+        itinerary_flights = pricing_data.get('ItineraryFlightsInfo', [])
+        
+        if not track_id or not itinerary_flights:
+            raise AirIQException("TrackId and ItineraryFlightsInfo are required for pricing")
+        
+        payload = {
+            "AgentInfo": {
+                "AgentId": self.agent_id,
+                "UserName": self.username,
+                "AppType": "API",
+                "Version": float(self.api_version)
+            },
+            "TrackId": track_id,
+            "ItineraryFlightsInfo": itinerary_flights
+        }
+        
+        response_data, is_success = self._make_request(
+            self.endpoints['pricing'],
+            payload
+        )
+        
+        if not is_success:
+            error_msg = response_data.get('Status', {}).get('Error', 'Pricing validation failed')
+            raise AirIQException(f"Pricing validation failed: {error_msg}")
+        
+        return response_data
 
     def track_booking_status(self, booking_track_id: str) -> dict:
         """
@@ -963,15 +1263,18 @@ class AirIQService:
         """
         Get available classes for flights
         Args:
-            flight_ids: List of flight IDs
+            flight_ids: List of flight IDs from availability response
             adults: Number of adults
             children: Number of children
             infants: Number of infants
-            trip_type: Trip type
-            track_id: Track ID
+            trip_type: Trip type (O/R/Y)
+            track_id: Track ID from availability/pricing response
         """
         if not self._is_token_valid():
             self.authenticate()
+        
+        if not track_id:
+            raise AirIQException("Track ID is required for multi-class request")
         
         payload = {
             "AgentInfo": {
@@ -982,9 +1285,9 @@ class AirIQService:
             },
             "FlightsInfo": [{"FlightID": flight_id} for flight_id in flight_ids],
             "PassengersInfo": {
-                "AdultCount": adults,
-                "ChildCount": children,
-                "InfantCount": infants
+                "AdultCount": int(adults),
+                "ChildCount": int(children),
+                "InfantCount": int(infants)
             },
             "TripType": trip_type,
             "Trackid": track_id
@@ -1007,16 +1310,39 @@ class AirIQService:
         """
         Get fare for specific class
         Args:
-            flight_ids: List of flight IDs
-            class_fare: List of class fare details [{"AirlineClass": "B", "SeatAvailFlag": "9"}]
+            flight_ids: List of flight IDs from availability response (one per segment/leg)
+            class_fare: List of class fare details, one per FlightID
             adults: Number of adults
             children: Number of children
             infants: Number of infants
             trip_type: Trip type
-            track_id: Track ID
+            track_id: Track ID from availability/pricing response
         """
         if not self._is_token_valid():
             self.authenticate()
+        
+        if not track_id:
+            raise AirIQException("Track ID is required for multi-class fare request")
+        if not flight_ids:
+            raise AirIQException("At least one FlightID is required for multi-class fare request")
+        if not class_fare:
+            raise AirIQException("ClassFare is required (one item per FlightID)")
+        if len(class_fare) != len(flight_ids):
+            logger.warning("ClassFare count does not match FlightIDs count; proceeding but API may fail")
+        
+        # Normalize ClassFare items to expected schema and types
+        normalized_class_fare = []
+        for item in class_fare:
+            airline_class = item.get('AirlineClass') or item.get('Class') or item.get('class')
+            seats_flag = item.get('SeatAvailFlag') or item.get('Seats') or item.get('seats')
+            if airline_class is None:
+                raise AirIQException("Each ClassFare item must include AirlineClass")
+            if seats_flag is None:
+                seats_flag = '9'
+            normalized_class_fare.append({
+                "AirlineClass": str(airline_class),
+                "SeatAvailFlag": str(seats_flag)
+            })
         
         payload = {
             "AgentInfo": {
@@ -1026,11 +1352,11 @@ class AirIQService:
                 "Version": float(self.api_version)
             },
             "FlightsInfo": [{"FlightID": flight_id} for flight_id in flight_ids],
-            "ClassFare": class_fare,
+            "ClassFare": normalized_class_fare,
             "PassengersInfo": {
-                "AdultCount": adults,
-                "ChildCount": children,
-                "InfantCount": infants
+                "AdultCount": int(adults),
+                "ChildCount": int(children),
+                "InfantCount": int(infants)
             },
             "TripType": trip_type,
             "Trackid": track_id

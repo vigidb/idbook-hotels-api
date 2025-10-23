@@ -248,214 +248,19 @@ class FlightOption(models.Model):
         return f"{self.airline_code} {self.flight_number}: {self.origin} → {self.destination} at ₹{self.total_fare}"
 
 
-class FlightBooking(models.Model):
-    """Enhanced flight booking model with AirIQ integration"""
-    # Basic booking info
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='flight_bookings')
-    booking_reference = models.CharField(max_length=20, unique=True)
-    
-    # Flight selection
-    selected_flight = models.ForeignKey(FlightOption, on_delete=models.CASCADE)
-    search_session = models.ForeignKey(FlightSearchSession, on_delete=models.CASCADE)
-    
-    # Booking mode and source
-    booking_mode = models.CharField(max_length=10, choices=FLIGHT_BOOKING_MODE, default='REALTIME')
-    
-    # AirIQ specific fields
-    airiq_pnr = models.CharField(max_length=20, blank=True, help_text="AirIQ PNR")
-    airline_pnr = models.CharField(max_length=20, blank=True, help_text="Airline PNR")
-    airiq_track_id = models.CharField(max_length=255, blank=True)
-    airiq_booking_token = models.TextField(blank=True)
-    
-    # Booking status and workflow
-    status = models.CharField(max_length=20, choices=FLIGHT_BOOKING_STATUS, default='BOOKING_INITIATED')
-    booking_status = models.CharField(max_length=20, choices=BOOKING_STATUS_CHOICES, default='pending')
-    
-    # Pricing details
-    base_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    tax_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    paid_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
-    # Additional services total
-    ancillary_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
-    # Hold/Expiry management
-    hold_expires_at = models.DateTimeField(null=True, blank=True)
-    
-    # Ticket details
-    ticket_numbers = models.JSONField(default=list, help_text="List of ticket numbers for passengers")
-    ticket_pdf = models.FileField(upload_to='flights/tickets/', blank=True, null=True)
-    
-    # Metadata
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    confirmed_at = models.DateTimeField(null=True, blank=True)
-    cancelled_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = 'flights_booking'
-        verbose_name = 'Flight Booking'
-        verbose_name_plural = 'Flight Bookings'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"Booking {self.booking_reference} - {self.selected_flight}"
-
-    @property
-    def is_expired(self):
-        from django.utils import timezone
-        return self.hold_expires_at and timezone.now() > self.hold_expires_at
 
 
-class PassengerDetail(models.Model):
-    """Passenger details for flight booking"""
-    booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, related_name='passengers')
-    
-    # Passenger identification
-    passenger_reference = models.PositiveSmallIntegerField(help_text="Passenger reference number (1, 2, 3...)")
-    passenger_type = models.CharField(max_length=3, choices=PASSENGER_TYPE)
-    
-    # Personal details
-    title = models.CharField(max_length=5, choices=PASSENGER_TITLE)
-    first_name = models.CharField(max_length=50)
-    last_name = models.CharField(max_length=50)
-    date_of_birth = models.DateField()
-    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
-    
-    # Travel documents
-    passport_number = models.CharField(max_length=20, blank=True)
-    passport_expiry = models.DateField(null=True, blank=True)
-    passport_issued_date = models.DateField(null=True, blank=True)
-    passport_country_code = models.CharField(max_length=2, blank=True)
-    
-    # For infant passengers
-    infant_with_passenger = models.PositiveSmallIntegerField(null=True, blank=True, 
-                                                          help_text="Passenger reference traveling with infant")
-    
-    # Frequent flyer
-    frequent_flyer_number = models.CharField(max_length=20, blank=True)
-    frequent_flyer_airline = models.CharField(max_length=3, blank=True)
-    
-    # Ticket details
-    ticket_number = models.CharField(max_length=20, blank=True)
-    seat_number = models.CharField(max_length=5, blank=True)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'flights_passenger'
-        verbose_name = 'Passenger Detail'
-        verbose_name_plural = 'Passenger Details'
-        unique_together = ['booking', 'passenger_reference']
-        ordering = ['passenger_reference']
-
-    def __str__(self):
-        return f"{self.title} {self.first_name} {self.last_name} ({self.passenger_type})"
-
-    @property
-    def full_name(self):
-        return f"{self.title} {self.first_name} {self.last_name}"
 
 
-class SeatSelection(models.Model):
-    """Seat selections for passengers"""
-    passenger = models.ForeignKey(PassengerDetail, on_delete=models.CASCADE, related_name='seat_selections')
-    
-    # Segment details (for multi-segment flights)
-    segment_reference = models.PositiveSmallIntegerField(default=1)
-    
-    # Seat details from AirIQ
-    airiq_seat_id = models.CharField(max_length=255, blank=True)
-    seat_number = models.CharField(max_length=10)
-    seat_type = models.CharField(max_length=2, choices=SEAT_TYPE, default='NS')
-    seat_group = models.CharField(max_length=10, blank=True)
-    
-    # Seat characteristics
-    is_window = models.BooleanField(default=False)
-    is_aisle = models.BooleanField(default=False)
-    is_emergency_exit = models.BooleanField(default=False)
-    
-    # Pricing
-    seat_price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'flights_seat_selection'
-        verbose_name = 'Seat Selection'
-        verbose_name_plural = 'Seat Selections'
-        unique_together = ['passenger', 'segment_reference']
-
-    def __str__(self):
-        return f"Seat {self.seat_number} for {self.passenger.full_name}"
 
 
-class AncillaryService(models.Model):
-    """Ancillary services like meals, baggage, etc."""
-    booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, related_name='ancillary_services')
-    passenger = models.ForeignKey(PassengerDetail, on_delete=models.CASCADE, related_name='ancillary_services')
-    
-    # Service details
-    service_type = models.CharField(max_length=20, choices=SSR_CATEGORY)
-    airiq_service_id = models.CharField(max_length=100, blank=True)
-    service_code = models.CharField(max_length=20)
-    service_description = models.CharField(max_length=200)
-    
-    # Segment details
-    segment_reference = models.PositiveSmallIntegerField(default=1)
-    
-    # Pricing
-    service_price = models.DecimalField(max_digits=8, decimal_places=2)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'flights_ancillary_service'
-        verbose_name = 'Ancillary Service'
-        verbose_name_plural = 'Ancillary Services'
-
-    def __str__(self):
-        return f"{self.service_description} for {self.passenger.full_name} - ₹{self.service_price}"
 
 
-class FlightBookingPayment(models.Model):
-    """Payment details for flight bookings"""
-    booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, related_name='payments')
-    
-    # Payment identification
-    payment_reference = models.CharField(max_length=50, unique=True)
-    transaction_id = models.CharField(max_length=100, blank=True)
-    
-    # Payment details
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_mode = models.CharField(max_length=1, choices=AIRIQ_PAYMENT_MODE)
-    payment_status = models.CharField(max_length=20, choices=[
-        ('PENDING', 'Pending'),
-        ('SUCCESS', 'Success'),
-        ('FAILED', 'Failed'),
-        ('REFUNDED', 'Refunded'),
-    ], default='PENDING')
-    
-    # Gateway response
-    gateway_response = models.JSONField(default=dict)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'flights_payment'
-        verbose_name = 'Flight Payment'
-        verbose_name_plural = 'Flight Payments'
-        ordering = ['-created_at']
 
 
 class AirIQApiLog(models.Model):
     """Log all AirIQ API calls for debugging and audit"""
-    booking = models.ForeignKey(FlightBooking, on_delete=models.CASCADE, null=True, blank=True, related_name='api_logs')
+    booking = models.ForeignKey('booking.FlightBooking', on_delete=models.CASCADE, null=True, blank=True, related_name='api_logs')
     
     # API call details
     api_endpoint = models.CharField(max_length=50)
@@ -513,18 +318,23 @@ class AirIQTokenCache(models.Model):
         return valid_token.token if valid_token else None
     
     @classmethod
-    def cache_token(cls, token, expires_in_hours=24):
-        """Cache a new token"""
+    def cache_token(cls, token, expires_in_hours=24, expires_at=None):
+        """Cache a new token with optional custom expiry"""
         from django.utils import timezone
         from datetime import timedelta
         
         # Deactivate all existing tokens
         cls.objects.filter(is_active=True).update(is_active=False)
         
+        # Determine expiry time
+        if expires_at:
+            token_expires_at = expires_at
+        else:
+            token_expires_at = timezone.now() + timedelta(hours=expires_in_hours)
+        
         # Create new token cache
-        expires_at = timezone.now() + timedelta(hours=expires_in_hours)
         return cls.objects.create(
             token=token,
-            expires_at=expires_at,
+            expires_at=token_expires_at,
             is_active=True
         )

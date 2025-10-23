@@ -1,0 +1,861 @@
+
+
+
+Header:-
+
+TOKEN : NFpPQlhkcWNpZEoxRVEyb0xnQWZjV2QxbEpxYlhtaklXUmcxMXZKcFFRVGI1dXRkRmRQams3SlJPRWkwUnEzRklpY1lrZHlzeTlOZXpLZlAwMXZmcmd6S3I0QnRKeW11OHJYbU9uRkVMTzdwbnZQalJmTSstZ0F2TWMvRHZtQjY1eFJZajJvVXQ5RSstdmMvWjBlb0ZXL1MzZVRFUjhBVWc1VkZ2VnJOc0tab2hkYk1NdnBuWkdvY3NLSVVxS1JQZm83U1RFTVNHcGlYeEMyMWsvM2FJVUh3K0FEMEFQUS0=
+
+
+
+
+Request :- 
+
+
+
+  "AgentInfo": {
+    "AgentId": "XXXXXXXXXXXX",
+    "UserName": "XXXXXXXXXXXX",
+    "AppType": "API",
+    "Version": "V1.0"
+  },
+  "SegmentInfo": {
+    "BaseOrigin": "HYD",
+    "BaseDestination": "DEL",
+    "TripType": "R",
+    "AdultCount": "1",
+    "ChildCount": "0",
+    "InfantCount": "0"
+  },
+  "Trackid": "AQ1626117547206011516262607132901ORMUFD4GNY",
+  "ItineraryInfo": [
+    {
+      "FlightDetails": [
+        {
+          "FlightID": "3446",
+          "FlightNumber": "6E 887",
+          "Origin": "HYD",
+          "Destination": "BLR",
+          "DepartureDateTime": "19 Aug 2024 05:40",
+          "ArrivalDateTime": "19 Aug 2024 06:45"
+        },
+        {
+          "FlightID": "3447",
+          "FlightNumber": "6E 861",
+          "Origin": "BLR",
+          "Destination": "DEL",
+          "DepartureDateTime": "19 Aug 2024 08:00",
+          "ArrivalDateTime": "19 Aug 2024 10:45"
+        }
+      ],
+      "BaseAmount": "1000",
+      "GrossAmount": "2475"
+    },
+    {
+      "FlightDetails": [
+        {
+          "FlightID": "3605",
+          "FlightNumber": "6E 2408",
+          "Origin": "DEL",
+          "Destination": "BLR",
+          "DepartureDateTime": "25 Aug 2024 09:00",
+          "ArrivalDateTime": "25 Aug 2024 11:30"
+        },
+        {
+          "FlightID": "3606",
+          "FlightNumber": "6E 6491",
+          "Origin": "BLR",
+          "Destination": "HYD",
+          "DepartureDateTime": "25 Aug 2024 12:40",
+          "ArrivalDateTime": "25 Aug 2024 13:45"
+        }
+      ],
+      "BaseAmount": "4300",
+      "GrossAmount": "5329"
+    }
+  ]
+} 
+
+
+
+
+Response :- 
+
+
+
+
+
+{
+  "PriceItenaryInfo": [
+    {
+      "Trackid": "AQ162851997530853161628565866618LSU8SGA72BF",
+      "AvailabilityResponse": [
+        {
+          "Token": "AQAG0D9569010022879",
+          "Flights": [
+            {
+              "FlightID": "4364",
+              "FlightNumber": "6E 887",
+              "Origin": "HYD",
+              "Destination": "BLR",
+              "DepartureTerminal": "",
+              "ArrivalTerminal": "1",
+              "DepartureDateTime": "19 Aug 2024 05:40",
+              "ArrivalDateTime": "19 Aug 2024 06:45",
+              "Class": "R",
+              "JourneyTime": "",
+              "ReferenceToken": "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",
+              "SegRef": "1",
+              "ItinRef": "0",
+              "ConnectionFlag": "S",
+              "FareId": "6E_N_1",
+              "Cabin": "E",
+              "FareBasisCode": "RCIP",
+              "Stops": null,
+              "Via": "",
+              "AirlineCategory": "LCC",
+              "CNX": "Y",
+              "PlatingCarrier": "6E",
+              "OperatingCarrier": "6E",
+              "SegmentDetails": "Airbus A320\r\nJourney Time : \r\nStart Terminal : \r\nEndTerminal : 1\r\nBaggage : 0-15 KG,0-15 KG",
+              "FlyingTime": "65",
+              "OfflineIndicator": false,
+              "MultiClass": null,
+              "AllowFQT": false,
+              "AvailSeat": "3",
+              "PromoCode": "",
+              "PromoCodeDesc": "",
+              "FareTypeDescription": "N",
+              "FareDescription": "N",
+              "FareRuleInfo": null,
+              "Refundable": "True",
+              "Baggage": "0-15 KG"
+            },
+            {
+              "FlightID": "4365",
+              "FlightNumber": "6E 861",
+              "Origin": "BLR",
+              "Destination": "DEL",
+              "DepartureTerminal": "1",
+              "ArrivalTerminal": "1",
+              "DepartureDateTime": "19 Aug 2024 08:00",
+              "ArrivalDateTime": "19 Aug 2024 10:45",
+              "Class": "R",
+              "JourneyTime": "",
+              "ReferenceToken": "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",
+              "SegRef": "2",
+              "ItinRef": "0",
+              "ConnectionFlag": "S",
+              "FareId": "6E_N_1",
+              "Cabin": "E",
+              "FareBasisCode": "RCIP",
+              "Stops": null,
+              "Via": "",
+              "AirlineCategory": "LCC",
+              "CNX": "N",
+              "PlatingCarrier": "6E",
+              "OperatingCarrier": "6E",
+              "SegmentDetails": "Airbus A321\r\nJourney Time : 305\r\nStart Terminal : 1\r\nEndTerminal : 1\r\nBaggage : 0-15 KG,0-15 KG",
+              "FlyingTime": "165",
+              "OfflineIndicator": false,
+              "MultiClass": null,
+              "AllowFQT": false,
+              "AvailSeat": "3",
+              "PromoCode": "",
+              "PromoCodeDesc": "",
+              "FareTypeDescription": "N",
+              "FareDescription": "N",
+              "FareRuleInfo": null,
+              "Refundable": "True",
+              "Baggage": "0-15 KG"
+            }
+          ],
+          "Fares": [
+            {
+              "Currency": "INR",
+              "FareType": "N",
+              "Faredescription": [
+                {
+                  "Paxtype": "ADT",
+                  "BaseAmount": "1000.00",
+                  "TotalTaxAmount": "1475",
+                  "GrossAmount": "2475",
+                  "Commission": "0.00",
+                  "Incentive": "0.00",
+                  "Servicecharge": "47.30",
+                  "TDS": "2.00",
+                  "Discount": "40.00",
+                  "PLBAmount": "0.00",
+                  "SF": "200.00",
+                  "SFGST": "36.00",
+                  "Taxes": [
+                    {
+                      "Amount": "100.00",
+                      "Code": "RCF"
+                    },
+                    {
+                      "Amount": "110.00",
+                      "Code": "SC"
+                    },
+                    {
+                      "Amount": "236.00",
+                      "Code": "ASF"
+                    },
+                    {
+                      "Amount": "59.00",
+                      "Code": "36GST"
+                    },
+                    {
+                      "Amount": "50.00",
+                      "Code": "PHF"
+                    },
+                    {
+                      "Amount": "35.00",
+                      "Code": "TTF"
+                    },
+                    {
+                      "Amount": "885.00",
+                      "Code": "UDF"
+                    }
+                  ]
+                }
+              ],
+              "FlightId": "6E_N_1"
+            }
+          ],
+          "Meal": [
+            {
+              "Amount": "400.00",
+              "Code": "Veg Meal|VGML",
+              "Description": "Veg Meal",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3580",
+              "Orgin": "HYD",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "400.00",
+              "Code": "Tomato Cucumber Cheese Lettuce Sandwich Combo|TCSW",
+              "Description": "Tomato Cucumber Cheese Lettuce Sandwich Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3581",
+              "Orgin": "HYD",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "500.00",
+              "Code": "Paneer Tikka Sandwich  Combo|PTSW",
+              "Description": "Paneer Tikka Sandwich  Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3582",
+              "Orgin": "HYD",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "500.00",
+              "Code": "Chicken Junglee Sandwich  Combo|CJSW",
+              "Description": "Chicken Junglee Sandwich  Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3583",
+              "Orgin": "HYD",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "400.00",
+              "Code": "Veg Meal|VGML",
+              "Description": "Veg Meal",
+              "Destination": "DEL",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3584",
+              "Orgin": "BLR",
+              "SegRef": "2",
+              "Url": ""
+            },
+            {
+              "Amount": "400.00",
+              "Code": "Tomato Cucumber Cheese Lettuce Sandwich Combo|TCSW",
+              "Description": "Tomato Cucumber Cheese Lettuce Sandwich Combo",
+              "Destination": "DEL",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3585",
+              "Orgin": "BLR",
+              "SegRef": "2",
+              "Url": ""
+            },
+            {
+              "Amount": "500.00",
+              "Code": "Paneer Tikka Sandwich  Combo|PTSW",
+              "Description": "Paneer Tikka Sandwich  Combo",
+              "Destination": "DEL",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3586",
+              "Orgin": "BLR",
+              "SegRef": "2",
+              "Url": ""
+            },
+            {
+              "Amount": "500.00",
+              "Code": "Chicken Junglee Sandwich  Combo|CJSW",
+              "Description": "Chicken Junglee Sandwich  Combo",
+              "Destination": "DEL",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "3587",
+              "Orgin": "BLR",
+              "SegRef": "2",
+              "Url": ""
+            }
+          ],
+          "Bagg": [
+            {
+              "Amount": "9000.00",
+              "BaggageID": "5499",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 20KG|XBPJ",
+              "Description": "Excess Baggage 20KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "1515.00",
+              "BaggageID": "5500",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 3KG|XBPE",
+              "Description": "Excess Baggage 3KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "13500.00",
+              "BaggageID": "5501",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 30KG|XBPD",
+              "Description": "Excess Baggage 30KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "7260.00",
+              "BaggageID": "5502",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 15KG|XBPC",
+              "Description": "Excess Baggage 15KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "4950.00",
+              "BaggageID": "5503",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 10KG|XBPB",
+              "Description": "Excess Baggage 10KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "2525.00",
+              "BaggageID": "5504",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 5KG|XBPA",
+              "Description": "Excess Baggage 5KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "6000.00",
+              "BaggageID": "5505",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 30KG|IXBC|IXBC",
+              "Description": "International Connection 30KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "3000.00",
+              "BaggageID": "5506",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 15KG|IXBB|IXBB",
+              "Description": "International Connection 15KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "1600.00",
+              "BaggageID": "5507",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 08KG|IXBA|IXBA",
+              "Description": "International Connection 08KG",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "900.00",
+              "BaggageID": "5508",
+              "BaggageText": "",
+              "Code": "1 Piece|ABHF",
+              "Description": "1 Piece",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "1800.00",
+              "BaggageID": "5509",
+              "BaggageText": "",
+              "Code": "2 Piece|ABHF",
+              "Description": "2 Piece",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "SegRef": "1,2"
+            }
+          ],
+          "CacheAvail": false,
+          "OtherService": [
+            {
+              "Amount": "500",
+              "Description": "Fast Forward",
+              "Destination": "DEL",
+              "Itinref": "0",
+              "Orgin": "HYD",
+              "OtherID": "3557",
+              "OtherSSRtext": null,
+              "SSRCode": "Fast Forward|FFWD",
+              "SSRRef": null,
+              "SSRType": "Fast Forward",
+              "SegRef": "1,2"
+            }
+          ],
+          "IsCurChange": false,
+          "OfficeId": "OTI275",
+          "Sqe": "16285224803026",
+          "Status": null,
+          "Stock": "6E"
+        }
+      ],
+      "AllowBlockPNR": "true",
+      "AllowGST": "true",
+      "AllowSeatMap": "true",
+      "DOBMandatory": "true",
+      "FareTypeDescription": "N",
+      "PassportMandatory": "false"
+    },
+    {
+      "Trackid": "AQ162851997530853161628565866618LSU8SGA72BF",
+      "AvailabilityResponse": [
+        {
+          "Token": "AQAG0D9569010022880",
+          "Flights": [
+            {
+              "FlightID": "2184",
+              "FlightNumber": "6E 2408",
+              "Origin": "DEL",
+              "Destination": "BLR",
+              "DepartureTerminal": "2",
+              "ArrivalTerminal": "1",
+              "DepartureDateTime": "25 Aug 2024 09:00",
+              "ArrivalDateTime": "25 Aug 2024 11:30",
+              "Class": "R",
+              "JourneyTime": "",
+              "ReferenceToken": "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",
+              "SegRef": "1",
+              "ItinRef": "0",
+              "ConnectionFlag": "S",
+              "FareId": "6E_N_1",
+              "Cabin": "E",
+              "FareBasisCode": "RUIP",
+              "Stops": null,
+              "Via": "",
+              "AirlineCategory": "LCC",
+              "CNX": "Y",
+              "PlatingCarrier": "6E",
+              "OperatingCarrier": "6E",
+              "SegmentDetails": "Airbus A320\r\nJourney Time : \r\nStart Terminal : 2\r\nEndTerminal : 1\r\nBaggage : 0-15 KG,0-15 KG",
+              "FlyingTime": "150",
+              "OfflineIndicator": false,
+              "MultiClass": null,
+              "AllowFQT": false,
+              "AvailSeat": "3",
+              "PromoCode": "",
+              "PromoCodeDesc": "",
+              "FareTypeDescription": "F",
+              "FareDescription": "F",
+              "FareRuleInfo": null,
+              "Refundable": "True",
+              "Baggage": "0-15 KG"
+            },
+            {
+              "FlightID": "2185",
+              "FlightNumber": "6E 6491",
+              "Origin": "BLR",
+              "Destination": "HYD",
+              "DepartureTerminal": "1",
+              "ArrivalTerminal": "",
+              "DepartureDateTime": "25 Aug 2024 12:40",
+              "ArrivalDateTime": "25 Aug 2024 13:45",
+              "Class": "R",
+              "JourneyTime": "",
+              "ReferenceToken": "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",
+              "SegRef": "2",
+              "ItinRef": "0",
+              "ConnectionFlag": "S",
+              "FareId": "6E_N_1",
+              "Cabin": "E",
+              "FareBasisCode": "RUIP",
+              "Stops": null,
+              "Via": "",
+              "AirlineCategory": "LCC",
+              "CNX": "N",
+              "PlatingCarrier": "6E",
+              "OperatingCarrier": "6E",
+              "SegmentDetails": "Airbus A320\r\nJourney Time : 285\r\nStart Terminal : 1\r\nEndTerminal : \r\nBaggage : 0-15 KG,0-15 KG",
+              "FlyingTime": "65",
+              "OfflineIndicator": false,
+              "MultiClass": null,
+              "AllowFQT": false,
+              "AvailSeat": "3",
+              "PromoCode": "",
+              "PromoCodeDesc": "",
+              "FareTypeDescription": "F",
+              "FareDescription": "F",
+              "FareRuleInfo": null,
+              "Refundable": "True",
+              "Baggage": "0-15 KG"
+            }
+          ],
+          "Fares": [
+            {
+              "Currency": "INR",
+              "FareType": "N",
+              "Faredescription": [
+                {
+                  "Paxtype": "ADT",
+                  "BaseAmount": "4300.00",
+                  "TotalTaxAmount": "1029",
+                  "GrossAmount": "5329",
+                  "Commission": "0.00",
+                  "Incentive": "0.00",
+                  "Servicecharge": "104.38",
+                  "TDS": "6.13",
+                  "Discount": "122.50",
+                  "PLBAmount": "0.00",
+                  "SF": "200.00",
+                  "SFGST": "36.00",
+                  "Taxes": [
+                    {
+                      "Amount": "100.00",
+                      "Code": "RCF"
+                    },
+                    {
+                      "Amount": "110.00",
+                      "Code": "SC"
+                    },
+                    {
+                      "Amount": "230.00",
+                      "Code": "07GST"
+                    },
+                    {
+                      "Amount": "236.00",
+                      "Code": "ASF"
+                    },
+                    {
+                      "Amount": "50.00",
+                      "Code": "PHF"
+                    },
+                    {
+                      "Amount": "151.00",
+                      "Code": "TTF"
+                    },
+                    {
+                      "Amount": "61.00",
+                      "Code": "UDF"
+                    },
+                    {
+                      "Amount": "91.00",
+                      "Code": "PSF"
+                    }
+                  ]
+                }
+              ],
+              "FlightId": "6E_N_1"
+            }
+          ],
+          "Meal": [
+            {
+              "Amount": "400.00",
+              "Code": "Veg Meal|VGML",
+              "Description": "Veg Meal",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1942",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "0.00",
+              "Code": "RAVA UPMA  Combo|UPMA",
+              "Description": "RAVA UPMA  Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1943",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "0.00",
+              "Code": "Tomato Cucumber Cheese Lettuce Sandwich Combo|TCSW",
+              "Description": "Tomato Cucumber Cheese Lettuce Sandwich Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1944",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "0.00",
+              "Code": "Paneer Tikka Sandwich  Combo|PTSW",
+              "Description": "Paneer Tikka Sandwich  Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1945",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "0.00",
+              "Code": "Complimentary meal|CPML",
+              "Description": "Complimentary meal",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1946",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "0.00",
+              "Code": "Chicken Junglee Sandwich  Combo|CJSW",
+              "Description": "Chicken Junglee Sandwich  Combo",
+              "Destination": "BLR",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1947",
+              "Orgin": "DEL",
+              "SegRef": "1",
+              "Url": ""
+            },
+            {
+              "Amount": "400.00",
+              "Code": "Veg Meal|VGML",
+              "Description": "Veg Meal",
+              "Destination": "HYD",
+              "IsBundleServiceMeal": false,
+              "Itinref": "0",
+              "MealID": "1948",
+              "Orgin": "BLR",
+              "SegRef": "2",
+              "Url": ""
+            }
+          ],
+          "Bagg": [
+            {
+              "Amount": "9000.00",
+              "BaggageID": "8642",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 20KG|XBPJ",
+              "Description": "Excess Baggage 20KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "1515.00",
+              "BaggageID": "8643",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 3KG|XBPE",
+              "Description": "Excess Baggage 3KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "13500.00",
+              "BaggageID": "8644",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 30KG|XBPD",
+              "Description": "Excess Baggage 30KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "7260.00",
+              "BaggageID": "8645",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 15KG|XBPC",
+              "Description": "Excess Baggage 15KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "4950.00",
+              "BaggageID": "8646",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 10KG|XBPB",
+              "Description": "Excess Baggage 10KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "2525.00",
+              "BaggageID": "8647",
+              "BaggageText": "",
+              "Code": "ExcessBaggage 5KG|XBPA",
+              "Description": "Excess Baggage 5KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "6000.00",
+              "BaggageID": "8648",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 30KG|IXBC|IXBC",
+              "Description": "International Connection 30KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "3000.00",
+              "BaggageID": "8649",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 15KG|IXBB|IXBB",
+              "Description": "International Connection 15KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "1600.00",
+              "BaggageID": "8650",
+              "BaggageText": "International Connection Baggage - Terms and Conditions:\r\n------------------------------------------------------\r\n1.The International flight should be within 48 hours of the domestic flight.\r\n\r\n2.Passengers should produce relevant international travel documents at the time of check-in,\r\n  failing which IndiGo will charge excess baggage as per applicable rates at the airport.",
+              "Code": "International Connection 08KG|IXBA|IXBA",
+              "Description": "International Connection 08KG",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "200.00",
+              "BaggageID": "8651",
+              "BaggageText": "",
+              "Code": "1 Piece|ABHF",
+              "Description": "1 Piece",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            },
+            {
+              "Amount": "400.00",
+              "BaggageID": "8652",
+              "BaggageText": "",
+              "Code": "2 Piece|ABHF",
+              "Description": "2 Piece",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "SegRef": "1,2"
+            }
+          ],
+          "CacheAvail": false,
+          "OtherService": [
+            {
+              "Amount": "500",
+              "Description": "Fast Forward",
+              "Destination": "HYD",
+              "Itinref": "0",
+              "Orgin": "DEL",
+              "OtherID": "9676",
+              "OtherSSRtext": null,
+              "SSRCode": "Fast Forward|FFWD",
+              "SSRRef": null,
+              "SSRType": "Fast Forward",
+              "SegRef": "1,2"
+            }
+          ],
+          "IsCurChange": false,
+          "OfficeId": "OTI275",
+          "Sqe": "16285224803026",
+          "Status": null,
+          "Stock": "6E"
+        }
+      ],
+      "AllowBlockPNR": "true",
+      "AllowGST": "true",
+      "AllowSeatMap": "true",
+      "DOBMandatory": "true",
+      "FareTypeDescription": "F",
+      "PassportMandatory": "false"
+    }
+  ],
+  "ResponseStatus": {
+    "Error": "",
+    "ResultCode": "1",
+    "SequenceID": "16285199753085316"
+  }
+}
