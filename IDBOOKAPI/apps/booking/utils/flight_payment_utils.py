@@ -23,7 +23,7 @@ from apps.booking.utils.db_utils import (
 )
 from apps.booking.utils.booking_utils import (
     check_wallet_balance_for_booking, deduct_booking_amount, 
-    generate_booking_confirmation_code
+    generate_booking_confirmation_code, refund_wallet_payment
 )
 from apps.booking.tasks import (
     send_flight_booking_task, create_invoice_task, send_booking_sms_task
@@ -156,18 +156,18 @@ class FlightPaymentProcessor:
                 }
             
             # Deduct amount from wallet
-            deduct_success, deduct_message = deduct_booking_amount(
-                self.booking, self.user, company_id=company_id
+            deduct_success = deduct_booking_amount(
+                self.booking, company_id=company_id
             )
             
             if not deduct_success:
                 return {
                     'success': False,
-                    'error': deduct_message,
+                    'error': 'Wallet deduction failed',
                     'error_code': 'WALLET_DEDUCTION_FAILED'
                 }
             
-            # Update payment details
+            # Update payment details as paid (wallet deducted)
             update_booking_payment_details(payment_detail.merchant_transaction_id, {
                 'code': 'PAYMENT_SUCCESS',
                 'message': 'Payment successful via wallet',
@@ -177,10 +177,38 @@ class FlightPaymentProcessor:
                 'transaction_id': payment_detail.merchant_transaction_id
             })
             
-            # Confirm booking
-            self._confirm_flight_booking()
+            # Confirm booking (calls AirIQ Book); if it fails, refund wallet and revert states
+            confirmed = self._confirm_flight_booking()
+            if not confirmed:
+                # Refund wallet since supplier booking failed
+                refund_details = {
+                    'reason': 'AirIQ booking failed after wallet deduction',
+                    'timestamp': timezone.now().isoformat()
+                }
+                refund_ok, refund_status, refund_data = refund_wallet_payment(self.booking, Decimal(self.booking.final_amount), refund_details)
+                # Revert booking/flight statuses back to pending
+                self.booking.status = 'pending'
+                self.booking.total_payment_made = Decimal('0.0')
+                self.booking.save(update_fields=['status', 'total_payment_made'])
+                self.flight_booking.status = 'PENDING_PAYMENT'
+                self.flight_booking.save(update_fields=['status'])
+                # Update payment record to reflect refund
+                update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                    'code': 'BOOKING_FAILED_REFUNDED',
+                    'message': 'Supplier booking failed; wallet refunded',
+                    'transaction_details': {
+                        'refund_status': refund_status,
+                        'refund_data': refund_data
+                    }
+                })
+                return {
+                    'success': False,
+                    'error': 'Supplier booking failed; wallet refunded',
+                    'error_code': 'AIRIQ_BOOKING_FAILED',
+                    'refund_status': refund_status
+                }
             
-            # Send notifications
+            # Send notifications only on confirmed
             self._send_booking_notifications()
             
             return {
@@ -324,10 +352,34 @@ class FlightPaymentProcessor:
                 'error_code': 'PAYU_PAYMENT_ERROR'
             }
     
-    def _confirm_flight_booking(self):
-        """Confirm the flight booking after successful payment and auto-issue ticket"""
+    def _confirm_flight_booking(self) -> bool:
+        """Confirm the flight booking after successful payment: call AirIQ Book, update, then auto-issue ticket.
+        Returns True if supplier booking succeeded (PNRs obtained), False otherwise.
+        """
         
-        # Generate confirmation code
+        # 1) Call AirIQ Booking API using stored request data
+        airiq_success = False
+        try:
+            from apps.flights.services.airiq_service import airiq_service, AirIQException
+            req = self.flight_booking.airiq_request_data or {}
+            if not req:
+                logger.warning(f"No AirIQ request data found for booking {self.booking.id}; skipping AirIQ booking call")
+            else:
+                booking_data, track_id, block_pnr = self._build_airiq_booking_payload_from_stored_request(req)
+                airiq_resp = airiq_service.create_booking(
+                    booking_data=booking_data,
+                    track_id=track_id,
+                    block_pnr=block_pnr
+                )
+                # Parse and store important identifiers (PNRs, track id, ticket numbers)
+                self._update_flight_booking_from_airiq_response(airiq_resp)
+                airiq_success = True
+        except AirIQException as e:
+            logger.error(f"AirIQ booking failed for booking {self.booking.id}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error during AirIQ booking for {self.booking.id}: {e}")
+        
+        # 2) Generate confirmation code and mark booking confirmed
         booking_id = self.booking.id
         booking_type = self.booking.booking_type
         
@@ -338,28 +390,165 @@ class FlightPaymentProcessor:
             if not check_booking_confirmation_code(confirmation_code):
                 break
         
-        # Update booking
-        self.booking.confirmation_code = confirmation_code
-        self.booking.status = 'confirmed'
-        self.booking.total_payment_made = self.booking.final_amount
-        self.booking.save()
+        if airiq_success:
+            # Update booking only on AirIQ success
+            self.booking.confirmation_code = confirmation_code
+            self.booking.status = 'confirmed'
+            self.booking.total_payment_made = self.booking.final_amount
+            self.booking.save()
+            
+            # Update booking meta info
+            if hasattr(self.booking, 'meta_info'):
+                self.booking.meta_info.booking_confirmed_date = timezone.now()
+                self.booking.meta_info.save()
+            
+            # Update flight booking status
+            self.flight_booking.status = 'CONFIRMED'
+            self.flight_booking.confirmed_at = timezone.now()
+            self.flight_booking.save()
+            
+            logger.info(f"Flight booking {self.booking.id} confirmed with code {confirmation_code}")
+            
+            # Skip auto-issuing tickets; can be issued later via API if required
+            # if (self.flight_booking.airiq_track_id and self.flight_booking.airiq_pnr and self.flight_booking.airline_pnr):
+            #     self._auto_issue_ticket()
+            return True
+        else:
+            logger.error(f"AirIQ booking failed; not confirming booking {self.booking.id}")
+            return False
+
+    def _build_airiq_booking_payload_from_stored_request(self, req: dict):
+        """Map stored airiq_request_data to AirIQService.create_booking booking_data payload."""
+        # Adults/children/infants
+        adults = int(req.get('AdultCount', 1) or 0)
+        children = int(req.get('ChildCount', 0) or 0)
+        infants = int(req.get('InfantCount', 0) or 0)
         
-        # Update booking meta info
-        if hasattr(self.booking, 'meta_info'):
-            self.booking.meta_info.booking_confirmed_date = timezone.now()
-            self.booking.meta_info.save()
+        itin_list = req.get('ItineraryFlightsInfo') or []
+        token = ''
+        flights = []
+        seats_list = []
+        meals_list = []
+        bagg_list = []
+        other_list = []
+        total_amount = None
+        if itin_list:
+            first = itin_list[0] or {}
+            token = first.get('Token', '')
+            flights = first.get('FlighstInfo') or first.get('FlightsInfo') or []
+            # SSR mappings
+            for s in first.get('SeatsSSRInfo', []) or []:
+                seats_list.append({
+                    'seat_id': s.get('SeatID'),
+                    'passenger_ref': int(s.get('PaxRefNumber') or 0) if s.get('PaxRefNumber') else None
+                })
+            for b in first.get('BaggSSRInfo', []) or []:
+                bagg_list.append({
+                    'baggage_id': b.get('BaggageID'),
+                    'passenger_ref': int(b.get('PaxRefNumber') or 0) if b.get('PaxRefNumber') else None
+                })
+            for m in first.get('MealsSSRInfo', []) or []:
+                meals_list.append({
+                    'meal_id': m.get('MealID'),
+                    'passenger_ref': int(m.get('PaxRefNumber') or 0) if m.get('PaxRefNumber') else None
+                })
+            other_list = first.get('OtherSSRInfo', []) or []
+            # Total from request as-is (no calculations)
+            pay = (first.get('PaymentInfo') or [{}])[0]
+            total_amount = pay.get('TotalAmount')
         
-        # Update flight booking status
-        self.flight_booking.status = 'CONFIRMED'
-        self.flight_booking.confirmed_at = timezone.now()
-        self.flight_booking.save()
+        # Passengers: map AirIQ style to service input
+        pax_src = req.get('PaxDetailsInfo') or []
+        passengers = []
+        for p in pax_src:
+            passengers.append({
+                'title': p.get('Title', ''),
+                'first_name': p.get('FirstName', ''),
+                'last_name': p.get('LastName', ''),
+                'date_of_birth': p.get('DOB', ''),
+                'gender': p.get('Gender', ''),
+                'pax_type': p.get('PaxType', ''),
+                'passport_number': p.get('PassportNo', ''),
+                'passport_expiry': p.get('PassportExpiry', ''),
+                'passport_issued_date': p.get('PassportIssuedDate', ''),
+                'passport_country_code': p.get('PassportCountryCode', ''),
+                'infant_ref': p.get('InfantRef', '')
+            })
         
-        logger.info(f"Flight booking {self.booking.id} confirmed with code {confirmation_code}")
+        # Contact/GST
+        addr = req.get('AddressDetails') or {}
+        contact = {
+            'country_code': addr.get('CountryCode', '91'),
+            'phone': addr.get('ContactNumber', ''),
+            'email': addr.get('EmailID', '')
+        }
+        gst_src = req.get('GSTInfo') or {}
+        gst = {
+            'number': gst_src.get('GSTNumber', ''),
+            'company_name': gst_src.get('GSTCompanyName', ''),
+            'address': gst_src.get('GSTAddress', ''),
+            'email': gst_src.get('GSTEmailID', ''),
+            'mobile': gst_src.get('GSTMobileNumber', '')
+        }
         
-        # Auto-issue ticket if booking has valid PNR data (for block_pnr=false bookings)
-        if (not self.flight_booking.booking_reference or 
-            not self.flight_booking.booking_reference.startswith('TEMP_')):
-            self._auto_issue_ticket()
+        booking_data = {
+            'token': token,
+            'flight_segments': flights,
+            'passengers': passengers,
+            'contact': contact,
+            'gst': gst,
+            'adults': adults,
+            'children': children,
+            'infants': infants,
+            'origin': req.get('BaseOrigin'),
+            'destination': req.get('BaseDestination'),
+            'trip_type': req.get('TripType', 'O'),
+            'total_amount': total_amount,
+            'seats': seats_list,
+            'meals': meals_list,
+            'baggage': bagg_list,
+            'other_services': other_list
+        }
+        track_id = req.get('TrackId') or req.get('TrackID') or ''
+        block_pnr = bool(req.get('BlockPNR', False))
+        return booking_data, track_id, block_pnr
+
+    def _update_flight_booking_from_airiq_response(self, airiq_resp: dict) -> None:
+        """Extract PNRs/track and optional tickets from AirIQ booking response and save to model."""
+        try:
+            # Prefer top-level TrackId
+            airiq_track_id = airiq_resp.get('TrackId') or ''
+            booking_resp = airiq_resp.get('Bookingresponse') or {}
+            itin = (booking_resp.get('ItinearyDetails') or [])
+            airiq_pnr = ''
+            airline_pnr = ''
+            ticket_numbers = []
+            if itin:
+                root = itin[0]
+                items = root.get('Item') or []
+                if items:
+                    item0 = items[0]
+                    airiq_pnr = item0.get('AirIqPNR') or item0.get('AiriqPNR') or ''
+                    airline_pnr = item0.get('CRSPNR') or item0.get('AirlinePNR') or ''
+                    airiq_track_id = airiq_track_id or item0.get('BookingTrackId') or ''
+                    trav = item0.get('TravellerInfo', {})
+                    trav_items = trav.get('Item') or []
+                    for t in trav_items:
+                        tn = t.get('TicketNumber') or t.get('TicketNo')
+                        if tn:
+                            ticket_numbers.append(tn)
+            # Save extracted fields
+            if airiq_track_id:
+                self.flight_booking.airiq_track_id = airiq_track_id
+            if airiq_pnr:
+                self.flight_booking.airiq_pnr = airiq_pnr
+            if airline_pnr:
+                self.flight_booking.airline_pnr = airline_pnr
+            if ticket_numbers:
+                self.flight_booking.ticket_numbers = ticket_numbers
+            self.flight_booking.save(update_fields=['airiq_track_id','airiq_pnr','airline_pnr','ticket_numbers'])
+        except Exception as e:
+            logger.error(f"Failed to update flight booking from AirIQ response for {self.booking.id}: {e}")
     
     def _auto_issue_ticket(self):
         """Automatically issue ticket after successful payment and confirmation"""
