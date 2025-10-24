@@ -667,7 +667,7 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
         
         # Create wallet transaction record
         transaction_details = f"Amount credited for canceled {instance.booking_type} booking ({instance.confirmation_code})"
-        wallet_transaction = WalletTransaction.objects.create(
+        WalletTransaction.objects.create(
             user=instance.user,
             amount=refund_amount,
             transaction_type='Credit',
@@ -679,7 +679,7 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
             is_transaction_success=True,
             code='REFUND_SUCCESS'
         )
-        booking_payment = BookingPaymentDetail.objects.create(
+        BookingPaymentDetail.objects.create(
             booking=instance,
             merchant_transaction_id=merchant_refund_id,
             transaction_id='',
@@ -709,29 +709,31 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
                 'message': 'Refund processed successfully'
             }
         }
-        wallet_log = WalletTransactionLog.objects.create(**log_data)
+        WalletTransactionLog.objects.create(**log_data)
         
-        # Update cancellation details
+        # Update cancellation details only for HOTEL bookings (field exists there)
         refund_status = 'refund_completed'
         cancellation_details['refund_status'] = refund_status
-        instance.hotel_booking.cancellation_details = cancellation_details
-        instance.hotel_booking.save()
+        if getattr(instance, 'booking_type', '') == 'HOTEL' and getattr(instance, 'hotel_booking', None):
+            instance.hotel_booking.cancellation_details = cancellation_details
+            instance.hotel_booking.save(update_fields=['cancellation_details'])
         
         # Add to refund log for return
         refund_log['status'] = 'completed'
         refund_log['transaction_id'] = merchant_refund_id
-        refund_log['refund_amount'] = refund_amount
+        refund_log['refund_amount'] = float(refund_amount)
         
         return (True, refund_status, refund_log)
         
     except Exception as e:
         print("Wallet refund error:", e)
-        # Update cancellation details for failure
+        # Update cancellation details for failure (only for HOTEL bookings)
         refund_status = 'refund_failed'
         cancellation_details['refund_status'] = refund_status
         cancellation_details['refund_error'] = str(e)
-        instance.hotel_booking.cancellation_details = cancellation_details
-        instance.hotel_booking.save()
+        if getattr(instance, 'booking_type', '') == 'HOTEL' and getattr(instance, 'hotel_booking', None):
+            instance.hotel_booking.cancellation_details = cancellation_details
+            instance.hotel_booking.save(update_fields=['cancellation_details'])
         
         refund_log['status'] = 'failed'
         refund_log['error_message'] = str(e)

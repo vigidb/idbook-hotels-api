@@ -15,6 +15,7 @@ from django.db import transaction
 from datetime import datetime, timedelta
 import logging
 import uuid
+from decimal import Decimal
 
 from ..models import Booking, FlightBooking, FlightPassenger
 from ..serializers import BookingSerializer
@@ -38,6 +39,21 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
     5. Issue ticket → Complete booking
     """
     permission_classes = [AllowAny]  # Handle auth in individual methods
+
+    def get_flight_booking(self, booking_id):
+        """Helper to fetch booking and attached flight booking with access validation."""
+        booking = get_object_or_404(
+            Booking.objects.select_related('flight_booking'),
+            id=booking_id,
+            booking_type='FLIGHT'
+        )
+        # If the requester is authenticated, enforce ownership (non-auth users allowed for now for status webhooks/guest flows)
+        if hasattr(self, 'request') and getattr(self.request, 'user', None) and self.request.user.is_authenticated:
+            if (booking.user and booking.user_id != self.request.user.id) and not self.request.user.is_staff:
+                raise ValueError("Booking not found")
+        if not booking.flight_booking:
+            raise ValueError("Flight booking details not found")
+        return booking, booking.flight_booking
 
     @swagger_auto_schema(
         method='post',
@@ -289,12 +305,156 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 status="payment_required",
                 status_code=status.HTTP_201_CREATED
             )
-                
+            
         except Exception as e:
             self.log_error(f"Flight booking creation error: {str(e)}")
-            print("error", e)
             return self.get_error_response(
                 message="An error occurred while creating the booking",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='get',
+        operation_description="Retrieve booking details from AirIQ and update local records (missing fields only)",
+        manual_parameters=[
+            openapi.Parameter('booking_id', openapi.IN_PATH, description="Flight booking ID", type=openapi.TYPE_INTEGER, required=True)
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path=r'(?P<booking_id>\d+)/airiq/retrieve')
+    def airiq_retrieve_booking(self, request, booking_id=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            if not flight_booking.airiq_pnr:
+                return self.get_error_response(
+                    message="AirIQ PNR missing on booking",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            resp = airiq_service.get_booking_details(airiq_pnr=flight_booking.airiq_pnr)
+            # Update local entities with any missing info from response
+            self._update_booking_from_retrieve_response(booking, flight_booking, resp)
+            # Normalize success payload shape
+            body = {
+                'Retrieveresponse': resp.get('Retrieveresponse') or resp.get('Retriveresponse') or resp.get('Bookingresponse') or resp,
+                'Status': resp.get('Status') or resp.get('ResponseStatus') or {'ResultCode': '1', 'Error': ''}
+            }
+            return self.get_response(
+                data=body,
+                message="Booking retrieved successfully",
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ retrieve error for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to retrieve booking: {str(e)}",
+                status="error",
+                status_code=status.HTTP_502_BAD_GATEWAY
+            )
+        except Exception as e:
+            self.log_error(f"Unexpected error in AirIQ retrieve for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message="An unexpected error occurred",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='get',
+        operation_description="Track booking status from AirIQ and update local records (missing fields only)",
+        manual_parameters=[
+            openapi.Parameter('booking_id', openapi.IN_PATH, description="Flight booking ID", type=openapi.TYPE_INTEGER, required=True)
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path=r'(?P<booking_id>\d+)/airiq/track-status')
+    def airiq_track_status(self, request, booking_id=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            if not flight_booking.airiq_track_id:
+                return self.get_error_response(
+                    message="AirIQ Track ID missing on booking",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            resp = airiq_service.track_booking_status(booking_track_id=flight_booking.airiq_track_id)
+            # Attempt to enrich local data: if track response contains PNR or we can subsequently retrieve
+            try:
+                # If we don't have PNR yet, try to pull via retrieve when track returns it
+                retr_needed = False
+                retr_pnr = None
+                # Try to dig common places for AirIQ PNR in track response
+                if isinstance(resp, dict):
+                    ar = resp.get('Retrieveresponse') or resp.get('Retriveresponse') or resp.get('TrackStatusResponse') or {}
+                    itins = ar.get('ItinearyDetails') or ar.get('ItineraryDetails') or []
+                    if isinstance(itins, list) and itins:
+                        items = (itins[0].get('Item') or [])
+                        if items:
+                            retr_pnr = items[0].get('AirIqPNR') or items[0].get('AiriqPNR')
+                if retr_pnr and not flight_booking.airiq_pnr:
+                    flight_booking.airiq_pnr = retr_pnr
+                    flight_booking.save()
+                    retr_needed = True
+                # If we have (or just obtained) PNR, fetch full retrieve to update any missing fields
+                if retr_needed or not flight_booking.ticket_numbers:
+                    if flight_booking.airiq_pnr:
+                        retr_resp = airiq_service.get_booking_details(airiq_pnr=flight_booking.airiq_pnr)
+                        self._update_booking_from_retrieve_response(booking, flight_booking, retr_resp)
+            except Exception as e:
+                logger.warning(f"Track-status enrichment failed for booking {booking_id}: {e}")
+            # Build response to match desired TrackStatus format
+            status_block = resp.get('Status') or resp.get('ResponseStatus') or {}
+            result_code = str(status_block.get('ResultCode', '1'))
+            final_status = {
+                'Error': status_block.get('Error', ''),
+                'ResultCode': result_code,
+                'SequenceID': status_block.get('SequenceID', ''),
+                'Track_Status': 'SUCCESS' if result_code == '1' else 'FAILED'
+            }
+            # Extract ItinearyDetails and wrap under TrackStatusresponse
+            track_block = resp.get('TrackStatusresponse')
+            if not track_block:
+                possible_blocks = [resp.get('TrackStatusresponse'), resp.get('Retrieveresponse'), resp.get('Retriveresponse'), resp]
+                itins = []
+                for blk in possible_blocks:
+                    if isinstance(blk, dict):
+                        itins = blk.get('ItinearyDetails') or blk.get('ItineraryDetails') or []
+                        if itins:
+                            break
+                track_block = {'ItinearyDetails': itins}
+            body = {
+                'Status': final_status,
+                'TrackStatusresponse': track_block
+            }
+            return self.get_response(
+                data=body,
+                message="Booking status tracked successfully",
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ track-status error for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to track booking status: {str(e)}",
+                status="error",
+                status_code=status.HTTP_502_BAD_GATEWAY
+            )
+        except Exception as e:
+            self.log_error(f"Unexpected error in AirIQ track-status for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message="An unexpected error occurred",
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
@@ -1005,10 +1165,27 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         
         if itinerary_details:
             details = itinerary_details[0]
+            # Prefer nested AirlinePNR under TravellerInfo -> SegmentInformation -> Item[0]
+            airline_pnr = ''
+            try:
+                trav = (details.get('TravellerInfo') or {}).get('Item') or []
+                if trav:
+                    seginfo = trav[0].get('SegmentInformation') or {}
+                    seg_items = seginfo.get('Item') or []
+                    if seg_items:
+                        airline_pnr = seg_items[0].get('AirlinePNR') or ''
+            except Exception:
+                pass
+            # Fallback to top-level keys
+            airline_pnr = airline_pnr or details.get('AirlinePNR', '') or details.get('CRSPNR', '')
+            # Normalize NA values
+            if isinstance(airline_pnr, str) and airline_pnr.strip().upper() in ('N/A', 'NA', 'NULL'):
+                airline_pnr = ''
+            airiq_pnr = details.get('AirIqPNR') or details.get('AiriqPNR') or ''
             return {
-                'airiq_pnr': details.get('AiriqPNR', ''),
-                'airline_pnr': details.get('AirlinePNR', ''),
-                'track_id': details.get('TrackId', ''),
+                'airiq_pnr': airiq_pnr,
+                'airline_pnr': airline_pnr,
+                'track_id': details.get('TrackId', '') or details.get('BookingTrackId', ''),
                 'booking_status': details.get('BookingStatus', ''),
                 'total_amount': details.get('TotalAmount', '0')
             }
@@ -1170,6 +1347,615 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             self.log_error(f"Error getting booking status {pk}: {str(e)}")
             return self.get_error_response(
                 message="Error retrieving booking status",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _update_booking_from_retrieve_response(self, booking: Booking, flight_booking: FlightBooking, retrieve_resp: dict) -> None:
+        """Update local booking records from AirIQ RetrieveBooking response (only missing/empty fields)."""
+        try:
+            retr = retrieve_resp.get('Retrieveresponse') or retrieve_resp.get('Retriveresponse') or retrieve_resp.get('Bookingresponse') or {}
+            itins = retr.get('ItinearyDetails') or retr.get('ItineraryDetails') or []
+            if not isinstance(itins, list) or not itins:
+                return
+            first = itins[0]
+            items = first.get('Item') or []
+            if items:
+                hdr = items[0]
+                # Track ID
+                track_id = hdr.get('BookingTrackId') or hdr.get('TrackId') or ''
+                if track_id and not flight_booking.airiq_track_id:
+                    flight_booking.airiq_track_id = track_id
+                # AirIQ PNR
+                airiq_pnr = hdr.get('AirIqPNR') or hdr.get('AiriqPNR') or ''
+                if airiq_pnr and not flight_booking.airiq_pnr:
+                    flight_booking.airiq_pnr = airiq_pnr
+                # Amounts
+                pay = (hdr.get('PaymentDetails') or {}).get('Item') or []
+                gross_amount = None
+                if pay:
+                    try:
+                        gross_amount = float(pay[0].get('Amount', 0))
+                    except Exception:
+                        gross_amount = None
+                # Try monetary detail too
+                trav = (hdr.get('TravellerInfo') or {}).get('Item') or []
+                airline_pnr = ''
+                ticket_numbers = []
+                if trav:
+                    seginfo = (trav[0].get('SegmentInformation') or {})
+                    seg_items = seginfo.get('Item') or []
+                    if seg_items:
+                        airline_pnr = seg_items[0].get('AirlinePNR', '') or airline_pnr
+                        mon = seginfo.get('MonetaryDetail') or {}
+                        if not gross_amount:
+                            try:
+                                gross_amount = float(mon.get('GrossAmount', 0))
+                            except Exception:
+                                pass
+                    # Collect ticket numbers from all pax
+                    for t in trav:
+                        tn = t.get('TicketNumber') or t.get('TicketNo')
+                        if tn:
+                            ticket_numbers.append(tn)
+                # Treat existing value 'N/A'/'NA'/empty as missing and update from nested AirlinePNR
+                def _is_na(val):
+                    try:
+                        s = (val or '').strip()
+                        return s == '' or s.upper() in ('N/A', 'NA', 'NULL')
+                    except Exception:
+                        return True
+                if airline_pnr and _is_na(flight_booking.airline_pnr):
+                    flight_booking.airline_pnr = airline_pnr
+                if ticket_numbers and not flight_booking.ticket_numbers:
+                    flight_booking.ticket_numbers = ticket_numbers
+                # Infer status
+                ticket_status = (hdr.get('TicketStatus') or '').upper()
+                if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT', 'HELD', 'CONFIRMED']:
+                    if ticket_numbers:
+                        flight_booking.status = 'TICKETED'
+                    elif ticket_status == 'CONFIRMED':
+                        flight_booking.status = 'CONFIRMED'
+                # Persist amounts if missing on main booking
+                if gross_amount is not None and float(booking.final_amount or 0) == 0.0:
+                    from decimal import Decimal
+                    booking.final_amount = Decimal(str(gross_amount))
+                # Sync parent booking status
+                if flight_booking.status in ['CONFIRMED', 'TICKETED'] and booking.status != 'confirmed':
+                    booking.status = 'confirmed'
+            flight_booking.save()
+            booking.save()
+        except Exception as e:
+            logger.warning(f"Failed to update local booking from retrieve response: {e}")
+
+    
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Issue ticket for confirmed flight booking",
+        manual_parameters=[
+            openapi.Parameter(
+                'booking_id',
+                openapi.IN_PATH,
+                description="Flight booking ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Ticket issued successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'ticket_response': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    description="Ticketing response from AirIQ"
+                                ),
+                                'booking_status': openapi.Schema(type=openapi.TYPE_STRING)
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="Bad request"),
+            404: openapi.Response(description="Booking not found"),
+            500: openapi.Response(description="AirIQ service error")
+        }
+    )
+    @action(detail=False, methods=['post'], url_path=r'(?P<booking_id>\d+)/ticket')
+    def issue_ticket(self, request, booking_id=None):
+        """
+        Issue ticket for confirmed flight booking
+        
+        This endpoint issues tickets for a confirmed flight booking via AirIQ.
+        The booking must be in 'CONFIRMED' status with valid PNRs.
+        """
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            
+            # Validate booking status
+            if flight_booking.status == 'PENDING_PAYMENT':
+                return self.get_error_response(
+                    message="Payment is required before ticket issuance",
+                    status="error", 
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    errors=[{
+                        "action": "redirect_to_payment",
+                        "booking_id": booking_id,
+                        "amount": str(booking.final_amount)
+                    }]
+                )
+            elif flight_booking.status != 'CONFIRMED':
+                return self.get_error_response(
+                    message=f"Tickets can only be issued for confirmed bookings. Current status: {flight_booking.status}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if already ticketed
+            if flight_booking.status == 'TICKETED':
+                return self.get_error_response(
+                    message="Booking is already ticketed",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate required AirIQ data
+            if not all([flight_booking.airiq_track_id, flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+                return self.get_error_response(
+                    message="Flight booking missing required PNR or track ID",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Call AirIQ service to issue ticket
+            ticket_response = airiq_service.issue_ticket(
+                booking_track_id=flight_booking.airiq_track_id,
+                airiq_pnr=flight_booking.airiq_pnr,
+                airline_pnr=flight_booking.airline_pnr,
+                booking_amount=float(booking.final_amount)
+            )
+            
+            # Update booking status to ticketed
+            flight_booking.status = 'TICKETED'
+            
+            # Extract ticket numbers if available in response
+            if 'TicketNumbers' in ticket_response:
+                flight_booking.ticket_numbers = ticket_response['TicketNumbers']
+            
+            flight_booking.save()
+            
+            # Update main booking status
+            booking.status = 'confirmed'
+            booking.save()
+            
+            self.log_info(
+                f"Ticket issued for booking {booking_id}",
+                extra={
+                    'booking_id': booking_id,
+                    'flight_booking_id': flight_booking.id,
+                    'airiq_pnr': flight_booking.airiq_pnr,
+                    'user_id': request.user.id
+                }
+            )
+            
+            return self.get_response(
+                data={
+                    'ticket_response': ticket_response,
+                    'booking_status': flight_booking.status
+                },
+                message="Ticket issued successfully",
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+            
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ error issuing ticket for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to issue ticket: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            self.log_error(f"Error issuing ticket for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message="An unexpected error occurred",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Cancel flight booking",
+        manual_parameters=[
+            openapi.Parameter(
+                'booking_id',
+                openapi.IN_PATH,
+                description="Flight booking ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'flag': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=['PENALTY', 'CANCEL'],
+                    default='CANCEL',
+                    description="PENALTY to check cancellation penalty, CANCEL to cancel booking"
+                ),
+                'remarks': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Cancellation remarks (optional)"
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Cancellation processed successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'cancellation_response': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    description="Cancellation response from AirIQ"
+                                ),
+                                'booking_status': openapi.Schema(type=openapi.TYPE_STRING)
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="Bad request"),
+            404: openapi.Response(description="Booking not found"),
+            500: openapi.Response(description="AirIQ service error")
+        }
+    )
+    @action(detail=False, methods=['post'], url_path=r'(?P<booking_id>\d+)/cancel')
+    def cancel_booking(self, request, booking_id=None):
+        """
+        Cancel flight booking or check cancellation penalty
+        
+        This endpoint cancels a flight booking via AirIQ or checks cancellation penalty.
+        The booking must have valid AirIQ PNR.
+        """
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            
+            # Validate booking status
+            if flight_booking.status in ['CANCELLED']:
+                return self.get_error_response(
+                    message="Booking is already cancelled",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate required AirIQ data
+            if not flight_booking.airiq_pnr:
+                return self.get_error_response(
+                    message="Flight booking missing AirIQ PNR",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get request parameters
+            flag = request.data.get('flag', 'CANCEL')
+            remarks = request.data.get('remarks', f'Cancellation requested by user {request.user.id}')
+            
+            # Validate flag parameter
+            if flag not in ['PENALTY', 'CANCEL']:
+                return self.get_error_response(
+                    message="Invalid flag. Must be 'PENALTY' or 'CANCEL'",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Call AirIQ service to cancel booking or check penalty
+            cancellation_response = airiq_service.cancel_booking(
+                airiq_pnr=flight_booking.airiq_pnr,
+                flag=flag,
+                remarks=remarks
+            )
+            
+            # Extract penalty if present and persist for reference
+            penalty_amount_str = (cancellation_response or {}).get('PenalityAmount') or '0'
+            try:
+                penalty_amount = float(penalty_amount_str)
+            except Exception:
+                penalty_amount = 0.0
+            
+            if flag == 'PENALTY':
+                # Persist last known penalty on the flight booking JSON field
+                pv = flight_booking.pricing_validation_data or {}
+                pv['cancel_penalty'] = {
+                    'amount': penalty_amount,
+                    'retrieved_at': str(timezone.now())
+                }
+                flight_booking.pricing_validation_data = pv
+                flight_booking.save(update_fields=['pricing_validation_data'])
+                
+                self.log_info(
+                    f"Cancellation penalty checked for booking {booking_id}",
+                    extra={
+                        'booking_id': booking_id,
+                        'flight_booking_id': flight_booking.id,
+                        'user_id': request.user.id
+                    }
+                )
+                message = "Cancellation penalty retrieved successfully"
+                return self.get_response(
+                    data={
+                        'cancellation_response': cancellation_response,
+                        'booking_status': flight_booking.status
+                    },
+                    message=message,
+                    status="success",
+                    status_code=status.HTTP_200_OK
+                )
+            
+            # Actual cancellation path
+            
+            flight_booking.status = 'CANCELLED'
+            flight_booking.cancelled_at = timezone.now()
+            flight_booking.save(update_fields=['status', 'cancelled_at'])
+            
+            # Update main booking status
+            booking.status = 'canceled'
+            booking.save(update_fields=['status'])
+            
+            # Compute refund = total_paid - penalty
+            from django.db.models import Sum
+            total_paid = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
+            try:
+                total_paid_float = float(total_paid)
+            except Exception:
+                total_paid_float = 0.0
+            net_refund = max(total_paid_float - penalty_amount, 0.0)
+            
+            # Process refund using existing manager
+            refund_summary = {
+                'penalty_amount': penalty_amount,
+                'total_paid': total_paid_float,
+                'refund_amount': net_refund
+            }
+            if net_refund > 0:
+                from apps.booking.utils.flight_booking_utils import FlightCancellationManager
+                cancel_mgr = FlightCancellationManager(booking)
+                cancellation_details = {
+                    'airiq_response': cancellation_response,
+                    'penalty_amount': penalty_amount,
+                    'total_paid': total_paid_float
+                }
+                success, refund_status, refund_data = cancel_mgr.process_refund(Decimal(str(net_refund)), cancellation_details)
+                refund_summary['refund_status'] = refund_status
+                # refund_data may contain Decimals; ensure primitive types
+                try:
+                    if isinstance(refund_data, dict) and 'refund_amount' in refund_data:
+                        refund_summary['refund_merchant_transaction_id'] = refund_data.get('merchant_refund_id')
+                except Exception:
+                    pass
+            else:
+                refund_summary['refund_status'] = 'no_refund'
+            
+            self.log_info(
+                f"Booking {booking_id} cancelled successfully",
+                extra={
+                    'booking_id': booking_id,
+                    'flight_booking_id': flight_booking.id,
+                    'airiq_pnr': flight_booking.airiq_pnr,
+                    'user_id': request.user.id,
+                    'refund_summary': refund_summary
+                }
+            )
+            
+            return self.get_response(
+                data={
+                    'cancellation_response': cancellation_response,
+                    'booking_status': flight_booking.status,
+                    'refund': refund_summary
+                },
+                message="Booking cancelled successfully",
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+            
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ error cancelling booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to process cancellation: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            self.log_error(f"Error cancelling booking {booking_id}: {str(e)}")
+            print("Error cancelling booking:", str(e))
+            return self.get_error_response(
+                message="An unexpected error occurred",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Get reschedule availability for a booking",
+        manual_parameters=[
+            openapi.Parameter('booking_id', openapi.IN_PATH, description="Flight booking ID", type=openapi.TYPE_INTEGER, required=True)
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['flight_date'],
+            properties={
+                'flight_date': openapi.Schema(type=openapi.TYPE_STRING, description='YYYY-MM-DD'),
+                'departure_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA origin (optional)'),
+                'arrival_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA destination (optional)'),
+                'remarks': openapi.Schema(type=openapi.TYPE_STRING)
+            }
+        )
+    )
+    @action(detail=False, methods=['post'], url_path=r'(?P<booking_id>\d+)/reschedule/availability')
+    def reschedule_availability(self, request, booking_id=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+
+            if not flight_booking.airiq_pnr:
+                return self.get_error_response(
+                    message="AirIQ PNR missing on booking",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Derive trip type
+            trip_type = flight_booking.search_session_data.get('trip_type') or 'O'
+            if trip_type not in ['O', 'R', 'Y']:
+                mapping = {'ONE-WAY': 'O', 'ROUND': 'R'}
+                trip_type = mapping.get(flight_booking.flight_trip, 'O')
+
+            dep = request.data.get('departure_station') or flight_booking.flying_from or ''
+            arr = request.data.get('arrival_station') or flight_booking.flying_to or ''
+            flight_date = request.data.get('flight_date')
+            remarks = request.data.get('remarks', '')
+
+            try:
+                dt = datetime.datetime.strptime(flight_date, '%Y-%m-%d')
+                flight_date_fmt = dt.strftime('%Y%m%d')
+            except Exception:
+                return self.get_error_response(
+                    message="Invalid flight_date format. Use YYYY-MM-DD",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            resp = airiq_service.reschedule_availability(
+                trip_type=trip_type,
+                departure_station=dep,
+                arrival_station=arr,
+                flight_date=flight_date_fmt,
+                airiq_pnr=flight_booking.airiq_pnr,
+                remarks=remarks
+            )
+
+            return self.get_response(
+                data={'reschedule_availability': resp},
+                message='Reschedule availability retrieved',
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ reschedule availability error for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to fetch reschedule availability: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            self.log_error(f"Error in reschedule availability for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message="An unexpected error occurred",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Confirm reschedule for a booking",
+        manual_parameters=[
+            openapi.Parameter('booking_id', openapi.IN_PATH, description="Flight booking ID", type=openapi.TYPE_INTEGER, required=True)
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['track_id', 'flight_details', 'contact_no'],
+            properties={
+                'track_id': openapi.Schema(type=openapi.TYPE_STRING),
+                'contact_no': openapi.Schema(type=openapi.TYPE_STRING),
+                'remarks': openapi.Schema(type=openapi.TYPE_STRING),
+                'flag': openapi.Schema(type=openapi.TYPE_STRING, enum=['CHECKFARE', 'CONFIRM'], default='CONFIRM'),
+                'flight_details': openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'origin': openapi.Schema(type=openapi.TYPE_STRING),
+                        'destination': openapi.Schema(type=openapi.TYPE_STRING),
+                        'trip_type': openapi.Schema(type=openapi.TYPE_STRING, enum=['O','R','Y']),
+                        'segments': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                        'base_amount': openapi.Schema(type=openapi.TYPE_NUMBER),
+                        'gross_amount': openapi.Schema(type=openapi.TYPE_NUMBER)
+                    }
+                )
+            }
+        )
+    )
+    @action(detail=False, methods=['post'], url_path=r'(?P<booking_id>\d+)/reschedule/confirm')
+    def reschedule_confirm(self, request, booking_id=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            if not all([flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+                return self.get_error_response(
+                    message="PNRs missing on booking",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            track_id = request.data.get('track_id')
+            contact_no = request.data.get('contact_no')
+            remarks = request.data.get('remarks', '')
+            flag = request.data.get('flag', 'CONFIRM')
+            flight_details = request.data.get('flight_details') or {}
+            if not all([track_id, contact_no, flight_details]):
+                return self.get_error_response(
+                    message="track_id, contact_no and flight_details are required",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            resp = airiq_service.reschedule_booking(
+                airiq_pnr=flight_booking.airiq_pnr,
+                track_id=track_id,
+                flight_details=flight_details,
+                contact_no=contact_no,
+                remarks=remarks,
+                flag=flag
+            )
+
+            self.log_info(f"Reschedule requested for booking {booking_id}")
+            return self.get_response(
+                data={'reschedule_response': resp},
+                message='Reschedule processed',
+                status="success",
+                status_code=status.HTTP_200_OK
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ reschedule error for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to process reschedule: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            self.log_error(f"Error in reschedule confirm for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message="An unexpected error occurred",
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

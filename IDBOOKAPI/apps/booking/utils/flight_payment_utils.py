@@ -45,6 +45,7 @@ class FlightPaymentProcessor:
         self.user = user
         self.payment_data = payment_data
         self.flight_booking = booking.flight_booking
+        self.last_error_message: Optional[str] = None
         
     def validate_payment_data(self) -> Tuple[bool, list]:
         """Validate payment request data"""
@@ -152,7 +153,7 @@ class FlightPaymentProcessor:
                     'success': False,
                     'error': 'Insufficient wallet balance',
                     'error_code': 'INSUFFICIENT_WALLET_BALANCE',
-                    'balance_info': balance_info
+                    'balance_info': float(balance_info) if balance_info is not None else 0.0
                 }
             
             # Deduct amount from wallet
@@ -183,7 +184,8 @@ class FlightPaymentProcessor:
                 # Refund wallet since supplier booking failed
                 refund_details = {
                     'reason': 'AirIQ booking failed after wallet deduction',
-                    'timestamp': timezone.now().isoformat()
+                    'timestamp': timezone.now().isoformat(),
+                    'airiq_error': self.last_error_message
                 }
                 refund_ok, refund_status, refund_data = refund_wallet_payment(self.booking, Decimal(self.booking.final_amount), refund_details)
                 # Revert booking/flight statuses back to pending
@@ -198,12 +200,13 @@ class FlightPaymentProcessor:
                     'message': 'Supplier booking failed; wallet refunded',
                     'transaction_details': {
                         'refund_status': refund_status,
-                        'refund_data': refund_data
+                        'refund_data': refund_data,
+                        'airiq_error': self.last_error_message
                     }
                 })
                 return {
                     'success': False,
-                    'error': 'Supplier booking failed; wallet refunded',
+                    'error': self.last_error_message or 'Supplier booking failed; wallet refunded',
                     'error_code': 'AIRIQ_BOOKING_FAILED',
                     'refund_status': refund_status
                 }
@@ -358,6 +361,7 @@ class FlightPaymentProcessor:
         """
         
         # 1) Call AirIQ Booking API using stored request data
+        self.last_error_message = None
         airiq_success = False
         try:
             from apps.flights.services.airiq_service import airiq_service, AirIQException
@@ -371,12 +375,27 @@ class FlightPaymentProcessor:
                     track_id=track_id,
                     block_pnr=block_pnr
                 )
-                # Parse and store important identifiers (PNRs, track id, ticket numbers)
+                # Always attempt to store identifiers (TrackId etc.)
                 self._update_flight_booking_from_airiq_response(airiq_resp)
-                airiq_success = True
+                
+                # Determine success from AirIQ response
+                status_info = (airiq_resp or {}).get('Status') or {}
+                result_code = str(status_info.get('ResultCode') or '').strip()
+                error_msg = status_info.get('Error') or ''
+                if error_msg:
+                    self.last_error_message = error_msg
+                
+                # Success if code indicates success AND we have PNR
+                has_pnr = bool(self.flight_booking.airiq_pnr or self.flight_booking.airline_pnr)
+                code_success = result_code in ('1', '01', 1)
+                airiq_success = bool(code_success and has_pnr)
+                if not airiq_success and not self.last_error_message:
+                    self.last_error_message = 'AirIQ booking failed'
         except AirIQException as e:
+            self.last_error_message = str(e)
             logger.error(f"AirIQ booking failed for booking {self.booking.id}: {e}")
         except Exception as e:
+            self.last_error_message = str(e)
             logger.error(f"Unexpected error during AirIQ booking for {self.booking.id}: {e}")
         
         # 2) Generate confirmation code and mark booking confirmed
@@ -529,10 +548,28 @@ class FlightPaymentProcessor:
                 if items:
                     item0 = items[0]
                     airiq_pnr = item0.get('AirIqPNR') or item0.get('AiriqPNR') or ''
-                    airline_pnr = item0.get('CRSPNR') or item0.get('AirlinePNR') or ''
-                    airiq_track_id = airiq_track_id or item0.get('BookingTrackId') or ''
+                    # Prefer nested AirlinePNR under TravellerInfo -> SegmentInformation -> Item[0]
+                    nested_airline_pnr = ''
                     trav = item0.get('TravellerInfo', {})
                     trav_items = trav.get('Item') or []
+                    if trav_items:
+                        seginfo = trav_items[0].get('SegmentInformation') or {}
+                        seg_items = seginfo.get('Item') or []
+                        if seg_items:
+                            nested_airline_pnr = seg_items[0].get('AirlinePNR') or ''
+                    # Fallbacks: top-level AirlinePNR, then CRSPNR (but ignore 'N/A' or 'NA')
+                    top_airline_pnr = item0.get('AirlinePNR') or ''
+                    crs_pnr = item0.get('CRSPNR') or ''
+                    # Normalize NA values
+                    def _norm(val: str) -> str:
+                        try:
+                            s = (val or '').strip()
+                            return '' if s.upper() in ('N/A', 'NA', 'NULL') else s
+                        except Exception:
+                            return ''
+                    airline_pnr = _norm(nested_airline_pnr) or _norm(top_airline_pnr) or _norm(crs_pnr)
+                    airiq_track_id = airiq_track_id or item0.get('BookingTrackId') or ''
+                    # Collect ticket numbers from all pax
                     for t in trav_items:
                         tn = t.get('TicketNumber') or t.get('TicketNo')
                         if tn:

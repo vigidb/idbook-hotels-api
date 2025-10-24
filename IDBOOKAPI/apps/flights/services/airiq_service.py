@@ -875,7 +875,7 @@ class AirIQService:
             },
             "OnlineInfo": {
                 "Flag": flag,
-                "AiriqPNR": airiq_pnr,
+                "AirIqPNR": airiq_pnr,
                 "Remarks": remarks
             }
         }
@@ -1071,7 +1071,7 @@ class AirIQService:
                     "FlightDate": flight_date
                 }
             ],
-            "AiriqPNR": airiq_pnr,
+            "AirIqPNR": airiq_pnr,
             "Remarks": remarks
         }
         
@@ -1115,7 +1115,7 @@ class AirIQService:
                 "TripType": flight_details.get('trip_type', 'O')
             },
             "Trackid": track_id,
-            "AiriqPNR": airiq_pnr,
+            "AirIqPNR": airiq_pnr,
             "Remarks": remarks,
             "Flag": flag,
             "ContactNo": contact_no,
