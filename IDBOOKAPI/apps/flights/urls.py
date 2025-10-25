@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .viewsets import FlightSearchViewSet, FlightPricingViewSet  # Legacy
 from .enhanced_viewsets import EnhancedFlightSearchViewSet
+from .airiq_proxy_viewset import AirIQProxyViewSet
 
 # Create DRF router
 router = DefaultRouter()
@@ -10,6 +11,7 @@ router.register(r'search', EnhancedFlightSearchViewSet, basename='flight-search'
 # Legacy flight search for backward compatibility
 router.register(r'legacy-search', FlightSearchViewSet, basename='legacy-flight-search')
 router.register(r'pricing', FlightPricingViewSet, basename='flight-pricing')
+router.register(r'airiq-proxy', AirIQProxyViewSet, basename='airiq-proxy')
 
 app_name = 'flights'
 
@@ -25,4 +27,5 @@ urlpatterns = [
 # /api/v1/flights/search/extend-session/ - POST - Extend pricing session expiry
 # /api/v1/flights/search/airports/ - GET - List airports
 # /api/v1/flights/search/airlines/ - GET - List airlines
+# /api/v1/flights/airiq-proxy/<Endpoint>/ - POST - Direct proxy to AirIQ endpoints (no auth needed)
 # Note: Enhanced booking endpoints live under the booking app.

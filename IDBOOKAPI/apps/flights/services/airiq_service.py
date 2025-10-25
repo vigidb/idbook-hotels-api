@@ -1373,6 +1373,80 @@ class AirIQService:
         
         return response_data
 
+    # ---------- Generic proxy helpers ----------
+    def get_supported_endpoints(self) -> dict:
+        """Return a mapping of display endpoint names to internal endpoint keys."""
+        return {
+            "Login": "login",
+            "Availability": "availability",
+            "GetFareRule": "fare_rules",
+            "Pricing": "pricing",
+            "GetAvailSeatMap": "seat_map",
+            "Book": "booking",
+            "IssueTicket": "ticketing",
+            "RetrieveBooking": "get_booking",
+            "GetBalance": "balance",
+            "TrackStatus": "track_status",
+            "Cancel": "cancel",
+            "RescheduleAvail": "reschedule_avail",
+            "Reschedule": "reschedule",
+            "GetSSR": "get_ssr",
+            "AddSSR": "add_ssr",
+            "HoldCancel": "hold_cancel",
+            "GetMultiClass": "multi_class",
+            "GetMultiClassFare": "multi_class_fare",
+        }
+
+    def proxy_call(self, endpoint_name: str, payload: dict) -> Tuple[dict, bool]:
+        """
+        Generic proxy caller that:
+        - ensures authentication and token header
+        - injects AgentInfo if missing
+        - routes to the correct AirIQ endpoint by name (case-insensitive)
+        Returns (response_data, is_success)
+        """
+        if not isinstance(payload, dict):
+            raise AirIQException("Payload must be a JSON object")
+
+        # Normalize endpoint name (allow common misspellings/case)
+        name = (endpoint_name or "").strip()
+        # Fix common typo
+        if name.lower() == "availabilty":
+            name = "Availability"
+        # Resolve display name -> key
+        display_map = self.get_supported_endpoints()
+        key = display_map.get(name) or display_map.get(name.title())
+        if not key:
+            # Try matching by internal key directly
+            if name in self.endpoints:
+                endpoint_url = self.endpoints[name]
+            else:
+                # Try lower/upper variations
+                lowered = name.lower()
+                reverse_map = {v: k for k, v in display_map.items()}
+                if lowered in self.endpoints:
+                    endpoint_url = self.endpoints[lowered]
+                else:
+                    raise AirIQException(f"Unsupported endpoint: {endpoint_name}")
+        else:
+            endpoint_url = self.endpoints[key]
+
+        # Ensure token for non-login calls
+        if 'Login' not in endpoint_url:
+            if not self._is_token_valid():
+                self.authenticate()
+
+        # Inject AgentInfo if not present
+        if 'AgentInfo' not in payload:
+            payload['AgentInfo'] = {
+                "AgentId": self.agent_id,
+                "UserName": self.username,
+                "AppType": "API",
+                "Version": float(self.api_version),
+            }
+
+        return self._make_request(endpoint_url, payload)
+
     def validate_gst_format(self, gst_number: str) -> bool:
         """
         Validate GST number format according to AirIQ documentation
