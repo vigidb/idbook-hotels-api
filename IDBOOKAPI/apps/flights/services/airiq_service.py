@@ -107,7 +107,8 @@ class AirIQService:
         # Add authentication header based on endpoint type
         if 'Login' not in endpoint:
             # For regular API calls, use TOKEN authentication
-            if not self._is_token_valid():
+            # Proactively refresh if new day or near expiry
+            if self._should_refresh_token() or not self._is_token_valid():
                 self.authenticate()
             headers['TOKEN'] = self._auth_token
         else:
@@ -116,18 +117,21 @@ class AirIQService:
             logger.warning("_make_request called for login endpoint - should use _perform_login instead")
         
         try:
-            # Build request kwargs and include proxies only if configured
-            request_kwargs = dict(
-                method=method,
-                url=endpoint,
-                headers=headers,
-                json=data,
-                timeout=30,
-            )
-            if proxies:
-                request_kwargs['proxies'] = proxies
+            # Helper to perform the HTTP request
+            def _do_request():
+                request_kwargs = dict(
+                    method=method,
+                    url=endpoint,
+                    headers=headers,
+                    json=data,
+                    timeout=30,
+                )
+                if proxies:
+                    request_kwargs['proxies'] = proxies
+                return requests.request(**request_kwargs)
 
-            response = requests.request(**request_kwargs)
+            # First attempt
+            response = _do_request()
             
             response_time_ms = int((time.time() - start_time) * 1000)
 
@@ -156,6 +160,54 @@ class AirIQService:
                     # Some successful responses might not have explicit status
                     is_success = response.status_code == 200
                     result_code = '1' if is_success else '0'
+
+            # If token timed out per AirIQ message, force refresh and retry once
+            token_timeout = False
+            if not is_success and isinstance(response_data, dict):
+                err_msg = ''
+                if 'Status' in response_data:
+                    err_msg = (response_data.get('Status') or {}).get('Error', '') or ''
+                elif 'Error' in response_data:
+                    err_msg = response_data.get('Error', '') or ''
+                if isinstance(err_msg, str):
+                    lowered = err_msg.lower()
+                    if 'token' in lowered and ('time' in lowered or 'expire' in lowered or 'timeout' in lowered or 'timed out' in lowered):
+                        token_timeout = True
+            if token_timeout and 'Login' not in endpoint:
+                logger.warning("Detected AirIQ token timeout - refreshing token and retrying once")
+                # Invalidate cached token
+                try:
+                    AirIQTokenCache.objects.filter(is_active=True).update(is_active=False)
+                except Exception:
+                    pass
+                self._auth_token = None
+                self._token_expires_at = None
+                # Re-authenticate
+                self.authenticate()
+                # Update header and retry
+                headers['TOKEN'] = self._auth_token
+                response = _do_request()
+                response_time_ms = int((time.time() - start_time) * 1000)
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    response_data = {'error': 'Invalid JSON response', 'raw': response.text}
+                # Re-evaluate success
+                is_success = False
+                result_code = '-1'
+                error_message = ''
+                if isinstance(response_data, dict):
+                    if 'Status' in response_data:
+                        result_code = response_data['Status'].get('ResultCode', '-1')
+                        error_message = response_data['Status'].get('Error', '')
+                        is_success = result_code == '1'
+                    elif 'ResultCode' in response_data:
+                        result_code = response_data.get('ResultCode', '-1')
+                        error_message = response_data.get('Error', '')
+                        is_success = result_code == '1'
+                    else:
+                        is_success = response.status_code == 200
+                        result_code = '1' if is_success else '0'
 
             # Log the API call
             self._log_api_call(
