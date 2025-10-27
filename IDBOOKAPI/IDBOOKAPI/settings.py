@@ -22,7 +22,7 @@ SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env('DEBUG')
-
+FLIGHT_API_DEBUG = bool(env('FLIGHT_API_DEBUG',default=False) ) or False
 ALLOWED_HOSTS = [env('ALLOWED_HOSTS')]
 ENVIRONMENT = env('ENVIRONMENT')
 

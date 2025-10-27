@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 proxies = {
     'http': 'http://localhost:8888',
     'https': 'http://localhost:8888',
-}
+} if settings.FLIGHT_API_DEBUG else None
 
 
 class AirIQException(Exception):
