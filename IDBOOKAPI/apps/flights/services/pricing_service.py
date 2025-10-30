@@ -229,7 +229,7 @@ class FlightPricingService:
             Final pricing with GST calculations
         """
         try:
-            # Base amounts
+            # Base amounts (normalize to Decimal)
             base_fare = Decimal(str(pricing_breakdown['base_fare']))
             taxes = Decimal(str(pricing_breakdown['taxes']))
             ancillary_total = Decimal(str(pricing_breakdown['ancillary_total']))
@@ -237,18 +237,28 @@ class FlightPricingService:
             # Subtotal before GST
             subtotal = base_fare + taxes + ancillary_total
             
-            # Calculate GST
-            gst_calculation = self._calculate_gst(subtotal, gst_info)
+            # Calculate GST (returns Decimals)
+            gst_calc = self._calculate_gst(subtotal, gst_info)
             
             # Final total
-            final_total = subtotal + gst_calculation['total_gst']
+            final_total = subtotal + gst_calc['total_gst']
+            
+            # Convert GST breakdown to floats for response
+            gst_breakdown = {
+                'gst_rate': float(gst_calc['gst_rate']),
+                'cgst': float(gst_calc['cgst']),
+                'sgst': float(gst_calc['sgst']),
+                'igst': float(gst_calc['igst']),
+                'total_gst': float(gst_calc['total_gst']),
+                'gst_type': gst_calc['gst_type'],
+            }
             
             return {
                 'base_fare': float(base_fare),
                 'taxes': float(taxes),
                 'ancillary_total': float(ancillary_total),
                 'subtotal': float(subtotal),
-                'gst_breakdown': gst_calculation,
+                'gst_breakdown': gst_breakdown,
                 'final_total': float(final_total),
                 'currency': 'INR'
             }
@@ -428,20 +438,45 @@ class FlightPricingService:
                 fare_breakdown = price_itinerary_info['Fare']
             elif 'FareInfo' in price_itinerary_info:
                 fare_breakdown = price_itinerary_info['FareInfo']
-            
-            if not fare_breakdown:
+
+            # Try to compute totals from AvailabilityResponse Faredescription x pax counts
+            adults = int(search_params.get('adults', 1) or 1)
+            children = int(search_params.get('children', 0) or 0)
+            infants = int(search_params.get('infants', 0) or 0)
+            base_fare = Decimal('0')
+            taxes = Decimal('0')
+            gross_amount = Decimal('0')
+            ar_list = price_itinerary_info.get('AvailabilityResponse') or price_itinerary_info.get('Availability') or []
+            if isinstance(ar_list, list) and ar_list:
+                fares = ar_list[0].get('Fares') or []
+                if fares:
+                    fdesc = fares[0].get('Faredescription') or []
+                    # Sum per pax type times counts
+                    for fd in fdesc:
+                        paxtype = (fd.get('Paxtype') or 'ADT').upper()
+                        count = adults if paxtype == 'ADT' else children if paxtype == 'CHD' else infants if paxtype == 'INF' else 0
+                        b = Decimal(str(fd.get('BaseAmount', '0')))
+                        t = Decimal(str(fd.get('TotalTaxAmount', fd.get('TaxAmount', '0'))))
+                        g = Decimal(str(fd.get('GrossAmount', fd.get('TotalAmount', '0'))))
+                        if count > 0:
+                            base_fare += b * count
+                            taxes += t * count
+                            gross_amount += g * count
+            # Fallback to fare_breakdown totals if needed
+            if gross_amount == Decimal('0') and fare_breakdown:
+                base_fare = Decimal(str(fare_breakdown.get('BaseAmount', '0')))
+                taxes = Decimal(str(fare_breakdown.get('TotalTaxAmount', fare_breakdown.get('TaxAmount', '0'))))
+                gross_amount = Decimal(str(fare_breakdown.get('GrossAmount', fare_breakdown.get('TotalAmount', '0'))))
+
+            # If still zero, fallback
+            if gross_amount == Decimal('0') and (not fare_breakdown):
                 logger.warning("No fare breakdown found in response, using fallback")
                 return self._create_fallback_pricing(search_params, ancillary_services)
-            
-            # Base fare and taxes with fallbacks
-            base_fare = Decimal(str(fare_breakdown.get('BaseAmount', '0')))
-            taxes = Decimal(str(fare_breakdown.get('TotalTaxAmount', fare_breakdown.get('TaxAmount', '0'))))
-            gross_amount = Decimal(str(fare_breakdown.get('GrossAmount', fare_breakdown.get('TotalAmount', '0'))))
-            
-            # If gross_amount is 0, try to calculate from base + tax
+
+            # If gross_amount is 0 but base/tax present, compute
             if gross_amount == Decimal('0') and (base_fare > 0 or taxes > 0):
                 gross_amount = base_fare + taxes
-            
+
             # Ancillary services pricing (fix the mapping error)
             seats_total = self._calculate_ancillary_total(ancillary_services.get('seats', []))
             meals_total = self._calculate_ancillary_total(ancillary_services.get('meals', []))
@@ -458,7 +493,33 @@ class FlightPricingService:
             passenger_breakdown = self._calculate_passenger_breakdown(
                 fare_breakdown, adults, children, infants
             )
-            
+
+            # If passenger breakdown missing and we summed per pax above, construct simple breakdown
+            if not passenger_breakdown or (
+                passenger_breakdown.get('adults', {}).get('fare_per_person') == 0 and
+                passenger_breakdown.get('children', {}).get('fare_per_person') == 0 and
+                passenger_breakdown.get('infants', {}).get('fare_per_person') == 0
+            ):
+                # Try to derive per pax from faredescription if available
+                pb = {'adults': {'count': adults, 'fare_per_person': 0, 'total': 0},
+                      'children': {'count': children, 'fare_per_person': 0, 'total': 0},
+                      'infants': {'count': infants, 'fare_per_person': 0, 'total': 0}}
+                if isinstance(ar_list, list) and ar_list:
+                    fdesc = (ar_list[0].get('Fares') or [{}])[0].get('Faredescription') or []
+                    for fd in fdesc:
+                        paxtype = (fd.get('Paxtype') or 'ADT').upper()
+                        g = float(fd.get('GrossAmount', fd.get('TotalAmount', 0)))
+                        if paxtype == 'ADT' and adults:
+                            pb['adults']['fare_per_person'] = g
+                            pb['adults']['total'] = g * adults
+                        elif paxtype == 'CHD' and children:
+                            pb['children']['fare_per_person'] = g
+                            pb['children']['total'] = g * children
+                        elif paxtype == 'INF' and infants:
+                            pb['infants']['fare_per_person'] = g
+                            pb['infants']['total'] = g * infants
+                passenger_breakdown = pb
+
             result = {
                 'base_fare': float(base_fare),
                 'taxes': float(taxes),
@@ -605,7 +666,7 @@ class FlightPricingService:
             }
     
     def _calculate_gst(self, amount: Decimal, gst_info: Dict = None) -> Dict:
-        """Calculate GST based on amount and business type"""
+        """Calculate GST based on amount and business type. Returns Decimals."""
         try:
             gst_rate = Decimal('0.05')  # 5% GST for domestic flights
             
@@ -623,22 +684,22 @@ class FlightPricingService:
                 cgst = sgst = igst = Decimal('0.00')
             
             return {
-                'gst_rate': float(gst_rate),
-                'cgst': float(cgst),
-                'sgst': float(sgst),
-                'igst': float(igst),
-                'total_gst': float(total_gst),
+                'gst_rate': gst_rate,
+                'cgst': cgst,
+                'sgst': sgst,
+                'igst': igst,
+                'total_gst': total_gst,
                 'gst_type': 'CGST+SGST' if is_business else 'INCLUSIVE'
             }
             
         except Exception as e:
             logger.error(f"Error calculating GST: {str(e)}")
             return {
-                'gst_rate': 0.0,
-                'cgst': 0.0,
-                'sgst': 0.0,
-                'igst': 0.0,
-                'total_gst': 0.0,
+                'gst_rate': Decimal('0.00'),
+                'cgst': Decimal('0.00'),
+                'sgst': Decimal('0.00'),
+                'igst': Decimal('0.00'),
+                'total_gst': Decimal('0.00'),
                 'gst_type': 'NONE'
             }
 

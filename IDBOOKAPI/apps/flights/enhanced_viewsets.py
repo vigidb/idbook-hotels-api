@@ -492,9 +492,34 @@ class EnhancedFlightSearchViewSet(viewsets.ViewSet, StandardResponseMixin, Loggi
     @action(detail=False, methods=['post'], url_path='pricing')
     def get_detailed_pricing(self, request):
         """
-        Create pricing session and get comprehensive pricing breakdown
+        Create pricing session and get comprehensive pricing breakdown.
+        Also supports direct AirIQ pricing call when session_id is not provided and
+        the request contains AirIQ-compatible keys: SegmentInfo, Trackid, ItineraryInfo.
         """
         try:
+            # Fast-path: if no session_id provided but AirIQ payload present, proxy to AirIQ pricing
+            session_id = request.data.get('session_id')
+            has_airiq_payload = (
+                not session_id and (
+                    request.data.get('SegmentInfo') is not None and
+                    (request.data.get('Trackid') or request.data.get('TrackId')) and
+                    request.data.get('ItineraryInfo') is not None
+                )
+            )
+            if has_airiq_payload:
+                track_id = request.data.get('Trackid') or request.data.get('TrackId')
+                segment_info = request.data.get('SegmentInfo') or {}
+                itinerary_info = request.data.get('ItineraryInfo') or []
+
+                pricing_response = airiq_service.price_flight(
+                    track_id=track_id,
+                    segment_info=segment_info,
+                    itinerary_info=itinerary_info,
+                )
+                # Return raw AirIQ response as requested
+                return Response(pricing_response, status=status.HTTP_200_OK)
+
+            # Default enhanced flow (requires session_id or search_params + selected_flights)
             search_params = request.data.get('search_params')
             selected_flights = request.data.get('selected_flights', [])
             ancillary_services = request.data.get('ancillary_services', {})
@@ -586,17 +611,155 @@ class EnhancedFlightSearchViewSet(viewsets.ViewSet, StandardResponseMixin, Loggi
     @action(detail=False, methods=['post'], url_path='booking-total')
     def calculate_booking_total(self, request):
         """
-        Calculate final booking total including GST for business bookings
+        Calculate final booking total including GST for business bookings.
+        Supports two modes:
+        - Session mode: provide session_id (uses cached pricing_breakdown)
+        - Direct mode: provide AirIQ-compatible booking data (AdultCount, ItineraryFlightsInfo, BaseOrigin, BaseDestination, TripType, TrackId)
+          In direct mode we call AirIQ pricing first (like in create-booking) and then compute totals.
         """
         try:
             session_id = request.data.get('session_id')
             gst_info = request.data.get('gst_info', {})
-            
+
+            # Direct mode: if no session_id, but booking payload present
+            if not session_id and request.data.get('ItineraryFlightsInfo') and (request.data.get('TrackId') or request.data.get('TrackID') or request.data.get('Trackid')):
+                try:
+                    # Build SegmentInfo from booking payload
+                    segment_info = {
+                        "BaseOrigin": request.data.get("BaseOrigin"),
+                        "BaseDestination": request.data.get("BaseDestination"),
+                        "TripType": request.data.get("TripType", "O"),
+                        "AdultCount": str(request.data.get("AdultCount", "1")),
+                        "ChildCount": str(request.data.get("ChildCount", "0")),
+                        "InfantCount": str(request.data.get("InfantCount", "0")),
+                    }
+                    # Build ItineraryInfo for AirIQ pricing
+                    itin_list = request.data.get('ItineraryFlightsInfo') or []
+                    itinerary_info = []
+                    for itn in itin_list:
+                        flight_details = itn.get('FlighstInfo') or itn.get('FlightsInfo') or []
+                        base_amount = itn.get('PaymentInfo', [{}])[0].get('BaseAmount', itn.get('BaseAmount', 0))
+                        gross_amount = itn.get('PaymentInfo', [{}])[0].get('GrossAmount', itn.get('GrossAmount', 0))
+                        itinerary_info.append({
+                            "FlightDetails": flight_details,
+                            "BaseAmount": str(base_amount),
+                            "GrossAmount": str(gross_amount),
+                        })
+
+                    track_id = request.data.get('TrackId') or request.data.get('TrackID') or request.data.get('Trackid')
+
+                    # Call AirIQ pricing
+                    pricing_response = airiq_service.price_flight(
+                        track_id=track_id,
+                        segment_info=segment_info,
+                        itinerary_info=itinerary_info,
+                    )
+
+                    # Prepare inputs for comprehensive pricing breakdown
+                    # Derive search_params and ancillary_services from booking payload
+                    adults = int(request.data.get('AdultCount', 1) or 1)
+                    children = int(request.data.get('ChildCount', 0) or 0)
+                    infants = int(request.data.get('InfantCount', 0) or 0)
+                    search_params = {
+                        'origin': request.data.get('BaseOrigin'),
+                        'destination': request.data.get('BaseDestination'),
+                        'trip_type': request.data.get('TripType', 'O'),
+                        'adults': adults,
+                        'children': children,
+                        'infants': infants,
+                    }
+                    # Aggregate ancillary services from all itinerary items
+                    seats = []
+                    meals = []
+                    baggage = []
+                    other = []
+                    for itn in itin_list:
+                        seats.extend(itn.get('SeatsSSRInfo', []))
+                        meals.extend(itn.get('MealsSSRInfo', []))
+                        baggage.extend(itn.get('BaggSSRInfo', []))
+                        other.extend(itn.get('OtherSSRInfo', []))
+                    ancillary_services = {
+                        'seats': seats,
+                        'meals': meals,
+                        'baggage': baggage,
+                        'other': other,
+                    }
+
+                    # Use pricing service to compute comprehensive breakdown and totals
+                    pricing_breakdown = flight_pricing_service._calculate_comprehensive_pricing(
+                        pricing_response,
+                        search_params,
+                        ancillary_services,
+                    )
+                    booking_total = flight_pricing_service.calculate_booking_total(
+                        pricing_breakdown=pricing_breakdown,
+                        gst_info=gst_info,
+                    )
+
+                    # Extract meta (track id, token, flights) from AirIQ pricing response (robust)
+                    track_id_meta = None
+                    token_meta = None
+                    flights_meta = []
+                    try:
+                        pii = (pricing_response.get('PriceItenaryInfo') or pricing_response.get('PriceItineraryInfo') or [])
+                        if isinstance(pii, list) and pii:
+                            pi0 = pii[0]
+                            track_id_meta = pi0.get('Trackid') or pi0.get('TrackId') or pi0.get('TRACKID')
+                            # Token might be at pi0 level or inside AvailabilityResponse
+                            token_meta = pi0.get('Token')
+                            ar = pi0.get('AvailabilityResponse') or pi0.get('Availability') or []
+                            if isinstance(ar, list) and ar:
+                                ar0 = ar[0]
+                                token_meta = ar0.get('Token') or token_meta
+                                flights_meta = ar0.get('Flights') or ar0.get('FlightsInfo') or []
+                        # Root-level fallbacks
+                        track_id_meta = track_id_meta or pricing_response.get('Trackid') or pricing_response.get('TrackId')
+                        token_meta = token_meta or pricing_response.get('Token')
+                    except Exception:
+                        pass
+                    # Fallback meta if AirIQ didn't return structured pricing
+                    if not track_id_meta:
+                        track_id_meta = track_id
+                    if not flights_meta:
+                        # Flatten flights from provided ItineraryFlightsInfo
+                        try:
+                            for itn in itin_list:
+                                flights_meta.extend(itn.get('FlighstInfo') or itn.get('FlightsInfo') or [])
+                        except Exception:
+                            pass
+
+                    return self.get_response(
+                        data={
+                            'pricing_breakdown': pricing_breakdown,
+                            'booking_total': booking_total,
+                            'airiq_pricing': pricing_response,
+                            'track_id': track_id_meta,
+                            'token': token_meta,
+                            'flights': flights_meta,
+                        },
+                        message="Booking total calculated successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                except AirIQException as e:
+                    return self.get_error_response(
+                        message=f"AirIQ pricing failed: {str(e)}",
+                        status="error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+                except Exception as e:
+                    return self.get_error_response(
+                        message=f"Failed to calculate booking total: {str(e)}",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            # Session mode (existing behaviour)
             if not session_id:
                 return self.get_error_response(
-                    message="session_id is required",
+                    message="session_id is required when direct booking payload is not provided",
                     status="error",
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
             
             # Get session data
@@ -621,9 +784,37 @@ class EnhancedFlightSearchViewSet(viewsets.ViewSet, StandardResponseMixin, Loggi
                 pricing_breakdown=pricing_breakdown,
                 gst_info=gst_info
             )
+
+            # Extract meta from cached pricing response if available
+            track_id_meta = None
+            token_meta = None
+            flights_meta = []
+            try:
+                pricing_data = session_data.get('pricing_data') or {}
+                pii = (pricing_data.get('PriceItenaryInfo') or pricing_data.get('PriceItineraryInfo') or [])
+                if isinstance(pii, list) and pii:
+                    pi0 = pii[0]
+                    track_id_meta = pi0.get('Trackid') or pi0.get('TrackId') or session_data.get('track_id')
+                    token_meta = pi0.get('Token')
+                    ar = pi0.get('AvailabilityResponse') or pi0.get('Availability') or []
+                    if isinstance(ar, list) and ar:
+                        ar0 = ar[0]
+                        token_meta = ar0.get('Token') or token_meta
+                        flights_meta = ar0.get('Flights') or ar0.get('FlightsInfo') or []
+                # Root-level fallbacks
+                track_id_meta = track_id_meta or pricing_data.get('Trackid') or pricing_data.get('TrackId') or session_data.get('track_id')
+                token_meta = token_meta or pricing_data.get('Token')
+            except Exception:
+                pass
             
             return self.get_response(
-                data=booking_total,
+                data={
+                    'pricing_breakdown': pricing_breakdown,
+                    'booking_total': booking_total,
+                    'track_id': track_id_meta or session_data.get('track_id'),
+                    'token': token_meta,
+                    'flights': flights_meta,
+                },
                 message="Booking total calculated successfully",
                 status="success",
                 status_code=status.HTTP_200_OK
