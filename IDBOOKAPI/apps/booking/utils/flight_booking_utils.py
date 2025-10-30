@@ -36,8 +36,16 @@ class FlightBookingAuthManager:
     def __init__(self, request_data: dict, user=None):
         self.request_data = request_data
         self.user = user
+        # Primary (hotel-style) fields
         self.contact_email = request_data.get('contact', {}).get('email', '')
         self.contact_phone = request_data.get('contact', {}).get('phone', '')
+        # Fallback to AirIQ-style fields from AddressDetails
+        addr = request_data.get('AddressDetails') or {}
+        if not self.contact_email:
+            self.contact_email = addr.get('EmailID', '')
+        if not self.contact_phone:
+            # ensure string
+            self.contact_phone = str(addr.get('ContactNumber', '') or '')
         
     def validate_user_eligibility(self) -> Tuple[bool, str, User]:
         """
@@ -68,21 +76,28 @@ class FlightBookingAuthManager:
         Initiate guest booking process with email verification
         Returns: (success, message, verification_data)
         """
-        from apps.authentication.tasks import send_otp_email_task
+        from apps.authentication.utils.authentication_utils import email_generate_otp_process
+        from django.template.loader import get_template
+        from IDBOOKAPI.email_utils import send_otp_email
         
         # Generate OTP for email verification
         otp = self.generate_otp()
         
-        # Create OTP record
-        from apps.authentication.utils.db_utils import create_email_otp
-        create_email_otp(otp, self.contact_email, 'GUEST_BOOKING')
-        
-        # Send OTP email
-        send_otp_email_task.delay(
-            recipient_email=self.contact_email,
-            otp=otp,
-            template_name='guest_booking_verification'
-        )
+        # Try async path (hotel flow). If broker/enqueue fails, send synchronously as fallback.
+        try:
+            email_generate_otp_process(otp, self.contact_email, 'GUEST_BOOKING')
+        except Exception as e:
+            try:
+                tmpl = get_template('email_template/otp-verification.html')
+                html = tmpl.render({'otp': otp})
+                send_otp_email(otp, [self.contact_email], template=html)
+                logger.warning(f"Celery enqueue failed; sent OTP synchronously to {self.contact_email}: {e}")
+            except Exception as e2:
+                logger.error(f"Failed to send OTP email to {self.contact_email}: {e2}")
+                return False, "Failed to send OTP. Please try again.", {
+                    'email': self.contact_email,
+                    'verification_required': True
+                }
         
         verification_data = {
             'email': self.contact_email,
@@ -124,21 +139,24 @@ class FlightBookingAuthManager:
     
     def create_guest_user(self) -> User:
         """Create a guest user account for booking"""
-        passenger_data = self.request_data.get('passengers', [{}])[0]  # Get first passenger
+        pax_list = self.request_data.get('passengers') or self.request_data.get('PaxDetailsInfo') or [{}]
+        passenger_data = pax_list[0] if pax_list else {}
+        
+        first_name = passenger_data.get('first_name') or passenger_data.get('FirstName', '')
+        last_name = passenger_data.get('last_name') or passenger_data.get('LastName', '')
+        full_name = (first_name + ' ' + last_name).strip()
         
         user_data = {
             'email': self.contact_email,
-            'username': self.contact_email,
-            'first_name': passenger_data.get('first_name', ''),
-            'last_name': passenger_data.get('last_name', ''),
-            'mobile_number': self.contact_phone,
-            'is_guest': True,
-            'is_active': True
+            'mobile_number': self.contact_phone or '',
+            'first_name': first_name,
+            'last_name': last_name,
+            'name': full_name
         }
         
         guest_user = create_user(user_data)
         
-        # Add to guest user group
+        # Add to guest user group (also marks active post-verification like hotel flow)
         add_group_for_guest_user(guest_user)
         
         return guest_user

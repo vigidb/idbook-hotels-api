@@ -171,48 +171,55 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Handle authentication
+            
+            # Handle authentication / guest OTP flow
             auth_manager = FlightBookingAuthManager(request.data, request.user)
             is_eligible, auth_message, auth_user = auth_manager.validate_user_eligibility()
-            
-            if not is_eligible:
-                if request.data.get('guest_booking') and not auth_user:
-                    # Initiate guest booking verification
-                    if not request.data.get('otp'):
-                        success, message, verification_data = auth_manager.initiate_guest_booking()
-                        if success:
-                            return self.get_response(
-                                data=verification_data,
-                                message=message,
-                                status="verification_required",
-                                status_code=status.HTTP_202_ACCEPTED
-                            )
-                        else:
-                            return self.get_error_response(
-                                message=message,
-                                status="error",
-                                status_code=status.HTTP_400_BAD_REQUEST
-                            )
-                    else:
-                        # Verify OTP and create guest user
-                        success, message, guest_user = auth_manager.verify_guest_booking_otp(request.data['otp'])
-                        if not success:
-                            return self.get_error_response(
-                                message=message,
-                                status="error",
-                                status_code=status.HTTP_400_BAD_REQUEST
-                            )
-                        auth_user = guest_user
-                else:
+
+            # Resolve booking_user
+            if request.user and request.user.is_authenticated:
+                # Authenticated user path
+                booking_user = request.user
+            else:
+                # Unauthenticated → treat as guest flow by default
+                # If validation failed (e.g., missing email), return an error
+                if not is_eligible and not auth_user:
                     return self.get_error_response(
-                        message=auth_message,
+                        message=auth_message or "Email is required for guest bookings",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                # If the email belongs to an active existing account, require login
+                if auth_user:
+                    return self.get_error_response(
+                        message=auth_message or "Please login with your existing account",
                         status="error",
                         status_code=status.HTTP_401_UNAUTHORIZED
                     )
-            
-            # Use authenticated user (either logged in or created guest user)
-            booking_user = auth_user if auth_user else request.user
-            
+                # New guest email → OTP required within this endpoint
+                if not request.data.get('otp'):
+                    success, message, verification_data = auth_manager.initiate_guest_booking()
+                    if success:
+                        return self.get_response(
+                            data=verification_data,
+                            message=message,
+                            status="verification_required",
+                            status_code=status.HTTP_202_ACCEPTED
+                        )
+                    return self.get_error_response(
+                        message=message,
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                # Verify OTP and create a guest user
+                success, message, guest_user = auth_manager.verify_guest_booking_otp(request.data['otp'])
+                if not success:
+                    return self.get_error_response(
+                        message=message,
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                booking_user = guest_user
             # Get or create session data from request
             session_data = self._get_or_create_session_data(request.data)
             # print("session_data", session_data)
@@ -307,10 +314,22 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             )
             
         except Exception as e:
-            self.log_error(f"Flight booking creation error: {str(e)}")
+            # Improved diagnostics: log traceback and return a trace_id in errors for quick look-up
+            import traceback, uuid
+            trace_id = uuid.uuid4().hex[:8]
+            tb = traceback.format_exc()
+            try:
+                self.log_error(f"[create_booking][{trace_id}] {str(e)}\n{tb}")
+            except Exception:
+                pass
+            try:
+                print(f"[create_booking][{trace_id}] {str(e)}")
+            except Exception:
+                pass
             return self.get_error_response(
                 message="An error occurred while creating the booking",
                 status="error",
+                errors=[{"trace_id": trace_id, "error": str(e)}],
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
