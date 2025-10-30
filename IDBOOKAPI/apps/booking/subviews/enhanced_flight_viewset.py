@@ -226,8 +226,8 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             # Fetch fare rules before pricing validation (non-blocking)
             fare_rules_resp = self._get_fare_rules_response(request.data)
 
-            # Always validate current pricing before booking
-            pricing_validation = self._validate_current_pricing(request.data, session_data)
+            # Extract pricing directly from request without API recalculation
+            pricing_validation = self._extract_pricing_from_request(request.data)
             print("pricing_validation", pricing_validation)
             if not pricing_validation['success']:
                 return self.get_error_response(
@@ -597,6 +597,99 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             "TrackId": track_from_price or request_data.get('TrackId') or request_data.get('TrackID') or ''
         }
         return airiq_struct
+    
+    def _extract_pricing_from_request(self, request_data: dict) -> dict:
+        """Extract pricing directly from request data without API recalculation"""
+        try:
+            itinerary_flights = request_data.get('ItineraryFlightsInfo', [])
+            
+            if not itinerary_flights:
+                return {
+                    'success': False,
+                    'message': 'Flight itinerary information is required'
+                }
+            
+            # Extract Token from ItineraryFlightsInfo[0]
+            pricing_token = ''
+            if itinerary_flights:
+                pricing_token = itinerary_flights[0].get('Token', '')
+            
+            # Extract pricing_response from request if available
+            pricing_response = request_data.get('pricing_response', {})
+            
+            # Extract TotalAmount directly from PaymentInfo (mandatory)
+            # BaseAmount and GrossAmount are optional
+            total_amount = 0
+            base_amount = 0
+            gross_amount = 0
+            tax_breakdown = {}
+            total_discount = 0
+            net_amount = 0
+            total_tax_amount = 0
+            
+            for flight_info in itinerary_flights:
+                payment_info = flight_info.get('PaymentInfo', [])
+                if payment_info:
+                    payment_data = payment_info[0]
+                    # TotalAmount is the final amount - directly use it
+                    total_amount += float(payment_data.get('TotalAmount', 0))
+                    
+                    # BaseAmount and GrossAmount are optional - use if available
+                    base_amount += float(payment_data.get('BaseAmount', 0))
+                    gross_amount += float(payment_data.get('GrossAmount', 0))
+                    
+                    # Extract optional discount, net amount, and tax amount
+                    total_discount += float(payment_data.get('totalDiscount', 0))
+                    net_amount += float(payment_data.get('netamount', 0))
+                    total_tax_amount += float(payment_data.get('TotalTaxAmount', 0))
+                    
+                    # Extract tax details if available
+                    taxes = payment_data.get('Taxes', [])
+                    for tax in taxes:
+                        tax_code = tax.get('Code', '')
+                        tax_amount = float(tax.get('Amount', 0))
+                        if tax_code in tax_breakdown:
+                            tax_breakdown[tax_code] += tax_amount
+                        else:
+                            tax_breakdown[tax_code] = tax_amount
+            
+            if total_amount <= 0:
+                return {
+                    'success': False,
+                    'message': 'TotalAmount must be greater than zero'
+                }
+            
+            # Use TotalAmount as the final amount (no recalculation)
+            final_amount = total_amount
+            
+            # If base_amount not provided, use total_amount
+            if base_amount <= 0:
+                base_amount = total_amount
+            
+            # Extract GST breakdown (optional, based on available data)
+            gst_breakdown = self._extract_gst_from_new_response_structure(
+                base_amount, final_amount, tax_breakdown
+            )
+            
+            return {
+                'success': True,
+                'final_amount': final_amount,
+                'pricing_response': pricing_response if pricing_response else request_data,
+                'gst_breakdown': gst_breakdown,
+                'basic_amount': base_amount,
+                'tax_breakdown': tax_breakdown,
+                'pricing_token': pricing_token,
+                'total_discount': total_discount,
+                'net_amount': net_amount,
+                'total_tax_amount': total_tax_amount
+            }
+                
+        except Exception as e:
+            logger.error(f"Pricing extraction error: {str(e)}")
+            return {
+                'success': False,
+                'message': 'Failed to extract pricing from request'
+            }
     
     def _get_fare_rules_response(self, request_data: dict) -> dict:
         """Call AirIQ GetFareRule and return response if successful; else None."""
@@ -1037,6 +1130,11 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         # Update main booking
         booking.confirmation_code = flight_booking.booking_reference
         booking.final_amount = pricing_validation['final_amount']
+        
+        # Save total_discount if available
+        if 'total_discount' in pricing_validation and pricing_validation['total_discount'] > 0:
+            booking.total_discount = pricing_validation['total_discount']
+        
         booking.status = 'pending'
         booking.save()
         

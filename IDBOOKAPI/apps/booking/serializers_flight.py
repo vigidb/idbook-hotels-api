@@ -27,8 +27,8 @@ class GSTInfoSerializer(serializers.Serializer):
         required=False, 
         allow_blank=True,
         validators=[RegexValidator(
-            regex=r'^\d{2}[A-Z]{5}\d{4}[A-Z0-9]{3}$',
-            message='Invalid GST number format'
+            regex=r'^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]{3}$',
+            message='Invalid GST number format. Expected format: 2 digits + 5 letters + 4 digits + 1 letter + 3 alphanumeric (e.g., 27AAEHR8003E1ZC)'
         )]
     )
     company_name = serializers.CharField(max_length=200, required=False, allow_blank=True)

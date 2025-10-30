@@ -1503,13 +1503,15 @@ class AirIQService:
         """
         Validate GST number format according to AirIQ documentation
         GST Registration Number is 15 alpha-numeric characters with specific pattern
+        Format: 2 digits + 5 letters + 4 digits + 1 letter + 3 alphanumeric
+        Example: 27AAEHR8003E1ZC
         """
         import re
         if not gst_number or len(gst_number) != 15:
             return False
         
-        # Pattern: 2 digits + 5 letters + 4 digits + 3 alphanumeric
-        pattern = r'^\d{2}[A-Z]{5}\d{4}[A-Z0-9]{3}$'
+        # Pattern: 2 digits + 5 letters + 4 digits + 1 letter + 3 alphanumeric
+        pattern = r'^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]{3}$'
         return bool(re.match(pattern, gst_number.upper()))
 
     def validate_passenger_details(self, passengers: List[dict]) -> List[str]:
