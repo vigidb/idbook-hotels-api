@@ -124,7 +124,7 @@ class AirIQService:
                     url=endpoint,
                     headers=headers,
                     json=data,
-                    timeout=30,
+                    timeout=60*2,
                 )
                 if proxies:
                     request_kwargs['proxies'] = proxies
