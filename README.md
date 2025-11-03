@@ -28,6 +28,10 @@ python manage.py runserver
 ## Celery Background Service
 ```
 celery -A IDBOOKAPI worker -l info -Q email-send-queue
+
+dev
+
+celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,email-send-queue,airiq-token-queue,recpay-initiate-queue
 ```
 
 ## Celery beat Scheduler Service
@@ -150,3 +154,9 @@ To develop a hotel booking application for web, Android, and iOS platforms with 
 6. **Agile Development Methodology:** Follow an agile development approach (e.g., Scrum or Kanban) to iteratively develop and deliver features, collaborate with stakeholders, and manage project requirements.
 
 Remember that the specific tech stack and components may vary based on your team's expertise, project requirements, and other factors. It's essential to thoroughly plan and analyze your application's features and functionalities before finalizing the technology stack.
+
+
+### SSH tunneling for development to work with proxy AirIQ
+```
+ssh -L 8888:localhost:8888 ubuntu@13.50.52.0 -i idbook-key.pem
+```

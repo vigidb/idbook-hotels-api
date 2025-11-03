@@ -84,20 +84,7 @@ class FlightBookingAuthManager:
         otp = self.generate_otp()
         
         # Try async path (hotel flow). If broker/enqueue fails, send synchronously as fallback.
-        try:
-            email_generate_otp_process(otp, self.contact_email, 'GUEST_BOOKING')
-        except Exception as e:
-            try:
-                tmpl = get_template('email_template/otp-verification.html')
-                html = tmpl.render({'otp': otp})
-                send_otp_email(otp, [self.contact_email], template=html)
-                logger.warning(f"Celery enqueue failed; sent OTP synchronously to {self.contact_email}: {e}")
-            except Exception as e2:
-                logger.error(f"Failed to send OTP email to {self.contact_email}: {e2}")
-                return False, "Failed to send OTP. Please try again.", {
-                    'email': self.contact_email,
-                    'verification_required': True
-                }
+        email_generate_otp_process(otp, self.contact_email, 'VERIFY-GUEST')
         
         verification_data = {
             'email': self.contact_email,
