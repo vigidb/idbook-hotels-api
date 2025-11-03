@@ -103,7 +103,7 @@ class FlightBookingAuthManager:
         from apps.authentication.utils.db_utils import check_email_otp
         
         # Check OTP
-        otp_record = check_email_otp(self.contact_email, otp, 'GUEST_BOOKING')
+        otp_record = check_email_otp(self.contact_email, otp, 'VERIFY-GUEST')
         if not otp_record:
             return False, "Invalid or expired OTP", None
         
