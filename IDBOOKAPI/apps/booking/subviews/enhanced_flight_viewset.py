@@ -13,15 +13,31 @@ from drf_yasg import openapi
 from django.utils import timezone
 from django.db import transaction
 from datetime import datetime, timedelta
+from django.conf import settings
 import logging
 import uuid
 from decimal import Decimal
 
-from ..models import Booking, FlightBooking, FlightPassenger
+from ..models import Booking, FlightBooking, FlightPassenger, FlightAncillaryService
 from ..serializers import BookingSerializer
 from ..utils.flight_booking_utils import FlightBookingProcessor, FlightBookingAuthManager
 from apps.flights.services.pricing_service import flight_pricing_service
 from apps.flights.services.airiq_service import airiq_service, AirIQException
+from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.payment_gateways.mixins.payu_mixins import PayUMixin
+from apps.booking.utils.db_utils import (
+    create_booking_payment_details,
+    update_booking_payment_details,
+    get_booking_from_payment,
+)
+from apps.customer.utils.db_utils import (
+    get_wallet_balance,
+    get_company_wallet_balance,
+    deduct_wallet_balance,
+    deduct_company_wallet_balance,
+    add_user_wallet_amount,
+    add_company_wallet_amount,
+)
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 
 logger = logging.getLogger(__name__)
@@ -476,6 +492,638 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 message="An unexpected error occurred",
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description='Get available SSR (ancillary) options for a confirmed/held booking',
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'AirIqPNR': openapi.Schema(type=openapi.TYPE_STRING, description='Override AirIQ PNR (optional)'),
+                'AirlinePNR': openapi.Schema(type=openapi.TYPE_STRING, description='Override Airline PNR (optional)')
+            }
+        ),
+        responses={200: openapi.Response(description='SSR options with TrackId and price data')}
+    )
+    @action(detail=True, methods=['post'], url_path='ancillary/get-ssr', permission_classes=[IsAuthenticated])
+    def get_ssr_options(self, request, pk=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(pk)
+            if flight_booking.status not in ['HELD', 'CONFIRMED', 'TICKETED']:
+                return self.get_error_response(
+                    message='SSR options are available only after hold/confirm',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            airiq_pnr = request.data.get('AirIqPNR') or flight_booking.airiq_pnr
+            airline_pnr = request.data.get('AirlinePNR') or flight_booking.airline_pnr
+            if not airiq_pnr or not airline_pnr:
+                return self.get_error_response(
+                    message='Missing PNRs to fetch SSR options',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            ssr_resp = airiq_service.get_ssr_services(airiq_pnr=airiq_pnr, airline_pnr=airline_pnr)
+
+            # Persist TrackId for subsequent AddSSR
+            track_id = ssr_resp.get('TrackId') or ssr_resp.get('TrackID') or ''
+            if track_id:
+                flight_booking.airiq_track_id = track_id
+                flight_booking.save(update_fields=['airiq_track_id'])
+
+            return Response(ssr_resp, status=status.HTTP_200_OK)
+        except AirIQException as e:
+            return self.get_error_response(
+                message=f'GetSSR failed: {str(e)}',
+                status='error',
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            return self.get_error_response(
+                message=f'Unexpected error fetching SSR: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description='Add SSR (ancillary) selections to an existing booking and update totals',
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['TracKID'],
+            properties={
+                'TracKID': openapi.Schema(type=openapi.TYPE_STRING, description='TrackId from GetSSR response'),
+                'AirIqPNR': openapi.Schema(type=openapi.TYPE_STRING, description='Override AirIQ PNR (optional)'),
+                'AirlinePNR': openapi.Schema(type=openapi.TYPE_STRING, description='Override Airline PNR (optional)'),
+                'Remarks': openapi.Schema(type=openapi.TYPE_STRING),
+                'MealsSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'BaggSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'SeatsSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'OtherSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'Payment': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_OBJECT, properties={
+                        'PaymentMode': openapi.Schema(type=openapi.TYPE_STRING, default='T'),
+                        'Amount': openapi.Schema(type=openapi.TYPE_STRING)
+                    })
+                )
+            }
+        ),
+        responses={200: openapi.Response(description='Updated booking snapshot and AirIQ response')}
+    )
+    @action(detail=True, methods=['post'], url_path='ancillary/add-ssr', permission_classes=[IsAuthenticated])
+    def add_ssr(self, request, pk=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(pk)
+
+            airiq_pnr = request.data.get('AirIqPNR') or flight_booking.airiq_pnr
+            airline_pnr = request.data.get('AirlinePNR') or flight_booking.airline_pnr
+            track_id = request.data.get('TracKID') or request.data.get('TrackId') or request.data.get('TrackID') or flight_booking.airiq_track_id
+            if not all([airiq_pnr, airline_pnr, track_id]):
+                return self.get_error_response(
+                    message='AirIqPNR, AirlinePNR and TracKID/TrackId are required',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            meals = request.data.get('MealsSSR') or []
+            baggage = request.data.get('BaggSSR') or []
+            seats = request.data.get('SeatsSSR') or []
+            other = request.data.get('OtherSSR') or []
+            remarks = request.data.get('Remarks') or ''
+            payment_arr = request.data.get('Payment') or []
+            payment_amount = 0.0
+            try:
+                if payment_arr and isinstance(payment_arr, list):
+                    payment_amount = float((payment_arr[0] or {}).get('Amount') or 0)
+            except Exception:
+                payment_amount = 0.0
+
+            airiq_resp = airiq_service.add_ssr_services(
+                airiq_pnr=airiq_pnr,
+                airline_pnr=airline_pnr,
+                track_id=track_id,
+                meals_ssr=meals,
+                baggage_ssr=baggage,
+                seats_ssr=seats,
+                other_ssr=other,
+                payment_amount=payment_amount,
+                remarks=remarks,
+            )
+
+            # Update flight booking track and PNR from response if available
+            try:
+                retr = airiq_resp.get('Retrieveresponse') or airiq_resp.get('Retriveresponse') or {}
+                itins = (retr.get('ItinearyDetails') or [])
+                if itins:
+                    item0 = (itins[0].get('Item') or [None])[0] or {}
+                    fb_updates = {}
+                    maybe_track = item0.get('BookingTrackId')
+                    if maybe_track:
+                        fb_updates['airiq_track_id'] = maybe_track
+                    maybe_airiq_pnr = item0.get('AirIqPNR') or item0.get('AiriqPNR')
+                    if maybe_airiq_pnr:
+                        fb_updates['airiq_pnr'] = maybe_airiq_pnr
+                    # AirlinePNR nested
+                    try:
+                        trav_items = (item0.get('TravellerInfo') or {}).get('Item') or []
+                        if trav_items:
+                            seginfo = trav_items[0].get('SegmentInformation') or {}
+                            seg_items = seginfo.get('Item') or []
+                            if seg_items:
+                                airline_pnr_new = seg_items[0].get('AirlinePNR')
+                                if airline_pnr_new:
+                                    fb_updates['airline_pnr'] = airline_pnr_new
+                    except Exception:
+                        pass
+                    if fb_updates:
+                        for k, v in fb_updates.items():
+                            setattr(flight_booking, k, v)
+                        flight_booking.save(update_fields=list(fb_updates.keys()))
+            except Exception:
+                pass
+
+            # Persist ancillary selections to DB
+            def _map_service_type(key: str) -> str:
+                return {
+                    'MealsSSR': 'MEAL',
+                    'BaggSSR': 'BAGGAGE',
+                    'SeatsSSR': 'SEAT',
+                    'OtherSSR': 'OTHER',
+                }.get(key, 'OTHER')
+
+            selections = [
+                ('MealsSSR', meals),
+                ('BaggSSR', baggage),
+                ('SeatsSSR', seats),
+                ('OtherSSR', other),
+            ]
+
+            pax_map = {p.passenger_reference: p for p in flight_booking.passengers.all()}
+
+            created_count = 0
+            for key, items in selections:
+                service_type = _map_service_type(key)
+                for it in (items or []):
+                    pax_ref = it.get('PaxRefId') or it.get('PaxRefNumber') or it.get('PaxRef')
+                    pax_ref_int = None
+                    try:
+                        pax_ref_int = int(pax_ref) if pax_ref is not None else None
+                    except Exception:
+                        pax_ref_int = None
+                    passenger = pax_map.get(pax_ref_int) if pax_ref_int else None
+                    if not passenger:
+                        continue
+                    # Infer ids/codes/desc and price if present
+                    code = (
+                        it.get('MealId') or it.get('BaggId') or it.get('SeatId') or it.get('OtherSSRId') or ''
+                    )
+                    desc = it.get('Description') or str(code)
+                    price = Decimal(str(it.get('Amount') or it.get('SeatAmount') or 0)) if 'Amount' in it or 'SeatAmount' in it else Decimal('0')
+                    segment_ref = int(it.get('SegmentNo') or it.get('SegRef') or 1)
+                    FlightAncillaryService.objects.create(
+                        flight_booking=flight_booking,
+                        passenger=passenger,
+                        service_type=service_type,
+                        airiq_service_id=str(code),
+                        service_code=str(code),
+                        service_description=str(desc)[:200],
+                        segment_reference=segment_ref,
+                        service_price=price,
+                    )
+                    created_count += 1
+
+            # Update booking amount by adding payment amount (as per AirIQ Payment block)
+            if payment_amount and float(payment_amount) > 0:
+                try:
+                    booking.final_amount = Decimal(str(booking.final_amount)) + Decimal(str(payment_amount))
+                    booking.save(update_fields=['final_amount'])
+                except Exception:
+                    pass
+
+            return self.get_response(
+                data={
+                    'created_services': created_count,
+                    'payment_amount': payment_amount,
+                    'airiq_response': airiq_resp,
+                },
+                message='Ancillary services added successfully',
+                status='success',
+                status_code=status.HTTP_200_OK,
+            )
+        except AirIQException as e:
+            return self.get_error_response(
+                message=f'AddSSR failed: {str(e)}',
+                status='error',
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status='error',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return self.get_error_response(
+                message=f'Unexpected error adding SSR: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description='Initiate payment for ancillary (SSR) selections; AirIQ AddSSR will be called after payment success',
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['Payment', 'TracKID'],
+            properties={
+                'TracKID': openapi.Schema(type=openapi.TYPE_STRING),
+                'AirIqPNR': openapi.Schema(type=openapi.TYPE_STRING),
+                'AirlinePNR': openapi.Schema(type=openapi.TYPE_STRING),
+                'Remarks': openapi.Schema(type=openapi.TYPE_STRING),
+                'MealsSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'BaggSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'SeatsSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'OtherSSR': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                'Payment': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_OBJECT, properties={
+                        'PaymentMode': openapi.Schema(type=openapi.TYPE_STRING, default='T'),
+                        'Amount': openapi.Schema(type=openapi.TYPE_STRING)
+                    })
+                ),
+                'payment_channel': openapi.Schema(type=openapi.TYPE_STRING, enum=['PHONE PAY', 'PAYU']),
+                'redirect_url': openapi.Schema(type=openapi.TYPE_STRING)
+            }
+        )
+    )
+    @action(detail=True, methods=['post'], url_path='ancillary/initiate-payment', permission_classes=[IsAuthenticated])
+    def initiate_ancillary_payment(self, request, pk=None):
+        try:
+            booking, flight_booking = self.get_flight_booking(pk)
+
+            airiq_pnr = request.data.get('AirIqPNR') or flight_booking.airiq_pnr
+            airline_pnr = request.data.get('AirlinePNR') or flight_booking.airline_pnr
+            track_id = request.data.get('TracKID') or request.data.get('TrackId') or request.data.get('TrackID') or flight_booking.airiq_track_id
+            if not all([airiq_pnr, airline_pnr, track_id]):
+                return self.get_error_response(
+                    message='AirIqPNR, AirlinePNR and TracKID/TrackId are required',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_arr = request.data.get('Payment') or []
+            try:
+                amount = Decimal(str((payment_arr[0] or {}).get('Amount') or 0))
+            except Exception:
+                return self.get_error_response(
+                    message='Invalid Payment amount',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            if amount <= 0:
+                return self.get_error_response(
+                    message='Payment amount must be > 0',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_channel = (request.data.get('payment_channel') or '').upper()
+            if payment_channel not in ('PHONE PAY', 'PAYU', 'WALLET'):
+                return self.get_error_response(
+                    message='Unsupported payment_channel. Use PHONE PAY, PAYU or WALLET',
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Create payment detail and persist ancillary request context
+            append_id = f"AN{request.user.id}" if request.user and request.user.is_authenticated else "ANGUEST"
+            pd = create_booking_payment_details(booking.id, append_id)
+            update_booking_payment_details(pd.merchant_transaction_id, {
+                'amount': float(amount),
+                'transaction_for': 'flight_ancillary_payment',
+                'payment_type': 'PAYMENT GATEWAY',
+                'payment_medium': payment_channel,
+                'transaction_details': {
+                    'type': 'flight_ancillary',
+                    'ancillary_request': {
+                        'AirIqPNR': airiq_pnr,
+                        'AirlinePNR': airline_pnr,
+                        'TracKID': track_id,
+                        'Remarks': request.data.get('Remarks') or '',
+                        'MealsSSR': request.data.get('MealsSSR') or [],
+                        'BaggSSR': request.data.get('BaggSSR') or [],
+                        'SeatsSSR': request.data.get('SeatsSSR') or [],
+                        'OtherSSR': request.data.get('OtherSSR') or [],
+                    }
+                }
+            })
+
+            if payment_channel == 'WALLET':
+                if not (request.user and request.user.is_authenticated):
+                    return self.get_error_response(
+                        message='Login required for wallet payment',
+                        status='error',
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    )
+                company_id = getattr(request.user, 'company_id', None)
+                user_id = request.user.id
+                # Check balances (company first if available)
+                can_pay = False
+                paid_from = 'USER'
+                if company_id:
+                    comp_bal = Decimal(str(get_company_wallet_balance(company_id) or 0))
+                    if comp_bal >= amount:
+                        can_pay = True
+                        paid_from = 'COMPANY'
+                if not can_pay:
+                    user_bal = Decimal(str(get_wallet_balance(user_id) or 0))
+                    if user_bal >= amount:
+                        can_pay = True
+                        paid_from = 'USER'
+                if not can_pay:
+                    return self.get_error_response(
+                        message='Insufficient wallet balance',
+                        status='error',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Deduct
+                if paid_from == 'COMPANY':
+                    deducted = deduct_company_wallet_balance(company_id, float(amount))
+                else:
+                    deducted = deduct_wallet_balance(user_id, float(amount), booking)
+                if not deducted:
+                    return self.get_error_response(
+                        message='Wallet deduction failed',
+                        status='error',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Mark payment as success in BPD
+                update_booking_payment_details(pd.merchant_transaction_id, {
+                    'payment_type': 'WALLET',
+                    'payment_medium': 'Idbook',
+                    'code': 'PAYMENT_SUCCESS',
+                    'message': 'Ancillary paid via wallet',
+                    'is_transaction_success': True,
+                    'transaction_id': pd.merchant_transaction_id,
+                })
+                # After successful wallet payment, call AirIQ AddSSR
+                anc_req = (booking.booking_payment.filter(merchant_transaction_id=pd.merchant_transaction_id).first().transaction_details or {}).get('ancillary_request', {})
+                try:
+                    finalize_resp = self._finalize_ancillary_after_payment(booking, anc_req)
+                    return finalize_resp
+                except Exception as e:
+                    # Refund wallet on failure
+                    if paid_from == 'COMPANY':
+                        add_company_wallet_amount(company_id, amount)
+                    else:
+                        add_user_wallet_amount(user_id, amount)
+                    update_booking_payment_details(pd.merchant_transaction_id, {
+                        'code': 'ANCILLARY_FAILED_REFUNDED',
+                        'message': f'Ancillary failed, refunded wallet: {str(e)}',
+                        'is_transaction_success': False,
+                    })
+                    return self.get_error_response(
+                        message=f'Ancillary failed after wallet payment: {str(e)}',
+                        status='error',
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                    )
+
+            if payment_channel == 'PHONE PAY':
+                phonepe = PhonePayMixin()
+                payload = {
+                    'merchantId': settings.MERCHANT_ID,
+                    'merchantTransactionId': pd.merchant_transaction_id,
+                    'merchantUserId': str(request.user.id) if request.user and request.user.is_authenticated else 'guest',
+                    'amount': int(amount * 100),
+                    'redirectUrl': request.data.get('redirect_url', settings.DEFAULT_REDIRECT_URL),
+                    'redirectMode': 'REDIRECT',
+                    'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/",
+                    'paymentInstrument': {'type': 'PAY_PAGE'}
+                }
+                req, headers = phonepe.get_encrypted_header_and_payload(payload)
+                resp = phonepe.post_pay_page(req, headers)
+                if resp.status_code != 200:
+                    return self.get_error_response(
+                        message='Failed to initiate PhonePe payment',
+                        status='error',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                data_json = resp.json()
+                pay_url = data_json.get('data', {}).get('instrumentResponse', {}).get('redirectInfo', {}).get('url', '')
+                return self.get_response(
+                    data={
+                        'payment_method': 'phonepe',
+                        'payment_url': pay_url,
+                        'transaction_id': pd.merchant_transaction_id,
+                    },
+                    message='Ancillary payment initiated',
+                    status='success',
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                # PAYU
+                payu = PayUMixin()
+                payload = {
+                    'key': settings.PAYU_KEY,
+                    'txnid': pd.merchant_transaction_id,
+                    'amount': str(amount),
+                    'productinfo': f'Flight Ancillary - {flight_booking.flying_from} to {flight_booking.flying_to}',
+                    'firstname': request.user.first_name if request.user and request.user.is_authenticated else 'Guest',
+                    'email': request.user.email if request.user and request.user.is_authenticated else '',
+                    'phone': getattr(request.user, 'mobile_number', '') if request.user and request.user.is_authenticated else '',
+                    'surl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/payu-success/",
+                    'furl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/payu-failure/",
+                }
+                # Some projects have generate_hash; fallback to mixin method if available
+                try:
+                    hash_string = f"{payload['key']}|{payload['txnid']}|{payload['amount']}|{payload['productinfo']}|{payload['firstname']}|{payload['email']}|||||||||||{settings.PAYU_SALT}"
+                    payload['hash'] = payu.generate_hash(hash_string)
+                except Exception:
+                    pass
+                update_booking_payment_details(pd.merchant_transaction_id, {
+                    'code': 'PAYMENT_INITIATED',
+                    'message': 'Payment initiated via PayU',
+                })
+                return self.get_response(
+                    data={
+                        'payment_method': 'payu',
+                        'payment_url': settings.PAYU_URL,
+                        'payload': payload,
+                        'transaction_id': pd.merchant_transaction_id,
+                    },
+                    message='Ancillary payment initiated',
+                    status='success',
+                    status_code=status.HTTP_200_OK,
+                )
+        except Exception as e:
+            return self.get_error_response(
+                message=f'Failed to initiate ancillary payment: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=['post'], url_path='ancillary/phonepe-callback', permission_classes=[])
+    def ancillary_phonepe_callback(self, request):
+        try:
+            import base64, json as _json
+            response = request.data.get('response')
+            if not response:
+                return self.get_error_response(
+                    message='Invalid callback', status='error', status_code=status.HTTP_400_BAD_REQUEST
+                )
+            data = base64.b64decode(response)
+            decoded = data.decode('utf-8')
+            json_data = _json.loads(decoded)
+            sub = json_data.get('data', {})
+            merchant_txn = sub.get('merchantTransactionId', '')
+            code = json_data.get('code', '')
+            state = sub.get('state', '')
+            amount = (sub.get('amount', 0) or 0) / 100
+
+            # Update payment details
+            update_booking_payment_details(merchant_txn, {
+                'code': code,
+                'message': json_data.get('message', ''),
+                'transaction_id': sub.get('transactionId', ''),
+                'amount': amount,
+                'is_transaction_success': code == 'PAYMENT_SUCCESS' and state == 'COMPLETED',
+            })
+
+            booking_id = get_booking_from_payment(merchant_txn)
+            booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+            bpd = booking.booking_payment.filter(merchant_transaction_id=merchant_txn).first()
+            is_success = code == 'PAYMENT_SUCCESS' and state == 'COMPLETED'
+            if is_success and bpd and bpd.transaction_for == 'flight_ancillary_payment':
+                anc = (bpd.transaction_details or {}).get('ancillary_request') or {}
+                return self._finalize_ancillary_after_payment(booking, anc)
+
+            return self.get_response(
+                data={'payment_success': is_success},
+                message='Callback processed',
+                status='success',
+                status_code=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return self.get_error_response(
+                message=f'Callback processing failed: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=['post'], url_path='ancillary/payu-success', permission_classes=[])
+    def ancillary_payu_success(self, request):
+        try:
+            txnid = request.data.get('txnid') or ''
+            amount = request.data.get('amount')
+            update_booking_payment_details(txnid, {
+                'code': request.data.get('status', 'success'),
+                'message': request.data.get('error_Message', ''),
+                'transaction_id': request.data.get('mihpayid', ''),
+                'amount': amount,
+                'is_transaction_success': True,
+            })
+            booking_id = get_booking_from_payment(txnid)
+            booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+            bpd = booking.booking_payment.filter(merchant_transaction_id=txnid).first()
+            if bpd and bpd.transaction_for == 'flight_ancillary_payment':
+                anc = (bpd.transaction_details or {}).get('ancillary_request') or {}
+                return self._finalize_ancillary_after_payment(booking, anc)
+            return self.get_response(data={'payment_success': True}, message='Payment success', status='success', status_code=status.HTTP_200_OK)
+        except Exception as e:
+            return self.get_error_response(message=str(e), status='error', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='ancillary/payu-failure', permission_classes=[])
+    def ancillary_payu_failure(self, request):
+        try:
+            txnid = request.data.get('txnid') or ''
+            update_booking_payment_details(txnid, {
+                'code': request.data.get('status', 'failed'),
+                'message': request.data.get('error_Message', ''),
+                'transaction_id': request.data.get('mihpayid', ''),
+                'is_transaction_success': False,
+            })
+            return self.get_response(data={'payment_success': False}, message='Payment failure processed', status='success', status_code=status.HTTP_200_OK)
+        except Exception as e:
+            return self.get_error_response(message=str(e), status='error', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _finalize_ancillary_after_payment(self, booking: Booking, anc: dict):
+        try:
+            flight_booking = booking.flight_booking
+            airiq_resp = airiq_service.add_ssr_services(
+                airiq_pnr=anc.get('AirIqPNR') or flight_booking.airiq_pnr,
+                airline_pnr=anc.get('AirlinePNR') or flight_booking.airline_pnr,
+                track_id=anc.get('TracKID') or flight_booking.airiq_track_id,
+                meals_ssr=anc.get('MealsSSR') or [],
+                baggage_ssr=anc.get('BaggSSR') or [],
+                seats_ssr=anc.get('SeatsSSR') or [],
+                other_ssr=anc.get('OtherSSR') or [],
+                payment_amount=float(booking.booking_payment.order_by('-id').first().amount or 0),
+                remarks=anc.get('Remarks') or '',
+            )
+            # Persist selections like in add_ssr
+            selections = [
+                ('MealsSSR', anc.get('MealsSSR') or []),
+                ('BaggSSR', anc.get('BaggSSR') or []),
+                ('SeatsSSR', anc.get('SeatsSSR') or []),
+                ('OtherSSR', anc.get('OtherSSR') or []),
+            ]
+            pax_map = {p.passenger_reference: p for p in flight_booking.passengers.all()}
+            created_count = 0
+            for key, items in selections:
+                service_type = {'MealsSSR': 'MEAL', 'BaggSSR': 'BAGGAGE', 'SeatsSSR': 'SEAT', 'OtherSSR': 'OTHER'}.get(key, 'OTHER')
+                for it in (items or []):
+                    pax_ref = it.get('PaxRefId') or it.get('PaxRefNumber') or it.get('PaxRef')
+                    try:
+                        pax_ref_int = int(pax_ref) if pax_ref is not None else None
+                    except Exception:
+                        pax_ref_int = None
+                    passenger = pax_map.get(pax_ref_int) if pax_ref_int else None
+                    if not passenger:
+                        continue
+                    code = it.get('MealId') or it.get('BaggId') or it.get('SeatId') or it.get('OtherSSRId') or ''
+                    desc = it.get('Description') or str(code)
+                    price = Decimal(str(it.get('Amount') or it.get('SeatAmount') or 0)) if ('Amount' in it or 'SeatAmount' in it) else Decimal('0')
+                    segment_ref = int(it.get('SegmentNo') or it.get('SegRef') or 1)
+                    FlightAncillaryService.objects.create(
+                        flight_booking=flight_booking,
+                        passenger=passenger,
+                        service_type=service_type,
+                        airiq_service_id=str(code),
+                        service_code=str(code),
+                        service_description=str(desc)[:200],
+                        segment_reference=segment_ref,
+                        service_price=price,
+                    )
+                    created_count += 1
+            # Update totals if needed
+            try:
+                last_pd = booking.booking_payment.order_by('-id').first()
+                if last_pd and last_pd.amount:
+                    booking.final_amount = Decimal(str(booking.final_amount)) + Decimal(str(last_pd.amount))
+                    booking.save(update_fields=['final_amount'])
+            except Exception:
+                pass
+            return self.get_response(
+                data={'created_services': created_count, 'airiq_response': airiq_resp},
+                message='Ancillary services added post-payment',
+                status='success',
+                status_code=status.HTTP_200_OK,
+            )
+        except AirIQException as e:
+            return self.get_error_response(
+                message=f'AddSSR failed after payment: {str(e)}',
+                status='error',
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            return self.get_error_response(
+                message=f'Failed to finalize ancillary after payment: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def _get_or_create_session_data(self, request_data: dict) -> dict:
@@ -1917,17 +2565,28 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
 
     @swagger_auto_schema(
         method='post',
-        operation_description="Get reschedule availability for a booking",
+        operation_description="Get reschedule availability for a booking. For round-trip, provide flights array with onward and return details.",
         manual_parameters=[
             openapi.Parameter('booking_id', openapi.IN_PATH, description="Flight booking ID", type=openapi.TYPE_INTEGER, required=True)
         ],
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=['flight_date'],
             properties={
-                'flight_date': openapi.Schema(type=openapi.TYPE_STRING, description='YYYY-MM-DD'),
-                'departure_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA origin (optional)'),
-                'arrival_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA destination (optional)'),
+                'flights': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    description='Array of flight segments to reschedule (for round-trip, include both onward and return)',
+                    items=openapi.Items(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'flight_date': openapi.Schema(type=openapi.TYPE_STRING, description='YYYY-MM-DD'),
+                            'departure_station': openapi.Schema(type=openapi.TYPE_STRING, description='3-letter IATA code'),
+                            'arrival_station': openapi.Schema(type=openapi.TYPE_STRING, description='3-letter IATA code')
+                        }
+                    )
+                ),
+                'flight_date': openapi.Schema(type=openapi.TYPE_STRING, description='YYYY-MM-DD (for single flight/backward compatibility)'),
+                'departure_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA origin (backward compatibility)'),
+                'arrival_station': openapi.Schema(type=openapi.TYPE_STRING, description='IATA destination (backward compatibility)'),
                 'remarks': openapi.Schema(type=openapi.TYPE_STRING)
             }
         )
@@ -1947,29 +2606,177 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             # Derive trip type
             trip_type = flight_booking.search_session_data.get('trip_type') or 'O'
             if trip_type not in ['O', 'R', 'Y']:
-                mapping = {'ONE-WAY': 'O', 'ROUND': 'R'}
+                mapping = {'ONE-WAY': 'O', 'ROUND': 'R', 'ROUND-TRIP': 'R'}
                 trip_type = mapping.get(flight_booking.flight_trip, 'O')
 
-            dep = request.data.get('departure_station') or flight_booking.flying_from or ''
-            arr = request.data.get('arrival_station') or flight_booking.flying_to or ''
-            flight_date = request.data.get('flight_date')
             remarks = request.data.get('remarks', '')
+            
+            # Build flight segments for reschedule
+            flight_segments = []
+            
+            # Check if flights array is provided (new format)
+            if 'flights' in request.data and isinstance(request.data['flights'], list):
+                for idx, flight in enumerate(request.data['flights'], 1):
+                    if not all([flight.get('flight_date'), flight.get('departure_station'), flight.get('arrival_station')]):
+                        return self.get_error_response(
+                            message=f"Flight #{idx}: flight_date, departure_station, and arrival_station are all required",
+                            status="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    try:
+                        flight_date_str = str(flight['flight_date']).strip()
+                        
+                        # Log for debugging
+                        self.log_info(f"Flight #{idx} date parsing: '{flight_date_str}' (len={len(flight_date_str)})")
+                        
+                        if not flight_date_str:
+                            return self.get_error_response(
+                                message=f"Flight #{idx}: flight_date cannot be empty",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        # Try to parse the date - support both YYYY-MM-DD and YYYYMMDD
+                        dt = None
+                        if '-' in flight_date_str:
+                            dt = datetime.strptime(flight_date_str, '%Y-%m-%d')
+                        elif len(flight_date_str) == 8 and flight_date_str.isdigit():
+                            dt = datetime.strptime(flight_date_str, '%Y%m%d')
+                        else:
+                            return self.get_error_response(
+                                message=f"Flight #{idx}: Invalid date format '{flight_date_str}'. Use YYYY-MM-DD or YYYYMMDD",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        # Validate date is not in the past
+                        today = datetime.now().date()
+                        if dt.date() < today:
+                            return self.get_error_response(
+                                message=f"Flight #{idx}: Date cannot be in the past (received: {flight_date_str})",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        flight_date_fmt = dt.strftime('%Y%m%d')
+                        self.log_info(f"Flight #{idx} date converted: {flight_date_str} -> {flight_date_fmt}")
+                        
+                    except ValueError as e:
+                        self.log_error(f"Flight #{idx} date parsing error: {str(e)} | Input: '{flight.get('flight_date')}'")
+                        return self.get_error_response(
+                            message=f"Flight #{idx}: Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-25) | Received: '{flight.get('flight_date')}'",
+                            status="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    except Exception as e:
+                        self.log_error(f"Flight #{idx} unexpected error: {type(e).__name__}: {str(e)} | Input: '{flight.get('flight_date')}'")
+                        return self.get_error_response(
+                            message=f"Flight #{idx}: Unexpected error processing date '{flight.get('flight_date')}': {str(e)}",
+                            status="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    flight_segments.append({
+                        'departure_station': str(flight['departure_station']).strip().upper(),
+                        'arrival_station': str(flight['arrival_station']).strip().upper(),
+                        'flight_date': flight_date_fmt
+                    })
+            else:
+                # Backward compatibility: single flight date format
+                flight_date = request.data.get('flight_date')
+                if not flight_date:
+                    return self.get_error_response(
+                        message="flight_date is required (or use 'flights' array for multiple segments)",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                dep = request.data.get('departure_station') or flight_booking.flying_from or ''
+                arr = request.data.get('arrival_station') or flight_booking.flying_to or ''
+                
+                # Clean and validate flight_date
+                flight_date_str = str(flight_date).strip() if flight_date else ''
+                
+                # Debug logging
+                self.log_info(f"Single flight reschedule: date='{flight_date_str}' | type={type(flight_date).__name__} | len={len(flight_date_str)} | dep={dep} | arr={arr}")
+                
+                if not flight_date_str:
+                    return self.get_error_response(
+                        message="flight_date cannot be empty",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                if not dep or not arr:
+                    return self.get_error_response(
+                        message="departure_station and arrival_station are required",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                try:
+                    # Try to parse the date - support both YYYY-MM-DD and YYYYMMDD
+                    dt = None
+                    if '-' in flight_date_str:
+                        dt = datetime.strptime(flight_date_str, '%Y-%m-%d')
+                    elif len(flight_date_str) == 8 and flight_date_str.isdigit():
+                        dt = datetime.strptime(flight_date_str, '%Y%m%d')
+                    else:
+                        return self.get_error_response(
+                            message=f"Invalid date format '{flight_date_str}'. Use YYYY-MM-DD (e.g., 2025-11-21) or YYYYMMDD (e.g., 20251121)",
+                            status="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Validate date is not in the past
+                    today = datetime.now().date()
+                    if dt.date() < today:
+                        return self.get_error_response(
+                            message=f"Date cannot be in the past. Today: {today}, Received: {dt.date()} ('{flight_date_str}')",
+                            status="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Convert to YYYYMMDD format for AirIQ API
+                    flight_date_fmt = dt.strftime('%Y%m%d')
+                    self.log_info(f"Date parsed successfully: '{flight_date_str}' -> '{flight_date_fmt}'")
+                    
+                except ValueError as e:
+                    self.log_error(f"Date parsing ValueError: {str(e)} | Input: '{flight_date_str}'")
+                    return self.get_error_response(
+                        message=f"Invalid date format. Expected YYYY-MM-DD (e.g., 2025-11-21), got '{flight_date_str}' | Error: {str(e)}",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                except Exception as e:
+                    self.log_error(f"Unexpected date parsing error: {type(e).__name__}: {str(e)} | Input: '{flight_date_str}' | Raw: {repr(flight_date)}")
+                    return self.get_error_response(
+                        message=f"Unexpected error processing date '{flight_date_str}': {type(e).__name__}: {str(e)}",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                flight_segments.append({
+                    'departure_station': str(dep).strip().upper(),
+                    'arrival_station': str(arr).strip().upper(),
+                    'flight_date': flight_date_fmt
+                })
 
-            try:
-                dt = datetime.datetime.strptime(flight_date, '%Y-%m-%d')
-                flight_date_fmt = dt.strftime('%Y%m%d')
-            except Exception:
+            # Validate flight_segments before API call
+            if not flight_segments:
                 return self.get_error_response(
-                    message="Invalid flight_date format. Use YYYY-MM-DD",
+                    message="No valid flight segments to reschedule",
                     status="error",
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
-
+            
+            # Log the final payload for debugging
+            self.log_info(f"Calling AirIQ reschedule_availability with: trip_type={trip_type}, airiq_pnr={flight_booking.airiq_pnr}, segments={flight_segments}")
+            
             resp = airiq_service.reschedule_availability(
                 trip_type=trip_type,
-                departure_station=dep,
-                arrival_station=arr,
-                flight_date=flight_date_fmt,
+                flight_segments=flight_segments,
                 airiq_pnr=flight_booking.airiq_pnr,
                 remarks=remarks
             )
