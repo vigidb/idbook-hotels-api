@@ -187,11 +187,18 @@ class FlightBooking(models.Model):
                                              help_text="Pricing validation response data")
     fare_rules = models.JSONField(default=dict, blank=True,
                                  help_text="Fare rules response from AirIQ for selected flights")
+    # Persist the latest AirIQ booking/ticketing responses
+    airiq_response_data = models.JSONField(default=dict, blank=True,
+                                          help_text="Latest AirIQ responses (booking/ticketing/etc.)")
     
     # Ticket details
     ticket_numbers = models.JSONField(default=list, blank=True,
                                     help_text="List of ticket numbers for passengers")
     flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
+
+    # User-provided remarks for operations
+    cancel_remark = models.CharField(max_length=255, default='', blank=True)
+    reschedule_remark = models.CharField(max_length=255, default='', blank=True)
     
     # Timestamp tracking
     confirmed_at = models.DateTimeField(null=True, blank=True)

@@ -63,8 +63,9 @@ class FlightBookingAuthManager:
         # Check if user exists with this email
         existing_user = get_user_from_email(self.contact_email)
         if existing_user:
+            # Allow guest flow for existing active users via OTP verification (align with hotel flow)
             if existing_user.is_active:
-                return False, "Please login with your existing account", existing_user
+                return True, "Existing account - email verification required", existing_user
             else:
                 return False, "Account exists but is inactive. Please contact support", existing_user
         
@@ -111,15 +112,20 @@ class FlightBookingAuthManager:
         if timezone.now() > otp_record.created + timedelta(minutes=15):
             return False, "OTP has expired", None
         
-        # Create guest user account
+        # On OTP success: if user exists, return it; otherwise create guest user
         try:
-            guest_user = self.create_guest_user()
+            from apps.authentication.utils.db_utils import get_user_from_email
+            existing_user = get_user_from_email(self.contact_email)
+            if existing_user and existing_user.is_active:
+                guest_user = existing_user
+            else:
+                guest_user = self.create_guest_user()
             
             # Delete the OTP record
             otp_record.delete()
             
-            logger.info(f"Guest user created successfully for {self.contact_email}")
-            return True, "Guest user verified and created", guest_user
+            logger.info(f"Guest user verified for {self.contact_email}")
+            return True, "Guest user verified", guest_user
         except Exception as e:
             logger.error(f"Error creating guest user: {str(e)}")
             return False, f"Error creating user account: {str(e)}", None

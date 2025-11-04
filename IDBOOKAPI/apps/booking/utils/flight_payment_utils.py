@@ -375,6 +375,21 @@ class FlightPaymentProcessor:
                     track_id=track_id,
                     block_pnr=block_pnr
                 )
+                # Persist the exact booking payload and AirIQ response for audit/debug
+                try:
+                    fb = self.flight_booking
+                    # Append last used booking payload inside airiq_request_data for traceability
+                    req_blob = fb.airiq_request_data or {}
+                    req_blob['airiq_booking_payload'] = {
+                        'booking_data': booking_data,
+                        'track_id': track_id,
+                        'block_pnr': block_pnr,
+                    }
+                    fb.airiq_request_data = req_blob
+                    fb.airiq_response_data = airiq_resp
+                    fb.save(update_fields=['airiq_request_data', 'airiq_response_data'])
+                except Exception:
+                    pass
                 # Always attempt to store identifiers (TrackId etc.)
                 self._update_flight_booking_from_airiq_response(airiq_resp)
                 
@@ -533,7 +548,9 @@ class FlightPaymentProcessor:
         return booking_data, track_id, block_pnr
 
     def _update_flight_booking_from_airiq_response(self, airiq_resp: dict) -> None:
-        """Extract PNRs/track and optional tickets from AirIQ booking response and save to model."""
+        """Extract PNRs/track and passenger-level details from AirIQ booking response and save to model.
+        Also persists per-passenger seat, meal, and baggage selections with amounts.
+        """
         try:
             # Prefer top-level TrackId
             airiq_track_id = airiq_resp.get('TrackId') or ''
@@ -548,15 +565,119 @@ class FlightPaymentProcessor:
                 if items:
                     item0 = items[0]
                     airiq_pnr = item0.get('AirIqPNR') or item0.get('AiriqPNR') or ''
+                    # Update base route and flight number when available
+                    try:
+                        base_origin = item0.get('BaseOrigin') or ''
+                        base_dest = item0.get('BaseDestination') or ''
+                        if base_origin:
+                            self.flight_booking.flying_from = base_origin
+                        if base_dest:
+                            self.flight_booking.flying_to = base_dest
+                    except Exception:
+                        pass
                     # Prefer nested AirlinePNR under TravellerInfo -> SegmentInformation -> Item[0]
                     nested_airline_pnr = ''
                     trav = item0.get('TravellerInfo', {})
                     trav_items = trav.get('Item') or []
+                    # Build quick passenger matcher by name and DOB
+                    pax_qs = list(self.flight_booking.passengers.all())
+                    def match_passenger(t):
+                        title = (t.get('Title') or '').upper()
+                        first = (t.get('FirstName') or '').strip().upper()
+                        last = (t.get('LastName') or '').strip().upper()
+                        dob_str = t.get('DateOfBirth') or ''
+                        dob_norm = None
+                        if dob_str:
+                            try:
+                                from datetime import datetime as _dt
+                                for fmt in ('%d/%m/%Y','%Y-%m-%d','%d-%m-%Y'):
+                                    try:
+                                        dob_norm = _dt.strptime(dob_str, fmt).date()
+                                        break
+                                    except Exception:
+                                        continue
+                            except Exception:
+                                pass
+                        for p in pax_qs:
+                            if p.title.upper() == title and p.first_name.strip().upper() == first and p.last_name.strip().upper() == last:
+                                if not dob_norm or (p.date_of_birth == dob_norm):
+                                    return p
+                        return None
                     if trav_items:
-                        seginfo = trav_items[0].get('SegmentInformation') or {}
-                        seg_items = seginfo.get('Item') or []
-                        if seg_items:
-                            nested_airline_pnr = seg_items[0].get('AirlinePNR') or ''
+                        seginfo0 = trav_items[0].get('SegmentInformation') or {}
+                        seg_items0 = seginfo0.get('Item') or []
+                        if seg_items0:
+                            nested_airline_pnr = seg_items0[0].get('AirlinePNR') or ''
+                        # Iterate all travellers to set ticket/seat/meals/baggage
+                        for t in trav_items:
+                            passenger = match_passenger(t)
+                            if not passenger:
+                                continue
+                            # Ticket number per passenger
+                            tn = t.get('TicketNumber') or t.get('TicketNo')
+                            if tn and (not passenger.ticket_number):
+                                passenger.ticket_number = tn
+                            seginfo = t.get('SegmentInformation') or {}
+                            # Extract first segment details (one-way)
+                            seg_items = seginfo.get('Item') or []
+                            if seg_items:
+                                s = seg_items[0]
+                                # Flight/Carrier
+                                try:
+                                    fn = s.get('FlightNumber') or ''
+                                    cc = s.get('CarrierCode') or ''
+                                    if fn:
+                                        self.flight_booking.flight_no = fn
+                                    if cc:
+                                        self.flight_booking.airline_code = cc
+                                except Exception:
+                                    pass
+                                # Seat preference and amount
+                                seat_pref = (s.get('SeatPreference') or '').strip()
+                                seat_amt = s.get('SeatAmount') or '0'
+                                # Meals
+                                meal_pref = (s.get('MealsPreference') or '').strip()
+                                meal_amt = s.get('MealsAmount') or '0'
+                                # Baggage
+                                bag_pref = (s.get('BaggagePreference') or '').strip()
+                                bag_amt = s.get('BaggageAmount') or '0'
+                                from decimal import Decimal as _D
+                                # Update passenger seat number if available
+                                if seat_pref and not passenger.seat_number:
+                                    passenger.seat_number = seat_pref
+                                passenger.save(update_fields=['ticket_number','seat_number'])
+                                # Upsert ancillary services idempotently
+                                from apps.booking.models import FlightAncillaryService as _FAS
+                                def ensure_service(stype, code, desc, amt):
+                                    if not desc and not code:
+                                        return
+                                    try:
+                                        price = _D(str(amt or 0))
+                                    except Exception:
+                                        price = _D('0')
+                                    exists = _FAS.objects.filter(
+                                        flight_booking=self.flight_booking,
+                                        passenger=passenger,
+                                        service_type=stype,
+                                        service_description=desc[:200] if desc else code,
+                                    ).exists()
+                                    if not exists:
+                                        _FAS.objects.create(
+                                            flight_booking=self.flight_booking,
+                                            passenger=passenger,
+                                            service_type=stype,
+                                            airiq_service_id=str(code or ''),
+                                            service_code=str(code or ''),
+                                            service_description=(desc or str(code))[:200],
+                                            segment_reference=1,
+                                            service_price=price,
+                                        )
+                                if seat_pref:
+                                    ensure_service('SEAT', seat_pref, f"Seat {seat_pref}", seat_amt)
+                                if meal_pref:
+                                    ensure_service('MEAL', '', meal_pref, meal_amt)
+                                if bag_pref:
+                                    ensure_service('BAGGAGE', '', bag_pref, bag_amt)
                     # Fallbacks: top-level AirlinePNR, then CRSPNR (but ignore 'N/A' or 'NA')
                     top_airline_pnr = item0.get('AirlinePNR') or ''
                     crs_pnr = item0.get('CRSPNR') or ''
@@ -575,15 +696,27 @@ class FlightPaymentProcessor:
                         if tn:
                             ticket_numbers.append(tn)
             # Save extracted fields
+            update_fields = []
             if airiq_track_id:
                 self.flight_booking.airiq_track_id = airiq_track_id
+                update_fields.append('airiq_track_id')
             if airiq_pnr:
                 self.flight_booking.airiq_pnr = airiq_pnr
+                update_fields.append('airiq_pnr')
             if airline_pnr:
                 self.flight_booking.airline_pnr = airline_pnr
+                update_fields.append('airline_pnr')
             if ticket_numbers:
                 self.flight_booking.ticket_numbers = ticket_numbers
-            self.flight_booking.save(update_fields=['airiq_track_id','airiq_pnr','airline_pnr','ticket_numbers'])
+                update_fields.append('ticket_numbers')
+            # Also persist flight_no/airline_code/flying_from/to if updated
+            for f in ('flight_no','airline_code','flying_from','flying_to'):
+                # If attribute set above, include it
+                if getattr(self.flight_booking, f, None):
+                    if f not in update_fields:
+                        update_fields.append(f)
+            if update_fields:
+                self.flight_booking.save(update_fields=update_fields)
         except Exception as e:
             logger.error(f"Failed to update flight booking from AirIQ response for {self.booking.id}: {e}")
     

@@ -53,7 +53,10 @@ class FlightBookingAdmin(admin.ModelAdmin):
             'fields': ('id', 'booking_reference', 'status')
         }),
         ('AirIQ Integration', {
-            'fields': ('airiq_pnr', 'airline_pnr', 'airiq_track_id', 'airiq_request_data')
+            'fields': ('airiq_pnr', 'airline_pnr', 'airiq_track_id', 'airiq_request_data', 'airiq_response_data')
+        }),
+        ('Operations', {
+            'fields': ('cancel_remark', 'reschedule_remark')
         }),
         ('Flight Details', {
             'fields': ('flying_from', 'flying_to', 'departure_date', 'return_date', 'flight_trip', 

@@ -205,14 +205,8 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                         status="error",
                         status_code=status.HTTP_400_BAD_REQUEST
                     )
-                # If the email belongs to an active existing account, require login
-                if auth_user:
-                    return self.get_error_response(
-                        message=auth_message or "Please login with your existing account",
-                        status="error",
-                        status_code=status.HTTP_401_UNAUTHORIZED
-                    )
-                # New guest email → OTP required within this endpoint
+                # Allow guest booking even if email belongs to an existing account (hotel parity)
+                # If OTP not provided, initiate email verification for the provided contact email
                 if not request.data.get('otp'):
                     success, message, verification_data = auth_manager.initiate_guest_booking()
                     if success:
@@ -1165,21 +1159,26 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         
         return session_data
     
-    def _normalize_itinerary_flights(self, itin_list: list, default_token: str = None, flights_override: list = None) -> list:
+    def _normalize_itinerary_flights(self, itin_list: list, default_token: str = None, flights_override: dict = None) -> list:
         """Normalize itinerary list to expected AirIQ booking request structure.
-        - Preserve PaymentInfo exactly as provided (no calculation)
+        - Preserve PaymentInfo and SSR blocks exactly as provided
         - Normalize flights key to 'FlighstInfo'
-        - Inject pricing token into 'Token' when missing
-        - If flights_override is provided (from pricing response), use it
+        - Inject pricing token into each item's 'Token' only if missing
+        - If flights_override is provided as a dict of {itin_ref: [segments]}, assign per index
         """
         norm = []
-        for item in (itin_list or []):
+        for idx, item in enumerate(itin_list or []):
             new_item = {}
             token_val = item.get('Token') or default_token
             if token_val:
                 new_item['Token'] = token_val
-            flights = flights_override if flights_override is not None else (item.get('FlighstInfo') or item.get('FlightsInfo') or [])
+            # Preserve original multi-segment flights per itinerary item unless explicit override provided for this leg
+            if isinstance(flights_override, dict) and (idx in flights_override):
+                flights = flights_override.get(idx) or []
+            else:
+                flights = item.get('FlighstInfo') or item.get('FlightsInfo') or []
             new_item['FlighstInfo'] = flights
+            # Copy through mode and SSR arrays as-is
             new_item['PaymentMode'] = item.get('PaymentMode', 'T')
             new_item['SeatsSSRInfo'] = item.get('SeatsSSRInfo', [])
             new_item['BaggSSRInfo'] = item.get('BaggSSRInfo', [])
@@ -1199,38 +1198,34 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             pricing_token = pricing_validation.get('pricing_token')
             price_resp = pricing_validation.get('pricing_response')
         
-        # Extract TrackId and Flights from pricing response if available
+        # Extract TrackId and group Flights per itinerary leg if present
         track_from_price = None
-        flights_from_price = None
+        flights_grouped = None  # dict: {itin_index: [segments]}
         if isinstance(price_resp, dict):
             pi = (price_resp.get('PriceItenaryInfo') or [])
             if pi:
                 track_from_price = pi[0].get('Trackid') or pi[0].get('TrackId')
                 ar = pi[0].get('AvailabilityResponse') or []
                 if ar:
-                    flights_from_price = ar[0].get('Flights') or []
-        
-        # Map pricing Flights to FlighstInfo structure expected in booking request
-        mapped_flights = []
-        if isinstance(flights_from_price, list):
-            for seg in flights_from_price:
-                mapped_flights.append({
-                    'FlightID': seg.get('FlightID') or seg.get('FlightId') or seg.get('Flightid'),
-                    'FlightNumber': seg.get('FlightNumber'),
-                    'Origin': seg.get('Origin'),
-                    'Destination': seg.get('Destination'),
-                    'DepartureDateTime': seg.get('DepartureDateTime'),
-                    'ArrivalDateTime': seg.get('ArrivalDateTime')
-                })
+                    flights_all = ar[0].get('Flights') or []
+                    # Group by ItinRef (0 onward, 1 return), preserve full segment dicts
+                    flights_grouped = {}
+                    for seg in flights_all:
+                        try:
+                            itin_ref = int(seg.get('ItinRef') or 0)
+                        except Exception:
+                            itin_ref = 0
+                        flights_grouped.setdefault(itin_ref, []).append(seg)
         
         # Counts as integers
         adult = int(request_data.get('AdultCount', 1) or 0)
         child = int(request_data.get('ChildCount', 0) or 0)
         infant = int(request_data.get('InfantCount', 0) or 0)
         
-        # Normalize itinerary list and inject latest pricing token; override flights with pricing Flights
+        # Normalize itinerary list and inject per-item tokens; keep original multi-segment flights.
+        # If pricing provided grouped flights, apply per itinerary index; otherwise preserve request flights.
         itin_list = request_data.get('ItineraryFlightsInfo') or []
-        itin_norm = self._normalize_itinerary_flights(itin_list, default_token=pricing_token, flights_override=mapped_flights if mapped_flights else None)
+        itin_norm = self._normalize_itinerary_flights(itin_list, default_token=pricing_token, flights_override=flights_grouped if flights_grouped else None)
         
         # Passengers list as-is
         pax_list = request_data.get('PaxDetailsInfo') or []
@@ -1779,15 +1774,28 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         itinerary_flights = request_data.get('ItineraryFlightsInfo', [])
         if itinerary_flights and 'FlighstInfo' in itinerary_flights[0]:
             flight_info = itinerary_flights[0]['FlighstInfo'][0]
-            flight_booking.flying_from = flight_info.get('Origin', request_data.get('BaseOrigin', ''))
-            flight_booking.flying_to = flight_info.get('Destination', request_data.get('BaseDestination', ''))
+            # Always use BaseOrigin/BaseDestination for primary route, not first segment
+            flight_booking.flying_from = request_data.get('BaseOrigin', '')
+            flight_booking.flying_to = request_data.get('BaseDestination', '')
             flight_booking.flight_no = flight_info.get('FlightNumber', '')
             
-            # Parse departure date
+            # Parse departure date from first segment for schedule reference
             departure_str = flight_info.get('DepartureDateTime', '')
             if departure_str:
                 try:
                     flight_booking.departure_date = datetime.strptime(departure_str, '%d %b %Y %H:%M')
+                except ValueError:
+                    pass
+        
+        # For round-trip, capture return leg primary details from second itinerary item if present
+        if request_data.get('TripType', 'O') == 'R' and len(itinerary_flights) > 1 and 'FlighstInfo' in itinerary_flights[1] and itinerary_flights[1]['FlighstInfo']:
+            ret_info = itinerary_flights[1]['FlighstInfo'][0]
+            flight_booking.return_from = ret_info.get('Origin', '')
+            flight_booking.return_to = ret_info.get('Destination', '')
+            ret_dep = ret_info.get('DepartureDateTime', '')
+            if ret_dep:
+                try:
+                    flight_booking.return_date = datetime.strptime(ret_dep, '%d %b %Y %H:%M')
                 except ValueError:
                     pass
         
@@ -2174,6 +2182,65 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     flight_booking.airline_pnr = airline_pnr
                 if ticket_numbers and not flight_booking.ticket_numbers:
                     flight_booking.ticket_numbers = ticket_numbers
+                # Also persist per-passenger seat/meals/baggage if available
+                try:
+                    pax_qs = { (p.title.upper(), p.first_name.strip().upper(), p.last_name.strip().upper(), str(p.date_of_birth) if p.date_of_birth else None): p for p in flight_booking.passengers.all() }
+                    for t in trav:
+                        key = ((t.get('Title') or '').upper(), (t.get('FirstName') or '').strip().upper(), (t.get('LastName') or '').strip().upper(), None)
+                        passenger = pax_qs.get(key)
+                        if not passenger:
+                            continue
+                        # Ticket number
+                        tn = t.get('TicketNumber') or t.get('TicketNo')
+                        if tn and not passenger.ticket_number:
+                            passenger.ticket_number = tn
+                        seginfo = t.get('SegmentInformation') or {}
+                        seg_items = seginfo.get('Item') or []
+                        if seg_items:
+                            s = seg_items[0]
+                            seat_pref = (s.get('SeatPreference') or '').strip()
+                            meal_pref = (s.get('MealsPreference') or '').strip()
+                            bag_pref = (s.get('BaggagePreference') or '').strip()
+                            seat_amt = s.get('SeatAmount') or '0'
+                            meal_amt = s.get('MealsAmount') or '0'
+                            bag_amt = s.get('BaggageAmount') or '0'
+                            if seat_pref and not passenger.seat_number:
+                                passenger.seat_number = seat_pref
+                            passenger.save(update_fields=['ticket_number','seat_number'])
+                            from decimal import Decimal as _D
+                            from apps.booking.models import FlightAncillaryService as _FAS
+                            def ensure_service(stype, code, desc, amt):
+                                if not desc and not code:
+                                    return
+                                try:
+                                    price = _D(str(amt or 0))
+                                except Exception:
+                                    price = _D('0')
+                                exists = _FAS.objects.filter(
+                                    flight_booking=flight_booking,
+                                    passenger=passenger,
+                                    service_type=stype,
+                                    service_description=desc[:200] if desc else code,
+                                ).exists()
+                                if not exists:
+                                    _FAS.objects.create(
+                                        flight_booking=flight_booking,
+                                        passenger=passenger,
+                                        service_type=stype,
+                                        airiq_service_id=str(code or ''),
+                                        service_code=str(code or ''),
+                                        service_description=(desc or str(code))[:200],
+                                        segment_reference=1,
+                                        service_price=price,
+                                    )
+                            if seat_pref:
+                                ensure_service('SEAT', seat_pref, f"Seat {seat_pref}", seat_amt)
+                            if meal_pref:
+                                ensure_service('MEAL', '', meal_pref, meal_amt)
+                            if bag_pref:
+                                ensure_service('BAGGAGE', '', bag_pref, bag_amt)
+                except Exception:
+                    pass
                 # Infer status
                 ticket_status = (hdr.get('TicketStatus') or '').upper()
                 if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT', 'HELD', 'CONFIRMED']:
@@ -2285,6 +2352,14 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 airline_pnr=flight_booking.airline_pnr,
                 booking_amount=float(booking.final_amount)
             )
+            
+            # Persist ticketing response for reference
+            try:
+                blob = flight_booking.airiq_response_data or {}
+                blob['ticket_response'] = ticket_response
+                flight_booking.airiq_response_data = blob
+            except Exception:
+                pass
             
             # Update booking status to ticketed
             flight_booking.status = 'TICKETED'
@@ -2433,6 +2508,13 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 )
             
             # Call AirIQ service to cancel booking or check penalty
+            # Persist cancel remark if provided
+            if remarks:
+                try:
+                    flight_booking.cancel_remark = str(remarks)[:255]
+                    flight_booking.save(update_fields=['cancel_remark'])
+                except Exception:
+                    pass
             cancellation_response = airiq_service.cancel_booking(
                 airiq_pnr=flight_booking.airiq_pnr,
                 flag=flag,
@@ -2610,6 +2692,13 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 trip_type = mapping.get(flight_booking.flight_trip, 'O')
 
             remarks = request.data.get('remarks', '')
+            # Save reschedule remark if provided
+            if remarks:
+                try:
+                    flight_booking.reschedule_remark = str(remarks)[:255]
+                    flight_booking.save(update_fields=['reschedule_remark'])
+                except Exception:
+                    pass
             
             # Build flight segments for reschedule
             flight_segments = []
