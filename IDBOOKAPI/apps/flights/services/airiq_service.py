@@ -725,7 +725,7 @@ class AirIQService:
             for i, pax in enumerate(booking_data['passengers'], 1)
         ]
         
-        # Build comprehensive booking payload
+        # Build comprehensive booking payload (supports multiple itinerary items)
         payload = {
             "AgentInfo": {
                 "AgentId": self.agent_id,
@@ -736,22 +736,7 @@ class AirIQService:
             "AdultCount": booking_data.get('adults', 1),
             "ChildCount": booking_data.get('children', 0),
             "InfantCount": booking_data.get('infants', 0),
-            "ItineraryFlightsInfo": [
-                {
-                    "Token": booking_data['token'],
-                    "FlightsInfo": booking_data['flight_segments'],
-                    "PaymentMode": "T",  # Agent Deposit
-                    "SeatsSSRInfo": self._format_seats_ssr(booking_data.get('seats', [])),
-                    "BaggSSRInfo": self._format_baggage_ssr(booking_data.get('baggage', [])),
-                    "MealsSSRInfo": self._format_meals_ssr(booking_data.get('meals', [])),
-                    "OtherSSRInfo": booking_data.get('other_services', []),
-                    "PaymentInfo": [
-                        {
-                            "TotalAmount": str(booking_data['total_amount'])
-                        }
-                    ]
-                }
-            ],
+            "ItineraryFlightsInfo": [],
             "PaxDetailsInfo": formatted_passengers,
             "AddressDetails": {
                 "CountryCode": booking_data['contact']['country_code'],
@@ -772,6 +757,37 @@ class AirIQService:
             "BaseDestination": booking_data['destination'],
             "TrackId": track_id
         }
+        # Fill itineraries: prefer booking_data['itineraries'] when present; else fallback to single item keys
+        itins = booking_data.get('itineraries') or []
+        if itins:
+            for it in itins:
+                payload['ItineraryFlightsInfo'].append({
+                    "Token": it.get('token', ''),
+                    "FlightsInfo": it.get('flight_segments', []),
+                    "PaymentMode": "T",
+                    "SeatsSSRInfo": self._format_seats_ssr(it.get('seats', [])),
+                    "BaggSSRInfo": self._format_baggage_ssr(it.get('baggage', [])),
+                    "MealsSSRInfo": self._format_meals_ssr(it.get('meals', [])),
+                    "OtherSSRInfo": it.get('other_services', []),
+                    "PaymentInfo": [
+                        {"TotalAmount": str(it.get('payment_total') or booking_data.get('total_amount') or 0)}
+                    ]
+                })
+        else:
+            payload['ItineraryFlightsInfo'] = [
+                {
+                    "Token": booking_data.get('token', ''),
+                    "FlightsInfo": booking_data.get('flight_segments', []),
+                    "PaymentMode": "T",
+                    "SeatsSSRInfo": self._format_seats_ssr(booking_data.get('seats', [])),
+                    "BaggSSRInfo": self._format_baggage_ssr(booking_data.get('baggage', [])),
+                    "MealsSSRInfo": self._format_meals_ssr(booking_data.get('meals', [])),
+                    "OtherSSRInfo": booking_data.get('other_services', []),
+                    "PaymentInfo": [
+                        {"TotalAmount": str(booking_data.get('total_amount') or 0)}
+                    ]
+                }
+            ]
         
         response_data, is_success = self._make_request(
             self.endpoints['booking'],

@@ -190,6 +190,11 @@ class FlightBooking(models.Model):
     # Persist the latest AirIQ booking/ticketing responses
     airiq_response_data = models.JSONField(default=dict, blank=True,
                                           help_text="Latest AirIQ responses (booking/ticketing/etc.)")
+    # Persist client-side pricing and optional seatmap responses
+    pricing_response_data = models.JSONField(default=dict, blank=True,
+                                            help_text="Raw pricing response used to compute amounts")
+    seatmap_response_data = models.JSONField(default=dict, blank=True,
+                                            help_text="Raw seatmap response when seats are selected (optional)")
     
     # Ticket details
     ticket_numbers = models.JSONField(default=list, blank=True,

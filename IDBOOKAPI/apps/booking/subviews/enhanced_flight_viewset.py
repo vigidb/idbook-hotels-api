@@ -253,8 +253,9 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check agent balance using AirIQ service
-            agent_balance_check = self._check_agent_balance(pricing_validation['final_amount'])
+            # Check agent balance using AirIQ service on payable amount (includes SSR when provided)
+            chk_amount = pricing_validation.get('payable_amount', pricing_validation.get('final_amount', 0))
+            agent_balance_check = self._check_agent_balance(chk_amount)
             if not agent_balance_check['success']:
                 return self.get_error_response(
                     message="We're unable to process your booking at this time. Please try again later or contact support for assistance.",
@@ -303,6 +304,17 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     'departure_date': flight_booking.departure_date.isoformat() if flight_booking.departure_date else None,
                     'flight_trip': flight_booking.flight_trip,
                     'passenger_count': booking.adult_count + booking.child_count + booking.infant_count
+                },
+                'amount_breakdown': {
+                    'currency': pricing_validation.get('currency', 'INR'),
+                    'basic_amount': float(pricing_validation.get('basic_amount', 0)),
+                    'gross_amount': float(pricing_validation.get('gross_amount', booking.final_amount)),
+                    'taxes': pricing_validation.get('tax_breakdown', {}),
+                    'gst': pricing_validation.get('gst_breakdown', {}),
+                    'ssr': pricing_validation.get('ssr_breakdown', {}),
+                    'total_discount': float(pricing_validation.get('total_discount', 0)),
+                    'final_amount': float(pricing_validation.get('final_amount', booking.final_amount)),
+                    'payable_amount': float(pricing_validation.get('payable_amount', booking.final_amount)),
                 }
             }
             
@@ -1260,98 +1272,181 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         }
         return airiq_struct
     
+    def _extract_amounts_from_pricing_response(self, pricing_response: dict, request_data: dict) -> dict:
+        """Parse AirIQ pricing response (V2.0) to compute base/gross/taxes per pax type.
+        Falls back safely if the expected structure is missing.
+        """
+        try:
+            pi = (pricing_response or {}).get('PriceItenaryInfo') or []
+            if not pi:
+                return {}
+            ar = (pi[0] or {}).get('AvailabilityResponse') or []
+            if not ar:
+                return {}
+            fares = (ar[0] or {}).get('Fares') or []
+            if not fares:
+                return {}
+            fdesc = (fares[0] or {}).get('Faredescription') or []
+            if not fdesc:
+                return {}
+            # Pax counts from request
+            adt = int(request_data.get('AdultCount', 0) or 0)
+            chd = int(request_data.get('ChildCount', 0) or 0)
+            inf = int(request_data.get('InfantCount', 0) or 0)
+            pax_map = {'ADT': adt, 'CHD': chd, 'INF': inf}
+            gross_total = 0.0
+            base_total = 0.0
+            tax_breakdown = {}
+            currency = 'INR'
+            for row in fdesc:
+                ptype = (row.get('Paxtype') or '').upper()
+                pax_count = pax_map.get(ptype, 0)
+                # Prefer per-pax amounts; multiply by pax count
+                g = float(row.get('GrossAmount', 0) or 0)
+                b = float(row.get('BaseAmount', 0) or 0)
+                gross_total += g * (pax_count if pax_count > 0 else 1)
+                base_total += b * (pax_count if pax_count > 0 else 1)
+                taxes = row.get('Taxes') or []
+                for tx in taxes:
+                    code = tx.get('Code', '')
+                    amt = float(tx.get('Amount', 0) or 0)
+                    tax_breakdown[code] = tax_breakdown.get(code, 0.0) + (amt * (pax_count if pax_count > 0 else 1))
+                currency = row.get('CurrencyCode') or currency
+            return {
+                'currency': currency,
+                'gross_total': gross_total,
+                'base_total': base_total,
+                'tax_breakdown': tax_breakdown
+            }
+        except Exception:
+            return {}
+
     def _extract_pricing_from_request(self, request_data: dict) -> dict:
-        """Extract pricing directly from request data without API recalculation"""
+        """Extract pricing from request data (supports multi-itinerary RT and optional seatmap/SSR pricing)."""
         try:
             itinerary_flights = request_data.get('ItineraryFlightsInfo', [])
-            
             if not itinerary_flights:
-                return {
-                    'success': False,
-                    'message': 'Flight itinerary information is required'
-                }
-            
-            # Extract Token from ItineraryFlightsInfo[0]
-            pricing_token = ''
-            if itinerary_flights:
-                pricing_token = itinerary_flights[0].get('Token', '')
-            
-            # Extract pricing_response from request if available
-            pricing_response = request_data.get('pricing_response', {})
-            
-            # Extract TotalAmount directly from PaymentInfo (mandatory)
-            # BaseAmount and GrossAmount are optional
-            total_amount = 0
-            base_amount = 0
-            gross_amount = 0
+                return {'success': False, 'message': 'Flight itinerary information is required'}
+
+            # Token (first leg)
+            pricing_token = itinerary_flights[0].get('Token', '') if itinerary_flights else ''
+
+            # Optional full pricing response blob (for audit)
+            pricing_response = request_data.get('pricing_response') or request_data.get('pricing_info') or {}
+
+            # If pricing_response provided, attempt to extract authoritative amounts
+            parsed_from_pricing = {}
+            if isinstance(pricing_response, dict) and pricing_response:
+                parsed_from_pricing = self._extract_amounts_from_pricing_response(pricing_response, request_data)
+
+            # Sum per-itinerary PaymentInfo with per-item tax breakdown
+            total_amount = 0.0
+            base_amount = 0.0
+            gross_amount = 0.0
             tax_breakdown = {}
-            total_discount = 0
-            net_amount = 0
-            total_tax_amount = 0
-            
+            total_discount = 0.0
+            net_amount = 0.0
+            total_tax_amount = 0.0
+            currency = 'INR'
+
             for flight_info in itinerary_flights:
-                payment_info = flight_info.get('PaymentInfo', [])
-                if payment_info:
-                    payment_data = payment_info[0]
-                    # TotalAmount is the final amount - directly use it
-                    total_amount += float(payment_data.get('TotalAmount', 0))
-                    
-                    # BaseAmount and GrossAmount are optional - use if available
-                    base_amount += float(payment_data.get('BaseAmount', 0))
-                    gross_amount += float(payment_data.get('GrossAmount', 0))
-                    
-                    # Extract optional discount, net amount, and tax amount
-                    total_discount += float(payment_data.get('totalDiscount', 0))
-                    net_amount += float(payment_data.get('netamount', 0))
-                    total_tax_amount += float(payment_data.get('TotalTaxAmount', 0))
-                    
-                    # Extract tax details if available
-                    taxes = payment_data.get('Taxes', [])
-                    for tax in taxes:
-                        tax_code = tax.get('Code', '')
-                        tax_amount = float(tax.get('Amount', 0))
-                        if tax_code in tax_breakdown:
-                            tax_breakdown[tax_code] += tax_amount
-                        else:
-                            tax_breakdown[tax_code] = tax_amount
-            
+                payment_info = flight_info.get('PaymentInfo') or []
+                if not payment_info:
+                    continue
+                payment_data = payment_info[0] or {}
+                # Totals
+                total_amount += float(payment_data.get('TotalAmount', 0) or 0)
+                base_amount += float(payment_data.get('BaseAmount', 0) or 0)
+                gross_amount += float(payment_data.get('GrossAmount', 0) or 0)
+                # Optional fields
+                total_discount += float(payment_data.get('totalDiscount', 0) or 0)
+                net_amount += float(payment_data.get('netamount', 0) or 0)
+                total_tax_amount += float(payment_data.get('TotalTaxAmount', 0) or 0)
+                currency = payment_data.get('CurrencyCode') or currency
+                # Tax lines (e.g., K3, P2, YR, IN)
+                taxes = payment_data.get('Taxes', [])
+                for tax in taxes:
+                    code = tax.get('Code', '')
+                    amt = float(tax.get('Amount', 0) or 0)
+                    tax_breakdown[code] = tax_breakdown.get(code, 0.0) + amt
+
             if total_amount <= 0:
-                return {
-                    'success': False,
-                    'message': 'TotalAmount must be greater than zero'
-                }
-            
-            # Use TotalAmount as the final amount (no recalculation)
-            final_amount = total_amount
-            
-            # If base_amount not provided, use total_amount
+                return {'success': False, 'message': 'TotalAmount must be greater than zero'}
+
+            # Optional: include priced SSR/SeatMap selections if provided
+            ssr_breakdown = {'seat_total': 0.0, 'meal_total': 0.0, 'baggage_total': 0.0, 'other_total': 0.0}
+            def _sum_items(items, keys):
+                s = 0.0
+                for it in (items or []):
+                    for k in keys:
+                        if k in it and it[k] not in (None, ''):
+                            try:
+                                s += float(it[k])
+                                break
+                            except Exception:
+                                pass
+                return s
+            for fi in itinerary_flights:
+                ssr_breakdown['seat_total'] += _sum_items(fi.get('SeatsSSRInfo'), ['Amount','SeatAmount','Price'])
+                ssr_breakdown['meal_total'] += _sum_items(fi.get('MealsSSRInfo'), ['Amount','MealAmount','Price'])
+                ssr_breakdown['baggage_total'] += _sum_items(fi.get('BaggSSRInfo'), ['Amount','BaggageAmount','Price'])
+                ssr_breakdown['other_total'] += _sum_items(fi.get('OtherSSRInfo'), ['Amount','Price'])
+
+            # Optional seatmap selections block
+            seatmap_sel = request_data.get('SeatMapSelections') or request_data.get('seatmap_selections') or []
+            if isinstance(seatmap_sel, list) and seatmap_sel:
+                ssr_breakdown['seat_total'] += _sum_items(seatmap_sel, ['Amount','Price'])
+
+            ssr_total = sum(ssr_breakdown.values())
+
+            # Compute GST summary based on tax codes + base
+            basic_for_gst = base_amount if base_amount > 0 else total_amount
+            gst_breakdown = self._extract_gst_from_new_response_structure(basic_for_gst, total_amount, tax_breakdown)
+
+            # Override totals with pricing_response if it yielded values
+            if parsed_from_pricing:
+                currency = parsed_from_pricing.get('currency', currency)
+                gross_pr = float(parsed_from_pricing.get('gross_total', 0) or 0)
+                base_pr = float(parsed_from_pricing.get('base_total', 0) or 0)
+                if gross_pr > 0:
+                    total_amount = gross_pr
+                if base_pr > 0:
+                    base_amount = base_pr
+                # Merge tax codes
+                for k, v in (parsed_from_pricing.get('tax_breakdown') or {}).items():
+                    tax_breakdown[k] = tax_breakdown.get(k, 0.0) + float(v or 0)
+                # Recompute GST
+                basic_for_gst = base_amount if base_amount > 0 else total_amount
+                gst_breakdown = self._extract_gst_from_new_response_structure(basic_for_gst, total_amount, tax_breakdown)
+
+            # Final amounts
+            final_amount = float(total_amount)
+            payable_amount = final_amount + ssr_total  # include priced SSR if present
+
+            # Fallback for missing base: align to final
             if base_amount <= 0:
-                base_amount = total_amount
-            
-            # Extract GST breakdown (optional, based on available data)
-            gst_breakdown = self._extract_gst_from_new_response_structure(
-                base_amount, final_amount, tax_breakdown
-            )
-            
+                base_amount = final_amount
+
             return {
                 'success': True,
+                'currency': currency,
                 'final_amount': final_amount,
+                'payable_amount': payable_amount,
                 'pricing_response': pricing_response if pricing_response else request_data,
                 'gst_breakdown': gst_breakdown,
                 'basic_amount': base_amount,
+                'gross_amount': gross_amount if gross_amount > 0 else final_amount,
                 'tax_breakdown': tax_breakdown,
                 'pricing_token': pricing_token,
                 'total_discount': total_discount,
                 'net_amount': net_amount,
-                'total_tax_amount': total_tax_amount
+                'total_tax_amount': total_tax_amount,
+                'ssr_breakdown': ssr_breakdown,
             }
-                
         except Exception as e:
             logger.error(f"Pricing extraction error: {str(e)}")
-            return {
-                'success': False,
-                'message': 'Failed to extract pricing from request'
-            }
+            return {'success': False, 'message': 'Failed to extract pricing from request'}
+        
     
     def _get_fare_rules_response(self, request_data: dict) -> dict:
         """Call AirIQ GetFareRule and return response if successful; else None."""
@@ -1765,6 +1860,16 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         airiq_req_struct = self._build_airiq_booking_request(request_data, pricing_validation)
         flight_booking.airiq_request_data = airiq_req_struct
         flight_booking.pricing_validation_data = pricing_validation
+        # Persist raw pricing and optional seatmap responses if provided
+        try:
+            raw_price = request_data.get('pricing_response') or request_data.get('pricing_info') or {}
+            raw_seatmap = request_data.get('avail_seat_map_response') or request_data.get('SeatMapResponse') or {}
+            if raw_price:
+                flight_booking.pricing_response_data = raw_price
+            if raw_seatmap:
+                flight_booking.seatmap_response_data = raw_seatmap
+        except Exception:
+            pass
         
         # Set initial status
         flight_booking.status = 'PENDING_PAYMENT'
@@ -1804,7 +1909,11 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         
         # Update main booking
         booking.confirmation_code = flight_booking.booking_reference
-        booking.final_amount = pricing_validation['final_amount']
+        # Save the payable amount (what user will actually pay) as booking.final_amount
+        try:
+            booking.final_amount = Decimal(str(pricing_validation.get('payable_amount', pricing_validation['final_amount'])))
+        except Exception:
+            booking.final_amount = pricing_validation['final_amount']
         
         # Save total_discount if available
         if 'total_discount' in pricing_validation and pricing_validation['total_discount'] > 0:

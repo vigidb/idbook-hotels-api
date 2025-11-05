@@ -452,44 +452,59 @@ class FlightPaymentProcessor:
             return False
 
     def _build_airiq_booking_payload_from_stored_request(self, req: dict):
-        """Map stored airiq_request_data to AirIQService.create_booking booking_data payload."""
+        """Map stored airiq_request_data to AirIQService.create_booking booking_data payload.
+        Supports multiple ItineraryFlightsInfo (domestic RT) and single-item international RT.
+        """
         # Adults/children/infants
         adults = int(req.get('AdultCount', 1) or 0)
         children = int(req.get('ChildCount', 0) or 0)
         infants = int(req.get('InfantCount', 0) or 0)
         
         itin_list = req.get('ItineraryFlightsInfo') or []
-        token = ''
-        flights = []
-        seats_list = []
-        meals_list = []
-        bagg_list = []
-        other_list = []
-        total_amount = None
-        if itin_list:
-            first = itin_list[0] or {}
-            token = first.get('Token', '')
-            flights = first.get('FlighstInfo') or first.get('FlightsInfo') or []
-            # SSR mappings
-            for s in first.get('SeatsSSRInfo', []) or []:
+        itineraries = []
+        total_amount_sum = 0.0
+        for item in itin_list:
+            token = item.get('Token', '')
+            flights = item.get('FlighstInfo') or item.get('FlightsInfo') or []
+            seats_list = []
+            meals_list = []
+            bagg_list = []
+            other_list = item.get('OtherSSRInfo', []) or []
+            for s in item.get('SeatsSSRInfo', []) or []:
                 seats_list.append({
                     'seat_id': s.get('SeatID'),
                     'passenger_ref': int(s.get('PaxRefNumber') or 0) if s.get('PaxRefNumber') else None
                 })
-            for b in first.get('BaggSSRInfo', []) or []:
+            for b in item.get('BaggSSRInfo', []) or []:
                 bagg_list.append({
                     'baggage_id': b.get('BaggageID'),
-                    'passenger_ref': int(b.get('PaxRefNumber') or 0) if b.get('PaxRefNumber') else None
+                    'passenger_ref': int(b.get('PaxRefNumber') or 0) if s.get('PaxRefNumber') else None
                 })
-            for m in first.get('MealsSSRInfo', []) or []:
+            for m in item.get('MealsSSRInfo', []) or []:
                 meals_list.append({
                     'meal_id': m.get('MealID'),
                     'passenger_ref': int(m.get('PaxRefNumber') or 0) if m.get('PaxRefNumber') else None
                 })
-            other_list = first.get('OtherSSRInfo', []) or []
-            # Total from request as-is (no calculations)
-            pay = (first.get('PaymentInfo') or [{}])[0]
-            total_amount = pay.get('TotalAmount')
+            pay = (item.get('PaymentInfo') or [{}])[0]
+            item_total = pay.get('TotalAmount')
+            try:
+                total_amount_sum += float(item_total or 0)
+            except Exception:
+                pass
+            itineraries.append({
+                'token': token,
+                'flight_segments': flights,
+                'seats': seats_list,
+                'meals': meals_list,
+                'baggage': bagg_list,
+                'other_services': other_list,
+                'payment_total': item_total
+            })
+        # If no itinerary items, fallback to empty structure
+        if not itineraries:
+            itineraries = [{
+                'token': '', 'flight_segments': [], 'seats': [], 'meals': [], 'baggage': [], 'other_services': [], 'payment_total': None
+            }]
         
         # Passengers: map AirIQ style to service input
         pax_src = req.get('PaxDetailsInfo') or []
@@ -526,8 +541,7 @@ class FlightPaymentProcessor:
         }
         
         booking_data = {
-            'token': token,
-            'flight_segments': flights,
+            'itineraries': itineraries,
             'passengers': passengers,
             'contact': contact,
             'gst': gst,
@@ -537,11 +551,7 @@ class FlightPaymentProcessor:
             'origin': req.get('BaseOrigin'),
             'destination': req.get('BaseDestination'),
             'trip_type': req.get('TripType', 'O'),
-            'total_amount': total_amount,
-            'seats': seats_list,
-            'meals': meals_list,
-            'baggage': bagg_list,
-            'other_services': other_list
+            'total_amount': total_amount_sum or None
         }
         track_id = req.get('TrackId') or req.get('TrackID') or ''
         block_pnr = bool(req.get('BlockPNR', False))
