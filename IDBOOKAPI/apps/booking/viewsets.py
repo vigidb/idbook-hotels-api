@@ -3782,6 +3782,7 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
             if payment_channel == 'PHONE PAY':
                 merchant_id = settings.MERCHANT_ID
                 callback_url = settings.CALLBACK_URL + "/api/v1/booking/payment/phone-pay/callbackurl/"
+                print("callback_url", callback_url)
                 
                 payload = {
                     "merchantId": merchant_id,

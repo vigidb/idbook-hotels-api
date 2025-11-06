@@ -195,6 +195,16 @@ class FlightBooking(models.Model):
                                             help_text="Raw pricing response used to compute amounts")
     seatmap_response_data = models.JSONField(default=dict, blank=True,
                                             help_text="Raw seatmap response when seats are selected (optional)")
+
+    # Support multiple PNRs/Track IDs and booked itineraries
+    airiq_pnrs = models.JSONField(default=list, blank=True,
+                                  help_text="List of AirIQ PNRs when supplier returns multiple")
+    airline_pnrs = models.JSONField(default=list, blank=True,
+                                    help_text="List of Airline PNRs across all segments")
+    airiq_track_ids = models.JSONField(default=list, blank=True,
+                                       help_text="List of AirIQ Track IDs if multiple bookings were created")
+    booked_itineraries = models.JSONField(default=list, blank=True,
+                                          help_text="Structured list of booked itineraries with segments and amounts")
     
     # Ticket details
     ticket_numbers = models.JSONField(default=list, blank=True,

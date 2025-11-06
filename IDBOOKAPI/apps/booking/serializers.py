@@ -846,7 +846,12 @@ class BookingSerializer(serializers.ModelSerializer):
             'passengers': passengers,
             'ancillary_services': ancillary_services,
             'passenger_count': len(passengers),
-            'total_ancillary_cost': sum(service['service_price'] for service in ancillary_services)
+            'total_ancillary_cost': sum(service['service_price'] for service in ancillary_services),
+            # New multi-itinerary/PNR fields
+            'airiq_pnrs': getattr(flight_booking, 'airiq_pnrs', []) or [],
+            'airline_pnrs': getattr(flight_booking, 'airline_pnrs', []) or [],
+            'airiq_track_ids': getattr(flight_booking, 'airiq_track_ids', []) or [],
+            'booked_itineraries': getattr(flight_booking, 'booked_itineraries', []) or []
         }
         
         return flight_json

@@ -305,6 +305,14 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     'flight_trip': flight_booking.flight_trip,
                     'passenger_count': booking.adult_count + booking.child_count + booking.infant_count
                 },
+                'pnrs': {
+                    'airiq_pnr_primary': flight_booking.airiq_pnr,
+                    'airline_pnr_primary': flight_booking.airline_pnr,
+                    'airiq_pnrs': flight_booking.airiq_pnrs,
+                    'airline_pnrs': flight_booking.airline_pnrs,
+                    'airiq_track_ids': flight_booking.airiq_track_ids,
+                },
+                'booked_itineraries': flight_booking.booked_itineraries,
                 'amount_breakdown': {
                     'currency': pricing_validation.get('currency', 'INR'),
                     'basic_amount': float(pricing_validation.get('basic_amount', 0)),
@@ -1321,127 +1329,131 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         except Exception:
             return {}
 
-    def _extract_pricing_from_request(self, request_data: dict) -> dict:
-        """Extract pricing from request data (supports multi-itinerary RT and optional seatmap/SSR pricing)."""
+    def _build_seat_price_map(self, seatmap_resp: dict) -> dict:
+        """Build a mapping of seat identifier -> price from AvailSeat response.
+        Tries common keys heuristically (SeatID/SeatId/SeatCode/SeatNo with Amount/SeatAmount/Price).
+        """
+        price_map = {}
         try:
-            itinerary_flights = request_data.get('ItineraryFlightsInfo', [])
+            def visit(node):
+                if isinstance(node, dict):
+                    keys = {k.lower(): k for k in node.keys()}
+                    # Identify seat id
+                    sid = None
+                    for k in ('seatid','seat_id','seatcode','seat_no','seatno','code'):
+                        if k in keys:
+                            sid = str(node[keys[k]]).strip()
+                            break
+                    # Identify price
+                    amt = None
+                    for k in ('amount','seatamount','price'):
+                        if k in keys and node[keys[k]] not in (None,''):
+                            try:
+                                amt = float(node[keys[k]])
+                            except Exception:
+                                amt = None
+                            break
+                    if sid and (amt is not None):
+                        price_map[sid] = amt
+                    for v in node.values():
+                        visit(v)
+                elif isinstance(node, list):
+                    for it in node:
+                        visit(it)
+            visit(seatmap_resp)
+        except Exception:
+            return price_map
+        return price_map
+
+    def _extract_pricing_from_request(self, request_data: dict) -> dict:
+        """Extract pricing from request data using only the provided ItineraryFlightsInfo.
+        - Do not require pricing_response or seatmap response
+        - Do not add SSR on top of TotalAmount
+        - Sum TotalAmount across all itinerary items
+        - Derive basic/gross/taxes when available; otherwise, fall back safely
+        """
+        try:
+            itinerary_flights = request_data.get('ItineraryFlightsInfo') or []
             if not itinerary_flights:
                 return {'success': False, 'message': 'Flight itinerary information is required'}
 
-            # Token (first leg)
             pricing_token = itinerary_flights[0].get('Token', '') if itinerary_flights else ''
 
-            # Optional full pricing response blob (for audit)
-            pricing_response = request_data.get('pricing_response') or request_data.get('pricing_info') or {}
-
-            # If pricing_response provided, attempt to extract authoritative amounts
-            parsed_from_pricing = {}
-            if isinstance(pricing_response, dict) and pricing_response:
-                parsed_from_pricing = self._extract_amounts_from_pricing_response(pricing_response, request_data)
-
-            # Sum per-itinerary PaymentInfo with per-item tax breakdown
             total_amount = 0.0
             base_amount = 0.0
             gross_amount = 0.0
-            tax_breakdown = {}
             total_discount = 0.0
             net_amount = 0.0
             total_tax_amount = 0.0
             currency = 'INR'
+            tax_breakdown = {}
 
             for flight_info in itinerary_flights:
-                payment_info = flight_info.get('PaymentInfo') or []
-                if not payment_info:
-                    continue
-                payment_data = payment_info[0] or {}
-                # Totals
-                total_amount += float(payment_data.get('TotalAmount', 0) or 0)
-                base_amount += float(payment_data.get('BaseAmount', 0) or 0)
-                gross_amount += float(payment_data.get('GrossAmount', 0) or 0)
-                # Optional fields
-                total_discount += float(payment_data.get('totalDiscount', 0) or 0)
-                net_amount += float(payment_data.get('netamount', 0) or 0)
-                total_tax_amount += float(payment_data.get('TotalTaxAmount', 0) or 0)
-                currency = payment_data.get('CurrencyCode') or currency
-                # Tax lines (e.g., K3, P2, YR, IN)
-                taxes = payment_data.get('Taxes', [])
-                for tax in taxes:
-                    code = tax.get('Code', '')
-                    amt = float(tax.get('Amount', 0) or 0)
-                    tax_breakdown[code] = tax_breakdown.get(code, 0.0) + amt
+                payment_info = (flight_info.get('PaymentInfo') or [{}])
+                p = payment_info[0] if payment_info else {}
+                # Prefer TotalAmount; fallback to Gross/Basic as needed
+                ta = p.get('TotalAmount')
+                ga = p.get('GrossAmount')
+                ba = p.get('BaseAmount')
+                try:
+                    total_amount += float(ta if ta not in (None, '') else (ga if ga not in (None, '') else (ba or 0)))
+                except Exception:
+                    pass
+                try:
+                    base_amount += float(ba or 0)
+                except Exception:
+                    pass
+                try:
+                    gross_amount += float(ga if ga not in (None, '') else (ta or 0))
+                except Exception:
+                    pass
+                try:
+                    total_discount += float(p.get('totalDiscount', 0) or 0)
+                    net_amount += float(p.get('netamount', 0) or 0)
+                    total_tax_amount += float(p.get('TotalTaxAmount', 0) or 0)
+                except Exception:
+                    pass
+                if p.get('CurrencyCode'):
+                    currency = p.get('CurrencyCode')
+                # Taxes array (new structure)
+                for tax in (p.get('Taxes') or []):
+                    code = tax.get('Code') or ''
+                    amt = tax.get('Amount')
+                    try:
+                        tax_breakdown[code] = tax_breakdown.get(code, 0.0) + float(amt or 0)
+                    except Exception:
+                        pass
 
             if total_amount <= 0:
                 return {'success': False, 'message': 'TotalAmount must be greater than zero'}
 
-            # Optional: include priced SSR/SeatMap selections if provided
-            ssr_breakdown = {'seat_total': 0.0, 'meal_total': 0.0, 'baggage_total': 0.0, 'other_total': 0.0}
-            def _sum_items(items, keys):
-                s = 0.0
-                for it in (items or []):
-                    for k in keys:
-                        if k in it and it[k] not in (None, ''):
-                            try:
-                                s += float(it[k])
-                                break
-                            except Exception:
-                                pass
-                return s
-            for fi in itinerary_flights:
-                ssr_breakdown['seat_total'] += _sum_items(fi.get('SeatsSSRInfo'), ['Amount','SeatAmount','Price'])
-                ssr_breakdown['meal_total'] += _sum_items(fi.get('MealsSSRInfo'), ['Amount','MealAmount','Price'])
-                ssr_breakdown['baggage_total'] += _sum_items(fi.get('BaggSSRInfo'), ['Amount','BaggageAmount','Price'])
-                ssr_breakdown['other_total'] += _sum_items(fi.get('OtherSSRInfo'), ['Amount','Price'])
-
-            # Optional seatmap selections block
-            seatmap_sel = request_data.get('SeatMapSelections') or request_data.get('seatmap_selections') or []
-            if isinstance(seatmap_sel, list) and seatmap_sel:
-                ssr_breakdown['seat_total'] += _sum_items(seatmap_sel, ['Amount','Price'])
-
-            ssr_total = sum(ssr_breakdown.values())
-
-            # Compute GST summary based on tax codes + base
-            basic_for_gst = base_amount if base_amount > 0 else total_amount
-            gst_breakdown = self._extract_gst_from_new_response_structure(basic_for_gst, total_amount, tax_breakdown)
-
-            # Override totals with pricing_response if it yielded values
-            if parsed_from_pricing:
-                currency = parsed_from_pricing.get('currency', currency)
-                gross_pr = float(parsed_from_pricing.get('gross_total', 0) or 0)
-                base_pr = float(parsed_from_pricing.get('base_total', 0) or 0)
-                if gross_pr > 0:
-                    total_amount = gross_pr
-                if base_pr > 0:
-                    base_amount = base_pr
-                # Merge tax codes
-                for k, v in (parsed_from_pricing.get('tax_breakdown') or {}).items():
-                    tax_breakdown[k] = tax_breakdown.get(k, 0.0) + float(v or 0)
-                # Recompute GST
-                basic_for_gst = base_amount if base_amount > 0 else total_amount
-                gst_breakdown = self._extract_gst_from_new_response_structure(basic_for_gst, total_amount, tax_breakdown)
-
-            # Final amounts
+            # Do not add SSR/seatmap amounts on top; TotalAmount is treated as final
             final_amount = float(total_amount)
-            payable_amount = final_amount + ssr_total  # include priced SSR if present
+            payable_amount = final_amount
 
-            # Fallback for missing base: align to final
+            # Fallbacks
             if base_amount <= 0:
                 base_amount = final_amount
+            if gross_amount <= 0:
+                gross_amount = final_amount
+
+            gst_breakdown = self._extract_gst_from_new_response_structure(base_amount, final_amount, tax_breakdown)
 
             return {
                 'success': True,
                 'currency': currency,
                 'final_amount': final_amount,
                 'payable_amount': payable_amount,
-                'pricing_response': pricing_response if pricing_response else request_data,
+                'pricing_response': request_data,  # echo request context for traceability
                 'gst_breakdown': gst_breakdown,
                 'basic_amount': base_amount,
-                'gross_amount': gross_amount if gross_amount > 0 else final_amount,
+                'gross_amount': gross_amount,
                 'tax_breakdown': tax_breakdown,
                 'pricing_token': pricing_token,
                 'total_discount': total_discount,
                 'net_amount': net_amount,
                 'total_tax_amount': total_tax_amount,
-                'ssr_breakdown': ssr_breakdown,
+                'ssr_breakdown': {}
             }
         except Exception as e:
             logger.error(f"Pricing extraction error: {str(e)}")
@@ -2201,6 +2213,12 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 'status': flight_booking.status,
                 'airiq_pnr': flight_booking.airiq_pnr,
                 'airline_pnr': flight_booking.airline_pnr,
+                'pnrs': {
+                    'airiq_pnrs': getattr(flight_booking, 'airiq_pnrs', []) or [],
+                    'airline_pnrs': getattr(flight_booking, 'airline_pnrs', []) or [],
+                    'airiq_track_ids': getattr(flight_booking, 'airiq_track_ids', []) or []
+                },
+                'booked_itineraries': getattr(flight_booking, 'booked_itineraries', []) or [],
                 'flight_details': {
                     'flying_from': flight_booking.flying_from,
                     'flying_to': flight_booking.flying_to,
@@ -2240,19 +2258,111 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             itins = retr.get('ItinearyDetails') or retr.get('ItineraryDetails') or []
             if not isinstance(itins, list) or not itins:
                 return
-            first = itins[0]
-            items = first.get('Item') or []
-            if items:
+            # Collections
+            airiq_pnrs = set(flight_booking.airiq_pnrs or [])
+            airline_pnrs = set(flight_booking.airline_pnrs or [])
+            track_ids = set(flight_booking.airiq_track_ids or [])
+            booked_list = flight_booking.booked_itineraries or []
+            gross_amount_primary = None
+            # Iterate each itinerary block
+            for itin in itins:
+                items = itin.get('Item') or []
+                if not items:
+                    continue
                 hdr = items[0]
-                # Track ID
+                # Track ID & PNR
                 track_id = hdr.get('BookingTrackId') or hdr.get('TrackId') or ''
-                if track_id and not flight_booking.airiq_track_id:
-                    flight_booking.airiq_track_id = track_id
-                # AirIQ PNR
+                if track_id:
+                    track_ids.add(track_id)
                 airiq_pnr = hdr.get('AirIqPNR') or hdr.get('AiriqPNR') or ''
-                if airiq_pnr and not flight_booking.airiq_pnr:
-                    flight_booking.airiq_pnr = airiq_pnr
-                # Amounts
+                if airiq_pnr:
+                    airiq_pnrs.add(airiq_pnr)
+                # Amount at itinerary level
+                pay = (hdr.get('PaymentDetails') or {}).get('Item') or []
+                itin_amount = None
+                if pay:
+                    try:
+                        itin_amount = float(pay[0].get('Amount', 0))
+                    except Exception:
+                        itin_amount = None
+                # Traveller/Segments
+                trav = (hdr.get('TravellerInfo') or {}).get('Item') or []
+                airline_pnr_nested = ''
+                ticket_numbers = []
+                segs = []
+                if trav:
+                    seginfo = (trav[0].get('SegmentInformation') or {})
+                    seg_items = seginfo.get('Item') or []
+                    if seg_items:
+                        airline_pnr_nested = seg_items[0].get('AirlinePNR', '') or ''
+                    for t in trav:
+                        tn = t.get('TicketNumber') or t.get('TicketNo')
+                        if tn:
+                            ticket_numbers.append(tn)
+                        sgi = t.get('SegmentInformation') or {}
+                        for s in (sgi.get('Item') or []):
+                            segs.append({
+                                'AirlinePNR': s.get('AirlinePNR'),
+                                'FlightNumber': s.get('FlightNumber'),
+                                'Origin': s.get('Origin'),
+                                'Destination': s.get('Destination'),
+                                'DepartureDateTime': s.get('DepartureDateTime'),
+                                'ArrivalDateTime': s.get('ArrivalDateTime'),
+                                'CarrierCode': s.get('CarrierCode'),
+                                'ClassCode': s.get('ClassCode'),
+                                'FareBasis': s.get('FareBasis'),
+                                'SeatPreference': s.get('SeatPreference'),
+                                'SeatAmount': s.get('SeatAmount'),
+                                'MealsPreference': s.get('MealsPreference'),
+                                'MealsAmount': s.get('MealsAmount'),
+                                'BaggagePreference': s.get('BaggagePreference'),
+                                'BaggageAmount': s.get('BaggageAmount'),
+                            })
+                if airline_pnr_nested:
+                    airline_pnrs.add(airline_pnr_nested)
+                # Set primary gross amount if missing
+                if gross_amount_primary is None and trav:
+                    mon = (trav[0].get('SegmentInformation') or {}).get('MonetaryDetail') or {}
+                    try:
+                        gross_amount_primary = float(mon.get('GrossAmount', 0))
+                    except Exception:
+                        pass
+                # Append itinerary record
+                booked_list.append({
+                    'booking_track_id': track_id,
+                    'airiq_pnr': airiq_pnr,
+                    'amount': itin_amount,
+                    'segments': segs,
+                })
+            # Save collections back
+            # Set single fields if empty for backward compatibility
+            if not flight_booking.airiq_pnr and airiq_pnrs:
+                flight_booking.airiq_pnr = list(airiq_pnrs)[0]
+            if not flight_booking.airiq_track_id and track_ids:
+                flight_booking.airiq_track_id = list(track_ids)[0]
+            if not flight_booking.ticket_numbers and 'ticket_numbers' in locals() and ticket_numbers:
+                flight_booking.ticket_numbers = ticket_numbers
+            # Save lists
+            flight_booking.airiq_pnrs = list(airiq_pnrs)
+            flight_booking.airline_pnrs = list(airline_pnrs)
+            flight_booking.airiq_track_ids = list(track_ids)
+            flight_booking.booked_itineraries = booked_list
+            
+            # Infer status
+            if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT', 'HELD', 'CONFIRMED']:
+                if flight_booking.ticket_numbers:
+                    flight_booking.status = 'TICKETED'
+                elif airiq_pnrs:
+                    flight_booking.status = 'CONFIRMED'
+            # Persist amounts on main booking if missing
+            if gross_amount_primary is not None and float(booking.final_amount or 0) == 0.0:
+                from decimal import Decimal
+                booking.final_amount = Decimal(str(gross_amount_primary))
+            # Sync parent booking status
+            if flight_booking.status in ['CONFIRMED', 'TICKETED'] and booking.status != 'confirmed':
+                booking.status = 'confirmed'
+                flight_booking.save()
+                booking.save()
                 pay = (hdr.get('PaymentDetails') or {}).get('Item') or []
                 gross_amount = None
                 if pay:
