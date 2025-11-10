@@ -496,15 +496,6 @@ class FlightAncillaryService(models.Model):
 
     def __str__(self):
         return f"{self.service_description} for {self.passenger.full_name} - ₹{self.service_price}"
-    booking_completed_date = models.DateTimeField(null=True, blank=True)
-    date_updated = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Meta Info for Booking {self.booking_id}"
-
-    class Meta:
-        verbose_name = 'Booking Meta Info'
-        verbose_name_plural = 'Booking Meta Infos'
 
 
 class BookingCommission(models.Model):

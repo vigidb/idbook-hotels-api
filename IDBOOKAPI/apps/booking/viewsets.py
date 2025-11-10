@@ -2136,6 +2136,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 
             return self.get_response(
                 status='success', data={
+                    'booking_id': instance.id,
                     'transaction_id': result.get('transaction_id'),
                     'payment_method': 'WALLET'
                 },
@@ -4042,9 +4043,13 @@ class BookingPaymentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, 
                 )
 
 
+            # Include booking_id in callback response for client convenience
+            booking_payment_details_with_id = dict(booking_payment_details)
+            booking_payment_details_with_id['booking_id'] = booking_id
+
             custom_response = self.get_response(
                 status="success",
-                data=booking_payment_details,  # Use the data from the default response
+                data=booking_payment_details_with_id,  # Include booking_id
                 message="Booking Confirmed",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
                 )

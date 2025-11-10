@@ -254,14 +254,14 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 )
             
             # Check agent balance using AirIQ service on payable amount (includes SSR when provided)
-            chk_amount = pricing_validation.get('payable_amount', pricing_validation.get('final_amount', 0))
-            agent_balance_check = self._check_agent_balance(chk_amount)
-            if not agent_balance_check['success']:
-                return self.get_error_response(
-                    message="We're unable to process your booking at this time. Please try again later or contact support for assistance.",
-                    status="error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
+            # chk_amount = pricing_validation.get('payable_amount', pricing_validation.get('final_amount', 0))
+            # agent_balance_check = self._check_agent_balance(chk_amount)
+            # if not agent_balance_check['success']:
+            #     return self.get_error_response(
+            #         message="We're unable to process your booking at this time. Please try again later or contact support for assistance.",
+            #         status="error",
+            #         status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+            #     )
             
             # Prepare booking data
             booking_data = self._prepare_booking_data_from_request(request.data, pricing_validation)
@@ -781,7 +781,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
 
             airiq_pnr = request.data.get('AirIqPNR') or flight_booking.airiq_pnr
             airline_pnr = request.data.get('AirlinePNR') or flight_booking.airline_pnr
-            track_id = request.data.get('TracKID') or request.data.get('TrackId') or request.data.get('TrackID') or flight_booking.airiq_track_id
+            track_id = request.data.get('TracKID') or request.data.get('TrackId') or request.data.get('TrackID')
             if not all([airiq_pnr, airline_pnr, track_id]):
                 return self.get_error_response(
                     message='AirIqPNR, AirlinePNR and TracKID/TrackId are required',
@@ -2207,6 +2207,10 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 for p in passengers
             ]
             
+            # Include full raw AirIQ booking response and request for complete traceability
+            airiq_raw = getattr(flight_booking, 'airiq_response_data', {}) or {}
+            airiq_booking = (airiq_raw.get('Bookingresponse') if isinstance(airiq_raw, dict) else {}) or {}
+
             response_data = {
                 'booking_id': booking.id,
                 'booking_reference': flight_booking.booking_reference,
@@ -2233,7 +2237,10 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     'balance_due': float(booking.final_amount - booking.total_payment_made)
                 },
                 'created_at': booking.created.isoformat(),
-                'airiq_status': airiq_status
+                'airiq_status': airiq_status,
+                'airiq_booking': airiq_booking,
+                'airiq_raw': airiq_raw,
+                'airiq_request': getattr(flight_booking, 'airiq_request_data', {}) or {}
             }
             
             return self.get_response(
