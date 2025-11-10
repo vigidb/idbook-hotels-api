@@ -160,3 +160,9 @@ Remember that the specific tech stack and components may vary based on your team
 ```
 ssh -L 8888:localhost:8888 ubuntu@13.50.52.0 -i idbook-key.pem
 ```
+
+## Backup and Restore
+```
+pg_dump -h localhost -U <db_username> -Fc <database_name> > db_backup.dump
+# To restore: pg_restore -d <database_name> db_backup.dump
+```
