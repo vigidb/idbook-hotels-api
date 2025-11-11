@@ -392,6 +392,8 @@ class BookingMetaInfo(models.Model):
     booking_created_date = models.DateTimeField(auto_now_add=True)
     booking_confirmed_date = models.DateTimeField(null=True, blank=True)
     booking_cancelled_date = models.DateTimeField(null=True, blank=True)
+    booking_completed_date = models.DateTimeField(null=True, blank=True)
+    date_updated = models.DateTimeField(auto_now=True)
 
 
 # Flight-specific models for passenger and ancillary services
