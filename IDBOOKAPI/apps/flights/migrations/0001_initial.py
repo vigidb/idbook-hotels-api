@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('booking', '0080_alter_flightancillaryservice_options_and_more'),
+        ('booking', '__first__'),
     ]
 
     operations = [
