@@ -75,10 +75,37 @@ class FlightSearchSerializer(serializers.Serializer):
 
 
 class AirlineSerializer(serializers.ModelSerializer):
-    """Serializer for airline information"""
+    """Serializer for airline information and metadata.
+
+    This surfaces both OpenFlights fields and internal fields in a
+    user-friendly structure for the airline search API.
+    """
+
+    logo_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Airline
-        fields = ['id', 'code', 'name', 'category', 'country', 'logo_url']
+        fields = [
+            'id',
+            'openflights_id',
+            'code',
+            'name',
+            'alias',
+            'icao_code',
+            'callsign',
+            'country',
+            'category',
+            'active',
+            'is_active',
+            'logo_url',
+        ]
+
+    def get_logo_url(self, obj):
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        url = obj.logo_url
+        if url and request is not None:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class AirportSerializer(serializers.ModelSerializer):

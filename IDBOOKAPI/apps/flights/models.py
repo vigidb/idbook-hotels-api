@@ -15,12 +15,65 @@ from IDBOOKAPI.basic_resources import (
 
 
 class Airline(models.Model):
-    """Master data for airlines"""
-    code = models.CharField(max_length=3, unique=True, help_text="2-letter IATA airline code")
-    name = models.CharField(max_length=100)
+    """Master data for airlines.
+
+    Extended to store OpenFlights airline dataset fields so that we can
+    provide rich airline search/filter APIs and keep a single source of truth
+    for airline metadata.
+    """
+
+    # OpenFlights identifier (column 0 in airlines.dat)
+    openflights_id = models.IntegerField(
+        unique=True, null=True, blank=True,
+        help_text="Unique OpenFlights identifier for this airline"
+    )
+
+    # Core identification
+    code = models.CharField(
+        max_length=3,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="2-letter IATA airline code (may be blank or reused across airlines)"
+    )
+    name = models.CharField(max_length=200)
+    alias = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Common alias / marketing name (eg. ANA for All Nippon Airways)"
+    )
+    icao_code = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text="3-letter ICAO airline code (OpenFlights may contain some longer values)"
+    )
+    callsign = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Airline callsign used in ATC communications"
+    )
+    country = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Country or territory where airline is based"
+    )
+
+    # Logical flags
+    active = models.CharField(
+        max_length=1,
+        choices=[('Y', 'Active / recently active'), ('N', 'Defunct')],
+        default='Y',
+        help_text="OpenFlights active flag (Y/N). Not fully reliable."
+    )
     category = models.CharField(max_length=3, choices=AIRLINE_CATEGORY, default='LCC')
+
+    # Media / status
     logo = models.ImageField(upload_to='airlines/logos/', blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Internal flag to soft-disable airlines in our APIs"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -30,7 +83,17 @@ class Airline(models.Model):
         verbose_name_plural = 'Airlines'
 
     def __str__(self):
-        return f"{self.code} - {self.name}"
+        display_code = self.code or (self.icao_code or "-")
+        return f"{display_code} - {self.name}"
+
+    @property
+    def logo_url(self):
+        """Public URL for logo, used by serializers and clients."""
+        try:
+            return self.logo.url if self.logo else None
+        except ValueError:
+            # In case storage/backing file is missing
+            return None
 
 
 class Airport(models.Model):
