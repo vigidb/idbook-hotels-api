@@ -166,3 +166,8 @@ ssh -L 8888:localhost:8888 ubuntu@13.50.52.0 -i idbook-key.pem
 pg_dump -h localhost -U <db_username> -Fc <database_name> > db_backup.dump
 # To restore: pg_restore -d <database_name> db_backup.dump
 ```
+
+## Load Airline Data
+```
+python manage.py import_openflights_airlines --truncate
+```

@@ -1505,8 +1505,8 @@ class AirIQService:
                 self.authenticate()
 
         # Inject AgentInfo if not present
-        if 'AgentInfo' not in payload:
-            payload['AgentInfo'] = {
+        # if 'AgentInfo' not in payload:
+        payload['AgentInfo'] = {
                 "AgentId": self.agent_id,
                 "UserName": self.username,
                 "AppType": "API",
