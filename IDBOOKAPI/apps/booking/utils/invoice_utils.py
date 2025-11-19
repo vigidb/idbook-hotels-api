@@ -2,6 +2,8 @@
 import requests
 import json
 import re
+from decimal import Decimal, InvalidOperation
+
 from apps.booking.models import Invoice, BookingPaymentDetail
 from apps.org_managements.models import BusinessDetail
 from datetime import datetime
@@ -12,6 +14,8 @@ from django.template import Context, Template
 import pdfkit
 import os, io
 from django.core.files.base import ContentFile
+from django.db.models import Sum
+from django.conf import settings
 
 invoice_url = "https://invoice-api.idbookhotels.com"
 
@@ -215,118 +219,223 @@ def invoice_json_vehicle_booking(vehicle_booking):
         
     return item
 
-def invoice_json_flight_booking(flight_booking):
-    """Generate comprehensive flight booking invoice items including passengers and ancillary services"""
+def _to_decimal(value) -> Decimal:
+    """Safely convert value to Decimal."""
+    if value in (None, '', 'N/A'):
+        return Decimal('0')
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal('0')
+
+
+def invoice_json_flight_booking(booking):
+    """Generate flight booking invoice items derived from AirIQ itinerary data with IDBook adjustments."""
+    flight_booking = booking.flight_booking
     items = []
-    
-    # Flight base details
-    flight_no = flight_booking.flight_no or 'TBD'
-    flight_trip = flight_booking.flight_trip
-    flying_from = flight_booking.flying_from
-    flying_to = flight_booking.flying_to
-    flight_class = flight_booking.flight_class
-    
-    departure_date = flight_booking.departure_date
-    arrival_date = flight_booking.arrival_date
-    departure_time = departure_date.strftime('%d-%m-%Y %H:%M') if departure_date else 'TBD'
-    arrival_time = arrival_date.strftime('%d-%m-%Y %H:%M') if arrival_date else 'TBD'
-    
-    # Main flight item description
-    if flight_trip == 'ONE-WAY':
-        description = f"Flight Class: {flight_class}, Trip: {flight_trip}\n" + \
-                     f"Route: {flying_from} → {flying_to}\n" + \
-                     f"Flight Number: {flight_no}\n" + \
-                     f"Departure: {departure_time}\n" + \
-                     f"Arrival: {arrival_time}"
-    elif flight_trip == 'ROUND':
-        return_date = flight_booking.return_date
-        return_arrival_date = flight_booking.return_arrival_date
-        return_from = flight_booking.return_from or flying_to
-        return_to = flight_booking.return_to or flying_from
-        
-        return_dep_time = return_date.strftime('%d-%m-%Y %H:%M') if return_date else 'TBD'
-        return_arr_time = return_arrival_date.strftime('%d-%m-%Y %H:%M') if return_arrival_date else 'TBD'
-        
-        description = f"Flight Class: {flight_class}, Trip: {flight_trip}\n" + \
-                     f"Outbound: {flying_from} → {flying_to} on {departure_time}\n" + \
-                     f"Return: {return_from} → {return_to} on {return_dep_time}\n" + \
-                     f"Flight Number: {flight_no}"
+    airiq_data = flight_booking.airiq_response_data or {}
+
+    def _format_segment(segment):
+        origin = segment.get('Origin')
+        destination = segment.get('Destination')
+        flight_number = segment.get('FlightNumber')
+        carrier = segment.get('CarrierCode')
+        dep_time = segment.get('DepartureDateTime')
+        arr_time = segment.get('ArrivalDateTime')
+        extras = []
+        if segment.get('MealsPreference'):
+            extras.append(f"Meal: {segment.get('MealsPreference')} ({segment.get('MealsAmount', '0')})")
+        if segment.get('BaggagePreference'):
+            extras.append(f"Baggage: {segment.get('BaggagePreference')} ({segment.get('BaggageAmount', '0')})")
+        if segment.get('SeatPreference'):
+            extras.append(f"Seat: {segment.get('SeatPreference')} ({segment.get('SeatAmount', '0')})")
+        extra_info = f"\n    " + "\n    ".join(extras) if extras else ""
+        return f"{origin} → {destination} | {carrier}{flight_number} | {dep_time} → {arr_time}{extra_info}"
+
+    itinerary_details = (
+        airiq_data.get('Bookingresponse', {}).get('ItinearyDetails')
+        or airiq_data.get('Bookingresponse', {}).get('ItineraryDetails')
+        or []
+    )
+
+    if itinerary_details:
+        for itinerary in itinerary_details:
+            passengers_info = []
+            line_total = Decimal('0')
+
+            for leg in itinerary.get('Item', []):
+                route_name = f"{leg.get('BaseOrigin')} → {leg.get('BaseDestination')}"
+                payment_details = leg.get('PaymentDetails', {}).get('Item', [])
+                if payment_details:
+                    for payment_detail in payment_details:
+                        line_total += _to_decimal(payment_detail.get('Amount'))
+
+                traveller_info = leg.get('TravellerInfo', {}).get('Item', [])
+                segment_rows = []
+                for traveller in traveller_info:
+                    pax_name = f"{traveller.get('Title', '').title()} {traveller.get('FirstName', '')} {traveller.get('LastName', '')}".strip()
+                    pax_type = traveller.get('PaxType', '').upper()
+                    ticket_number = traveller.get('TicketNumber', '')
+                    passengers_info.append(f"{pax_name} ({pax_type}) - Ticket {ticket_number}")
+
+                    segment_information = traveller.get('SegmentInformation', {}).get('Item', [])
+                    for segment in segment_information:
+                        segment_rows.append(_format_segment(segment))
+
+                description_parts = [
+                    f"Route: {route_name}",
+                    f"Segments:\n    " + "\n    ".join(segment_rows) if segment_rows else "",
+                    "Travellers:\n    " + "\n    ".join(passengers_info) if passengers_info else "",
+                ]
+
+                item = {
+                    "name": f"Flight Itinerary - {route_name}",
+                    "description": "\n".join(filter(None, description_parts)),
+                    "quantity": 1,
+                    "price": float(line_total) if line_total else float(_to_decimal(itinerary.get('TotalAmount'))),
+                    "amount": float(line_total) if line_total else float(_to_decimal(itinerary.get('TotalAmount'))),
+                    "gst": float(booking.gst_percentage or 0),
+                    "tax": float(booking.gst_amount or 0),
+                    "discount": 0,
+                    "final_total": float(line_total) if line_total else float(_to_decimal(itinerary.get('TotalAmount'))),
+                }
+                items.append(item)
+
+        # Distribute discounts, if any, across itinerary items
+        total_discount = float(booking.discount or 0) + float(booking.pro_member_discount_value or 0)
+        if total_discount > 0 and items:
+            per_item_discount = total_discount / len(items)
+            for item in items:
+                item['discount'] = per_item_discount
+                item['final_total'] = max(item['amount'] - per_item_discount, 0)
     else:
-        description = f"Flight Class: {flight_class}, Route: {flying_from} → {flying_to}"
-    
-    # Add passenger count to description
-    passengers = flight_booking.flight_passengers.all()
-    passenger_count = {
-        'adult': passengers.filter(passenger_type='ADULT').count(),
-        'child': passengers.filter(passenger_type='CHILD').count(),
-        'infant': passengers.filter(passenger_type='INFANT').count()
-    }
-    
-    passenger_info = []
-    if passenger_count['adult'] > 0:
-        passenger_info.append(f"{passenger_count['adult']} Adult(s)")
-    if passenger_count['child'] > 0:
-        passenger_info.append(f"{passenger_count['child']} Child(ren)")
-    if passenger_count['infant'] > 0:
-        passenger_info.append(f"{passenger_count['infant']} Infant(s)")
-    
-    if passenger_info:
-        description += f"\nPassengers: {', '.join(passenger_info)}"
-    
-    # Main flight booking item
-    flight_name = f"Flight Booking - {flying_from} to {flying_to}"
-    if flight_no != 'TBD':
-        flight_name += f" ({flight_no})"
-        
-    main_item = {
-        "name": flight_name,
-        "description": description,
-        "quantity": 1,
-        "price": float(flight_booking.base_fare or 0),
-        "amount": float(flight_booking.base_fare or 0),
-        "gst": float(flight_booking.gst_percentage or 0),
-        "tax": float(flight_booking.gst_amount or 0),
-        "discount": 0,  # Flight discounts handled at booking level
-        "final_total": float(flight_booking.base_fare or 0)
-    }
-    items.append(main_item)
-    
-    # Add ancillary services as separate line items
-    ancillary_services = flight_booking.flight_ancillary_services.all()
-    if ancillary_services.exists():
-        # Group services by type for better presentation
-        service_groups = {}
-        for service in ancillary_services:
-            service_type = service.service_type
-            if service_type not in service_groups:
-                service_groups[service_type] = []
-            service_groups[service_type].append(service)
-        
-        for service_type, services in service_groups.items():
-            total_price = sum(float(s.service_price or 0) for s in services)
-            service_count = len(services)
-            
-            # Create descriptions for each service type
-            service_descriptions = []
-            for service in services:
-                passenger_name = f"{service.passenger.first_name} {service.passenger.last_name}" if service.passenger else 'Unknown'
-                service_desc = f"{passenger_name}: {service.service_description or service_type}"
-                service_descriptions.append(service_desc)
-            
-            service_item = {
-                "name": f"{service_type.title()} Services",
-                "description": "\n".join(service_descriptions),
-                "quantity": service_count,
-                "price": total_price / service_count if service_count > 0 else 0,
-                "amount": total_price,
-                "gst": 0,  # Ancillary services may have different GST rules
-                "tax": 0,
-                "discount": 0,
-                "final_total": total_price
-            }
-            items.append(service_item)
-    
+        # Fallback to legacy behaviour when AirIQ data is missing
+        flight_no = flight_booking.flight_no or 'TBD'
+        flight_trip = flight_booking.flight_trip
+        flying_from = flight_booking.flying_from
+        flying_to = flight_booking.flying_to
+        flight_class = flight_booking.flight_class
+
+        departure_date = flight_booking.departure_date
+        arrival_date = flight_booking.arrival_date
+        departure_time = departure_date.strftime('%d-%m-%Y %H:%M') if departure_date else 'TBD'
+        arrival_time = arrival_date.strftime('%d-%m-%Y %H:%M') if arrival_date else 'TBD'
+
+        if flight_trip == 'ONE-WAY':
+            description = f"Flight Class: {flight_class}, Trip: {flight_trip}\nRoute: {flying_from} → {flying_to}\nFlight Number: {flight_no}\nDeparture: {departure_time}\nArrival: {arrival_time}"
+        elif flight_trip == 'ROUND':
+            return_date = flight_booking.return_date
+            return_arrival_date = flight_booking.return_arrival_date
+            return_from = flight_booking.return_from or flying_to
+            return_to = flight_booking.return_to or flying_from
+
+            return_dep_time = return_date.strftime('%d-%m-%Y %H:%M') if return_date else 'TBD'
+            return_arr_time = return_arrival_date.strftime('%d-%m-%Y %H:%M') if return_arrival_date else 'TBD'
+
+            description = f"Flight Class: {flight_class}, Trip: {flight_trip}\nOutbound: {flying_from} → {flying_to} on {departure_time}\nReturn: {return_from} → {return_to} on {return_dep_time}\nFlight Number: {flight_no}"
+        else:
+            description = f"Flight Class: {flight_class}, Route: {flying_from} → {flying_to}"
+
+        passengers = flight_booking.passengers.all()
+        passenger_count = {
+            'adult': passengers.filter(passenger_type='ADULT').count(),
+            'child': passengers.filter(passenger_type='CHILD').count(),
+            'infant': passengers.filter(passenger_type='INFANT').count()
+        }
+
+        passenger_info = []
+        if passenger_count['adult'] > 0:
+            passenger_info.append(f"{passenger_count['adult']} Adult(s)")
+        if passenger_count['child'] > 0:
+            passenger_info.append(f"{passenger_count['child']} Child(ren)")
+        if passenger_count['infant'] > 0:
+            passenger_info.append(f"{passenger_count['infant']} Infant(s)")
+
+        if passenger_info:
+            description += f"\nPassengers: {', '.join(passenger_info)}"
+
+        flight_name = f"Flight Booking - {flying_from} to {flying_to}"
+        if flight_no != 'TBD':
+            flight_name += f" ({flight_no})"
+
+        main_item = {
+            "name": flight_name,
+            "description": description,
+            "quantity": 1,
+            "price": float(flight_booking.base_fare or 0),
+            "amount": float(flight_booking.base_fare or 0),
+            "gst": float(booking.gst_percentage or 0),
+            "tax": float(booking.gst_amount or 0),
+            "discount": float(booking.discount or 0),
+            "final_total": max(float(flight_booking.base_fare or 0) - float(booking.discount or 0), 0)
+        }
+        items.append(main_item)
+
+        ancillary_services = flight_booking.ancillary_services.all()
+        if ancillary_services.exists():
+            service_groups = {}
+            for service in ancillary_services:
+                service_type = service.service_type
+                if service_type not in service_groups:
+                    service_groups[service_type] = []
+                service_groups[service_type].append(service)
+
+            for service_type, services in service_groups.items():
+                total_price = sum(float(s.service_price or 0) for s in services)
+                service_count = len(services)
+
+                service_descriptions = []
+                for service in services:
+                    passenger_name = f"{service.passenger.first_name} {service.passenger.last_name}" if service.passenger else 'Unknown'
+                    service_desc = f"{passenger_name}: {service.service_description or service_type}"
+                    service_descriptions.append(service_desc)
+
+                service_item = {
+                    "name": f"{service_type.title()} Services",
+                    "description": "\n".join(service_descriptions),
+                    "quantity": service_count,
+                    "price": total_price / service_count if service_count > 0 else 0,
+                    "amount": total_price,
+                    "gst": 0,
+                    "tax": 0,
+                    "discount": 0,
+                    "final_total": total_price
+                }
+                items.append(service_item)
+
     return items
+
+
+def _is_booking_payment_completed(booking) -> bool:
+    """Determine whether a booking has been fully paid."""
+    if not booking:
+        return False
+
+    try:
+        final_amount = Decimal(booking.final_amount or 0)
+    except (InvalidOperation, TypeError, ValueError):
+        final_amount = Decimal('0')
+
+    if final_amount <= 0:
+        return False
+
+    try:
+        total_paid = Decimal(booking.total_payment_made or 0)
+        if total_paid >= final_amount:
+            return True
+    except (InvalidOperation, TypeError, ValueError):
+        total_paid = Decimal('0')
+
+    aggregate_total = booking.booking_payment.filter(
+        is_transaction_success=True
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+    try:
+        aggregate_total = Decimal(aggregate_total)
+    except (InvalidOperation, TypeError, ValueError):
+        aggregate_total = Decimal('0')
+
+    return aggregate_total >= final_amount
 
 def invoice_json_data(booking, bus_details, company_details, customer_details,
                       invoice_number, invoice_action='create', pay_at_hotel=False):
@@ -345,7 +454,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
     notes = ''
     is_same_state = False
     business_state = None
-    status = "Pending" if pay_at_hotel else "Paid"
+    status = "Pending"
     
     if bus_details:
         if bus_details.business_logo:
@@ -425,7 +534,7 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
                 
         elif booking_type == 'FLIGHT':
             if booking.flight_booking:
-                item = invoice_json_flight_booking(booking.flight_booking)
+                item = invoice_json_flight_booking(booking)
                 # item is already a list from the enhanced function
                 
                 # Extract GST information from booking
@@ -453,6 +562,11 @@ def invoice_json_data(booking, bus_details, company_details, customer_details,
             pro_member_discount = float(booking.pro_member_discount_value)
         else:
             pro_member_discount = 0
+
+        if pay_at_hotel:
+            status = "Pending"
+        else:
+            status = "Paid" if _is_booking_payment_completed(booking) else "Pending"
 
     if bus_details:
         billed_mob_num = bus_details.business_phone
@@ -666,167 +780,86 @@ def calculate_flight_gst(booking, business_state=None):
         'gst_type': gst_type
     }
 
-def generate_invoice_pdf(payload, booking_id=None):
-    """
-    Generate a PDF invoice from the payload data using wkhtmltopdf
-    
-    Args:
-        payload (str): JSON string containing invoice data
-        booking_id (str, optional): Booking ID for reference
-        
-    Returns:
-        str: Path to the generated PDF file
-    """
-    try:
-        # Parse payload if it's a string
-        if isinstance(payload, str):
-            invoice_data = json.loads(payload)
-        else:
-            invoice_data = payload
-            
-        # Get invoice number from the payload
-        invoice_number = invoice_data.get('invoiceNumber', 'unknown')
-            
-        # Format dates
-        if 'invoiceDate' in invoice_data and invoice_data['invoiceDate']:
-            try:
-                invoice_date = datetime.fromisoformat(invoice_data['invoiceDate'].replace('Z', '+00:00'))
-                invoice_data['invoiceDate'] = invoice_date
-            except (ValueError, TypeError):
-                pass
-                
-        if 'dueDate' in invoice_data and invoice_data['dueDate']:
-            try:
-                due_date = datetime.fromisoformat(invoice_data['dueDate'].replace('Z', '+00:00'))
-                invoice_data['dueDate'] = due_date
-            except (ValueError, TypeError):
-                pass
-        
-        # Calculate total in words
-        total_value = float(invoice_data.get('total', 0))
-        total_in_words = number_to_words(total_value)
-        invoice_data['total_in_words'] = total_in_words
-        
-        # Calculate amount and tax amounts for summary
-        amount = 0
-        tax_amount = 0
-        
-        for item in invoice_data.get('items', []):
-            amount += float(item.get('room_amount_with_discount', 0))
-            tax_amount += float(item.get('tax', 0))
-            
-        invoice_data['amount'] = amount
-        invoice_data['tax_amount'] = tax_amount
-        
-        # Render the HTML template with the invoice data
-        html_content = render_to_string('invoice_template/invoice.html', invoice_data)
-        
-        # Set wkhtmltopdf options - adjusted for better layout
-        options = {
-            'page-size': 'A4',
-            'margin-top': '5mm',
-            'margin-right': '5mm',
-            'margin-bottom': '5mm',
-            'margin-left': '5mm',
-            'encoding': 'UTF-8',
-            'no-outline': None,
-            'dpi': 300,
-            'zoom': 1.0,  # Adjust if needed for better fitting
-            'enable-smart-shrinking': True
-        }
-        
-        # Generate PDF in memory
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
-        pdf_file = io.BytesIO(pdf_bytes)
-
-        file_name = f"invoice_{invoice_number}.pdf"
-
-        # Save to Invoice model
-        invoice = Invoice.objects.get(invoice_number=invoice_number)
-        invoice.invoice_pdf.save(file_name, ContentFile(pdf_file.getvalue()))
-
-        if invoice.invoice_pdf:
-            pdf_url = invoice.invoice_pdf.url
-            print(f"Invoice PDF saved successfully. File URL: {pdf_url}")
-            return pdf_url
-        else:
-            print("Failed to save the invoice PDF.")
-            return None
-        
-    except Exception as e:
-        print(f"Error generating invoice PDF: {str(e)}")
-        raise
-
 def manual_generate_invoice_pdf(payload, booking_id=None):
     """
-    Generate a PDF invoice from the new payload format.
+    Backward-compatible wrapper for viewsets that expect manual_generate_invoice_pdf.
+    Delegates to generate_invoice_pdf which already normalizes and falls back to
+    the manual template when needed. Returns the PDF URL or None.
+    """
+    return generate_invoice_pdf(payload, booking_id)
+
+def generate_invoice_pdf(payload, booking_id=None):
+    """
+    Generate a PDF invoice from payload and save to Invoice.invoice_pdf.
+    Returns the file URL or None on failure.
     """
     try:
+        # Parse payload if string
         if isinstance(payload, str):
             invoice_data = json.loads(payload)
         else:
             invoice_data = payload
 
-        print("invoice_data", invoice_data)
-
-        # Standardize keys for template rendering
-        invoice_data['invoiceNumber'] = invoice_data.get('invoice_number', 'unknown')
-        invoice_data['invoiceDate'] = invoice_data.get('invoice_date')
-        invoice_data['dueDate'] = invoice_data.get('due_date')
-        invoice_data['billedBy'] = dict(invoice_data.get('billed_by_details') or {})
-        invoice_data['billedTo'] = dict(invoice_data.get('billed_to_details') or {})
-        invoice_data['supplyDetails'] = dict(invoice_data.get('supply_details') or {})
+        # Normalize keys for templates
+        invoice_number = (
+            invoice_data.get('invoiceNumber')
+            or invoice_data.get('invoice_number')
+            or 'unknown'
+        )
+        invoice_data['invoiceNumber'] = invoice_number
+        invoice_data['invoiceDate'] = invoice_data.get('invoiceDate') or invoice_data.get('invoice_date')
+        invoice_data['dueDate'] = invoice_data.get('dueDate') or invoice_data.get('due_date')
+        invoice_data['billedBy'] = dict(invoice_data.get('billedBy') or invoice_data.get('billed_by_details') or {})
+        invoice_data['billedTo'] = dict(invoice_data.get('billedTo') or invoice_data.get('billed_to_details') or {})
+        invoice_data['supplyDetails'] = dict(invoice_data.get('supplyDetails') or invoice_data.get('supply_details') or {})
+        invoice_data['GSTType'] = invoice_data.get('GSTType') or invoice_data.get('GST_type')
         billed_by_details = invoice_data.get('billedBy', {})
         invoice_data['billed_mob_num'] = billed_by_details.get('mobile_number', '')
-        invoice_data['GSTType'] = invoice_data.get('GST_type')
-        invoice_data['total'] = invoice_data.get('total_amount', 0)
-        invoice_data['status'] = invoice_data.get('status', 'Pending')
-        invoice_data['total'] = invoice_data.get('total', 0)
-        invoice_data['totalAmount'] = invoice_data.get('total_amount', 0)
-        invoice_data['totalTax'] = invoice_data.get('total_tax', 0)
+        discount = float(invoice_data.get('discount', 0) or 0)
+        invoice_data['discount'] = discount
 
-        # Format dates
+        # Parse dates if present
         for key in ['invoiceDate', 'dueDate']:
             if invoice_data.get(key):
                 try:
-                    invoice_data[key] = datetime.fromisoformat(invoice_data[key])
+                    invoice_data[key] = datetime.fromisoformat(str(invoice_data[key]).replace('Z', '+00:00'))
                 except Exception:
                     pass
-        discount = float(invoice_data.get('discount', 0))
-        invoice_data['discount'] = discount
 
-        # Amount and tax calculation
-        amount = 0
-        tax_amount = 0
+        # Compute amount and tax across items
+        amount = 0.0
+        tax_amount = 0.0
         for item in invoice_data.get('items', []):
-            rate = float(item.get('rate', 0))  # Use rate for the price of the item
-            quantity = int(item.get('quantity', 0))
-            gst = float(item.get('gst', 0))  # GST percentage
-
-            item_amount = rate * quantity
-            item_tax = (gst / 100) * item_amount
+            # rate/price and quantity
+            rate = float(item.get('rate', item.get('price', 0) or 0))
+            qty = int(item.get('quantity', item.get('qty', 0) or 0))
+            # explicit amount fallback
+            item_amount = float(item.get('amount', rate * qty))
+            # gst/tax
+            gst_percent = float(item.get('gst', 0) or 0)
+            item_tax = float(item.get('tax', (gst_percent / 100.0) * item_amount))
 
             amount += item_amount
             tax_amount += item_tax
 
-            # Update the item data with new values
-            item['price'] = rate
-            item['amount'] = item_amount
-            item['tax'] = item_tax
+            # fill back item entries for template
+            item.setdefault('price', rate)
+            item.setdefault('amount', item_amount)
+            item.setdefault('tax', item_tax)
 
-        # Apply discount
         total_after_discount = amount + tax_amount - discount
-
-        # Pass the calculated total after discount
+        invoice_data['amount'] = amount
+        invoice_data['tax_amount'] = tax_amount
         invoice_data['total'] = total_after_discount
         invoice_data['total_in_words'] = number_to_words(total_after_discount)
 
-        invoice_data['amount'] = amount
-        invoice_data['tax_amount'] = tax_amount
+        # Try primary template; fallback to manual
+        try:
+            html_content = render_to_string('invoice_template/invoice.html', invoice_data)
+        except Exception:
+            html_content = render_to_string('invoice_template/manual_invoice.html', invoice_data)
 
-        html_content = render_to_string('invoice_template/manual_invoice.html', invoice_data)
-
-        # PDF options
+        # wkhtmltopdf options
         options = {
             'page-size': 'A4',
             'margin-top': '5mm',
@@ -837,30 +870,46 @@ def manual_generate_invoice_pdf(payload, booking_id=None):
             'no-outline': None,
             'dpi': 300,
             'zoom': 1.0,
-            'enable-smart-shrinking': True
+            'enable-smart-shrinking': True,
         }
 
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        # Path to wkhtmltopdf from settings, if provided
+        config = None
+        try:
+            wk_cmd = getattr(settings, 'WKHTMLTOPDF_CMD', None)
+            if wk_cmd:
+                config = pdfkit.configuration(wkhtmltopdf=wk_cmd)
+        except Exception:
+            config = None
+
+        # Generate PDF
+        if config:
+            pdf_bytes = pdfkit.from_string(html_content, False, options=options, configuration=config)
+        else:
+            pdf_bytes = pdfkit.from_string(html_content, False, options=options)
         pdf_file = io.BytesIO(pdf_bytes)
 
-        file_name = f"invoice_{invoice_data['invoiceNumber']}.pdf"
-        # Save the file to the 'invoice_pdf' field of the Invoice model
-        invoice = Invoice.objects.get(invoice_number=invoice_data['invoiceNumber'])
+        # Save to Invoice model FileField
+        file_name = f"invoice_{invoice_number}.pdf"
+        invoice = Invoice.objects.filter(invoice_number=invoice_number).first()
+        if not invoice:
+            print(f"Invoice not found for number: {invoice_number}")
+            return None
 
-        # Save the generated PDF to the invoice_pdf field
         invoice.invoice_pdf.save(file_name, ContentFile(pdf_file.getvalue()))
+        invoice.refresh_from_db()
 
         if invoice.invoice_pdf:
-            # File is successfully saved
             pdf_url = invoice.invoice_pdf.url
-
             print(f"Invoice PDF saved successfully. File URL: {pdf_url}")
             return pdf_url
         else:
-            # File not saved
             print("Failed to save the invoice PDF.")
             return None
 
+    except OSError as e:
+        print(f"wkhtmltopdf error: {str(e)}")
+        raise
     except Exception as e:
         print(f"Error generating invoice PDF: {str(e)}")
         raise

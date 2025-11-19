@@ -163,11 +163,34 @@ def generate_context_confirmed_booking(booking):
         refresh, access = generate_refresh_access_token(booking.user)
     
     booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?token={access}"
-    try:
-        invoice = Invoice.objects.get(invoice_number=invoice_id)
-        invoice_link = invoice.invoice_pdf.url if invoice.invoice_pdf else ''
-    except Invoice.DoesNotExist:
-        invoice_link = ''
+
+    invoice_link = ''
+    receipt_link = ''
+    document_cta_label = ''
+    document_cta_url = ''
+    invoice_status = ''
+    invoice = None
+
+    if invoice_id:
+        try:
+            invoice = Invoice.objects.get(invoice_number=invoice_id)
+            invoice_status = invoice.status or ''
+            invoice_link = invoice.invoice_pdf.url if invoice.invoice_pdf else ''
+        except Invoice.DoesNotExist:
+            invoice = None
+
+    is_paid = float(total_balance_due) <= 0
+    if invoice and (invoice.status or '').lower() == 'paid':
+        is_paid = True
+
+    if invoice_link:
+        if is_paid:
+            document_cta_label = 'View Receipt'
+            receipt_link = invoice_link
+        else:
+            document_cta_label = 'View Invoice'
+        document_cta_url = invoice_link
+
     # invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)
     if child_count:
@@ -185,7 +208,11 @@ def generate_context_confirmed_booking(booking):
                'total_booking_amount':float(final_amount),
                'subtotal':float(subtotal), 'tax':float(tax),
                'booking_link':booking_link,
-               'invoice_link':invoice_link}
+               'invoice_link':invoice_link,
+               'receipt_link':receipt_link,
+               'document_cta_label':document_cta_label,
+               'document_cta_url':document_cta_url,
+               'invoice_status':invoice_status}
     
     if booking_type == "HOTEL":
         property_name, property_address = '', ''

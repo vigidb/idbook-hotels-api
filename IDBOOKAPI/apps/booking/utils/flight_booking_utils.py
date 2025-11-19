@@ -539,7 +539,7 @@ class FlightBookingProcessor:
             send_booking_email_task.delay(booking.id, 'confirmed-booking')
             
             # Create invoice
-            create_invoice_task.delay(booking.id)
+            create_invoice_task.delay(booking.id, send_email=False)
             
             logger.info(f"Booking notifications sent for flight booking {booking.id}")
             

@@ -132,7 +132,7 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
     #send_otp_email(otp, to_emails)
 
 @celery_idbook.task(bind=True)
-def create_invoice_task(self, booking_id, pay_at_hotel=False):
+def create_invoice_task(self, booking_id, pay_at_hotel=False, send_email=True):
     company_details = None
     customer_details = None
     print("Inside Invoice Task")
@@ -229,7 +229,8 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 }
                 create_booking_invoice_log(invoice_log)
 
-            send_booking_email_task.apply_async(args=[booking_id, 'confirmed-booking'])
+            if send_email:
+                send_booking_email_task.apply_async(args=[booking_id, 'confirmed-booking'])
     except Exception as e:
         print("Invoice Error", e)
     

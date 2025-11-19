@@ -606,7 +606,7 @@ class FlightPaymentProcessor:
                 for item in items:
                     # PNRs and Track ID at itinerary level
                     ai_pnr = _norm(item.get('AirIqPNR') or item.get('AiriqPNR'))
-                    trk = _norm(item.get('BookingTrackId') or airiq_resp.get('TrackId'))
+                    trk = _norm( airiq_resp.get('TrackId') or item.get('BookingTrackId') )
                     # Determine airline PNR with nested preference
                     nested_airline_pnr = ''
                     trav = item.get('TravellerInfo', {})
@@ -769,6 +769,7 @@ class FlightPaymentProcessor:
                 updates.append('airiq_track_ids')
             if booked_itins:
                 self.flight_booking.booked_itineraries = booked_itins
+                # self.flight_booking.booked_itineraries = airiq_resp.get('Bookingresponse', {}).get('ItinearyDetails', [])
                 updates.append('booked_itineraries')
             if all_ticket_numbers:
                 # de-dup preserving order
@@ -787,6 +788,8 @@ class FlightPaymentProcessor:
 
             if updates:
                 self.flight_booking.save(update_fields=updates)
+            
+            
         except Exception as e:
             logger.error(f"Failed to update flight booking from AirIQ response for {self.booking.id}: {e}")
     
@@ -838,49 +841,36 @@ class FlightPaymentProcessor:
             return False
     
     def _send_booking_notifications(self):
-        """Send booking confirmation notifications via Celery tasks"""
-        
+        """
+        Queue the standard notification fan-out for confirmed bookings:
+        1) Invoice generation via `create_invoice_task`
+        2) Email via `send_booking_email_task`
+        3) SMS (which also creates Notification entries) via `send_flight_booking_task`
+        """
         try:
-            from apps.flights.tasks import send_flight_booking_confirmation_task
-            from apps.booking.tasks import create_invoice_task
-            
-            # Prepare notification data
-            notification_data = {
-                'email': self.user.email if self.user else '',
-                'phone': self.user.mobile_number if self.user else '',
-                'flight_details': {
-                    'origin': self.flight_booking.flying_from,
-                    'destination': self.flight_booking.flying_to,
-                    'departure_date': self.flight_booking.departure_date.isoformat() if self.flight_booking.departure_date else '',
-                    'departure_time': self.flight_booking.departure_time or '',
-                    'arrival_time': self.flight_booking.arrival_time or '',
-                    'airline': self.flight_booking.airline_name or '',
-                    'flight_number': self.flight_booking.flight_number or ''
-                },
-                'passengers': [],
-                'payment_info': {
-                    'amount': float(self.booking.final_amount),
-                    'confirmation_code': self.booking.confirmation_code
-                }
-            }
-            
-            # Add passenger details
-            if hasattr(self.flight_booking, 'passengers'):
-                for passenger in self.flight_booking.passengers.all():
-                    notification_data['passengers'].append({
-                        'name': f"{passenger.first_name} {passenger.last_name}",
-                        'type': passenger.passenger_type
-                    })
-            
-            # Send flight booking confirmation via new Celery task
-            send_flight_booking_confirmation_task.delay(self.booking.id, notification_data)
-            
-            # Create invoice
-            create_invoice_task.delay(self.booking.id)
-            
-            logger.info(f"Flight booking notifications queued for booking {self.booking.id}")
-            
+            from apps.booking.tasks import (
+                send_booking_email_task,
+                send_flight_booking_task,
+                create_invoice_task,
+            )
+
+            booking_id = self.booking.id
+            print(f"Preparing to send booking notifications for booking {booking_id}")
+            # 1. Invoice generation (same flow as hotel bookings)
+            create_invoice_task.delay(booking_id, send_email=False)
+
+            # 2. Email confirmation (handles HTML email + Notification model entry)
+            send_booking_email_task.delay(booking_id, 'confirmed-booking')
+
+            # 3. SMS confirmation (also logs Notification via message templates)
+            send_flight_booking_task.delay(booking_id, 'confirmed')
+
+
+
+            logger.info(f"Flight booking notifications queued for booking {booking_id}")
+
         except Exception as e:
+            print(f"Error queuing flight booking notifications for booking {self.booking.id}: {str(e)}")
             logger.error(f"Error queuing booking notifications: {str(e)}")
 
 

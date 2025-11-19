@@ -282,6 +282,18 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         elif end_date:
             self.queryset = self.queryset.filter(invoice_date__lte=end_date)
 
+    def invoice_ordering_ops(self):
+        order_by = self.request.query_params.get('order_by', 'created_at')
+        order = self.request.query_params.get('order', 'desc').lower()
+
+        if order not in ['asc', 'desc']:
+            order = 'desc'
+
+        self.queryset = self.queryset.order_by(
+            f'-{order_by}' if order == 'desc' else order_by
+        )
+        return self.queryset
+
     def get_object(self):
         """
         Custom method to retrieve object by ID or invoice_number
@@ -418,7 +430,11 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     def list(self, request, *args, **kwargs):
         self.log_request(request)
         
+        # Apply filters from query params (billed_by, status, date range, etc.)
         self.invoice_filter_ops()
+        # Then apply ordering (defaults to '-created_at')
+        self.invoice_ordering_ops()
+        
         count, self.queryset = paginate_queryset(self.request, self.queryset)
         
         response = super().list(request, *args, **kwargs)

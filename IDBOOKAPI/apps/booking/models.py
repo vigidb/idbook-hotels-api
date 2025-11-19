@@ -124,7 +124,7 @@ class VehicleBooking(models.Model):
 
 class FlightBooking(models.Model):
     """Enhanced flight booking model with AirIQ integration"""
-    # Basic flight details
+    # Basic flight details **CHECK**
     flight_no = models.CharField(max_length=50, default='', blank=True)
     airline_code = models.CharField(max_length=3, blank=True, help_text="Airline code (e.g., 6E, UK)")
     flight_trip = models.CharField(max_length=25, choices=FLIGHT_TRIP,
@@ -144,7 +144,7 @@ class FlightBooking(models.Model):
     return_from = models.CharField(max_length=255, null=True, blank=True)
     return_to = models.CharField(max_length=255, null=True, blank=True)
     
-    # AirIQ Integration fields
+    # AirIQ Integration fields  **CHECK**
     booking_reference = models.CharField(max_length=20, blank=True, 
                                        help_text="Unique booking reference")
     airiq_pnr = models.CharField(max_length=20, blank=True, help_text="AirIQ PNR")
@@ -161,6 +161,10 @@ class FlightBooking(models.Model):
         ('TICKETED', 'Ticketed'),
         ('CANCELLED', 'Cancelled'),
         ('COMPLETED', 'Completed'),
+        ('REFUNDED', 'Refunded'),
+        ('EXPIRED', 'Expired'),
+        ('FAILED', 'Failed'),
+        ('RESCHEDULED', 'Rescheduled'),
     ], default='INITIATED', help_text="Flight booking status")
     
     booking_mode = models.CharField(max_length=10, choices=[
@@ -168,7 +172,7 @@ class FlightBooking(models.Model):
         ('INVENTORY', 'Inventory'),
     ], default='REALTIME', help_text="Booking mode")
     
-    # Flight option and search session data (stored as JSON)
+    # Flight option and search session data (stored as JSON)  **CHECK**
     selected_flight_data = models.JSONField(default=dict, blank=True,
                                           help_text="Selected flight option data")
     search_session_data = models.JSONField(default=dict, blank=True,
@@ -180,7 +184,7 @@ class FlightBooking(models.Model):
     payment_expires_at = models.DateTimeField(null=True, blank=True,
                                             help_text="Payment lock expiry time (5 minutes)")
     
-    # Data storage for enhanced booking flow
+    # Persist the original AirIQ request data for booking and pricing validation (Optional)  **CHECK**
     airiq_request_data = models.JSONField(default=dict, blank=True,
                                         help_text="Original AirIQ request data for booking")
     pricing_validation_data = models.JSONField(default=dict, blank=True,
@@ -196,7 +200,7 @@ class FlightBooking(models.Model):
     seatmap_response_data = models.JSONField(default=dict, blank=True,
                                             help_text="Raw seatmap response when seats are selected (optional)")
 
-    # Support multiple PNRs/Track IDs and booked itineraries
+    # Support multiple PNRs/Track IDs and booked itineraries  **CHECK**
     airiq_pnrs = models.JSONField(default=list, blank=True,
                                   help_text="List of AirIQ PNRs when supplier returns multiple")
     airline_pnrs = models.JSONField(default=list, blank=True,
@@ -206,18 +210,22 @@ class FlightBooking(models.Model):
     booked_itineraries = models.JSONField(default=list, blank=True,
                                           help_text="Structured list of booked itineraries with segments and amounts")
     
-    # Ticket details
+    # Ticket details  **CHECK**
     ticket_numbers = models.JSONField(default=list, blank=True,
                                     help_text="List of ticket numbers for passengers")
     flight_ticket = models.FileField(upload_to='booking/flight/', blank=True, null=True)
 
-    # User-provided remarks for operations
+    # User-provided remarks for operations 
     cancel_remark = models.CharField(max_length=255, default='', blank=True)
     reschedule_remark = models.CharField(max_length=255, default='', blank=True)
     
     # Timestamp tracking
     confirmed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    # ticketed_at = models.DateTimeField(null=True, blank=True)
+    # created_at = models.DateTimeField(auto_now_add=True)
+    # updated_at = models.DateTimeField(auto_now=True)
+    # rescheduled_at = models.DateTimeField(null=True, blank=True)
     
     ##    flight_subtotal = models.DecimalField(
     ##        max_digits=10, decimal_places=2, default=0.0, help_text="Flight Ticket Price.")

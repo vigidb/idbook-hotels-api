@@ -60,6 +60,8 @@ class BookingPayoutSerializer(serializers.ModelSerializer):
 
 class BookingSerializer(serializers.ModelSerializer):
     commission_info = BookingCommissionSerializer(required=False, read_only=True)
+    invoice_pdf_url = serializers.SerializerMethodField()
+    receipt_pdf_url = serializers.SerializerMethodField()
     class Meta:
         model = Booking
         fields = '__all__'
@@ -138,6 +140,35 @@ class BookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(error_response)
 
         return vehicle_booking
+
+    def get_invoice_pdf_url(self, obj):
+        if not obj.invoice_id:
+            return None
+        invoice = Invoice.objects.filter(invoice_number=obj.invoice_id).first()
+        if invoice and invoice.invoice_pdf:
+            return invoice.invoice_pdf.url
+        return None
+
+    def get_receipt_pdf_url(self, obj):
+        # Hotel bookings have a dedicated receipt PDF
+        if obj.booking_type == 'HOTEL' and obj.hotel_booking and obj.hotel_booking.hotelier_receipt_pdf:
+            return obj.hotel_booking.hotelier_receipt_pdf.url
+
+        invoice_url = self.get_invoice_pdf_url(obj)
+        if not invoice_url:
+            return None
+
+        try:
+            total_paid = float(obj.total_payment_made or 0)
+            final_amount = float(obj.final_amount or 0)
+        except (TypeError, ValueError):
+            total_paid = 0
+            final_amount = 0
+
+        if final_amount and total_paid >= final_amount:
+            return invoice_url
+
+        return None
     
     def create_flight_booking(self, data):
         """Enhanced flight booking creation with AirIQ integration"""
