@@ -127,7 +127,10 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
         company_id, user_id = None, None
         
         user = self.request.user
-        default_group = user.default_group
+        # Get active group from token, fall back to default_group
+        from apps.authentication.utils.token_utils import get_user_active_group
+        active_group = get_user_active_group(user, self.request)
+        default_group = active_group or user.default_group
 
         # fetch filter parameters
         param_dict= self.request.query_params
@@ -1937,6 +1940,25 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     booking_dict['coupon_code'] = coupon_code
                     #booking.coupon_code = coupon_code
                     
+                # Validate company_id requirement for corporate users
+                if user:
+                    from apps.booking.utils.booking_utils import validate_company_id_for_corporate_user
+                    # Get company_id from request or user
+                    final_company_id = company_id or getattr(user, 'company_id', None)
+                    # Pass request to get active_group from token
+                    is_valid, error_message = validate_company_id_for_corporate_user(user, final_company_id, request=request)
+                    if not is_valid:
+                        return self.get_error_response(
+                            message=error_message,
+                            status="error",
+                            errors=[{'field': 'company', 'message': error_message}],
+                            error_code='COMPANY_ID_REQUIRED',
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    # Set company_id in booking_dict if valid
+                    if final_company_id:
+                        booking_dict['company_id'] = final_company_id
+                
                 if company_id:
                     booking_dict['company_id'] = company_id
                     # booking.company_id = company_id
@@ -2124,7 +2146,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 'payment_channel': 'WALLET'
             }
             print("payment_data::", payment_data)
-            processor = FlightPaymentProcessor(instance, user, payment_data)
+            processor = FlightPaymentProcessor(instance, user, payment_data, request=request)
             result = processor.initiate_payment()
             if not result.get('success'):
                 error_msg = result.get('error') or "; ".join(result.get('errors', [])) or "Payment failed"
@@ -2283,7 +2305,8 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     
                     return custom_response
       
-        deduct_status = deduct_booking_amount(instance, instance.company_id)
+        # Pass request to get active_group from token for wallet deduction
+        deduct_status = deduct_booking_amount(instance, instance.company_id, request=request)
         if deduct_status:
             wallet_balance = 0
             wallet = Wallet.objects.filter(user__id=instance.user.id, company_id__isnull=True).first()
@@ -2828,7 +2851,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
             user = request.user
             payment_data = request.data
             
-            processor = FlightPaymentProcessor(booking, user, payment_data)
+            processor = FlightPaymentProcessor(booking, user, payment_data, request=request)
             result = processor.initiate_payment()
             
             if result['success']:
@@ -3214,6 +3237,110 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 
         except Exception as e:
             logger.error(f"Error getting user flight bookings: {str(e)}")
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['GET'], url_path='guest/view',
+            url_name='guest-view-booking', permission_classes=[AllowAny])
+    def view_guest_booking(self, request):
+        """
+        Public endpoint for guest users to view their booking.
+        Supports two authentication methods:
+        1. guest_token: Secure token sent via email (recommended)
+        2. confirmation_code + email: Fallback method
+        
+        Query Parameters:
+            - guest_token: Guest access token (preferred method)
+            - confirmation_code: Booking confirmation code
+            - email: Email address associated with the booking
+        """
+        from apps.booking.utils.booking_utils import get_booking_by_guest_credentials
+        from apps.booking.utils.flight_status_utils import FlightBookingRetriever
+        
+        try:
+            self.log_request(request)
+            
+            # Get credentials from query parameters
+            guest_token = request.query_params.get('guest_token')
+            confirmation_code = request.query_params.get('confirmation_code')
+            email = request.query_params.get('email')
+            
+            # Validate that at least one method is provided
+            if not guest_token and not (confirmation_code and email):
+                return self.get_error_response(
+                    message="Either 'guest_token' or both 'confirmation_code' and 'email' are required",
+                    status="error",
+                    errors=[],
+                    error_code="MISSING_CREDENTIALS",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Retrieve booking using guest credentials
+            booking = get_booking_by_guest_credentials(
+                confirmation_code=confirmation_code,
+                email=email,
+                guest_token=guest_token
+            )
+            
+            if not booking:
+                return self.get_error_response(
+                    message="Booking not found or invalid credentials",
+                    status="error",
+                    errors=[],
+                    error_code="BOOKING_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if this is a guest booking (user exists but might be a guest user)
+            # For guest bookings, we allow access. For authenticated users, they should use the authenticated endpoint.
+            # However, we still allow access here for convenience.
+            
+            # Serialize booking data based on booking type
+            if booking.booking_type == 'FLIGHT':
+                # Use FlightBookingRetriever for flight bookings
+                result = FlightBookingRetriever.get_booking_details(booking.id, user=None)
+                if result['success']:
+                    # Add guest access token to response if not already present
+                    if not result.get('booking', {}).get('guest_token') and booking.guest_access_token:
+                        result['booking']['guest_token'] = booking.guest_access_token
+                    
+                    return self.get_response(
+                        status="success",
+                        data=result,
+                        message="Booking details retrieved successfully",
+                        status_code=status.HTTP_200_OK
+                    )
+                else:
+                    return self.get_error_response(
+                        message=result.get('error', 'Failed to retrieve booking details'),
+                        status="error",
+                        errors=[],
+                        error_code=result.get('error_code', 'RETRIEVAL_ERROR'),
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                # For other booking types (HOTEL, VEHICLE, HOLIDAYPACK), use standard serializer
+                serializer = self.get_serializer(booking)
+                booking_data = serializer.data
+                
+                # Add guest access token if available
+                if booking.guest_access_token:
+                    booking_data['guest_token'] = booking.guest_access_token
+                
+                return self.get_response(
+                    status="success",
+                    data=booking_data,
+                    message="Booking details retrieved successfully",
+                    status_code=status.HTTP_200_OK
+                )
+                
+        except Exception as e:
+            logger.error(f"Error viewing guest booking: {str(e)}")
             return self.get_error_response(
                 message=str(e),
                 status="error",

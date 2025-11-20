@@ -28,6 +28,7 @@ from .serializers import (UserSignupSerializer, LoginSerializer,
 # from .emails import send_welcome_email
 
 from rest_framework.decorators import action
+from apps.authentication.throttles import SwitchGroupThrottle
 from rest_framework import viewsets
 from django.utils import timezone
 
@@ -564,7 +565,11 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
             user = serializer.validated_data['user']
-            refresh = RefreshToken.for_user(user)
+            # Use custom token with active_group support
+            from apps.authentication.tokens import CustomRefreshToken
+            # Get active_group from request if provided, otherwise use default
+            active_group = request.data.get('active_group', None)
+            refresh = CustomRefreshToken.for_user(user, active_group=active_group)
 ##            data = [serializer.data,
 ##                    {
 ##                        'refresh': str(refresh),
@@ -578,6 +583,9 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 ##                    }
 
             data = authentication_utils.user_representation(user, refresh_token=refresh)
+            # Add active_group to response
+            if refresh.get('active_group'):
+                data['user']['active_group'] = refresh['active_group']
             # Reset OTP counter after successful login
             if user.email:
                 db_utils.reset_otp_counter(user.email)
@@ -762,6 +770,7 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
         user_id = request.data.get('user_id', None)
         otp = request.data.get('otp', None)
         group_name = request.data.get("group_name", 'B2C-GRP')
+        active_group = request.data.get('active_group', None)  # Get active_group from request
 
         if not username:
             response = self.get_error_response(
@@ -820,7 +829,9 @@ class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, Log
         user_detail.default_group = group_name
         user_detail.save()
         db_utils.reset_otp_counter(username)
-        data = authentication_utils.generate_refresh_token(user_detail)
+        # Use active_group from request if provided, otherwise use group_name
+        active_group = active_group or group_name
+        data = authentication_utils.generate_refresh_token(user_detail, active_group=active_group)
         response = self.get_response(data=data, status="success",
                                      message="Login successful",
                                      status_code=status.HTTP_200_OK)
@@ -1602,6 +1613,10 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         updated_groups = list(user.groups.values_list('name', flat=True))
         updated_roles = list(user.roles.values_list('name', flat=True))
         
+        # Invalidate cached groups since they've changed
+        from apps.authentication.utils.group_utils import invalidate_user_groups_cache
+        invalidate_user_groups_cache(user.id)
+        
         response_data = {
             "user_id": user.id,
             "email": user.email,
@@ -1617,6 +1632,102 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         )
         self.log_response(response)
         return response
+    
+    @action(detail=False, methods=['POST'], url_path='switch-group',
+            permission_classes=[IsAuthenticated], url_name='switch-group',
+            throttle_classes=[SwitchGroupThrottle])
+    def switch_active_group(self, request):
+        """
+        Switch active group and get new tokens with the selected group.
+        This allows users to have different active groups in different sessions.
+        
+        Security:
+        - Validates user belongs to requested group (from database)
+        - Validates user account is active
+        - Logs all group switch attempts
+        
+        Request Body:
+            - active_group: Group name to switch to (required)
+        
+        Returns:
+            New tokens with active_group claim set
+        """
+        self.log_request(request)
+        
+        user = request.user
+        active_group = request.data.get('active_group')
+        
+        # Input validation
+        if not active_group:
+            logger.warning(f"User {user.id} attempted group switch without active_group")
+            return self.get_error_response(
+                message="active_group is required",
+                status="error",
+                errors=[{'field': 'active_group', 'message': 'active_group is required'}],
+                error_code="MISSING_ACTIVE_GROUP",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate active_group format (basic validation)
+        if not isinstance(active_group, str) or len(active_group) > 50:
+            logger.warning(f"User {user.id} provided invalid active_group format: {active_group}")
+            return self.get_error_response(
+                message="Invalid active_group format",
+                status="error",
+                errors=[{'field': 'active_group', 'message': 'Invalid format'}],
+                error_code="INVALID_FORMAT",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate that user belongs to this group (from database for security, no cache)
+        from apps.authentication.utils.group_utils import validate_user_group_membership
+        is_valid, error_msg = validate_user_group_membership(user, active_group, use_cache=False)
+        
+        if not is_valid:
+            logger.warning(
+                f"User {user.id} attempted to switch to invalid group '{active_group}': {error_msg}"
+            )
+            return self.get_error_response(
+                message=error_msg or f"User does not belong to group: {active_group}",
+                status="error",
+                errors=[{'field': 'active_group', 'message': error_msg or f'Invalid group: {active_group}'}],
+                error_code="INVALID_GROUP",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Generate new tokens with active_group
+        from apps.authentication.tokens import CustomRefreshToken
+        try:
+            refresh = CustomRefreshToken.for_user(user, active_group=active_group)
+            
+            # Invalidate cached groups (user might have switched contexts)
+            from apps.authentication.utils.group_utils import invalidate_user_groups_cache
+            invalidate_user_groups_cache(user.id)
+            
+            # Get user representation with new tokens
+            data = authentication_utils.user_representation(user, refresh_token=refresh)
+            data['user']['active_group'] = active_group
+            
+            logger.info(f"User {user.id} successfully switched to group: {active_group}")
+            
+            response = self.get_response(
+                data=data,
+                status="success",
+                message=f"Active group switched to {active_group}",
+                status_code=status.HTTP_200_OK
+            )
+            self.log_response(response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error switching group for user {user.id}: {str(e)}", exc_info=True)
+            return self.get_error_response(
+                message="Failed to switch group. Please try again.",
+                status="error",
+                errors=[],
+                error_code="SWITCH_GROUP_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'], url_path='billed-to-user',
         permission_classes=[IsAuthenticated], url_name='billed-to-user')

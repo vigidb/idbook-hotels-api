@@ -649,7 +649,33 @@ class BookingSerializer(serializers.ModelSerializer):
             if flight_booking.booking_reference and not flight_booking.booking_reference.startswith('TEMP_'):
                 company_detail.confirmation_code = flight_booking.booking_reference
         
+        # Validate company_id requirement for corporate users before saving
+        if user:
+            from apps.booking.utils.booking_utils import validate_company_id_for_corporate_user
+            # Pass request to get active_group from token
+            request = self.context.get('request')
+            is_valid, error_message = validate_company_id_for_corporate_user(user, company, request=request)
+            if not is_valid:
+                raise serializers.ValidationError({
+                    'company': error_message,
+                    'error_code': 'COMPANY_ID_REQUIRED'
+                })
+        
         company_detail.save()
+        
+        # Generate access token for all bookings (includes user group info)
+        if company_detail.user:
+            from apps.booking.utils.booking_utils import generate_guest_access_token
+            # Generate token with user information (includes group info)
+            if not company_detail.guest_access_token:
+                max_attempts = 10
+                for attempt in range(max_attempts):
+                    guest_token = generate_guest_access_token(company_detail.id, user=company_detail.user)
+                    # Check if token already exists (very unlikely but handle it)
+                    if not Booking.objects.filter(guest_access_token=guest_token).exists():
+                        company_detail.guest_access_token = guest_token
+                        company_detail.save(update_fields=['guest_access_token'])
+                        break
         
         # Calculate and save commission for flight bookings
         if booking_type == 'FLIGHT' and company_detail.subtotal:

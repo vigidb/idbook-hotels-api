@@ -276,6 +276,22 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Validate company_id requirement for corporate users
+            if booking_user:
+                from apps.booking.utils.booking_utils import validate_company_id_for_corporate_user
+                # Get company_id from request if provided
+                company_id = request.data.get('company_id') or getattr(booking_user, 'company_id', None)
+                # Pass request to get active_group from token
+                is_valid, error_message = validate_company_id_for_corporate_user(booking_user, company_id, request=request)
+                if not is_valid:
+                    return self.get_error_response(
+                        message=error_message,
+                        status="error",
+                        errors=[{'field': 'company_id', 'message': error_message}],
+                        error_code='COMPANY_ID_REQUIRED',
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            
             # Create booking WITHOUT AirIQ integration (payment pending)
             with transaction.atomic():
                 booking, flight_booking = self._create_booking_local_only(

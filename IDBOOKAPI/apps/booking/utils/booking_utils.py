@@ -57,6 +57,171 @@ def generate_booking_reference_code(booking_id, booking_type):
     reference_code = get_unique_id_from_time(reference_code)
 
     return reference_code
+
+
+def generate_guest_access_token(booking_id, user=None):
+    """
+    Generate a secure, unique token for users to access their booking.
+    This token includes user group information to determine wallet type.
+    
+    Args:
+        booking_id: The booking ID to generate token for
+        user: User instance (optional, used to include group info in token)
+        
+    Returns:
+        str: A unique secure token that includes group information
+    """
+    import secrets
+    import hashlib
+    from django.utils import timezone
+    
+    # Determine user group for token
+    user_group = None
+    if user:
+        user_group = user.default_group or ''
+        # If no default_group, check groups
+        if not user_group:
+            user_groups = list(user.groups.values_list('name', flat=True))
+            if user_groups:
+                user_group = user_groups[0]
+    
+    # Generate a cryptographically secure random token
+    # Combine booking_id, user_group, timestamp, and random bytes for uniqueness
+    timestamp = str(int(timezone.now().timestamp()))
+    random_bytes = secrets.token_bytes(32)
+    group_suffix = user_group[:10] if user_group else 'B2C'  # Limit group name length
+    
+    # Create a hash-based token that's URL-safe
+    token_data = f"{booking_id}-{group_suffix}-{timestamp}-{random_bytes.hex()}"
+    token_hash = hashlib.sha256(token_data.encode()).hexdigest()
+    
+    # Use a prefix to identify tokens and include group info
+    # Format: {type}_{group}_{hash}
+    from apps.authentication.constants import B2C_GROUPS
+    token_type = "guest" if user_group in B2C_GROUPS or not user_group else "user"
+    guest_token = f"{token_type}_{group_suffix}_{token_hash[:40]}"
+    
+    return guest_token
+
+
+def validate_guest_access_token(token):
+    """
+    Validate a guest access token and return the associated booking.
+    Token format: {type}_{group}_{hash}
+    
+    Args:
+        token: The guest access token to validate
+        
+    Returns:
+        Booking object if valid, None otherwise
+    """
+    from apps.booking.models import Booking
+    
+    try:
+        if not token or not (token.startswith('guest_') or token.startswith('user_')):
+            return None
+            
+        booking = Booking.objects.filter(guest_access_token=token).first()
+        return booking
+    except Exception as e:
+        return None
+
+
+def get_user_group_from_token(token):
+    """
+    Extract user group information from token.
+    Token format: {type}_{group}_{hash}
+    
+    Args:
+        token: The access token
+        
+    Returns:
+        str: User group name if found, None otherwise
+    """
+    try:
+        if not token:
+            return None
+        
+        # Token format: {type}_{group}_{hash}
+        parts = token.split('_')
+        if len(parts) >= 3:
+            # Group is the second part
+            return parts[1]
+        return None
+    except Exception:
+        return None
+
+
+def validate_company_id_for_corporate_user(user, company_id=None, request=None):
+    """
+    Validate that corporate users have company_id.
+    Uses active_group from token if available, otherwise falls back to default_group.
+    
+    Args:
+        user: User instance
+        company_id: Optional company_id to validate
+        request: Optional request object to extract active_group from token
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not user:
+        return True, None
+    
+    # Get active group from token or user
+    from apps.authentication.utils.token_utils import get_user_active_group
+    from apps.authentication.utils.group_utils import is_corporate_user
+    active_group = get_user_active_group(user, request)
+    
+    # Determine if user is corporate based on active_group
+    is_corporate = is_corporate_user(active_group)
+    
+    if is_corporate:
+        # Corporate users must have company_id
+        if not company_id:
+            company_id = getattr(user, 'company_id', None)
+        
+        if not company_id:
+            return False, "Company ID is required for corporate users"
+    
+    return True, None
+
+
+def get_booking_by_guest_credentials(confirmation_code=None, email=None, guest_token=None):
+    """
+    Retrieve a booking using guest credentials (confirmation_code + email or guest_token).
+    This is used for guest users who don't have authentication.
+    
+    Args:
+        confirmation_code: Booking confirmation code
+        email: Email address associated with the booking
+        guest_token: Guest access token (alternative to confirmation_code + email)
+        
+    Returns:
+        Booking object if found and valid, None otherwise
+    """
+    from apps.booking.models import Booking
+    
+    try:
+        # Option 1: Use guest token (most secure and convenient)
+        if guest_token:
+            booking = validate_guest_access_token(guest_token)
+            if booking:
+                return booking
+        
+        # Option 2: Use confirmation_code + email (fallback)
+        if confirmation_code and email:
+            booking = Booking.objects.filter(
+                confirmation_code=confirmation_code,
+                user__email__iexact=email
+            ).first()
+            
+            if booking:
+                return booking
+        
+        return None
+    except Exception as e:
+        return None
     
 
 def generate_htmlcontext_search_booking(booking):
@@ -561,22 +726,70 @@ def set_firstbooking_reward(referred_code, booked_user_id=None):
             update_wallet_transaction(wtransact_dict)
         
 
-def deduct_booking_amount(booking, company_id=None):
+def deduct_booking_amount(booking, company_id=None, request=None):
+    """
+    Deduct booking amount from appropriate wallet based on user's active group.
+    
+    Business Rules:
+    - Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): Must use company wallet (company_id required)
+    - B2C users (B2C-GRP, B2C-GUEST): Use personal wallet
+    - Other users: Use personal wallet
+    
+    Args:
+        booking: Booking instance
+        company_id: Optional company_id (will be determined from user if not provided for corporate users)
+        request: Optional request object to extract active_group from token
+    
+    Returns:
+        bool: True if deduction successful, False otherwise
+    """
     deduct_amount = booking.final_amount # - float(booking.total_payment_made)
-    if company_id:
+    
+    if not booking.user:
+        # Guest booking without user - should not happen for wallet payment
+        return False
+    
+    # Determine user's active group (from token if available, otherwise from user)
+    user = booking.user
+    from apps.authentication.utils.token_utils import get_user_active_group
+    from apps.authentication.utils.group_utils import is_corporate_user
+    active_group = get_user_active_group(user, request)
+    
+    # Check if user is a corporate user based on active_group
+    is_corporate = is_corporate_user(active_group)
+    
+    # For corporate users, company_id is required
+    if is_corporate:
+        # Use provided company_id or get from user
+        if not company_id:
+            company_id = getattr(user, 'company_id', None)
+        
+        if not company_id:
+            # Corporate user must have company_id
+            print(f"Error: Corporate user {user.id} does not have company_id for booking {booking.id}")
+            return False
+        
+        # Deduct from company wallet
         status = deduct_company_wallet_balance(company_id, deduct_amount)
-
+        
         if status:
             transaction_details = f"Amount debited for {booking.booking_type} \
     booking ({booking.confirmation_code})"
-            wtransact_dict = {'user':booking.user, 'amount':deduct_amount,
-                              'transaction_type':'Debit', 'transaction_details':transaction_details,
-                              'company_id':company_id}
+            wtransact_dict = {
+                'user': booking.user,
+                'amount': deduct_amount,
+                'transaction_type': 'Debit',
+                'transaction_details': transaction_details,
+                'company_id': company_id
+            }
             update_wallet_transaction(wtransact_dict)
+        
+        return status
     else:
+        # B2C or other users - deduct from personal wallet
+        # Ensure company_id is None for personal wallet
         status = deduct_wallet_balance(booking.user.id, deduct_amount, booking)
-
-    return status
+        return status
 
 def calculate_room_booking_amount(amount, no_of_days, no_of_rooms):    
     total_amount = (amount * no_of_rooms) * no_of_days 
@@ -631,7 +844,8 @@ def check_wallet_balance_for_booking(booking, user, company_id=None):
             bus_details = get_active_business() 
             if bus_details:
                 send_by = bus_details.user
-            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"    
+            from apps.authentication.constants import UserGroups
+            group_name = UserGroups.CORPORATE_GRP if booking.company_id else UserGroups.B2C_GRP    
             notification_dict = {'user':user, 'send_by':send_by, 'notification_type':'GENERAL',
                                  'title':'', 'description':'', 'redirect_url':'','group_name':group_name,
                                  'image_link':''}

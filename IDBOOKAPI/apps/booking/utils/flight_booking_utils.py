@@ -348,6 +348,19 @@ class FlightBookingProcessor:
         
         booking = Booking.objects.create(**booking_data)
         
+        # Generate access token for all bookings (includes user group info)
+        if booking.user:
+            from apps.booking.utils.booking_utils import generate_guest_access_token
+            # Generate token with user information (includes group info)
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                guest_token = generate_guest_access_token(booking.id, user=booking.user)
+                # Check if token already exists (very unlikely but handle it)
+                if not Booking.objects.filter(guest_access_token=guest_token).exists():
+                    booking.guest_access_token = guest_token
+                    booking.save(update_fields=['guest_access_token'])
+                    break
+        
         # Create booking meta info
         BookingMetaInfo.objects.create(
             booking=booking,
@@ -416,6 +429,19 @@ class FlightBookingProcessor:
         }
         
         booking = Booking.objects.create(**booking_data)
+        
+        # Generate access token for all bookings (includes user group info)
+        if booking.user:
+            from apps.booking.utils.booking_utils import generate_guest_access_token
+            # Generate token with user information (includes group info)
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                guest_token = generate_guest_access_token(booking.id, user=booking.user)
+                # Check if token already exists (very unlikely but handle it)
+                if not Booking.objects.filter(guest_access_token=guest_token).exists():
+                    booking.guest_access_token = guest_token
+                    booking.save(update_fields=['guest_access_token'])
+                    break
         
         # Create booking meta info (without confirmation date)
         BookingMetaInfo.objects.create(

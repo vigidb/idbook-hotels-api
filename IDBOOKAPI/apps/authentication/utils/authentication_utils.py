@@ -66,14 +66,40 @@ def user_representation(user, refresh_token=None):
 
     return user_data
 
-def generate_refresh_token(user):
-    refresh = RefreshToken.for_user(user)
+def generate_refresh_token(user, active_group=None):
+    """
+    Generate refresh token and return user representation with tokens.
+    
+    Args:
+        user: User instance
+        active_group: Optional active group name
+    
+    Returns:
+        dict: User representation with tokens
+    """
+    from apps.authentication.tokens import CustomRefreshToken
+    refresh = CustomRefreshToken.for_user(user, active_group=active_group)
     data = user_representation(user, refresh_token=refresh)
-
+    
+    # Add active_group to response if present
+    if refresh.get('active_group'):
+        data['user']['active_group'] = refresh['active_group']
+    
     return data
 
-def generate_refresh_access_token(user):
-    refresh = RefreshToken.for_user(user)
+def generate_refresh_access_token(user, active_group=None):
+    """
+    Generate refresh and access tokens for a user.
+    
+    Args:
+        user: User instance
+        active_group: Optional active group name
+    
+    Returns:
+        tuple: (refresh_token_string, access_token_string)
+    """
+    from apps.authentication.tokens import CustomRefreshToken
+    refresh = CustomRefreshToken.for_user(user, active_group=active_group)
     return str(refresh), str(refresh.access_token)
 
 def check_mobile_exist_for_group(mobile_number, grp):

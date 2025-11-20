@@ -40,11 +40,12 @@ class FlightPaymentProcessor:
     Integrates with existing payment gateways and wallet system
     """
     
-    def __init__(self, booking: Booking, user, payment_data: dict):
+    def __init__(self, booking: Booking, user, payment_data: dict, request=None):
         self.booking = booking
         self.user = user
         self.payment_data = payment_data
         self.flight_booking = booking.flight_booking
+        self.request = request  # Store request for active_group extraction
         self.last_error_message: Optional[str] = None
         
     def validate_payment_data(self) -> Tuple[bool, list]:
@@ -136,13 +137,24 @@ class FlightPaymentProcessor:
         return payment_detail
     
     def _process_wallet_payment(self, amount: Decimal, payment_detail: BookingPaymentDetail) -> Dict:
-        """Process payment via wallet"""
+        """Process payment via wallet
+        
+        Automatically determines wallet type (company vs personal) based on user's group.
+        Corporate users: company wallet (company_id required)
+        B2C users: personal wallet
+        """
         
         try:
             print("Processing wallet payment")
-            # Check wallet balance
-            company_id = self.user.company_id if hasattr(self.user, 'company_id') else None
-            print("company_id:", company_id)
+            # Check wallet balance - deduct_booking_amount will determine wallet type automatically
+            # But we still need to check balance first
+            company_id = None
+            if self.user:
+                # Get company_id from user if corporate user
+                user_default_group = getattr(self.user, 'default_group', '') or ''
+                if user_default_group in ('CORP-ADMIN', 'CORP-EMP', 'CORPORATE-GRP'):
+                    company_id = getattr(self.user, 'company_id', None)
+            
             can_pay, balance_info = check_wallet_balance_for_booking(
                 self.booking, self.user, company_id=company_id
             )
@@ -156,9 +168,11 @@ class FlightPaymentProcessor:
                     'balance_info': float(balance_info) if balance_info is not None else 0.0
                 }
             
-            # Deduct amount from wallet
+            # Deduct amount from wallet - function will automatically determine wallet type
+            # based on user's active group from token (corporate vs B2C)
+            from apps.booking.utils.booking_utils import deduct_booking_amount
             deduct_success = deduct_booking_amount(
-                self.booking, company_id=company_id
+                self.booking, company_id=company_id, request=self.request
             )
             
             if not deduct_success:

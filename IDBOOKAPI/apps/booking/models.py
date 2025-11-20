@@ -261,6 +261,8 @@ class Booking(models.Model):
     reference_code = models.CharField(max_length=500, null=True, blank=True)
     confirmation_code = models.CharField(max_length=500, null=True, blank=True)
     invoice_id = models.CharField(max_length=500, null=True, blank=True)
+    guest_access_token = models.CharField(max_length=255, null=True, blank=True, unique=True,
+                                         help_text="Secure token for guest users to access their booking without authentication")
 
     booking_type = models.CharField(max_length=25, choices=BOOKING_TYPE,
                                     default='HOTEL', help_text="booking type.")
