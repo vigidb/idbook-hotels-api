@@ -338,23 +338,41 @@ def generate_context_confirmed_booking(booking):
 
     if invoice_id:
         try:
-            invoice = Invoice.objects.get(invoice_number=invoice_id)
+            # Refresh invoice from database to get latest PDF
+            invoice = Invoice.objects.select_related().get(invoice_number=invoice_id)
             invoice_status = invoice.status or ''
-            invoice_link = invoice.invoice_pdf.url if invoice.invoice_pdf else ''
+            # Get invoice PDF URL if it exists
+            if invoice.invoice_pdf:
+                try:
+                    invoice_link = invoice.invoice_pdf.url
+                except (ValueError, AttributeError) as e:
+                    print(f"Error getting invoice PDF URL: {e}")
+                    invoice_link = ''
+            else:
+                print(f"Invoice {invoice_id} exists but invoice_pdf is not set")
         except Invoice.DoesNotExist:
+            print(f"Invoice {invoice_id} not found in database")
+            invoice = None
+        except Exception as e:
+            print(f"Error retrieving invoice {invoice_id}: {e}")
             invoice = None
 
+    # Determine payment status
     is_paid = float(total_balance_due) <= 0
     if invoice and (invoice.status or '').lower() == 'paid':
         is_paid = True
 
+    # Set document link and label based on payment status
     if invoice_link:
         if is_paid:
             document_cta_label = 'View Receipt'
-            receipt_link = invoice_link
+            document_cta_url = invoice_link
         else:
             document_cta_label = 'View Invoice'
         document_cta_url = invoice_link
+        print(f"Invoice PDF link set: {document_cta_url}, Label: {document_cta_label}, Status: {invoice_status}, Is Paid: {is_paid}")
+    else:
+        print(f"No invoice link available for booking {booking.id}, invoice_id: {invoice_id}")
 
     # invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
     occupancy = "{adult_count} Adults".format(adult_count=adult_count)

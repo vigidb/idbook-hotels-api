@@ -1,4 +1,5 @@
 import traceback
+import logging
 
 # django import
 from django.http import HttpResponse
@@ -49,6 +50,8 @@ from apps.log_management.models import WalletTransactionLog, BookingPaymentLog, 
 from django.db.models import Q
 
 User = get_user_model()
+
+logger = logging.getLogger(__name__)
 
 
 def homepage(request):
@@ -1456,13 +1459,14 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             permission_classes=[IsAuthenticated],
             url_name='default-group')
     def update_default_group(self, request):
+        self.log_request(request)
         instance = self.request.user
         user_groups = []
         
         try:
             user_groups = [ugroups.get('name', '') for ugroups in instance.groups.values('name')]
         except Exception as e:
-            print(e)   
+            logger.error(f"Error getting user groups: {str(e)}", exc_info=True)
         
         default_group = request.data.get('default_group', None)
             
@@ -1472,6 +1476,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     message="Missing default group", status="error",
                     errors=[],error_code="GROUP_MISSING",
                     status_code=status.HTTP_404_NOT_FOUND)
+                self.log_response(custom_response)
                 return custom_response
 
             if not default_group in user_groups:
@@ -1479,22 +1484,56 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     message="Group Not Mapped", status="error",
                     errors=[],error_code="GROUP_MISSING",
                     status_code=status.HTTP_404_NOT_FOUND)
+                self.log_response(custom_response)
                 return custom_response
             
             instance.default_group = default_group
             instance.save()
-            custom_response = self.get_response(
-                status='success',
-                data=[],  # Use the data from the default response
-                message="Default Group Updated",
-                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+            
+            # Generate new tokens with updated default_group as active_group (same format as login)
+            from apps.authentication.tokens import CustomRefreshToken
+            try:
+                refresh = CustomRefreshToken.for_user(instance, active_group=default_group)
+                
+                # Invalidate cached groups (user might have switched contexts)
+                from apps.authentication.utils.group_utils import invalidate_user_groups_cache
+                invalidate_user_groups_cache(instance.id)
+                
+                # Get user representation with new tokens (same format as login)
+                data = authentication_utils.user_representation(instance, refresh_token=refresh)
+                # Add active_group to response (matching login endpoint format)
+                if refresh.get('active_group'):
+                    data['user']['active_group'] = refresh['active_group']
+                else:
+                    data['user']['active_group'] = default_group
+                
+                logger.info(f"User {instance.id} updated default group to: {default_group}")
+                
+                custom_response = self.get_response(
+                    data=data,
+                    status='success',
+                    message="Default Group Updated",
+                    status_code=status.HTTP_200_OK
+                )
+                self.log_response(custom_response)
+                return custom_response
+                
+            except Exception as e:
+                logger.error(f"Error generating tokens for user {instance.id}: {str(e)}", exc_info=True)
+                return self.get_error_response(
+                    message="Failed to update default group. Please try again.",
+                    status="error",
+                    errors=[],
+                    error_code="UPDATE_GROUP_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
         else:
             custom_response = self.get_error_response(
                 message="User Not Found", status="error",
                 errors=[],error_code="USER_MISSING",
                 status_code=status.HTTP_404_NOT_FOUND)
-        return custom_response
+            self.log_response(custom_response)
+            return custom_response
         
     @action(detail=False, methods=['POST'], url_path='update-groups-roles',
             permission_classes=[IsAuthenticated],
@@ -1704,9 +1743,13 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             from apps.authentication.utils.group_utils import invalidate_user_groups_cache
             invalidate_user_groups_cache(user.id)
             
-            # Get user representation with new tokens
+            # Get user representation with new tokens (same format as login)
             data = authentication_utils.user_representation(user, refresh_token=refresh)
-            data['user']['active_group'] = active_group
+            # Add active_group to response (matching login endpoint format)
+            if refresh.get('active_group'):
+                data['user']['active_group'] = refresh['active_group']
+            else:
+                data['user']['active_group'] = active_group
             
             logger.info(f"User {user.id} successfully switched to group: {active_group}")
             

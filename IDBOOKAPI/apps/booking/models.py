@@ -280,7 +280,7 @@ class Booking(models.Model):
 
     adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
     child_count = models.PositiveSmallIntegerField(default=0, help_text="children count")
-    child_age_list = models.JSONField(null=True, default=list)
+    child_age_list = models.JSONField(null=True, default=list,blank=True,)
     infant_count = models.PositiveSmallIntegerField(default=0, help_text="infant count")
 
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL,
@@ -308,7 +308,7 @@ class Booking(models.Model):
         max_digits=20, decimal_places=6, default=0.0, help_text="Total Payment made")
     
     status = models.CharField(max_length=100, choices=BOOKING_STATUS_CHOICES, default="pending")
-    on_hold_end_time = models.DateTimeField(null=True)
+    on_hold_end_time = models.DateTimeField(null=True, blank=True, help_text="Booking hold end time")
     
     description = models.TextField(default='', blank=True)
     additional_notes = models.TextField(default='', blank=True)

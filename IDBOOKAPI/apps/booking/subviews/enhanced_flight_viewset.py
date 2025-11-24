@@ -142,7 +142,8 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 ),
                 'BlockPNR': openapi.Schema(type=openapi.TYPE_BOOLEAN, default=False),
                 'guest_booking': openapi.Schema(type=openapi.TYPE_BOOLEAN, default=False),
-                'otp': openapi.Schema(type=openapi.TYPE_STRING, description='OTP for guest booking verification')
+                'otp': openapi.Schema(type=openapi.TYPE_STRING, description='OTP for guest booking verification'),
+                'company_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='Company ID (required for corporate users)')
             }
         ),
         responses={
@@ -277,25 +278,68 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 )
             
             # Validate company_id requirement for corporate users
+            company_id = None
+            company = None
             if booking_user:
-                from apps.booking.utils.booking_utils import validate_company_id_for_corporate_user
-                # Get company_id from request if provided
-                company_id = request.data.get('company_id') or getattr(booking_user, 'company_id', None)
-                # Pass request to get active_group from token
-                is_valid, error_message = validate_company_id_for_corporate_user(booking_user, company_id, request=request)
-                if not is_valid:
-                    return self.get_error_response(
-                        message=error_message,
-                        status="error",
-                        errors=[{'field': 'company_id', 'message': error_message}],
-                        error_code='COMPANY_ID_REQUIRED',
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    )
+                from apps.authentication.utils.token_utils import get_user_active_group
+                from apps.authentication.utils.group_utils import is_corporate_user
+                from apps.org_resources.models import CompanyDetail
+                
+                # Get active group from token to determine if user is corporate
+                active_group = get_user_active_group(booking_user, request)
+                is_corporate = is_corporate_user(active_group)
+                
+                if is_corporate:
+                    # For corporate users, company_id MUST be provided in the request
+                    company_id = request.data.get('company_id')
+                    if not company_id:
+                        return self.get_error_response(
+                            message="Company ID is required for corporate users",
+                            status="error",
+                            errors=[{'field': 'company_id', 'message': 'Company ID is required for corporate users'}],
+                            error_code='COMPANY_ID_REQUIRED',
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Validate that the company exists
+                    try:
+                        company = CompanyDetail.objects.get(id=company_id)
+                        # Validate that the company_id matches user's company_id (if user has one)
+                        if booking_user.company_id and booking_user.company_id != int(company_id):
+                            return self.get_error_response(
+                                message="Company ID does not match your assigned company",
+                                status="error",
+                                errors=[{'field': 'company_id', 'message': 'Company ID does not match your assigned company'}],
+                                error_code='INVALID_COMPANY_ID',
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                    except CompanyDetail.DoesNotExist:
+                        return self.get_error_response(
+                            message="Invalid Company ID",
+                            status="error",
+                            errors=[{'field': 'company_id', 'message': 'Company ID does not exist'}],
+                            error_code='INVALID_COMPANY_ID',
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
+                else:
+                    # For non-corporate users, allow optional company_id from request
+                    company_id = request.data.get('company_id')
+                    if company_id:
+                        try:
+                            company = CompanyDetail.objects.get(id=company_id)
+                        except CompanyDetail.DoesNotExist:
+                            return self.get_error_response(
+                                message="Invalid Company ID",
+                                status="error",
+                                errors=[{'field': 'company_id', 'message': 'Company ID does not exist'}],
+                                error_code='INVALID_COMPANY_ID',
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
             
             # Create booking WITHOUT AirIQ integration (payment pending)
             with transaction.atomic():
                 booking, flight_booking = self._create_booking_local_only(
-                    processor, request.data, pricing_validation
+                    processor, request.data, pricing_validation, company=company
                 )
                 
                 # Create 5-minute payment lock
@@ -314,6 +358,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 'total_amount': float(booking.final_amount),
                 'payment_expires_at': payment_expires_at.isoformat(),
                 'payment_lock_duration': 5,  # minutes
+                'guest_token': booking.guest_access_token,  # Include guest token for guest bookings
                 'booking_details': {
                     'flying_from': flight_booking.flying_from,
                     'flying_to': flight_booking.flying_to,
@@ -1878,11 +1923,16 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         return booking_data
     
     def _create_booking_local_only(self, processor: FlightBookingProcessor, 
-                                 request_data: dict, pricing_validation: dict) -> tuple:
+                                 request_data: dict, pricing_validation: dict, company=None) -> tuple:
         """Create booking locally without AirIQ integration"""
         
         # Create local booking records only
         booking, flight_booking = processor.create_booking_without_airiq()
+        
+        # Set company if provided
+        if company:
+            booking.company = company
+            booking.save(update_fields=['company'])
         
         # Store normalized AirIQ request data (without AgentInfo)
         airiq_req_struct = self._build_airiq_booking_request(request_data, pricing_validation)

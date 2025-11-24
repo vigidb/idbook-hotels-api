@@ -45,6 +45,8 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
     file = None
     if booking:
         if booking_type == 'confirmed-booking':
+            # Refresh booking from database to get latest invoice_id
+            booking = get_booking(booking_id)
             user_email = booking.user.email
             print("Inside Confirmd ")
             subject = "Booking Confirmed"

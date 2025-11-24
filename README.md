@@ -171,3 +171,14 @@ pg_dump -h localhost -U <db_username> -Fc <database_name> > db_backup.dump
 ```
 python manage.py import_openflights_airlines --truncate
 ```
+
+## Accessing with Ngrok for Payment Gateway testing
+#### Run Server
+```
+python manage.py runserver 0.0.0.0:8000
+```
+
+#### Bind port
+```
+ngrok http 8000
+```
