@@ -2766,7 +2766,8 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         Cancel flight booking or check cancellation penalty
         
         This endpoint cancels a flight booking via AirIQ or checks cancellation penalty.
-        The booking must have valid AirIQ PNR.
+        Supports multiple itineraries (round-trip, connecting flights) - cancels all flights
+        and sums up penalties/refunds.
         """
         try:
             booking, flight_booking = self.get_flight_booking(booking_id)
@@ -2775,14 +2776,6 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             if flight_booking.status in ['CANCELLED']:
                 return self.get_error_response(
                     message="Booking is already cancelled",
-                    status="error",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Validate required AirIQ data
-            if not flight_booking.airiq_pnr:
-                return self.get_error_response(
-                    message="Flight booking missing AirIQ PNR",
                     status="error",
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
@@ -2799,7 +2792,6 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Call AirIQ service to cancel booking or check penalty
             # Persist cancel remark if provided
             if remarks:
                 try:
@@ -2807,82 +2799,200 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     flight_booking.save(update_fields=['cancel_remark'])
                 except Exception:
                     pass
-            cancellation_response = airiq_service.cancel_booking(
-                airiq_pnr=flight_booking.airiq_pnr,
-                flag=flag,
-                remarks=remarks
-            )
             
-            # Extract penalty if present and persist for reference
-            penalty_amount_str = (cancellation_response or {}).get('PenalityAmount') or '0'
-            try:
-                penalty_amount = float(penalty_amount_str)
-            except Exception:
-                penalty_amount = 0.0
+            # Determine all PNRs to cancel - support multiple itineraries
+            pnrs_to_cancel = []
             
+            # Check if we have multiple itineraries in booked_itineraries
+            booked_itineraries = flight_booking.booked_itineraries or []
+            if booked_itineraries:
+                # Extract PNRs from booked_itineraries
+                for itin in booked_itineraries:
+                    airiq_pnr = itin.get('airiq_pnr', '').strip()
+                    if airiq_pnr and airiq_pnr.upper() not in ('N/A', 'NA', 'NULL', ''):
+                        pnrs_to_cancel.append({
+                            'airiq_pnr': airiq_pnr,
+                            'amount': itin.get('amount', '0'),
+                            'track_id': itin.get('track_id', '')
+                        })
+            
+            # Fallback to airiq_pnrs list if booked_itineraries is empty
+            if not pnrs_to_cancel:
+                airiq_pnrs_list = flight_booking.airiq_pnrs or []
+                if airiq_pnrs_list:
+                    for pnr in airiq_pnrs_list:
+                        if pnr and str(pnr).strip().upper() not in ('N/A', 'NA', 'NULL', ''):
+                            pnrs_to_cancel.append({
+                                'airiq_pnr': str(pnr).strip(),
+                                'amount': '0',  # Amount not available in airiq_pnrs
+                                'track_id': ''
+                            })
+            
+            # Final fallback to single airiq_pnr field
+            if not pnrs_to_cancel:
+                if flight_booking.airiq_pnr and flight_booking.airiq_pnr.strip().upper() not in ('N/A', 'NA', 'NULL', ''):
+                    pnrs_to_cancel.append({
+                        'airiq_pnr': flight_booking.airiq_pnr.strip(),
+                        'amount': '0',
+                        'track_id': flight_booking.airiq_track_id or ''
+                    })
+            
+            # Validate that we have at least one PNR
+            if not pnrs_to_cancel:
+                return self.get_error_response(
+                    message="Flight booking missing AirIQ PNR(s)",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Cancel all itineraries and collect responses/penalties
+            all_cancellation_responses = []
+            total_penalty_amount = 0.0
+            cancellation_errors = []
+            
+            for pnr_info in pnrs_to_cancel:
+                airiq_pnr = pnr_info['airiq_pnr']
+                try:
+                    cancellation_response = airiq_service.cancel_booking(
+                        airiq_pnr=airiq_pnr,
+                        flag=flag,
+                        remarks=remarks
+                    )
+                    
+                    # Extract penalty if present
+                    penalty_amount_str = (cancellation_response or {}).get('PenalityAmount') or '0'
+                    try:
+                        penalty_amount = float(penalty_amount_str)
+                        total_penalty_amount += penalty_amount
+                    except Exception:
+                        penalty_amount = 0.0
+                    
+                    all_cancellation_responses.append({
+                        'airiq_pnr': airiq_pnr,
+                        'response': cancellation_response,
+                        'penalty_amount': penalty_amount,
+                        'success': True
+                    })
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    cancellation_errors.append({
+                        'airiq_pnr': airiq_pnr,
+                        'error': error_msg
+                    })
+                    all_cancellation_responses.append({
+                        'airiq_pnr': airiq_pnr,
+                        'response': None,
+                        'penalty_amount': 0.0,
+                        'success': False,
+                        'error': error_msg
+                    })
+                    logger.error(f"Error cancelling PNR {airiq_pnr}: {error_msg}")
+            
+            # If checking penalty only, return aggregated penalty info
             if flag == 'PENALTY':
                 # Persist last known penalty on the flight booking JSON field
                 pv = flight_booking.pricing_validation_data or {}
                 pv['cancel_penalty'] = {
-                    'amount': penalty_amount,
-                    'retrieved_at': str(timezone.now())
+                    'amount': total_penalty_amount,
+                    'retrieved_at': str(timezone.now()),
+                    'per_itinerary': [
+                        {
+                            'airiq_pnr': resp['airiq_pnr'],
+                            'penalty_amount': resp['penalty_amount']
+                        }
+                        for resp in all_cancellation_responses
+                    ]
                 }
                 flight_booking.pricing_validation_data = pv
                 flight_booking.save(update_fields=['pricing_validation_data'])
                 
                 self.log_info(
-                    f"Cancellation penalty checked for booking {booking_id}",
+                    f"Cancellation penalty checked for booking {booking_id} ({len(pnrs_to_cancel)} itineraries)",
                     extra={
                         'booking_id': booking_id,
                         'flight_booking_id': flight_booking.id,
-                        'user_id': request.user.id
+                        'user_id': request.user.id,
+                        'total_penalty': total_penalty_amount,
+                        'itinerary_count': len(pnrs_to_cancel)
                     }
                 )
-                message = "Cancellation penalty retrieved successfully"
+                
+                message = f"Cancellation penalty retrieved successfully for {len(pnrs_to_cancel)} itinerary(ies)"
+                if cancellation_errors:
+                    message += f". {len(cancellation_errors)} error(s) occurred."
+                
                 return self.get_response(
                     data={
-                        'cancellation_response': cancellation_response,
-                        'booking_status': flight_booking.status
+                        'cancellation_responses': all_cancellation_responses,
+                        'total_penalty_amount': total_penalty_amount,
+                        'booking_status': flight_booking.status,
+                        'errors': cancellation_errors if cancellation_errors else None
                     },
                     message=message,
                     status="success",
                     status_code=status.HTTP_200_OK
                 )
             
-            # Actual cancellation path
+            # Actual cancellation path - check if all cancellations succeeded
+            if cancellation_errors:
+                # Some cancellations failed - log but continue with refund calculation
+                logger.warning(
+                    f"Some itineraries failed to cancel for booking {booking_id}. "
+                    f"Errors: {cancellation_errors}"
+                )
             
-            flight_booking.status = 'CANCELLED'
-            flight_booking.cancelled_at = timezone.now()
-            flight_booking.save(update_fields=['status', 'cancelled_at'])
+            # Update booking status only if at least one cancellation succeeded
+            successful_cancellations = [r for r in all_cancellation_responses if r.get('success')]
+            if successful_cancellations:
+                flight_booking.status = 'CANCELLED'
+                flight_booking.cancelled_at = timezone.now()
+                flight_booking.save(update_fields=['status', 'cancelled_at'])
+                
+                # Update main booking status
+                booking.status = 'canceled'
+                booking.save(update_fields=['status'])
             
-            # Update main booking status
-            booking.status = 'canceled'
-            booking.save(update_fields=['status'])
-            
-            # Compute refund = total_paid - penalty
+            # Compute refund = total_paid - total_penalty (sum of all penalties)
             from django.db.models import Sum
             total_paid = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
             try:
                 total_paid_float = float(total_paid)
             except Exception:
                 total_paid_float = 0.0
-            net_refund = max(total_paid_float - penalty_amount, 0.0)
+            
+            net_refund = max(total_paid_float - total_penalty_amount, 0.0)
             
             # Process refund using existing manager
             refund_summary = {
-                'penalty_amount': penalty_amount,
+                'penalty_amount': total_penalty_amount,
                 'total_paid': total_paid_float,
-                'refund_amount': net_refund
+                'refund_amount': net_refund,
+                'itineraries_cancelled': len(successful_cancellations),
+                'total_itineraries': len(pnrs_to_cancel),
+                'cancellation_details': [
+                    {
+                        'airiq_pnr': resp['airiq_pnr'],
+                        'penalty_amount': resp['penalty_amount'],
+                        'success': resp.get('success', False)
+                    }
+                    for resp in all_cancellation_responses
+                ]
             }
+            
             if net_refund > 0:
                 from apps.booking.utils.flight_booking_utils import FlightCancellationManager
                 cancel_mgr = FlightCancellationManager(booking)
                 cancellation_details = {
-                    'airiq_response': cancellation_response,
-                    'penalty_amount': penalty_amount,
-                    'total_paid': total_paid_float
+                    'airiq_responses': all_cancellation_responses,
+                    'total_penalty_amount': total_penalty_amount,
+                    'total_paid': total_paid_float,
+                    'itinerary_count': len(pnrs_to_cancel)
                 }
-                success, refund_status, refund_data = cancel_mgr.process_refund(Decimal(str(net_refund)), cancellation_details)
+                success, refund_status, refund_data = cancel_mgr.process_refund(
+                    Decimal(str(net_refund)), 
+                    cancellation_details
+                )
                 refund_summary['refund_status'] = refund_status
                 # refund_data may contain Decimals; ensure primitive types
                 try:
@@ -2894,23 +3004,29 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 refund_summary['refund_status'] = 'no_refund'
             
             self.log_info(
-                f"Booking {booking_id} cancelled successfully",
+                f"Booking {booking_id} cancelled successfully ({len(successful_cancellations)}/{len(pnrs_to_cancel)} itineraries)",
                 extra={
                     'booking_id': booking_id,
                     'flight_booking_id': flight_booking.id,
-                    'airiq_pnr': flight_booking.airiq_pnr,
+                    'airiq_pnrs': [p['airiq_pnr'] for p in pnrs_to_cancel],
                     'user_id': request.user.id,
-                    'refund_summary': refund_summary
+                    'refund_summary': refund_summary,
+                    'cancellation_errors': cancellation_errors if cancellation_errors else None
                 }
             )
             
+            message = f"Booking cancelled successfully ({len(successful_cancellations)}/{len(pnrs_to_cancel)} itineraries)"
+            if cancellation_errors:
+                message += f". {len(cancellation_errors)} cancellation(s) had errors."
+            
             return self.get_response(
                 data={
-                    'cancellation_response': cancellation_response,
+                    'cancellation_responses': all_cancellation_responses,
                     'booking_status': flight_booking.status,
-                    'refund': refund_summary
+                    'refund': refund_summary,
+                    'errors': cancellation_errors if cancellation_errors else None
                 },
-                message="Booking cancelled successfully",
+                message=message,
                 status="success",
                 status_code=status.HTTP_200_OK
             )

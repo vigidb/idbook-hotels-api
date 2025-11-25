@@ -51,10 +51,13 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
     def customer_filter_ops(self):
         filter_dict = {}
-        company_id, user_id = None, None
         user = self.request.user
-        print("user category:: ", user.category)
-        # user.category = 'B-ADMIN'
+        
+        # Get active group from token, fall back to default_group
+        from apps.authentication.utils.token_utils import get_user_active_group
+        from apps.authentication.constants import UserGroups, CORPORATE_GROUPS, B2C_GROUPS
+        active_group = get_user_active_group(user, self.request)
+        default_group = active_group or user.default_group
 
         # fetch filter parameters
         param_dict= self.request.query_params
@@ -63,25 +66,37 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
             if key in ('group_name', 'department', 'privileged', 'active'):
                 filter_dict[key] = param_value
-            if key == 'company_id':
-                company_id =  param_value
-            elif key == 'user_id':
-                user_id = param_value
         
-##        if user.category == 'B-ADMIN':
-##             company_id = self.request.query_params.get('company_id', None)
-##             user_id = self.request.query_params.get('user_id', None)
-##        if user.category == 'CL-ADMIN':
-##            company_id = user.company_id if user.company_id else -1
-##            # user_id = self.request.query_params.get('user_id', None)
-##        elif user.category == 'CL-CUST':
-##            user_id = user.id
+        # Apply permission-based filtering based on user's active group
+        # Normal users (B2C-GRP, B2C-GUEST): can only see their own customer record
+        if default_group in B2C_GROUPS:
+            filter_dict['user'] = user.id
         
-        #company_id = 25    
-        if company_id:
-            filter_dict['user__company_id'] = company_id
-        if user_id:
-            filter_dict['user__id'] = user_id
+        # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see customers from their company
+        elif default_group in CORPORATE_GROUPS:
+            # All corporate users can see all customers for their company
+            if user.company_id:
+                filter_dict['user__company_id'] = user.company_id
+            else:
+                # If user has no company_id, they shouldn't see any customers
+                filter_dict['user__company_id'] = -1  # This will return empty queryset
+        
+        # Business users (BUSINESS-GRP, BUS-ADMIN): can see all customers (no filter)
+        elif default_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
+            # No filtering - business users can see all customers
+            # Allow query params to filter if provided
+            if 'company_id' in param_dict:
+                filter_dict['user__company_id'] = param_dict['company_id']
+            if 'user_id' in param_dict:
+                filter_dict['user'] = param_dict['user_id']
+        
+        # Hotelier/Franchise admins: no filtering (existing behavior)
+        elif default_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
+            # Allow query params to filter if provided
+            if 'company_id' in param_dict:
+                filter_dict['user__company_id'] = param_dict['company_id']
+            if 'user_id' in param_dict:
+                filter_dict['user'] = param_dict['user_id']
 
         # filter 
         self.queryset = self.queryset.filter(**filter_dict)
