@@ -56,8 +56,31 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
     """
     permission_classes = [AllowAny]  # Handle auth in individual methods
 
-    def get_flight_booking(self, booking_id):
-        """Helper to fetch booking and attached flight booking with access validation."""
+    def get_flight_booking(self, booking_id, guest_token=None):
+        """Helper to fetch booking and attached flight booking with access validation.
+        Supports both authenticated users and guest token access.
+        """
+        from apps.booking.utils.booking_utils import validate_guest_access_token
+        
+        # Check if guest_token is provided (from request data or query params)
+        if not guest_token and hasattr(self, 'request'):
+            guest_token = self.request.data.get('guest_token') or self.request.query_params.get('guest_token')
+        
+        # If guest_token is provided, validate it and get booking
+        if guest_token:
+            booking = validate_guest_access_token(guest_token)
+            if not booking:
+                raise ValueError("Invalid guest token")
+            if booking.booking_type != 'FLIGHT':
+                raise ValueError("Booking is not a flight booking")
+            # If booking_id is provided, verify it matches the booking from token
+            if booking_id and booking.id != int(booking_id):
+                raise ValueError("Booking ID does not match guest token")
+            if not booking.flight_booking:
+                raise ValueError("Flight booking details not found")
+            return booking, booking.flight_booking
+        
+        # Standard authenticated user path
         booking = get_object_or_404(
             Booking.objects.select_related('flight_booking'),
             id=booking_id,
@@ -2731,6 +2754,10 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 'remarks': openapi.Schema(
                     type=openapi.TYPE_STRING,
                     description="Cancellation remarks (optional)"
+                ),
+                'guest_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Guest access token (required for guest bookings, optional for authenticated users)"
                 )
             }
         ),
@@ -2768,9 +2795,18 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         This endpoint cancels a flight booking via AirIQ or checks cancellation penalty.
         Supports multiple itineraries (round-trip, connecting flights) - cancels all flights
         and sums up penalties/refunds.
+        
+        Supports both authenticated users and guest bookings:
+        - Authenticated users: Use JWT token in Authorization header
+        - Guest users: Provide guest_token in request body or query params
+        
+        Important: Refunds are only processed if at least one cancellation succeeds.
+        If all cancellations fail, booking status remains unchanged and no refund is processed.
         """
         try:
-            booking, flight_booking = self.get_flight_booking(booking_id)
+            # Support guest_token for guest bookings
+            guest_token = request.data.get('guest_token') or request.query_params.get('guest_token')
+            booking, flight_booking = self.get_flight_booking(booking_id, guest_token=guest_token)
             
             # Validate booking status
             if flight_booking.status in ['CANCELLED']:
@@ -2935,25 +2971,48 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 )
             
             # Actual cancellation path - check if all cancellations succeeded
-            if cancellation_errors:
-                # Some cancellations failed - log but continue with refund calculation
-                logger.warning(
-                    f"Some itineraries failed to cancel for booking {booking_id}. "
-                    f"Errors: {cancellation_errors}"
+            successful_cancellations = [r for r in all_cancellation_responses if r.get('success')]
+            
+            # CRITICAL: If ALL cancellations failed, do NOT process refunds or update status
+            if not successful_cancellations:
+                # All cancellations failed - return error response
+                error_messages = [err['error'] for err in cancellation_errors]
+                combined_error = "; ".join(error_messages[:3])  # Limit to first 3 errors
+                
+                self.log_error(
+                    f"All cancellations failed for booking {booking_id}. No refund processed.",
+                    extra={
+                        'booking_id': booking_id,
+                        'flight_booking_id': flight_booking.id,
+                        'airiq_pnrs': [p['airiq_pnr'] for p in pnrs_to_cancel],
+                        'user_id': request.user.id if request.user.is_authenticated else None,
+                        'cancellation_errors': cancellation_errors
+                    }
+                )
+                
+                return self.get_response(
+                    data={
+                        'cancellation_responses': all_cancellation_responses,
+                        'booking_status': flight_booking.status,
+                        'errors': cancellation_errors
+                    },
+                    message=f"Cancellation failed for all itineraries. {combined_error}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    is_error=True
                 )
             
+            # At least one cancellation succeeded - proceed with status update and refund
             # Update booking status only if at least one cancellation succeeded
-            successful_cancellations = [r for r in all_cancellation_responses if r.get('success')]
-            if successful_cancellations:
-                flight_booking.status = 'CANCELLED'
-                flight_booking.cancelled_at = timezone.now()
-                flight_booking.save(update_fields=['status', 'cancelled_at'])
-                
-                # Update main booking status
-                booking.status = 'canceled'
-                booking.save(update_fields=['status'])
+            flight_booking.status = 'CANCELLED'
+            flight_booking.cancelled_at = timezone.now()
+            flight_booking.save(update_fields=['status', 'cancelled_at'])
             
-            # Compute refund = total_paid - total_penalty (sum of all penalties)
+            # Update main booking status
+            booking.status = 'canceled'
+            booking.save(update_fields=['status'])
+            
+            # Compute refund = total_paid - total_penalty (sum of all penalties from successful cancellations)
             from django.db.models import Sum
             total_paid = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
             try:
@@ -2961,11 +3020,17 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             except Exception:
                 total_paid_float = 0.0
             
-            net_refund = max(total_paid_float - total_penalty_amount, 0.0)
+            # Only sum penalties from successful cancellations
+            successful_penalty_total = sum(
+                resp.get('penalty_amount', 0.0) 
+                for resp in successful_cancellations
+            )
+            
+            net_refund = max(total_paid_float - successful_penalty_total, 0.0)
             
             # Process refund using existing manager
             refund_summary = {
-                'penalty_amount': total_penalty_amount,
+                'penalty_amount': successful_penalty_total,
                 'total_paid': total_paid_float,
                 'refund_amount': net_refund,
                 'itineraries_cancelled': len(successful_cancellations),
@@ -2985,9 +3050,10 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 cancel_mgr = FlightCancellationManager(booking)
                 cancellation_details = {
                     'airiq_responses': all_cancellation_responses,
-                    'total_penalty_amount': total_penalty_amount,
+                    'total_penalty_amount': successful_penalty_total,
                     'total_paid': total_paid_float,
-                    'itinerary_count': len(pnrs_to_cancel)
+                    'itinerary_count': len(pnrs_to_cancel),
+                    'successful_cancellations': len(successful_cancellations)
                 }
                 success, refund_status, refund_data = cancel_mgr.process_refund(
                     Decimal(str(net_refund)), 
@@ -3003,13 +3069,21 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             else:
                 refund_summary['refund_status'] = 'no_refund'
             
+            # Log warning if some cancellations failed
+            if cancellation_errors:
+                logger.warning(
+                    f"Partial cancellation for booking {booking_id}: "
+                    f"{len(successful_cancellations)}/{len(pnrs_to_cancel)} succeeded. "
+                    f"Errors: {cancellation_errors}"
+                )
+            
             self.log_info(
                 f"Booking {booking_id} cancelled successfully ({len(successful_cancellations)}/{len(pnrs_to_cancel)} itineraries)",
                 extra={
                     'booking_id': booking_id,
                     'flight_booking_id': flight_booking.id,
                     'airiq_pnrs': [p['airiq_pnr'] for p in pnrs_to_cancel],
-                    'user_id': request.user.id,
+                    'user_id': request.user.id if request.user.is_authenticated else None,
                     'refund_summary': refund_summary,
                     'cancellation_errors': cancellation_errors if cancellation_errors else None
                 }
