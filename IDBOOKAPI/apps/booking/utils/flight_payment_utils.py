@@ -48,8 +48,12 @@ class FlightPaymentProcessor:
         self.request = request  # Store request for active_group extraction
         self.last_error_message: Optional[str] = None
         
-    def validate_payment_data(self) -> Tuple[bool, list]:
-        """Validate payment request data"""
+    def validate_payment_data(self, allow_confirmed: bool = False) -> Tuple[bool, list]:
+        """Validate payment request data
+        
+        Args:
+            allow_confirmed: If True, allows payment for confirmed bookings (for reschedule/SSR)
+        """
         errors = []
         
         # Check required fields
@@ -58,18 +62,22 @@ class FlightPaymentProcessor:
             if field not in self.payment_data:
                 errors.append(f"Field '{field}' is required")
         
-        # Validate amount matches booking total
+        # Validate amount
         if 'amount' in self.payment_data:
             try:
                 request_amount = Decimal(str(self.payment_data['amount']))
-                if request_amount != self.booking.final_amount:
+                if request_amount <= 0:
+                    errors.append("Amount must be greater than zero")
+                # For reschedule/SSR, amount may not match booking total
+                if not allow_confirmed and request_amount != self.booking.final_amount:
                     errors.append(f"Amount mismatch. Expected: {self.booking.final_amount}, Got: {request_amount}")
             except (ValueError, TypeError):
                 errors.append("Invalid amount format")
         
         # Check if booking is eligible for payment
-        if self.booking.status == 'confirmed':
-            errors.append("Booking is already confirmed")
+        if not allow_confirmed:
+            if self.booking.status == 'confirmed':
+                errors.append("Booking is already confirmed")
         
         if self.booking.status == 'canceled':
             errors.append("Cannot process payment for cancelled booking")
@@ -82,11 +90,15 @@ class FlightPaymentProcessor:
             
         return len(errors) == 0, errors
     
-    def initiate_payment(self) -> Dict:
-        """Initiate payment based on selected payment channel"""
+    def initiate_payment(self, allow_confirmed: bool = False) -> Dict:
+        """Initiate payment based on selected payment channel
+        
+        Args:
+            allow_confirmed: If True, allows payment for confirmed bookings (for reschedule/SSR)
+        """
         
         # Validate payment data
-        is_valid, errors = self.validate_payment_data()
+        is_valid, errors = self.validate_payment_data(allow_confirmed=allow_confirmed)
         if not is_valid:
             return {
                 'success': False,
@@ -99,7 +111,9 @@ class FlightPaymentProcessor:
         
         # Create payment detail record
         try:
-            payment_detail = self._create_payment_detail_record(amount)
+            transaction_type = self.payment_data.get('transaction_type', 'flight_booking_payment')
+            metadata = self.payment_data.get('metadata', {})
+            payment_detail = self._create_payment_detail_record(amount, transaction_type, metadata)
         except Exception as e:
             logger.error(f"Error creating payment detail: {str(e)}")
             return {
@@ -122,16 +136,29 @@ class FlightPaymentProcessor:
                 'error_code': 'UNSUPPORTED_PAYMENT_CHANNEL'
             }
     
-    def _create_payment_detail_record(self, amount: Decimal) -> BookingPaymentDetail:
-        """Create payment detail record for the booking"""
+    def _create_payment_detail_record(self, amount: Decimal, transaction_type: str = "flight_booking_payment", metadata: dict = None) -> BookingPaymentDetail:
+        """Create payment detail record for the booking
+        
+        Args:
+            amount: Payment amount
+            transaction_type: Type of transaction (flight_booking_payment, reschedule_payment, ssr_payment)
+            metadata: Additional metadata to store in transaction_details
+        """
         
         # Generate unique merchant transaction ID
-        append_id = f"FL{self.user.id}" if self.user else "FLGUEST"
+        prefix = {
+            "flight_booking_payment": "FL",
+            "reschedule_payment": "RS",
+            "ssr_payment": "SSR"
+        }.get(transaction_type, "FL")
+        append_id = f"{prefix}{self.user.id}" if self.user else f"{prefix}GUEST"
         payment_detail = create_booking_payment_details(self.booking.id, append_id)
         
         # Update with flight-specific details
         payment_detail.amount = float(amount)
-        payment_detail.transaction_for = "flight_booking_payment"
+        payment_detail.transaction_for = "others"
+        if metadata:
+            payment_detail.transaction_details = metadata
         payment_detail.save()
         
         return payment_detail
@@ -191,6 +218,20 @@ class FlightPaymentProcessor:
                 'is_transaction_success': True,
                 'transaction_id': payment_detail.merchant_transaction_id
             })
+            
+            # For reschedule/SSR, update booking amount and skip AirIQ booking
+            transaction_type = self.payment_data.get('transaction_type', 'flight_booking_payment')
+            if transaction_type in ('reschedule_payment', 'ssr_payment'):
+                # Update booking total payment made
+                self.booking.total_payment_made = (self.booking.total_payment_made or Decimal('0')) + amount
+                self.booking.save(update_fields=['total_payment_made'])
+                self._send_booking_notifications()
+                return {
+                    'success': True,
+                    'payment_method': 'wallet',
+                    'transaction_id': payment_detail.merchant_transaction_id,
+                    'message': 'Payment successful via wallet'
+                }
             
             # Confirm booking (calls AirIQ Book); if it fails, refund wallet and revert states
             confirmed = self._confirm_flight_booking()
@@ -902,7 +943,7 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
     """
     
     try:
-        from ..models import Booking
+        from ..models import Booking, BookingPaymentDetail
         
         # Get the booking
         booking = Booking.objects.select_related('flight_booking', 'user').get(
@@ -913,7 +954,37 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
             logger.error(f"Flight booking details not found for booking {booking_id}")
             return False
         
-        # Create processor instance
+        # Get transaction type from payment detail if available
+        transaction_id = payment_details.get('transaction_id', '')
+        transaction_type = 'flight_booking_payment'
+        if transaction_id:
+            try:
+                payment_detail = BookingPaymentDetail.objects.filter(
+                    merchant_transaction_id=transaction_id
+                ).first()
+                if payment_detail and payment_detail.transaction_details:
+                    metadata = payment_detail.transaction_details
+                    if metadata.get('reschedule_type'):
+                        transaction_type = 'reschedule_payment'
+                    elif metadata.get('ssr_type'):
+                        transaction_type = 'ssr_payment'
+            except Exception:
+                pass
+        
+        # For reschedule/SSR payments, just update booking amounts
+        if transaction_type in ('reschedule_payment', 'ssr_payment'):
+            amount = Decimal(str(payment_details.get('amount', 0)))
+            booking.total_payment_made = (booking.total_payment_made or Decimal('0')) + amount
+            booking.save(update_fields=['total_payment_made'])
+            
+            if transaction_type == 'reschedule_payment' and booking.flight_booking:
+                booking.flight_booking.status = 'RESCHEDULED'
+                booking.flight_booking.save(update_fields=['status'])
+            
+            logger.info(f"Successfully processed {transaction_type} payment for booking {booking_id}")
+            return True
+        
+        # For initial booking payments, confirm booking
         processor = FlightPaymentProcessor(booking, booking.user, payment_details)
         
         # Confirm booking and auto-issue ticket
@@ -1137,3 +1208,101 @@ def get_flight_payment_methods(user=None) -> list:
             logger.error(f"Error getting wallet balance: {str(e)}")
     
     return payment_methods
+
+
+def process_reschedule_payment(booking: Booking, user, payment_data: dict, reschedule_response: dict, request=None) -> Dict:
+    """Process payment for reschedule operation
+    
+    Args:
+        booking: The booking instance
+        user: User making the payment
+        payment_data: Payment details (amount, payment_channel, etc.)
+        reschedule_response: Response from AirIQ reschedule API containing penalty/fare difference
+        request: Django request object
+        
+    Returns:
+        Dict with payment processing result
+    """
+    # Extract payment amount from reschedule response
+    penalty = Decimal(str(reschedule_response.get('Penalty', 0) or 0))
+    fare_difference = Decimal(str(reschedule_response.get('FareDifference', 0) or 0))
+    total_amount = penalty + fare_difference
+    
+    if total_amount <= 0:
+        return {
+            'success': True,
+            'message': 'No payment required for reschedule',
+            'amount': 0
+        }
+    
+    # Update payment_data with reschedule metadata
+    payment_data['amount'] = float(total_amount)
+    payment_data['transaction_type'] = 'reschedule_payment'
+    payment_data['metadata'] = {
+        'penalty': float(penalty),
+        'fare_difference': float(fare_difference),
+        'old_booking_amount': float(reschedule_response.get('OldBookingAmount', 0) or 0),
+        'new_booking_amount': float(reschedule_response.get('NewBookingAmount', 0) or 0),
+        'new_pnr': reschedule_response.get('New_PNR', ''),
+        'reschedule_type': 'reschedule'
+    }
+    
+    processor = FlightPaymentProcessor(booking, user, payment_data, request=request)
+    result = processor.initiate_payment(allow_confirmed=True)
+    
+    if result.get('success'):
+        # Update booking final amount if needed
+        new_amount = Decimal(str(reschedule_response.get('NewBookingAmount', 0) or 0))
+        if new_amount > 0:
+            booking.final_amount = new_amount
+            booking.save(update_fields=['final_amount'])
+        
+        # Update flight booking status
+        if booking.flight_booking:
+            booking.flight_booking.status = 'RESCHEDULED'
+            booking.flight_booking.reschedule_remark = payment_data.get('remarks', '')
+            booking.flight_booking.save(update_fields=['status', 'reschedule_remark'])
+    
+    return result
+
+
+def process_ssr_payment(booking: Booking, user, payment_data: dict, ssr_amount: Decimal, ssr_details: dict = None, request=None) -> Dict:
+    """Process payment for SSR (ancillary services) addition
+    
+    Args:
+        booking: The booking instance
+        user: User making the payment
+        payment_data: Payment details (amount, payment_channel, etc.)
+        ssr_amount: Total amount for SSR services
+        ssr_details: Details about SSR services added
+        request: Django request object
+        
+    Returns:
+        Dict with payment processing result
+    """
+    if ssr_amount <= 0:
+        return {
+            'success': True,
+            'message': 'No payment required for SSR',
+            'amount': 0
+        }
+    
+    # Update payment_data with SSR metadata
+    payment_data['amount'] = float(ssr_amount)
+    payment_data['transaction_type'] = 'ssr_payment'
+    payment_data['metadata'] = {
+        'ssr_amount': float(ssr_amount),
+        'ssr_details': ssr_details or {},
+        'ssr_type': 'ancillary_services'
+    }
+    
+    processor = FlightPaymentProcessor(booking, user, payment_data, request=request)
+    result = processor.initiate_payment(allow_confirmed=True)
+    
+    if result.get('success'):
+        # Update booking final amount
+        booking.final_amount = (booking.final_amount or Decimal('0')) + ssr_amount
+        booking.total_payment_made = (booking.total_payment_made or Decimal('0')) + ssr_amount
+        booking.save(update_fields=['final_amount', 'total_payment_made'])
+    
+    return result

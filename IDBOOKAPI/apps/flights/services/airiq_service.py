@@ -1108,21 +1108,30 @@ class AirIQService:
         
         return response_data
 
-    def reschedule_availability(self, trip_type: str, departure_station: str, 
-                               arrival_station: str, flight_date: str, 
-                               airiq_pnr: str, remarks: str = '') -> dict:
+    def reschedule_availability(self, trip_type: str, airiq_pnr: str, 
+                               flight_segments: list, remarks: str = '') -> dict:
         """
         Get reschedule availability for existing booking
         Args:
             trip_type: Trip type (O/R/Y)
-            departure_station: 3-letter IATA departure code
-            arrival_station: 3-letter IATA arrival code
-            flight_date: Flight date in YYYYMMDD format
             airiq_pnr: AirIQ PNR
+            flight_segments: List of flight segments, each with:
+                - departure_station: 3-letter IATA departure code
+                - arrival_station: 3-letter IATA arrival code
+                - flight_date: Flight date in YYYYMMDD format
             remarks: Request remarks
         """
         if not self._is_token_valid():
             self.authenticate()
+        
+        # Build AvailInfo array from flight_segments
+        avail_info = []
+        for segment in flight_segments:
+            avail_info.append({
+                "DepartureStation": segment.get('departure_station', ''),
+                "ArrivalStation": segment.get('arrival_station', ''),
+                "FlightDate": segment.get('flight_date', '')
+            })
         
         payload = {
             "TripType": trip_type,
@@ -1132,13 +1141,7 @@ class AirIQService:
                 "AppType": "API",
                 "Version": float(self.api_version)
             },
-            "AvailInfo": [
-                {
-                    "DepartureStation": departure_station,
-                    "ArrivalStation": arrival_station,
-                    "FlightDate": flight_date
-                }
-            ],
+            "AvailInfo": avail_info,
             "AirIqPNR": airiq_pnr,
             "Remarks": remarks
         }

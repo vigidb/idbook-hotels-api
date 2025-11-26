@@ -908,10 +908,20 @@ class BookingSerializer(serializers.ModelSerializer):
             'airiq_pnrs': getattr(flight_booking, 'airiq_pnrs', []) or [],
             'airline_pnrs': getattr(flight_booking, 'airline_pnrs', []) or [],
             'airiq_track_ids': getattr(flight_booking, 'airiq_track_ids', []) or [],
-            'booked_itineraries': getattr(flight_booking, 'booked_itineraries', []) or []
+            'booked_itineraries': getattr(flight_booking, 'booked_itineraries', []) or [],
+            # AirIQ booking response
+            # 'airiq_booking_response': self._get_airiq_booking_response(flight_booking),
+            'airiq_raw_response': getattr(flight_booking, 'airiq_response_data', {}) or {}
         }
         
         return flight_json
+    
+    def _get_airiq_booking_response(self, flight_booking):
+        """Extract AirIQ Bookingresponse from airiq_response_data"""
+        airiq_raw = getattr(flight_booking, 'airiq_response_data', {}) or {}
+        if isinstance(airiq_raw, dict):
+            return airiq_raw.get('Bookingresponse', {}) or {}
+        return {}
 
     def hotel_representation(self, hotel_booking):
         hotel_json = {}

@@ -794,8 +794,56 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     )
                     created_count += 1
 
-            # Update booking amount by adding payment amount (as per AirIQ Payment block)
+            # Process payment if required
+            response_data = {
+                'created_services': created_count,
+                'payment_amount': payment_amount,
+                'airiq_response': airiq_resp,
+            }
+
             if payment_amount and float(payment_amount) > 0:
+                payment_channel = request.data.get('payment_channel', 'WALLET')
+                payment_data = {
+                    'amount': float(payment_amount),
+                    'payment_channel': payment_channel,
+                    'remarks': remarks,
+                    'redirect_url': request.data.get('redirect_url')
+                }
+
+                ssr_details = {
+                    'meals_count': len(meals),
+                    'baggage_count': len(baggage),
+                    'seats_count': len(seats),
+                    'other_count': len(other),
+                    'total_services': created_count
+                }
+
+                from apps.booking.utils.flight_payment_utils import process_ssr_payment
+                payment_result = process_ssr_payment(
+                    booking=booking,
+                    user=request.user,
+                    payment_data=payment_data,
+                    ssr_amount=Decimal(str(payment_amount)),
+                    ssr_details=ssr_details,
+                    request=request
+                )
+
+                if not payment_result.get('success'):
+                    return self.get_error_response(
+                        message=f"SSR added but payment failed: {payment_result.get('error', 'Unknown error')}",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        data=response_data
+                    )
+
+                response_data['payment'] = {
+                    'success': True,
+                    'transaction_id': payment_result.get('transaction_id'),
+                    'payment_method': payment_result.get('payment_method'),
+                    'amount': float(payment_amount)
+                }
+            else:
+                # No payment required, just update booking
                 try:
                     booking.final_amount = Decimal(str(booking.final_amount)) + Decimal(str(payment_amount))
                     booking.save(update_fields=['final_amount'])
@@ -803,11 +851,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     pass
 
             return self.get_response(
-                data={
-                    'created_services': created_count,
-                    'payment_amount': payment_amount,
-                    'airiq_response': airiq_resp,
-                },
+                data=response_data,
                 message='Ancillary services added successfully',
                 status='success',
                 status_code=status.HTTP_200_OK,
@@ -3367,6 +3411,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             )
         except Exception as e:
             self.log_error(f"Error in reschedule availability for booking {booking_id}: {str(e)}")
+            print("Error in reschedule availability:", str(e))
             return self.get_error_response(
                 message="An unexpected error occurred",
                 status="error",
@@ -3424,19 +3469,83 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
 
+            # First check fare if flag is CHECKFARE
+            if flag == 'CHECKFARE':
+                resp = airiq_service.reschedule_booking(
+                    airiq_pnr=flight_booking.airiq_pnr,
+                    track_id=track_id,
+                    flight_details=flight_details,
+                    contact_no=contact_no,
+                    remarks=remarks,
+                    flag='CHECKFARE'
+                )
+                return self.get_response(
+                    data={'reschedule_response': resp},
+                    message='Reschedule fare checked',
+                    status="success",
+                    status_code=status.HTTP_200_OK
+                )
+
+            # For CONFIRM, process reschedule and payment
             resp = airiq_service.reschedule_booking(
                 airiq_pnr=flight_booking.airiq_pnr,
                 track_id=track_id,
                 flight_details=flight_details,
                 contact_no=contact_no,
                 remarks=remarks,
-                flag=flag
+                flag='CONFIRM'
             )
 
-            self.log_info(f"Reschedule requested for booking {booking_id}")
+            # Check if payment is required
+            penalty = Decimal(str(resp.get('Penalty', 0) or 0))
+            fare_difference = Decimal(str(resp.get('FareDifference', 0) or 0))
+            total_payment = penalty + fare_difference
+
+            response_data = {'reschedule_response': resp}
+
+            # Process payment if required
+            if total_payment > 0:
+                payment_channel = request.data.get('payment_channel', 'WALLET')
+                payment_data = {
+                    'amount': float(total_payment),
+                    'payment_channel': payment_channel,
+                    'remarks': remarks,
+                    'redirect_url': request.data.get('redirect_url')
+                }
+
+                from apps.booking.utils.flight_payment_utils import process_reschedule_payment
+                payment_result = process_reschedule_payment(
+                    booking=booking,
+                    user=request.user,
+                    payment_data=payment_data,
+                    reschedule_response=resp,
+                    request=request
+                )
+
+                if not payment_result.get('success'):
+                    return self.get_error_response(
+                        message=f"Reschedule successful but payment failed: {payment_result.get('error', 'Unknown error')}",
+                        status="error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        data=response_data
+                    )
+
+                response_data['payment'] = {
+                    'success': True,
+                    'transaction_id': payment_result.get('transaction_id'),
+                    'payment_method': payment_result.get('payment_method'),
+                    'amount': float(total_payment)
+                }
+            else:
+                # No payment required, just update booking status
+                booking.flight_booking.status = 'RESCHEDULED'
+                booking.flight_booking.reschedule_remark = remarks
+                booking.flight_booking.save(update_fields=['status', 'reschedule_remark'])
+
+            self.log_info(f"Reschedule confirmed for booking {booking_id}")
             return self.get_response(
-                data={'reschedule_response': resp},
-                message='Reschedule processed',
+                data=response_data,
+                message='Reschedule processed successfully',
                 status="success",
                 status_code=status.HTTP_200_OK
             )
