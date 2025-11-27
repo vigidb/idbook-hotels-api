@@ -570,8 +570,11 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
             user = serializer.validated_data['user']
             # Use custom token with active_group support
             from apps.authentication.tokens import CustomRefreshToken
-            # Get active_group from request if provided, otherwise use default
+            # Get active_group from request if provided, otherwise use group_name, otherwise use default
             active_group = request.data.get('active_group', None)
+            if not active_group:
+                # If active_group not provided, use group_name if provided
+                active_group = request.data.get('group_name', None)
             refresh = CustomRefreshToken.for_user(user, active_group=active_group)
 ##            data = [serializer.data,
 ##                    {
