@@ -1002,6 +1002,363 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
         return False
 
 
+def process_reschedule_phonepe_callback(callback_data: dict) -> Dict:
+    """
+    Process PhonePe callback for reschedule payment
+    
+    Args:
+        callback_data: PhonePe callback data from request
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        import base64
+        import json as _json
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from .flight_booking_utils import process_reschedule_success
+        
+        response = callback_data.get('response')
+        if not response:
+            return {
+                'success': False,
+                'error': 'Invalid callback data',
+                'error_code': 'INVALID_CALLBACK'
+            }
+        
+        data = base64.b64decode(response)
+        decoded = data.decode('utf-8')
+        json_data = _json.loads(decoded)
+        sub = json_data.get('data', {})
+        merchant_txn = sub.get('merchantTransactionId', '')
+        code = json_data.get('code', '')
+        state = sub.get('state', '')
+        amount = Decimal(str((sub.get('amount', 0) or 0) / 100))
+
+        # Update payment details
+        is_success = code == 'PAYMENT_SUCCESS' and state == 'COMPLETED'
+        update_booking_payment_details(merchant_txn, {
+            'code': code,
+            'message': json_data.get('message', ''),
+            'transaction_id': sub.get('transactionId', ''),
+            'amount': float(amount),
+            'is_transaction_success': is_success,
+        })
+
+        booking_id = get_booking_from_payment(merchant_txn)
+        booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+        bpd = booking.booking_payment.filter(merchant_transaction_id=merchant_txn).first()
+        
+        # Check if this is reschedule payment
+        if bpd and bpd.transaction_details:
+            metadata = bpd.transaction_details
+            if metadata.get('reschedule_type') == 'reschedule':
+                reschedule_req = metadata.get('reschedule_request') or {}
+                reschedule_resp = metadata.get('reschedule_response') or {}
+                if is_success:
+                    # Payment successful - call AirIQ Reschedule Confirm
+                    try:
+                        flight_booking = booking.flight_booking
+                        
+                        # Check if multiple PNRs need to be rescheduled
+                        if metadata.get('multi_pnr') and metadata.get('reschedule_requests'):
+                            # Multiple PNRs: call API for each segment
+                            from .flight_booking_utils import process_multi_pnr_reschedule_confirm
+                            
+                            confirm_result = process_multi_pnr_reschedule_confirm(
+                                flight_booking=flight_booking,
+                                reschedule_requests=metadata['reschedule_requests'],
+                                airiq_service=airiq_service,
+                                flag='CONFIRM'
+                            )
+                            
+                            # Handle partial success
+                            successful_confirmations = confirm_result.get('responses', [])
+                            failed_confirmations = confirm_result.get('errors', [])
+                            
+                            if not successful_confirmations:
+                                # All failed - mark for refund
+                                update_booking_payment_details(merchant_txn, {
+                                    'code': 'RESCHEDULE_FAILED',
+                                    'message': f'Reschedule failed for all segments: {failed_confirmations}',
+                                    'is_transaction_success': False,
+                                    'transaction_details': {
+                                        **metadata,
+                                        'airiq_errors': failed_confirmations,
+                                        'refund_required': True
+                                    }
+                                })
+                                return {
+                                    'success': False,
+                                    'error': f'Reschedule failed after payment for all segments. Please contact support for refund.',
+                                    'error_code': 'RESCHEDULE_FAILED',
+                                    'refund_required': True
+                                }
+                            
+                            # Process success for each successful confirmation
+                            from .flight_booking_utils import process_reschedule_success, record_reschedule_failure
+                            
+                            all_new_pnrs = flight_booking.airiq_pnrs or []
+                            if not all_new_pnrs and flight_booking.airiq_pnr:
+                                all_new_pnrs = [flight_booking.airiq_pnr]
+                            
+                            successful_count = 0
+                            for resp_item in successful_confirmations:
+                                pnr_idx = resp_item.get('pnr_index')
+                                old_pnr = resp_item.get('old_airiq_pnr') or resp_item.get('airiq_pnr')
+                                airiq_resp = resp_item.get('response', {})
+                                new_pnr = airiq_resp.get('New_PNR', '')
+                                
+                                if new_pnr and pnr_idx is not None:
+                                    if pnr_idx < len(all_new_pnrs):
+                                        all_new_pnrs[pnr_idx] = new_pnr
+                                    
+                                    remarks = metadata.get('reschedule_requests', [{}])[0].get('remarks', '') if metadata.get('reschedule_requests') else ''
+                                    process_reschedule_success(
+                                        booking, flight_booking, airiq_resp, remarks,
+                                        pnr_index=pnr_idx, old_airiq_pnr=old_pnr
+                                    )
+                                    successful_count += 1
+                            
+                            # Record failures
+                            for err_item in failed_confirmations:
+                                pnr_idx = err_item.get('pnr_index')
+                                old_pnr = err_item.get('airiq_pnr')
+                                error_msg = err_item.get('error', 'Unknown error')
+                                if pnr_idx is not None and old_pnr:
+                                    record_reschedule_failure(flight_booking, old_pnr, error_msg, pnr_index=pnr_idx)
+                            
+                            # Update PNRs
+                            if all_new_pnrs:
+                                flight_booking.airiq_pnrs = all_new_pnrs
+                                flight_booking.save(update_fields=['airiq_pnrs'])
+                            
+                            # Mark for partial refund if some failed
+                            if failed_confirmations:
+                                update_booking_payment_details(merchant_txn, {
+                                    'code': 'PARTIAL_RESCHEDULE_SUCCESS',
+                                    'message': f'Reschedule successful for {successful_count} of {len(successful_confirmations) + len(failed_confirmations)} segments',
+                                    'is_transaction_success': True,
+                                    'transaction_details': {
+                                        **metadata,
+                                        'successful_segments': successful_count,
+                                        'failed_segments': len(failed_confirmations),
+                                        'failed_details': failed_confirmations,
+                                        'partial_refund_required': True
+                                    }
+                                })
+                            
+                            return {
+                                'success': True,
+                                'payment_success': True,
+                                'reschedule_processed': True,
+                                'successful_segments': successful_count,
+                                'failed_segments': len(failed_confirmations),
+                                'partial_success': len(failed_confirmations) > 0,
+                                'message': f'Reschedule successful for {successful_count} of {len(successful_confirmations) + len(failed_confirmations)} segments'
+                            }
+                        else:
+                            # Single PNR case
+                            airiq_resp = airiq_service.reschedule_booking(
+                                airiq_pnr=reschedule_req.get('airiq_pnr'),
+                                track_id=reschedule_req.get('track_id'),
+                                flight_details=reschedule_req.get('flight_details'),
+                                contact_no=reschedule_req.get('contact_no'),
+                                remarks=reschedule_req.get('remarks', ''),
+                                flag='CONFIRM'
+                            )
+                            # Process success
+                            result = process_reschedule_success(
+                                booking, flight_booking, airiq_resp, reschedule_req.get('remarks', '')
+                            )
+                            return {
+                                'success': True,
+                                'payment_success': True,
+                                'reschedule_processed': True,
+                                **result
+                            }
+                    except AirIQException as e:
+                        # AirIQ failed - mark for refund
+                        update_booking_payment_details(merchant_txn, {
+                            'code': 'RESCHEDULE_FAILED',
+                            'message': f'Reschedule failed: {str(e)}',
+                            'is_transaction_success': False,
+                            'transaction_details': {
+                                **metadata,
+                                'airiq_error': str(e),
+                                'refund_required': True
+                            }
+                        })
+                        return {
+                            'success': False,
+                            'error': f'Reschedule failed after payment: {str(e)}. Please contact support for refund.',
+                            'error_code': 'RESCHEDULE_FAILED',
+                            'refund_required': True
+                        }
+                    except Exception as e:
+                        update_booking_payment_details(merchant_txn, {
+                            'code': 'RESCHEDULE_ERROR',
+                            'message': f'Unexpected error: {str(e)}',
+                            'is_transaction_success': False,
+                        })
+                        return {
+                            'success': False,
+                            'error': f'Unexpected error processing reschedule: {str(e)}',
+                            'error_code': 'RESCHEDULE_ERROR'
+                        }
+                else:
+                    # Payment failed
+                    return {
+                        'success': True,
+                        'payment_success': False,
+                        'message': 'Payment failed'
+                    }
+
+        return {
+            'success': True,
+            'payment_success': is_success,
+            'message': 'Callback processed'
+        }
+    except Exception as e:
+        logger.error(f"Reschedule PhonePe callback error: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Callback processing failed: {str(e)}',
+            'error_code': 'CALLBACK_ERROR'
+        }
+
+
+def process_ssr_phonepe_callback(callback_data: dict) -> Dict:
+    """
+    Process PhonePe callback for SSR (ancillary services) payment
+    
+    Args:
+        callback_data: PhonePe callback data from request
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        import base64
+        import json as _json
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from .flight_booking_utils import process_ssr_success
+        
+        response = callback_data.get('response')
+        if not response:
+            return {
+                'success': False,
+                'error': 'Invalid callback data',
+                'error_code': 'INVALID_CALLBACK'
+            }
+        
+        data = base64.b64decode(response)
+        decoded = data.decode('utf-8')
+        json_data = _json.loads(decoded)
+        sub = json_data.get('data', {})
+        merchant_txn = sub.get('merchantTransactionId', '')
+        code = json_data.get('code', '')
+        state = sub.get('state', '')
+        amount = Decimal(str((sub.get('amount', 0) or 0) / 100))
+
+        # Update payment details
+        is_success = code == 'PAYMENT_SUCCESS' and state == 'COMPLETED'
+        update_booking_payment_details(merchant_txn, {
+            'code': code,
+            'message': json_data.get('message', ''),
+            'transaction_id': sub.get('transactionId', ''),
+            'amount': float(amount),
+            'is_transaction_success': is_success,
+        })
+
+        booking_id = get_booking_from_payment(merchant_txn)
+        booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+        bpd = booking.booking_payment.filter(merchant_transaction_id=merchant_txn).first()
+        
+        # Check if this is SSR payment
+        if bpd and bpd.transaction_details:
+            metadata = bpd.transaction_details
+            if metadata.get('ssr_type') == 'ancillary_services':
+                anc = metadata.get('ancillary_request') or {}
+                if is_success:
+                    # Payment successful - call AirIQ AddSSR
+                    try:
+                        flight_booking = booking.flight_booking
+                        airiq_resp = airiq_service.add_ssr_services(
+                            airiq_pnr=anc.get('AirIqPNR') or flight_booking.airiq_pnr,
+                            airline_pnr=anc.get('AirlinePNR') or flight_booking.airline_pnr,
+                            track_id=anc.get('TracKID') or flight_booking.airiq_track_id,
+                            meals_ssr=anc.get('MealsSSR') or [],
+                            baggage_ssr=anc.get('BaggSSR') or [],
+                            seats_ssr=anc.get('SeatsSSR') or [],
+                            other_ssr=anc.get('OtherSSR') or [],
+                            payment_amount=float(amount),
+                            remarks=anc.get('Remarks') or '',
+                        )
+                        # Process success
+                        result = process_ssr_success(
+                            booking, flight_booking, airiq_resp,
+                            anc.get('MealsSSR') or [], anc.get('BaggSSR') or [],
+                            anc.get('SeatsSSR') or [], anc.get('OtherSSR') or [],
+                            amount
+                        )
+                        return {
+                            'success': True,
+                            'payment_success': True,
+                            'ssr_processed': True,
+                            **result
+                        }
+                    except AirIQException as e:
+                        # AirIQ failed - mark for refund
+                        update_booking_payment_details(merchant_txn, {
+                            'code': 'SSR_FAILED',
+                            'message': f'AddSSR failed: {str(e)}',
+                            'is_transaction_success': False,
+                            'transaction_details': {
+                                **metadata,
+                                'airiq_error': str(e),
+                                'refund_required': True
+                            }
+                        })
+                        return {
+                            'success': False,
+                            'error': f'AddSSR failed after payment: {str(e)}. Please contact support for refund.',
+                            'error_code': 'SSR_FAILED',
+                            'refund_required': True
+                        }
+                    except Exception as e:
+                        update_booking_payment_details(merchant_txn, {
+                            'code': 'SSR_ERROR',
+                            'message': f'Unexpected error: {str(e)}',
+                            'is_transaction_success': False,
+                        })
+                        return {
+                            'success': False,
+                            'error': f'Unexpected error processing SSR: {str(e)}',
+                            'error_code': 'SSR_ERROR'
+                        }
+                else:
+                    # Payment failed
+                    return {
+                        'success': True,
+                        'payment_success': False,
+                        'message': 'Payment failed'
+                    }
+
+        return {
+            'success': True,
+            'payment_success': is_success,
+            'message': 'Callback processed'
+        }
+    except Exception as e:
+        logger.error(f"SSR PhonePe callback error: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Callback processing failed: {str(e)}',
+            'error_code': 'CALLBACK_ERROR'
+        }
+
+
 class FlightPaymentCallbackProcessor:
     """
     Handles payment gateway callbacks for flight bookings
@@ -1210,60 +1567,324 @@ def get_flight_payment_methods(user=None) -> list:
     return payment_methods
 
 
-def process_reschedule_payment(booking: Booking, user, payment_data: dict, reschedule_response: dict, request=None) -> Dict:
-    """Process payment for reschedule operation
-    
-    Args:
-        booking: The booking instance
-        user: User making the payment
-        payment_data: Payment details (amount, payment_channel, etc.)
-        reschedule_response: Response from AirIQ reschedule API containing penalty/fare difference
-        request: Django request object
+def handle_reschedule_wallet_payment(booking: Booking, flight_booking: FlightBooking, user, 
+                                     reschedule_request: dict, reschedule_response: dict, 
+                                     payment_amount: Decimal, request=None) -> Dict:
+    """Handle wallet payment for reschedule: deduct -> call AirIQ -> update or refund"""
+    try:
+        from apps.booking.utils.booking_utils import check_wallet_balance_for_booking, deduct_booking_amount, refund_wallet_payment
+        from apps.booking.utils.db_utils import create_booking_payment_details, update_booking_payment_details
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from .flight_booking_utils import process_reschedule_success
         
-    Returns:
-        Dict with payment processing result
-    """
-    # Extract payment amount from reschedule response
-    penalty = Decimal(str(reschedule_response.get('Penalty', 0) or 0))
-    fare_difference = Decimal(str(reschedule_response.get('FareDifference', 0) or 0))
-    total_amount = penalty + fare_difference
-    
-    if total_amount <= 0:
+        company_id = None
+        if user:
+            user_default_group = getattr(user, 'default_group', '') or ''
+            if user_default_group in ('CORP-ADMIN', 'CORP-EMP', 'CORPORATE-GRP'):
+                company_id = getattr(user, 'company_id', None)
+        
+        # Check wallet balance
+        can_pay, balance_info = check_wallet_balance_for_booking(booking, user, company_id=company_id)
+        if not can_pay:
+            return {
+                'success': False,
+                'error': 'Insufficient wallet balance',
+                'error_code': 'INSUFFICIENT_WALLET_BALANCE'
+            }
+        
+        # Create payment detail record
+        append_id = f"RS{user.id}" if user else "RSGUEST"
+        payment_detail = create_booking_payment_details(booking.id, append_id)
+        payment_detail.amount = float(payment_amount)
+        payment_detail.transaction_for = "others"
+        payment_detail.transaction_details = {
+            'reschedule_type': 'reschedule',
+            'reschedule_request': reschedule_request,
+            'reschedule_response': reschedule_response
+        }
+        payment_detail.save()
+        
+        # Deduct wallet
+        deduct_success = deduct_booking_amount(booking, company_id=company_id, request=request)
+        if not deduct_success:
+            return {
+                'success': False,
+                'error': 'Wallet deduction failed',
+                'error_code': 'WALLET_DEDUCTION_FAILED'
+            }
+        
+        # Update payment detail as paid
+        update_booking_payment_details(payment_detail.merchant_transaction_id, {
+            'code': 'PAYMENT_SUCCESS',
+            'message': 'Payment successful via wallet',
+            'payment_type': 'WALLET',
+            'payment_medium': 'Idbook',
+            'is_transaction_success': True,
+            'transaction_id': payment_detail.merchant_transaction_id
+        })
+        
+        # Call AirIQ Reschedule Confirm
+        try:
+            # Check if multiple PNRs need to be rescheduled
+            if reschedule_request.get('multi_pnr') and reschedule_request.get('reschedule_requests'):
+                # Multiple PNRs: call API for each segment
+                from .flight_booking_utils import process_multi_pnr_reschedule_confirm
+                
+                confirm_result = process_multi_pnr_reschedule_confirm(
+                    flight_booking=flight_booking,
+                    reschedule_requests=reschedule_request['reschedule_requests'],
+                    airiq_service=airiq_service,
+                    flag='CONFIRM'
+                )
+                
+                # Handle partial success
+                successful_confirmations = confirm_result.get('responses', [])
+                failed_confirmations = confirm_result.get('errors', [])
+                
+                if not successful_confirmations:
+                    # All failed - refund wallet
+                    refund_details = {
+                        'reason': f'AirIQ reschedule failed for all segments: {failed_confirmations}',
+                        'timestamp': timezone.now().isoformat(),
+                        'airiq_errors': failed_confirmations
+                    }
+                    refund_ok, refund_status, refund_data = refund_wallet_payment(booking, payment_amount, refund_details)
+                    
+                    update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                        'code': 'RESCHEDULE_FAILED_REFUNDED',
+                        'message': f'Reschedule failed for all segments; wallet refunded',
+                        'is_transaction_success': False,
+                        'transaction_details': {
+                            'refund_status': refund_status,
+                            'refund_data': refund_data,
+                            'airiq_errors': failed_confirmations
+                        }
+                    })
+                    
+                    return {
+                        'success': False,
+                        'error': f'Reschedule failed for all segments; wallet refunded',
+                        'error_code': 'AIRIQ_RESCHEDULE_FAILED',
+                        'refund_status': refund_status
+                    }
+                
+                # Process success for each successful confirmation
+                from .flight_booking_utils import process_reschedule_success, record_reschedule_failure
+                
+                all_new_pnrs = flight_booking.airiq_pnrs or []
+                if not all_new_pnrs and flight_booking.airiq_pnr:
+                    all_new_pnrs = [flight_booking.airiq_pnr]
+                
+                successful_count = 0
+                for resp_item in successful_confirmations:
+                    pnr_idx = resp_item.get('pnr_index')
+                    old_pnr = resp_item.get('old_airiq_pnr') or resp_item.get('airiq_pnr')
+                    airiq_resp = resp_item.get('response', {})
+                    new_pnr = airiq_resp.get('New_PNR', '')
+                    
+                    if new_pnr and pnr_idx is not None:
+                        if pnr_idx < len(all_new_pnrs):
+                            all_new_pnrs[pnr_idx] = new_pnr
+                        
+                        process_reschedule_success(
+                            booking, flight_booking, airiq_resp, reschedule_request.get('remarks', ''),
+                            pnr_index=pnr_idx, old_airiq_pnr=old_pnr
+                        )
+                        successful_count += 1
+                
+                # Record failures
+                for err_item in failed_confirmations:
+                    pnr_idx = err_item.get('pnr_index')
+                    old_pnr = err_item.get('airiq_pnr')
+                    error_msg = err_item.get('error', 'Unknown error')
+                    if pnr_idx is not None and old_pnr:
+                        record_reschedule_failure(flight_booking, old_pnr, error_msg, pnr_index=pnr_idx)
+                
+                # Update PNRs
+                if all_new_pnrs:
+                    flight_booking.airiq_pnrs = all_new_pnrs
+                    flight_booking.save(update_fields=['airiq_pnrs'])
+                
+                # Calculate partial refund if some failed
+                partial_refund_amount = Decimal('0')
+                if failed_confirmations:
+                    # Calculate refund for failed segments (proportional)
+                    total_segments = len(successful_confirmations) + len(failed_confirmations)
+                    if total_segments > 0:
+                        failed_ratio = Decimal(str(len(failed_confirmations))) / Decimal(str(total_segments))
+                        partial_refund_amount = payment_amount * failed_ratio
+                        
+                        if partial_refund_amount > 0:
+                            refund_details = {
+                                'reason': f'Partial reschedule failure: {len(failed_confirmations)} of {total_segments} segments failed',
+                                'timestamp': timezone.now().isoformat(),
+                                'failed_segments': failed_confirmations
+                            }
+                            refund_ok, refund_status, refund_data = refund_wallet_payment(booking, partial_refund_amount, refund_details)
+                
+                return {
+                    'success': True,
+                    'payment_method': 'wallet',
+                    'transaction_id': payment_detail.merchant_transaction_id,
+                    'message': f'Reschedule successful via wallet for {successful_count} of {len(successful_confirmations) + len(failed_confirmations)} segments',
+                    'successful_segments': successful_count,
+                    'failed_segments': len(failed_confirmations),
+                    'partial_refund': float(partial_refund_amount) if partial_refund_amount > 0 else 0,
+                    'partial_success': len(failed_confirmations) > 0
+                }
+            else:
+                # Single PNR case
+                airiq_resp = airiq_service.reschedule_booking(
+                    airiq_pnr=reschedule_request.get('airiq_pnr'),
+                    track_id=reschedule_request.get('track_id'),
+                    flight_details=reschedule_request.get('flight_details'),
+                    contact_no=reschedule_request.get('contact_no'),
+                    remarks=reschedule_request.get('remarks', ''),
+                    flag='CONFIRM'
+                )
+                
+                # Process success
+                result = process_reschedule_success(booking, flight_booking, airiq_resp, reschedule_request.get('remarks', ''))
+                return {
+                    'success': True,
+                    'payment_method': 'wallet',
+                    'transaction_id': payment_detail.merchant_transaction_id,
+                    'message': 'Reschedule successful via wallet',
+                    **result
+                }
+            
+        except AirIQException as e:
+            # AirIQ failed - refund wallet
+            refund_details = {
+                'reason': f'AirIQ reschedule failed: {str(e)}',
+                'timestamp': timezone.now().isoformat(),
+                'airiq_error': str(e)
+            }
+            refund_ok, refund_status, refund_data = refund_wallet_payment(booking, payment_amount, refund_details)
+            
+            update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                'code': 'RESCHEDULE_FAILED_REFUNDED',
+                'message': f'Reschedule failed; wallet refunded: {str(e)}',
+                'is_transaction_success': False,
+                'transaction_details': {
+                    'refund_status': refund_status,
+                    'refund_data': refund_data,
+                    'airiq_error': str(e)
+                }
+            })
+            
+            return {
+                'success': False,
+                'error': f'Reschedule failed; wallet refunded: {str(e)}',
+                'error_code': 'AIRIQ_RESCHEDULE_FAILED',
+                'refund_status': refund_status
+            }
+        except Exception as e:
+            # Unexpected error - refund wallet
+            refund_details = {
+                'reason': f'Unexpected error: {str(e)}',
+                'timestamp': timezone.now().isoformat(),
+            }
+            refund_ok, refund_status, refund_data = refund_wallet_payment(booking, payment_amount, refund_details)
+            
+            update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                'code': 'RESCHEDULE_ERROR_REFUNDED',
+                'message': f'Unexpected error; wallet refunded: {str(e)}',
+                'is_transaction_success': False,
+            })
+            
+            return {
+                'success': False,
+                'error': f'Unexpected error; wallet refunded: {str(e)}',
+                'error_code': 'RESCHEDULE_ERROR'
+            }
+    except Exception as e:
+        logger.error(f"Reschedule wallet payment error: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Wallet payment processing failed: {str(e)}',
+            'error_code': 'WALLET_PAYMENT_ERROR'
+        }
+
+
+def handle_reschedule_phonepe_payment(booking: Booking, flight_booking: FlightBooking, user,
+                                      reschedule_request: dict, reschedule_response: dict,
+                                      payment_amount: Decimal, request=None) -> Dict:
+    """Handle PhonePe payment for reschedule: save request data -> initiate payment -> handle in callback"""
+    try:
+        from apps.booking.utils.db_utils import create_booking_payment_details, update_booking_payment_details
+        from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+        from django.conf import settings
+        
+        # Create payment detail record
+        append_id = f"RS{user.id}" if user else "RSGUEST"
+        payment_detail = create_booking_payment_details(booking.id, append_id)
+        payment_detail.amount = float(payment_amount)
+        payment_detail.transaction_for = "others"
+        
+        # Save reschedule request data (support both single and multi-PNR)
+        transaction_details = {
+            'reschedule_type': 'reschedule',
+            'reschedule_response': reschedule_response
+        }
+        
+        # If multi-PNR, save the full structure; otherwise save single request
+        if reschedule_request.get('multi_pnr'):
+            transaction_details['multi_pnr'] = True
+            transaction_details['reschedule_requests'] = reschedule_request.get('reschedule_requests', [])
+        else:
+            transaction_details['reschedule_request'] = reschedule_request
+        
+        payment_detail.transaction_details = transaction_details
+        payment_detail.save()
+        
+        # Initiate PhonePe payment
+        phonepe = PhonePayMixin()
+        payload = {
+            'merchantId': settings.MERCHANT_ID,
+            'merchantTransactionId': payment_detail.merchant_transaction_id,
+            'merchantUserId': str(user.id) if user and user.is_authenticated else 'guest',
+            'amount': int(payment_amount * 100),
+            'redirectUrl': request.data.get('redirect_url', settings.DEFAULT_REDIRECT_URL) if request else settings.DEFAULT_REDIRECT_URL,
+            'redirectMode': 'REDIRECT',
+            'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/reschedule/phonepe-callback/",
+            'paymentInstrument': {'type': 'PAY_PAGE'}
+        }
+        
+        req, headers = phonepe.get_encrypted_header_and_payload(payload)
+        resp = phonepe.post_pay_page(req, headers)
+        
+        if resp.status_code != 200:
+            return {
+                'success': False,
+                'error': 'Failed to initiate PhonePe payment',
+                'error_code': 'PHONEPE_INITIATION_FAILED'
+            }
+        
+        data_json = resp.json()
+        pay_url = data_json.get('data', {}).get('instrumentResponse', {}).get('redirectInfo', {}).get('url', '')
+        
+        update_booking_payment_details(payment_detail.merchant_transaction_id, {
+            'code': 'PAYMENT_INITIATED',
+            'message': 'Payment initiated via PhonePe',
+            'payment_type': 'PAYMENT GATEWAY',
+            'payment_medium': 'PHONE PAY',
+        })
+        
         return {
             'success': True,
-            'message': 'No payment required for reschedule',
-            'amount': 0
+            'payment_method': 'phonepe',
+            'payment_url': pay_url,
+            'transaction_id': payment_detail.merchant_transaction_id,
+            'message': 'Reschedule payment initiated'
         }
-    
-    # Update payment_data with reschedule metadata
-    payment_data['amount'] = float(total_amount)
-    payment_data['transaction_type'] = 'reschedule_payment'
-    payment_data['metadata'] = {
-        'penalty': float(penalty),
-        'fare_difference': float(fare_difference),
-        'old_booking_amount': float(reschedule_response.get('OldBookingAmount', 0) or 0),
-        'new_booking_amount': float(reschedule_response.get('NewBookingAmount', 0) or 0),
-        'new_pnr': reschedule_response.get('New_PNR', ''),
-        'reschedule_type': 'reschedule'
-    }
-    
-    processor = FlightPaymentProcessor(booking, user, payment_data, request=request)
-    result = processor.initiate_payment(allow_confirmed=True)
-    
-    if result.get('success'):
-        # Update booking final amount if needed
-        new_amount = Decimal(str(reschedule_response.get('NewBookingAmount', 0) or 0))
-        if new_amount > 0:
-            booking.final_amount = new_amount
-            booking.save(update_fields=['final_amount'])
-        
-        # Update flight booking status
-        if booking.flight_booking:
-            booking.flight_booking.status = 'RESCHEDULED'
-            booking.flight_booking.reschedule_remark = payment_data.get('remarks', '')
-            booking.flight_booking.save(update_fields=['status', 'reschedule_remark'])
-    
-    return result
+    except Exception as e:
+        logger.error(f"Reschedule PhonePe payment initiation error: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Failed to initiate PhonePe payment: {str(e)}',
+            'error_code': 'PHONEPE_INITIATION_ERROR'
+        }
 
 
 def process_ssr_payment(booking: Booking, user, payment_data: dict, ssr_amount: Decimal, ssr_details: dict = None, request=None) -> Dict:

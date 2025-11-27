@@ -433,7 +433,8 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
         payment_channel = request.data.get('payment_channel')
         redirect_url = request.data.get('redirect_url', '')
         amount = request.data.get('amount', None)
-        company_id = request.data.get('company', None)
+        # Check for both 'company' and 'company_id' for consistency
+        company_id = request.data.get('company') or request.data.get('company_id')
 
         payment_log = {}
 
@@ -453,13 +454,24 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
 ##                         "payment_type":"PAYMENT GATEWAY",
 ##                         "payment_medium":"PHONE PAY"}
 
-            wtransact = {"user_id":user.id,
-                         "transaction_id":merchant_transaction_id,
-                         "transaction_type":"Credit",
-                         "payment_type":"PAYMENT GATEWAY",
-                         "payment_medium":"PHONE PAY",
-                         "status": "Pending",
-                         }
+            # Convert company_id to int if it's provided as string
+            if company_id:
+                try:
+                    company_id = int(company_id)
+                except (ValueError, TypeError):
+                    company_id = None
+
+            wtransact = {
+                "user_id": user.id,
+                "transaction_id": merchant_transaction_id,
+                "amount": amount,
+                "transaction_type": "Credit",
+                "transaction_for": "wallet_recharge",
+                "transaction_details": f"Wallet recharge of {float(amount)} via {payment_channel}",
+                "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "PHONE PAY",
+                "status": "Pending",
+            }
 
             payment_log['user_id'] = user.id
             payment_log['merchant_transaction_id'] = merchant_transaction_id
@@ -590,9 +602,12 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                 # update wallet transaction and wallet
                 user_id, company_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details)
+                
+                # Recharge the wallet (company or user)
                 update_wallet_recharge_details(user_id, company_id, amount)
 
-                if user_id:
+                # Send SMS notification for user wallet recharge
+                if user_id and not company_id:
                     wallet_balance = 0
                     wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
                     if wallet:
@@ -612,6 +627,29 @@ class WalletViewSet(viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin,
                                     }
                                 }
                             )
+                # Send SMS notification for company wallet recharge
+                elif company_id and user_id:
+                    wallet_balance = 0
+                    wallet = Wallet.objects.filter(company_id=company_id).first()
+                    if wallet:
+                        wallet_balance = wallet.balance
+                        print('company_wallet_balance', wallet_balance)
+
+                        user = User.objects.get(id=user_id)
+                        if user and user.mobile_number:
+                            print("company recharge_amount, mobile_number,user_id,company_id ", amount, user.mobile_number, user_id, company_id)
+                            send_booking_sms_task.apply_async(
+                                kwargs={
+                                    'notification_type': 'WALLET_RECHARGE_CONFIRMATION',
+                                    'params': {
+                                        'user_id': user_id,
+                                        'recharge_amount': amount,
+                                        'wallet_balance': wallet_balance,
+                                        'company_id': company_id
+                                    }
+                                }
+                            )
+                
                 if user_id:
                     payment_log['user_id'] = user_id
                 if company_id:
@@ -978,12 +1016,20 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
 
     def wtransaction_filter_ops(self):
         filter_dict = {}
+        user = self.request.user
         
-        # filter 
+        # Get active group from token, fall back to default_group
+        from apps.authentication.utils.token_utils import get_user_active_group
+        from apps.authentication.constants import UserGroups, CORPORATE_GROUPS, B2C_GROUPS
+        active_group = get_user_active_group(user, self.request)
+        default_group = active_group or user.default_group
+        
+        # filter by transaction type
         transaction_type = self.request.query_params.get('transaction_type', '')
         if transaction_type:
             filter_dict['transaction_type'] = transaction_type
 
+        # filter by transaction success
         is_transaction_success = self.request.query_params.get('is_transaction_success', '')
         if is_transaction_success:
             filter_dict['is_transaction_success'] = is_transaction_success
@@ -992,15 +1038,51 @@ class WalletTransactionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Log
         status_param = self.request.query_params.get('status', '')
         if status_param:
             filter_dict['status__iexact'] = status_param
-            
-
-        company_id = self.request.query_params.get('company_id', '') 
-        if company_id:
-            filter_dict['company_id'] = company_id
-        else:
-            user_id = self.request.user.id
-            filter_dict['user_id'] = user_id
         
+        # fetch filter parameters
+        param_dict = self.request.query_params
+        
+        # Apply permission-based filtering based on user's active group
+        # B2C users (B2C-GRP, B2C-GUEST): can only see their own user wallet transactions
+        if default_group in B2C_GROUPS:
+            filter_dict['user_id'] = user.id
+            filter_dict['company_id__isnull'] = True  # Only user wallet, not company wallet
+        
+        # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see company wallet transactions
+        elif default_group in CORPORATE_GROUPS:
+            # All corporate users can see company wallet transactions for their company
+            if user.company_id:
+                filter_dict['company_id'] = user.company_id
+            else:
+                # If user has no company_id, they shouldn't see any transactions
+                filter_dict['company_id'] = -1  # This will return empty queryset
+        
+        # Business users (BUSINESS-GRP, BUS-ADMIN): can see all transactions
+        elif default_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
+            # No filtering - business users can see all transactions
+            # Allow query params to filter if provided
+            if 'company_id' in param_dict:
+                filter_dict['company_id'] = param_dict['company_id']
+            if 'user_id' in param_dict:
+                filter_dict['user_id'] = param_dict['user_id']
+        
+        # Hotelier/Franchise admins: can see all transactions
+        elif default_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
+            # Allow query params to filter if provided
+            if 'company_id' in param_dict:
+                filter_dict['company_id'] = param_dict['company_id']
+            if 'user_id' in param_dict:
+                filter_dict['user_id'] = param_dict['user_id']
+        
+        # For other groups or if no group matches, default to user's own transactions
+        else:
+            # If company_id is explicitly provided in query params, use it
+            company_id = param_dict.get('company_id', '')
+            if company_id:
+                filter_dict['company_id'] = company_id
+            else:
+                # Default to user's own transactions
+                filter_dict['user_id'] = user.id
 
         self.queryset = self.queryset.filter(**filter_dict)
 

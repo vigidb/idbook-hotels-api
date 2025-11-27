@@ -189,16 +189,28 @@ def add_user_wallet_amount(user_id, amount):
 def add_company_wallet_amount(company_id, amount):
     try:
         if not company_id:
+            print("add_company_wallet_amount: company_id is None or empty")
+            return False
+        
+        # Ensure company_id is an integer
+        try:
+            company_id = int(company_id)
+        except (ValueError, TypeError):
+            print(f"add_company_wallet_amount: Invalid company_id type: {type(company_id)}, value: {company_id}")
             return False
         
         wallet = Wallet.objects.filter(company_id=company_id).first()
         if wallet:
             wallet.balance = wallet.balance + amount
             wallet.save()
+            print(f"add_company_wallet_amount: Updated company wallet {company_id}, new balance: {wallet.balance}")
         else:
             Wallet.objects.create(company_id=company_id, balance=amount)
+            print(f"add_company_wallet_amount: Created new company wallet {company_id} with balance: {amount}")
     except Exception as e:
-        print("Wallet Balance add error::", e)
+        print(f"Wallet Balance add error for company {company_id}::", e)
+        import traceback
+        print(traceback.format_exc())
         return False
     return True
 
@@ -207,35 +219,40 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
     
     payment_objs = WalletTransaction.objects.filter(
         transaction_id=merchant_transaction_id)
-    payment_objs.update(**payment_details)
+    
+    # Remove transaction_id from payment_details if present to avoid updating it
+    update_data = {k: v for k, v in payment_details.items() if k != 'transaction_id'}
+    payment_objs.update(**update_data)
 
     payment_obj = payment_objs.first()
     if payment_obj:
         if payment_obj.user:
             user_id = payment_obj.user.id
-        company_id = payment_obj.company_id
-        # add wallet amount
+        # Get company_id from the transaction object
+        company_id = payment_obj.company_id if payment_obj.company_id else None
+        print(f"update_wallet_transaction_detail: user_id={user_id}, company_id={company_id}, merchant_txn_id={merchant_transaction_id}")
     return user_id, company_id
         
 
 def update_wallet_recharge_details(user_id, company_id, amount):
-
-##    user_id, company_id = None, None
     amount = Decimal(str(amount))
+    
+    print(f"update_wallet_recharge_details: user_id={user_id}, company_id={company_id}, amount={amount}")
 
-    # update wallet transaction
-##    payment_objs = WalletTransaction.objects.filter(
-##        transaction_id=merchant_transaction_id)
-##    payment_objs.update(**payment_details)
-##    payment_obj = payment_objs.first()
-##    if payment_obj:
-##        user_id = payment_obj.user.id
-##        company_id = payment_obj.company_id
-        # add wallet amount
+    # add wallet amount - prioritize company wallet if company_id exists
     if company_id:
-        add_company_wallet_amount(company_id, amount)
+        print(f"Adding {amount} to company wallet {company_id}")
+        success = add_company_wallet_amount(company_id, amount)
+        if not success:
+            print(f"Failed to add amount to company wallet {company_id}")
     elif user_id:
-        add_user_wallet_amount(user_id, amount)
+        print(f"Adding {amount} to user wallet {user_id}")
+        success = add_user_wallet_amount(user_id, amount)
+        if not success:
+            print(f"Failed to add amount to user wallet {user_id}")
+    else:
+        print("Warning: Neither company_id nor user_id provided for wallet recharge")
+    
     return user_id, company_id
 
 def get_referral_bonus(referred_users:list, user_id):

@@ -27,6 +27,698 @@ from IDBOOKAPI.utils import calculate_tax, get_unique_id_from_time
 logger = logging.getLogger(__name__)
 
 
+def process_ssr_success(booking: Booking, flight_booking: FlightBooking, airiq_resp: dict, 
+                        meals: list, baggage: list, seats: list, other: list, 
+                        payment_amount: Decimal) -> Dict:
+    """
+    Process successful SSR addition - update booking and persist services
+    
+    Args:
+        booking: Booking instance
+        flight_booking: FlightBooking instance
+        airiq_resp: AirIQ AddSSR response
+        meals: List of meal SSR items
+        baggage: List of baggage SSR items
+        seats: List of seat SSR items
+        other: List of other SSR items
+        payment_amount: Payment amount for SSR
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        # Update flight booking track and PNR from response if available
+        try:
+            retr = airiq_resp.get('Retrieveresponse') or airiq_resp.get('Retriveresponse') or {}
+            itins = (retr.get('ItinearyDetails') or [])
+            if itins:
+                item0 = (itins[0].get('Item') or [None])[0] or {}
+                fb_updates = {}
+                maybe_track = item0.get('BookingTrackId')
+                if maybe_track:
+                    fb_updates['airiq_track_id'] = maybe_track
+                maybe_airiq_pnr = item0.get('AirIqPNR') or item0.get('AiriqPNR')
+                if maybe_airiq_pnr:
+                    fb_updates['airiq_pnr'] = maybe_airiq_pnr
+                try:
+                    trav_items = (item0.get('TravellerInfo') or {}).get('Item') or []
+                    if trav_items:
+                        seginfo = trav_items[0].get('SegmentInformation') or {}
+                        seg_items = seginfo.get('Item') or []
+                        if seg_items:
+                            airline_pnr_new = seg_items[0].get('AirlinePNR')
+                            if airline_pnr_new:
+                                fb_updates['airline_pnr'] = airline_pnr_new
+                except Exception:
+                    pass
+                if fb_updates:
+                    for k, v in fb_updates.items():
+                        setattr(flight_booking, k, v)
+                    flight_booking.save(update_fields=list(fb_updates.keys()))
+        except Exception:
+            pass
+
+        # Persist ancillary selections to DB
+        def _map_service_type(key: str) -> str:
+            return {
+                'MealsSSR': 'MEAL',
+                'BaggSSR': 'BAGGAGE',
+                'SeatsSSR': 'SEAT',
+                'OtherSSR': 'OTHER',
+            }.get(key, 'OTHER')
+
+        selections = [
+            ('MealsSSR', meals),
+            ('BaggSSR', baggage),
+            ('SeatsSSR', seats),
+            ('OtherSSR', other),
+        ]
+
+        pax_map = {p.passenger_reference: p for p in flight_booking.passengers.all()}
+        created_count = 0
+        for key, items in selections:
+            service_type = _map_service_type(key)
+            for it in (items or []):
+                pax_ref = it.get('PaxRefId') or it.get('PaxRefNumber') or it.get('PaxRef')
+                pax_ref_int = None
+                try:
+                    pax_ref_int = int(pax_ref) if pax_ref is not None else None
+                except Exception:
+                    pax_ref_int = None
+                passenger = pax_map.get(pax_ref_int) if pax_ref_int else None
+                if not passenger:
+                    continue
+                code = (it.get('MealId') or it.get('BaggId') or it.get('SeatId') or it.get('OtherSSRId') or '')
+                desc = it.get('Description') or str(code)
+                price = Decimal(str(it.get('Amount') or it.get('SeatAmount') or 0)) if 'Amount' in it or 'SeatAmount' in it else Decimal('0')
+                segment_ref = int(it.get('SegmentNo') or it.get('SegRef') or 1)
+                FlightAncillaryService.objects.create(
+                    flight_booking=flight_booking,
+                    passenger=passenger,
+                    service_type=service_type,
+                    airiq_service_id=str(code),
+                    service_code=str(code),
+                    service_description=str(desc)[:200],
+                    segment_reference=segment_ref,
+                    service_price=price,
+                )
+                created_count += 1
+
+        # Update booking amount
+        if payment_amount > 0:
+            booking.final_amount = (booking.final_amount or Decimal('0')) + payment_amount
+            booking.total_payment_made = (booking.total_payment_made or Decimal('0')) + payment_amount
+            booking.save(update_fields=['final_amount', 'total_payment_made'])
+
+        return {
+            'success': True,
+            'created_services': created_count,
+            'payment_amount': float(payment_amount),
+            'airiq_response': airiq_resp,
+        }
+    except Exception as e:
+        logger.error(f"Error processing SSR success: {str(e)}")
+        raise
+
+
+def process_reschedule_success(booking: Booking, flight_booking: FlightBooking, airiq_resp: dict, 
+                                remarks: str = '', pnr_index: int = None, old_airiq_pnr: str = None) -> Dict:
+    """
+    Process successful reschedule - update booking details
+    
+    Args:
+        booking: Booking instance
+        flight_booking: FlightBooking instance
+        airiq_resp: AirIQ reschedule response
+        remarks: Reschedule remarks
+        pnr_index: Index of PNR being rescheduled (for multiple PNRs)
+        old_airiq_pnr: Original AirIQ PNR being rescheduled
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        # Extract new booking amount from response
+        new_booking_amount = Decimal(str(airiq_resp.get('NewBookingAmount', 0) or 0))
+        old_booking_amount = Decimal(str(airiq_resp.get('OldBookingAmount', 0) or 0))
+        penalty = Decimal(str(airiq_resp.get('Penalty', 0) or 0))
+        fare_difference = Decimal(str(airiq_resp.get('FareDifference', 0) or 0))
+        new_pnr = airiq_resp.get('New_PNR', '')
+        
+        # Get or initialize reschedule status tracking
+        reschedule_status = flight_booking.airiq_response_data.get('reschedule_status', {}) or {}
+        if not isinstance(reschedule_status, dict):
+            reschedule_status = {}
+        
+        # Track this reschedule
+        reschedule_record = {
+            'old_airiq_pnr': old_airiq_pnr or flight_booking.airiq_pnr,
+            'new_airiq_pnr': new_pnr,
+            'old_booking_amount': float(old_booking_amount),
+            'new_booking_amount': float(new_booking_amount),
+            'penalty': float(penalty),
+            'fare_difference': float(fare_difference),
+            'status': 'success',
+            'rescheduled_at': timezone.now().isoformat(),
+            'remarks': remarks[:255] if remarks else ''
+        }
+        
+        # Store per PNR if multiple PNRs
+        if pnr_index is not None:
+            reschedule_status[f'pnr_{pnr_index}'] = reschedule_record
+        elif old_airiq_pnr:
+            reschedule_status[old_airiq_pnr] = reschedule_record
+        else:
+            reschedule_status['latest'] = reschedule_record
+        
+        # Update flight booking with reschedule status
+        if not flight_booking.airiq_response_data:
+            flight_booking.airiq_response_data = {}
+        flight_booking.airiq_response_data['reschedule_status'] = reschedule_status
+        
+        # Update booking final amount if new amount is provided
+        if new_booking_amount > 0:
+            booking.final_amount = new_booking_amount
+            booking.save(update_fields=['final_amount'])
+        
+        # Update flight booking status and PNRs
+        # Only mark as RESCHEDULED if all PNRs are rescheduled, otherwise keep as CONFIRMED
+        airiq_pnrs = flight_booking.airiq_pnrs or []
+        if not airiq_pnrs and flight_booking.airiq_pnr:
+            airiq_pnrs = [flight_booking.airiq_pnr]
+        
+        # Check if all PNRs have been rescheduled
+        all_rescheduled = True
+        if len(airiq_pnrs) > 1:
+            for idx in range(len(airiq_pnrs)):
+                pnr_key = f'pnr_{idx}'
+                if pnr_key not in reschedule_status or reschedule_status[pnr_key].get('status') != 'success':
+                    all_rescheduled = False
+                    break
+        
+        if all_rescheduled:
+            flight_booking.status = 'RESCHEDULED'
+        # If partial, keep status as CONFIRMED but track reschedule status
+        
+        if remarks:
+            flight_booking.reschedule_remark = remarks[:255]
+        
+        # Update PNR if new PNR is provided
+        if new_pnr:
+            # Update in list if using multiple PNRs
+            if flight_booking.airiq_pnrs:
+                # Replace old PNR with new one at the same index
+                if pnr_index is not None and 0 <= pnr_index < len(flight_booking.airiq_pnrs):
+                    flight_booking.airiq_pnrs[pnr_index] = new_pnr
+                elif old_airiq_pnr and old_airiq_pnr in flight_booking.airiq_pnrs:
+                    idx = flight_booking.airiq_pnrs.index(old_airiq_pnr)
+                    flight_booking.airiq_pnrs[idx] = new_pnr
+                else:
+                    # Append if not found (shouldn't happen, but handle gracefully)
+                    flight_booking.airiq_pnrs.append(new_pnr)
+            else:
+                flight_booking.airiq_pnr = new_pnr
+                flight_booking.airiq_pnrs = [new_pnr]
+        
+        flight_booking.save(update_fields=['status', 'reschedule_remark', 'airiq_pnr', 'airiq_pnrs', 'airiq_response_data'])
+        
+        return {
+            'success': True,
+            'new_booking_amount': float(new_booking_amount),
+            'old_booking_amount': float(old_booking_amount),
+            'penalty': float(penalty),
+            'fare_difference': float(fare_difference),
+            'new_pnr': new_pnr,
+            'old_pnr': old_airiq_pnr or flight_booking.airiq_pnr,
+            'pnr_index': pnr_index,
+            'all_rescheduled': all_rescheduled,
+            'airiq_response': airiq_resp,
+        }
+    except Exception as e:
+        logger.error(f"Error processing reschedule success: {str(e)}")
+        raise
+
+
+def record_reschedule_failure(flight_booking: FlightBooking, old_airiq_pnr: str, error: str, 
+                              pnr_index: int = None) -> None:
+    """
+    Record reschedule failure for a specific PNR
+    
+    Args:
+        flight_booking: FlightBooking instance
+        old_airiq_pnr: Original AirIQ PNR that failed to reschedule
+        error: Error message
+        pnr_index: Index of PNR (for multiple PNRs)
+    """
+    try:
+        reschedule_status = flight_booking.airiq_response_data.get('reschedule_status', {}) or {}
+        if not isinstance(reschedule_status, dict):
+            reschedule_status = {}
+        
+        failure_record = {
+            'old_airiq_pnr': old_airiq_pnr,
+            'status': 'failed',
+            'error': str(error)[:500],
+            'failed_at': timezone.now().isoformat()
+        }
+        
+        if pnr_index is not None:
+            reschedule_status[f'pnr_{pnr_index}'] = failure_record
+        else:
+            reschedule_status[old_airiq_pnr] = failure_record
+        
+        if not flight_booking.airiq_response_data:
+            flight_booking.airiq_response_data = {}
+        flight_booking.airiq_response_data['reschedule_status'] = reschedule_status
+        flight_booking.save(update_fields=['airiq_response_data'])
+    except Exception as e:
+        logger.error(f"Error recording reschedule failure: {str(e)}")
+
+
+def extract_route_info_from_airiq_response(flight_booking: FlightBooking) -> Dict:
+    """
+    Extract route information (flying_from, flying_to, return_from, return_to) 
+    from AirIQ booking response data stored in flight_booking
+    
+    Returns:
+        Dict with route information:
+        {
+            'onward_origin': 'HYD',
+            'onward_destination': 'DEL',
+            'return_origin': 'DEL',
+            'return_destination': 'HYD',
+            'itineraries': [
+                {
+                    'index': 0,
+                    'base_origin': 'HYD',
+                    'base_destination': 'DEL',
+                    'trip_type': 'O',
+                    'airiq_pnr': 'AF16GB0030',
+                    'segments': [
+                        {'origin': 'HYD', 'destination': 'BLR'},
+                        {'origin': 'BLR', 'destination': 'DEL'}
+                    ]
+                },
+                ...
+            ]
+        }
+    """
+    route_info = {
+        'onward_origin': '',
+        'onward_destination': '',
+        'return_origin': '',
+        'return_destination': '',
+        'itineraries': []
+    }
+    
+    try:
+        # Get AirIQ response data
+        airiq_response = flight_booking.airiq_response_data or {}
+        booking_response = airiq_response.get('Bookingresponse', {})
+        itinerary_details = booking_response.get('ItinearyDetails', [])
+        
+        if not itinerary_details:
+            # Fallback to booked_itineraries if available
+            booked_itineraries = flight_booking.booked_itineraries or []
+            if booked_itineraries:
+                for idx, itin in enumerate(booked_itineraries):
+                    base_origin = itin.get('base_origin', '').strip()
+                    base_dest = itin.get('base_destination', '').strip()
+                    
+                    if idx == 0:
+                        route_info['onward_origin'] = base_origin
+                        route_info['onward_destination'] = base_dest
+                    else:
+                        route_info['return_origin'] = base_origin
+                        route_info['return_destination'] = base_dest
+                    
+                    route_info['itineraries'].append({
+                        'index': idx,
+                        'base_origin': base_origin,
+                        'base_destination': base_dest,
+                        'trip_type': 'O' if idx == 0 else 'R',
+                        'airiq_pnr': itin.get('airiq_pnr', ''),
+                        'segments': itin.get('segments', [])
+                    })
+            return route_info
+        
+        # Extract from AirIQ response structure
+        for idx, itin_detail in enumerate(itinerary_details):
+            items = itin_detail.get('Item', [])
+            if not items:
+                continue
+            
+            # Get first item (usually contains the main booking info)
+            item = items[0] if isinstance(items, list) else items
+            
+            base_origin = (item.get('BaseOrigin', '') or '').strip()
+            base_dest = (item.get('BaseDestination', '') or '').strip()
+            trip_type = item.get('TripType', 'O')
+            airiq_pnr = item.get('AirIqPNR', '')
+            
+            # Extract segments from TravellerInfo
+            segments = []
+            traveller_info = item.get('TravellerInfo', {})
+            traveller_items = traveller_info.get('Item', [])
+            
+            if traveller_items:
+                # Get segments from first traveller
+                first_traveller = traveller_items[0] if isinstance(traveller_items, list) else traveller_items
+                segment_info = first_traveller.get('SegmentInformation', {})
+                segment_items = segment_info.get('Item', [])
+                
+                for seg in (segment_items if isinstance(segment_items, list) else [segment_items]):
+                    if seg:
+                        segments.append({
+                            'origin': (seg.get('Origin', '') or '').strip(),
+                            'destination': (seg.get('Destination', '') or '').strip()
+                        })
+            
+            # Determine if this is onward or return based on index and trip_type
+            # For roundtrip with multiple itineraries:
+            # - First itinerary is usually onward
+            # - Second itinerary is usually return
+            # But we also check the BaseOrigin/Destination to be sure
+            
+            if idx == 0:
+                route_info['onward_origin'] = base_origin
+                route_info['onward_destination'] = base_dest
+            else:
+                # For return, check if this is actually the return journey
+                # by comparing with onward destination
+                if base_origin == route_info['onward_destination'] or not route_info['return_origin']:
+                    route_info['return_origin'] = base_origin
+                    route_info['return_destination'] = base_dest
+            
+            route_info['itineraries'].append({
+                'index': idx,
+                'base_origin': base_origin,
+                'base_destination': base_dest,
+                'trip_type': trip_type,
+                'airiq_pnr': airiq_pnr,
+                'segments': segments
+            })
+        
+        # If we still don't have return info and there's only one itinerary,
+        # it might be a single PNR roundtrip - check segments to determine return
+        if not route_info['return_origin'] and len(route_info['itineraries']) == 1:
+            itin = route_info['itineraries'][0]
+            segments = itin.get('segments', [])
+            if len(segments) > 1:
+                # Find the return segment (destination of onward = origin of return)
+                onward_dest = route_info['onward_destination']
+                for seg in segments:
+                    if seg.get('origin') == onward_dest:
+                        route_info['return_origin'] = seg.get('origin', '')
+                        route_info['return_destination'] = seg.get('destination', '')
+                        break
+        
+    except Exception as e:
+        logger.error(f"Error extracting route info from AirIQ response: {str(e)}")
+    
+    return route_info
+
+
+def process_multi_pnr_reschedule_availability(flight_booking: FlightBooking, reschedule_requests: list, airiq_service) -> Dict:
+    """
+    Process reschedule availability for multiple PNRs (onward and return)
+    
+    Args:
+        flight_booking: FlightBooking instance
+        reschedule_requests: List of reschedule requests, each with:
+            - airiq_pnr: AirIQ PNR for this segment
+            - airline_pnr: Airline PNR for this segment (optional)
+            - trip_type: 'O' for onward, 'R' for return
+            - flight_segments: List of flight segments
+            - remarks: Remarks for this segment
+        airiq_service: AirIQService instance
+        
+    Returns:
+        Dict with aggregated availability responses
+    """
+    try:
+        all_responses = []
+        errors = []
+        
+        for idx, req in enumerate(reschedule_requests):
+            try:
+                # Validate segments before API call
+                flight_segments = req.get('flight_segments', [])
+                if not flight_segments:
+                    errors.append({
+                        'segment_index': idx,
+                        'trip_type': req['trip_type'],
+                        'airiq_pnr': req['airiq_pnr'],
+                        'error': 'No flight segments provided for this PNR'
+                    })
+                    continue
+                
+                # Validate each segment has required fields
+                for seg_idx, seg in enumerate(flight_segments):
+                    if not all([seg.get('departure_station'), seg.get('arrival_station'), seg.get('flight_date')]):
+                        errors.append({
+                            'segment_index': idx,
+                            'segment_number': seg_idx + 1,
+                            'trip_type': req['trip_type'],
+                            'airiq_pnr': req['airiq_pnr'],
+                            'error': f'Segment {seg_idx + 1} missing required fields (departure_station, arrival_station, or flight_date)'
+                        })
+                        break
+                
+                if errors and any(e.get('segment_index') == idx for e in errors):
+                    continue
+                
+                resp = airiq_service.reschedule_availability(
+                    trip_type=req['trip_type'],
+                    flight_segments=flight_segments,
+                    airiq_pnr=req['airiq_pnr'],
+                    remarks=req.get('remarks', '')
+                )
+                all_responses.append({
+                    'segment_index': idx,
+                    'pnr_index': idx,  # Add for tracking
+                    'trip_type': req['trip_type'],
+                    'airiq_pnr': req['airiq_pnr'],
+                    'old_airiq_pnr': req['airiq_pnr'],  # Store original PNR
+                    'segments_count': len(flight_segments),
+                    'response': resp
+                })
+            except Exception as e:
+                errors.append({
+                    'segment_index': idx,
+                    'pnr_index': idx,
+                    'trip_type': req['trip_type'],
+                    'airiq_pnr': req['airiq_pnr'],
+                    'error': str(e)
+                })
+        
+        return {
+            'success': len(errors) == 0,
+            'responses': all_responses,
+            'errors': errors,
+            'total_segments': len(reschedule_requests)
+        }
+    except Exception as e:
+        logger.error(f"Error processing multi-PNR reschedule availability: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'responses': [],
+            'errors': [{'error': str(e)}]
+        }
+
+
+def process_multi_pnr_reschedule_confirm(flight_booking: FlightBooking, reschedule_requests: list, 
+                                         airiq_service, flag: str = 'CHECKFARE') -> Dict:
+    """
+    Process reschedule confirm for multiple PNRs (onward and return)
+    
+    Args:
+        flight_booking: FlightBooking instance
+        reschedule_requests: List of reschedule requests, each with:
+            - airiq_pnr: AirIQ PNR for this segment
+            - track_id: Track ID from availability response
+            - trip_type: 'O' for onward, 'R' for return
+            - flight_details: Flight details dict
+            - contact_no: Contact number
+            - remarks: Remarks for this segment
+        airiq_service: AirIQService instance
+        flag: 'CHECKFARE' or 'CONFIRM'
+        
+    Returns:
+        Dict with aggregated responses, penalties, and fare differences
+    """
+    try:
+        all_responses = []
+        total_penalty = Decimal('0')
+        total_fare_difference = Decimal('0')
+        errors = []
+        
+        for idx, req in enumerate(reschedule_requests):
+            try:
+                resp = airiq_service.reschedule_booking(
+                    airiq_pnr=req['airiq_pnr'],
+                    track_id=req['track_id'],
+                    flight_details=req['flight_details'],
+                    contact_no=req['contact_no'],
+                    remarks=req.get('remarks', ''),
+                    flag=flag
+                )
+                
+                # Extract penalty and fare difference
+                penalty = Decimal(str(resp.get('Penalty', 0) or 0))
+                fare_difference = Decimal(str(resp.get('FareDifference', 0) or 0))
+                
+                total_penalty += penalty
+                total_fare_difference += fare_difference
+                
+                all_responses.append({
+                    'segment_index': idx,
+                    'pnr_index': idx,  # Add for tracking
+                    'trip_type': req['trip_type'],
+                    'airiq_pnr': req['airiq_pnr'],
+                    'old_airiq_pnr': req['airiq_pnr'],  # Store original PNR
+                    'penalty': float(penalty),
+                    'fare_difference': float(fare_difference),
+                    'response': resp
+                })
+            except Exception as e:
+                errors.append({
+                    'segment_index': idx,
+                    'pnr_index': idx,
+                    'trip_type': req['trip_type'],
+                    'airiq_pnr': req['airiq_pnr'],
+                    'error': str(e)
+                })
+        
+        total_payment = total_penalty + total_fare_difference
+        
+        return {
+            'success': len(errors) == 0,
+            'responses': all_responses,
+            'errors': errors,
+            'total_penalty': float(total_penalty),
+            'total_fare_difference': float(total_fare_difference),
+            'total_payment': float(total_payment),
+            'total_segments': len(reschedule_requests)
+        }
+    except Exception as e:
+        logger.error(f"Error processing multi-PNR reschedule confirm: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'responses': [],
+            'errors': [{'error': str(e)}],
+            'total_penalty': 0,
+            'total_fare_difference': 0,
+            'total_payment': 0
+        }
+
+
+def process_reschedule_refund(booking: Booking, refund_amount: Decimal, reschedule_details: dict) -> Dict:
+    """
+    Process refund for reschedule when new fare is less than old fare
+    
+    Args:
+        booking: Booking instance
+        refund_amount: Amount to refund (should be positive)
+        reschedule_details: Details about the reschedule operation
+        
+    Returns:
+        Dict with refund processing result
+    """
+    try:
+        from apps.booking.utils.booking_utils import refund_wallet_payment
+        from apps.booking.utils.db_utils import create_booking_payment_details, update_booking_payment_details
+        
+        if refund_amount <= 0:
+            return {
+                'success': True,
+                'message': 'No refund required',
+                'refund_amount': 0
+            }
+        
+        # Get original payment details to determine refund method
+        original_payment = booking.booking_payment.filter(
+            is_transaction_success=True
+        ).order_by('-id').first()
+        
+        if not original_payment:
+            return {
+                'success': False,
+                'error': 'No successful payment found for refund',
+                'error_code': 'NO_PAYMENT_FOUND'
+            }
+        
+        # Prepare refund details
+        refund_details = {
+            'reason': 'Reschedule fare difference refund',
+            'reschedule_details': reschedule_details,
+            'timestamp': timezone.now().isoformat(),
+            'refund_type': 'reschedule_refund'
+        }
+        
+        # Process refund based on original payment method
+        if original_payment.payment_medium == 'Idbook' or original_payment.payment_type == 'WALLET':
+            # Refund to wallet
+            refund_ok, refund_status, refund_data = refund_wallet_payment(
+                booking, refund_amount, refund_details
+            )
+            
+            if refund_ok:
+                return {
+                    'success': True,
+                    'refund_method': 'wallet',
+                    'refund_amount': float(refund_amount),
+                    'refund_status': refund_status,
+                    'transaction_id': refund_data.get('merchant_refund_id'),
+                    'message': 'Refund processed to wallet successfully'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Wallet refund failed',
+                    'error_code': 'WALLET_REFUND_FAILED',
+                    'refund_status': refund_status
+                }
+        else:
+            # For gateway payments (PhonePe, etc.), mark for manual/gateway refund
+            # Create refund record for tracking
+            append_id = f"RSRF{booking.user.id if booking.user else 'GUEST'}"
+            refund_payment = create_booking_payment_details(booking.id, append_id)
+            refund_payment.amount = float(refund_amount)
+            refund_payment.transaction_for = 'booking_refund'
+            refund_payment.transaction_details = {
+                'refund_type': 'reschedule_refund',
+                'original_payment_id': original_payment.merchant_transaction_id,
+                'original_payment_method': original_payment.payment_medium,
+                'reschedule_details': reschedule_details,
+                'refund_status': 'pending_gateway_refund'
+            }
+            refund_payment.code = 'REFUND_PENDING'
+            refund_payment.message = 'Refund pending - gateway refund required'
+            refund_payment.is_transaction_success = False
+            refund_payment.save()
+            
+            return {
+                'success': True,
+                'refund_method': 'gateway',
+                'refund_amount': float(refund_amount),
+                'refund_status': 'pending_gateway_refund',
+                'transaction_id': refund_payment.merchant_transaction_id,
+                'message': 'Refund marked for gateway processing. Please contact support.',
+                'note': 'Gateway refunds require manual processing'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing reschedule refund: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Refund processing failed: {str(e)}',
+            'error_code': 'REFUND_PROCESSING_ERROR'
+        }
+
+
 class FlightBookingAuthManager:
     """
     Manages authentication flow for flight bookings
