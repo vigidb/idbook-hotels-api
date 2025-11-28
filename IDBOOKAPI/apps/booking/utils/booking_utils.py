@@ -165,7 +165,8 @@ def validate_company_id_for_corporate_user(user, company_id=None, request=None):
     Returns:
         tuple: (is_valid, error_message)
     """
-    if not user:
+    if not user or not user.is_authenticated:
+        # Anonymous users don't need company_id validation
         return True, None
     
     # Get active group from token or user
@@ -1328,6 +1329,10 @@ def booking_cashback_notification_template(booking_id, cashback_amount, booking_
 def calculate_subscription_discount(user, current_booking_subtotal):
     discount_percent = 0
     discount_value = 0
+    
+    # Handle AnonymousUser
+    if not user or not user.is_authenticated:
+        return discount_percent, discount_value
     
     # Check if user has active subscription
     user_subscription = user.user_subscription.filter(active=True).last()

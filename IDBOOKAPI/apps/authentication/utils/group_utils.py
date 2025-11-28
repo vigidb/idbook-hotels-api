@@ -20,6 +20,10 @@ def get_user_groups_cached(user) -> List[str]:
     Returns:
         List of group names
     """
+    # Handle AnonymousUser
+    if not user or not user.is_authenticated:
+        return []
+    
     cache_key = f"user_{user.id}_groups"
     groups = cache.get(cache_key)
     
@@ -59,6 +63,10 @@ def validate_user_group_membership(user, group_name: str, use_cache: bool = True
     if not user:
         return False, "User is required"
     
+    # Handle AnonymousUser
+    if not user.is_authenticated:
+        return False, "User is not authenticated"
+    
     if not user.is_active:
         return False, "User is not active"
     
@@ -69,7 +77,8 @@ def validate_user_group_membership(user, group_name: str, use_cache: bool = True
         # Fetch fresh from database to ensure we have latest groups
         user_groups = list(user.groups.values_list('name', flat=True))
     
-    user_default_group = user.default_group or ''
+    # Safely access default_group (only for authenticated users)
+    user_default_group = getattr(user, 'default_group', None) or ''
     
     # Check if user belongs to the group
     if group_name in user_groups or group_name == user_default_group:
@@ -116,8 +125,14 @@ def get_user_default_group(user) -> Optional[str]:
     Returns:
         Default group name or None
     """
-    if user.default_group:
-        return user.default_group
+    # Handle AnonymousUser
+    if not user or not user.is_authenticated:
+        return None
+    
+    # Safely access default_group (only for authenticated users)
+    default_group = getattr(user, 'default_group', None)
+    if default_group:
+        return default_group
     
     user_groups = get_user_groups_cached(user)
     if user_groups:

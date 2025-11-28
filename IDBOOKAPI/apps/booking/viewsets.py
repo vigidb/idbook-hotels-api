@@ -1938,7 +1938,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##                    commission_details['hotelier_amount'] = hotelier_amount
 ##                    commission_details['hotelier_amount_with_tax'] = hotelier_amount_with_tax
 
-                booking_dict = {"user_id":user.id, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
+                booking_dict = {"user_id":user.id if user.is_authenticated else None, "hotel_booking_id":hotel_booking_id, "booking_type":'HOTEL',
                                 "subtotal":self.subtotal, "discount":discount, "final_amount":self.final_amount,
                                 "gst_amount": self.final_tax_amount, "adult_count":adult_count,
                                 "child_count":child_count, "infant_count":infant_count,
@@ -1951,7 +1951,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                     #booking.coupon_code = coupon_code
                     
                 # Validate company_id requirement for corporate users
-                if user:
+                if user and user.is_authenticated:
                     from apps.booking.utils.booking_utils import validate_company_id_for_corporate_user
                     # Get company_id from request or user
                     final_company_id = company_id or getattr(user, 'company_id', None)
@@ -1976,8 +1976,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 if not booking_id:
                     booking = Booking(**booking_dict)
                     booking.save()
-                    booking_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    update_monthly_pay_at_hotel_eligibility_task.apply_async(args=[user.id, booking_date])
+                    if user and user.is_authenticated:
+                        booking_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        update_monthly_pay_at_hotel_eligibility_task.apply_async(args=[user.id, booking_date])
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
@@ -2027,7 +2028,7 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
 ##                merchant_transaction_id = booking_payment_detail.merchant_transaction_id
 
                 # wallet balance check and send notification for low balance
-                if user.id:
+                if user and user.is_authenticated:
                     check_wallet_balance_for_booking(booking, user, company_id=company_id)
    
                 serializer = PreConfirmHotelBookingSerializer(booking)

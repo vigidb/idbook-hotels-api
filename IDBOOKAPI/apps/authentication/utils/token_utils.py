@@ -86,6 +86,10 @@ def get_user_active_group(user, request=None) -> Optional[str]:
     if not user:
         return None
     
+    # Handle AnonymousUser - return None early
+    if not user.is_authenticated:
+        return None
+    
     # Try to get from token first
     if request:
         active_group = get_active_group_from_request(request)
