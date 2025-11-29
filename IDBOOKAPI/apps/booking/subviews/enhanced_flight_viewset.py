@@ -926,7 +926,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 'merchantTransactionId': payment_detail.merchant_transaction_id,
                 'merchantUserId': str(user.id) if user and user.is_authenticated else 'guest',
                 'amount': int(payment_amount * 100),
-                'redirectUrl': request.data.get('redirect_url', settings.DEFAULT_REDIRECT_URL),
+                'redirectUrl': request.data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', ''),
                 'redirectMode': 'REDIRECT',
                 'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/",
                 'paymentInstrument': {'type': 'PAY_PAGE'}
@@ -1192,7 +1192,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             'merchantTransactionId': payment_detail.merchant_transaction_id,
             'merchantUserId': str(request.user.id) if request.user and request.user.is_authenticated else 'guest',
             'amount': int(payment_amount * 100),
-            'redirectUrl': request.data.get('redirect_url', settings.DEFAULT_REDIRECT_URL),
+            'redirectUrl': request.data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', ''),
             'redirectMode': 'REDIRECT',
             'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/",
             'paymentInstrument': {'type': 'PAY_PAGE'}

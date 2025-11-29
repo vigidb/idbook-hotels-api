@@ -293,7 +293,7 @@ class FlightPaymentProcessor:
             
             # Prepare PhonePe payload
             merchant_id = settings.MERCHANT_ID
-            redirect_url = self.payment_data.get('redirect_url', settings.DEFAULT_REDIRECT_URL)
+            redirect_url = self.payment_data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', '')
             callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/phonepe-callback/"
             
             payload = {
@@ -1845,7 +1845,7 @@ def handle_reschedule_phonepe_payment(booking: Booking, flight_booking: FlightBo
             'merchantTransactionId': payment_detail.merchant_transaction_id,
             'merchantUserId': str(user.id) if user and user.is_authenticated else 'guest',
             'amount': int(payment_amount * 100),
-            'redirectUrl': request.data.get('redirect_url', settings.DEFAULT_REDIRECT_URL) if request else settings.DEFAULT_REDIRECT_URL,
+            'redirectUrl': (request.data.get('redirect_url') if request else None) or getattr(settings, 'FRONTEND_URL', ''),
             'redirectMode': 'REDIRECT',
             'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/reschedule/phonepe-callback/",
             'paymentInstrument': {'type': 'PAY_PAGE'}
