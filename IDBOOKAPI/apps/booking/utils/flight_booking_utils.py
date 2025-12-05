@@ -130,6 +130,20 @@ def process_ssr_success(booking: Booking, flight_booking: FlightBooking, airiq_r
             booking.total_payment_made = (booking.total_payment_made or Decimal('0')) + payment_amount
             booking.save(update_fields=['final_amount', 'total_payment_made'])
 
+        # Send SSR services added SMS notification
+        try:
+            from apps.booking.tasks import send_booking_sms_task
+            send_booking_sms_task.delay(
+                notification_type='FLIGHT_SERVICES_ADDED',
+                params={
+                    'booking_id': booking.id,
+                    'additional_charge': float(payment_amount)
+                }
+            )
+            logger.info(f"SSR services added SMS notification queued for booking {booking.id}")
+        except Exception as e:
+            logger.error(f"Error queuing SSR services SMS notification: {str(e)}")
+
         return {
             'success': True,
             'created_services': created_count,
@@ -241,6 +255,25 @@ def process_reschedule_success(booking: Booking, flight_booking: FlightBooking, 
                 flight_booking.airiq_pnrs = [new_pnr]
         
         flight_booking.save(update_fields=['status', 'reschedule_remark', 'airiq_pnr', 'airiq_pnrs', 'airiq_response_data'])
+        
+        # Send reschedule SMS notification
+        try:
+            from apps.booking.tasks import send_booking_sms_task
+            # Format new departure datetime
+            new_departure_str = ''
+            if flight_booking.departure_date:
+                new_departure_str = flight_booking.departure_date.strftime('%B %d, %Y %I:%M %p')
+            
+            send_booking_sms_task.delay(
+                notification_type='FLIGHT_BOOKING_RESCHEDULED',
+                params={
+                    'booking_id': booking.id,
+                    'new_departure': new_departure_str
+                }
+            )
+            logger.info(f"Reschedule SMS notification queued for booking {booking.id}")
+        except Exception as e:
+            logger.error(f"Error queuing reschedule SMS notification: {str(e)}")
         
         return {
             'success': True,
@@ -1016,7 +1049,19 @@ class FlightBookingProcessor:
             
             # Set hold expiry if booking is blocked
             if self.booking_data.get('block_pnr') and airiq_response.get('HoldExpiry'):
-                flight_booking_data['hold_expires_at'] = airiq_response['HoldExpiry']
+                from django.utils.dateparse import parse_datetime
+                hold_expiry = airiq_response['HoldExpiry']
+                try:
+                    # Try parsing if it's a string
+                    if isinstance(hold_expiry, str):
+                        flight_booking_data['hold_expires_at'] = parse_datetime(hold_expiry)
+                    else:
+                        flight_booking_data['hold_expires_at'] = hold_expiry
+                except Exception:
+                    # Fallback to 24 hours from now
+                    from django.utils import timezone
+                    from datetime import timedelta
+                    flight_booking_data['hold_expires_at'] = timezone.now() + timedelta(hours=24)
         
         flight_booking = FlightBooking.objects.create(**flight_booking_data)
         
@@ -1039,6 +1084,53 @@ class FlightBookingProcessor:
         }
         
         booking = Booking.objects.create(**booking_data)
+        
+        # Update user profile with contact information from booking request
+        if booking.user and self.booking_data.get('contact'):
+            from apps.booking.utils.contact_utils import update_user_contact_info
+            contact = self.booking_data.get('contact', {})
+            # Get name from first passenger if not in contact
+            contact_name = contact.get('name')
+            if not contact_name:
+                passengers = self.booking_data.get('passengers', [])
+                if passengers:
+                    first_pax = passengers[0]
+                    first_name = first_pax.get('first_name') or first_pax.get('FirstName', '')
+                    last_name = first_pax.get('last_name') or first_pax.get('LastName', '')
+                    contact_name = (first_name + ' ' + last_name).strip()
+            
+            update_user_contact_info(
+                user=booking.user,
+                contact_email=contact.get('email'),
+                contact_phone=contact.get('phone'),
+                contact_name=contact_name
+            )
+        
+        # Store contact information in flight_booking for SMS/email retrieval
+        if booking.flight_booking and self.booking_data.get('contact'):
+            contact = self.booking_data.get('contact', {})
+            # Get name from first passenger if not in contact
+            contact_name = contact.get('name')
+            if not contact_name:
+                passengers = self.booking_data.get('passengers', [])
+                if passengers:
+                    first_pax = passengers[0]
+                    first_name = first_pax.get('first_name') or first_pax.get('FirstName', '')
+                    last_name = first_pax.get('last_name') or first_pax.get('LastName', '')
+                    contact_name = (first_name + ' ' + last_name).strip()
+            
+            # Store contact info in selected_flight_data for easy retrieval
+            if not booking.flight_booking.selected_flight_data:
+                booking.flight_booking.selected_flight_data = {}
+            if 'contact' not in booking.flight_booking.selected_flight_data:
+                booking.flight_booking.selected_flight_data['contact'] = {}
+            
+            booking.flight_booking.selected_flight_data['contact'].update({
+                'email': contact.get('email', ''),
+                'phone': contact.get('phone', ''),
+                'name': contact_name or ''
+            })
+            booking.flight_booking.save(update_fields=['selected_flight_data'])
         
         # Generate access token for all bookings (includes user group info)
         if booking.user:
@@ -1122,6 +1214,53 @@ class FlightBookingProcessor:
         
         booking = Booking.objects.create(**booking_data)
         
+        # Update user profile with contact information from booking request
+        if booking.user and self.booking_data.get('contact'):
+            from apps.booking.utils.contact_utils import update_user_contact_info
+            contact = self.booking_data.get('contact', {})
+            # Get name from first passenger if not in contact
+            contact_name = contact.get('name')
+            if not contact_name:
+                passengers = self.booking_data.get('passengers', [])
+                if passengers:
+                    first_pax = passengers[0]
+                    first_name = first_pax.get('first_name') or first_pax.get('FirstName', '')
+                    last_name = first_pax.get('last_name') or first_pax.get('LastName', '')
+                    contact_name = (first_name + ' ' + last_name).strip()
+            
+            update_user_contact_info(
+                user=booking.user,
+                contact_email=contact.get('email'),
+                contact_phone=contact.get('phone'),
+                contact_name=contact_name
+            )
+        
+        # Store contact information in flight_booking for SMS/email retrieval
+        if booking.flight_booking and self.booking_data.get('contact'):
+            contact = self.booking_data.get('contact', {})
+            # Get name from first passenger if not in contact
+            contact_name = contact.get('name')
+            if not contact_name:
+                passengers = self.booking_data.get('passengers', [])
+                if passengers:
+                    first_pax = passengers[0]
+                    first_name = first_pax.get('first_name') or first_pax.get('FirstName', '')
+                    last_name = first_pax.get('last_name') or first_pax.get('LastName', '')
+                    contact_name = (first_name + ' ' + last_name).strip()
+            
+            # Store contact info in selected_flight_data for easy retrieval
+            if not booking.flight_booking.selected_flight_data:
+                booking.flight_booking.selected_flight_data = {}
+            if 'contact' not in booking.flight_booking.selected_flight_data:
+                booking.flight_booking.selected_flight_data['contact'] = {}
+            
+            booking.flight_booking.selected_flight_data['contact'].update({
+                'email': contact.get('email', ''),
+                'phone': contact.get('phone', ''),
+                'name': contact_name or ''
+            })
+            booking.flight_booking.save(update_fields=['selected_flight_data'])
+        
         # Generate access token for all bookings (includes user group info)
         if booking.user:
             from apps.booking.utils.booking_utils import generate_guest_access_token
@@ -1151,7 +1290,7 @@ class FlightBookingProcessor:
         
         for passenger_data in self.booking_data.get('passengers', []):
             # Convert date strings to proper date objects
-            date_of_birth = self._convert_date_string(passenger_data['date_of_birth'])
+            date_of_birth = self._convert_date_string(passenger_data.get('date_of_birth'))
             passport_expiry = self._convert_date_string(passenger_data.get('passport_expiry'))
             passport_issued_date = self._convert_date_string(passenger_data.get('passport_issued_date'))
             
@@ -1461,8 +1600,12 @@ class FlightCancellationManager:
                 send_flight_booking_task, send_cancelled_booking_task
             )
             
-            # Send flight-specific cancellation SMS
-            send_flight_booking_task.delay(self.booking.id, 'cancelled')
+            # Send flight-specific cancellation SMS with refund amount
+            send_flight_booking_task.delay(
+                self.booking.id, 
+                'cancelled',
+                refund_amount=float(refund_amount) if refund_amount else 0
+            )
             
             # Send general cancellation email
             send_cancelled_booking_task.delay(self.booking.id)

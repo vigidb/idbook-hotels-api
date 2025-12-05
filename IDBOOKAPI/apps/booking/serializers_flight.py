@@ -93,7 +93,11 @@ class PassengerDetailsSerializer(serializers.Serializer):
     ])
     first_name = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=50)
-    date_of_birth = serializers.DateField(input_formats=['%d/%m/%Y', '%Y-%m-%d'])
+    date_of_birth = serializers.DateField(
+        required=False,
+        allow_null=True,
+        input_formats=['%d/%m/%Y', '%Y-%m-%d']
+    )
     gender = serializers.ChoiceField(choices=[('Male', 'Male'), ('Female', 'Female')])
     passenger_type = serializers.ChoiceField(choices=PASSENGER_TYPE)
     
@@ -116,7 +120,7 @@ class PassengerDetailsSerializer(serializers.Serializer):
     
     def validate_date_of_birth(self, value):
         """Validate date of birth"""
-        if value > date.today():
+        if value is not None and value > date.today():
             raise serializers.ValidationError("Date of birth cannot be in the future")
         return value
     

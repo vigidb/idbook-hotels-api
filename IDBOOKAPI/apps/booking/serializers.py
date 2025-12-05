@@ -767,9 +767,9 @@ class BookingSerializer(serializers.ModelSerializer):
             # Send notifications for confirmed bookings
             if booking.status == 'confirmed':
                 try:
-                    from apps.booking.tasks import send_booking_email_task, send_booking_sms_task
+                    from apps.booking.tasks import send_booking_email_task, send_flight_booking_task
                     send_booking_email_task.delay(booking.id, 'flight-booking-confirmation')
-                    send_booking_sms_task.delay(booking.id, 'FLIGHT_BOOKING_CONFIRMATION')
+                    send_flight_booking_task.delay(booking.id, 'confirmed')
                 except Exception as e:
                     print(f"Error sending notifications: {e}")
 
@@ -1343,7 +1343,7 @@ class FlightPassengerSerializer(serializers.ModelSerializer):
     def validate_date_of_birth(self, value):
         """Validate passenger date of birth"""
         from datetime import date
-        if value > date.today():
+        if value is not None and value > date.today():
             raise serializers.ValidationError("Date of birth cannot be in the future")
         return value
     

@@ -29,6 +29,7 @@ from apps.authentication.utils.db_utils import update_user_first_booking
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from apps.authentication.models import User
 from apps.customer.models import Wallet, WalletTransaction
+from apps.booking.utils.contact_utils import get_booking_contact_info
 from datetime import datetime
 import pytz
 import logging
@@ -276,8 +277,16 @@ def send_cancelled_booking_task(self, booking_id):
         print('Cancelled Email Task', e)
 
 @celery_idbook.task(bind=True)
-def send_flight_booking_task(self, booking_id, notification_type='confirmed'):
-    """Send flight booking notifications via SMS and email"""
+def send_flight_booking_task(self, booking_id, notification_type='confirmed', refund_amount=None):
+    """
+    Send flight booking notifications via SMS and email.
+    This is a wrapper task that routes to the appropriate SMS notification handler.
+    
+    Args:
+        booking_id: ID of the booking
+        notification_type: Type of notification ('confirmed', 'ticket_issued', 'cancelled')
+        refund_amount: Optional refund amount for cancellation notifications
+    """
     print(f"Initiated Flight Booking {notification_type} Process")
     
     try:
@@ -301,8 +310,10 @@ def send_flight_booking_task(self, booking_id, notification_type='confirmed'):
             )
             
         elif notification_type == 'cancelled':
-            # Send cancellation SMS with refund amount if provided
-            refund_amount = booking.refund_amount if hasattr(booking, 'refund_amount') and booking.refund_amount else 0
+            # Send cancellation SMS with refund amount
+            # Use provided refund_amount, or try to get from booking, or default to 0
+            if refund_amount is None:
+                refund_amount = getattr(booking, 'refund_amount', None) or 0
             send_booking_sms_task.delay(
                 notification_type='FLIGHT_BOOKING_CANCEL',
                 params={'booking_id': booking_id, 'refund_amount': refund_amount}
@@ -310,6 +321,7 @@ def send_flight_booking_task(self, booking_id, notification_type='confirmed'):
             
     except Exception as e:
         print(f'Flight Booking {notification_type} Task Error: {e}')
+        logger.error(f'Flight Booking {notification_type} Task Error: {e}')
         
 @celery_idbook.task(bind=True)
 def send_completed_booking_task(self, booking_id):
@@ -480,72 +492,320 @@ def send_booking_sms_task(self, notification_type='', params=None):
             booking_id = params.get('booking_id')
 
             booking = get_booking(booking_id)
-            if booking and booking.user.mobile_number:
-                mobile_number = booking.user.mobile_number
-                template_code = "FLIGHT_BOOKING_CONFIRMATION"
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_CONFIRMATION"
 
-                flight_route = ""
-                if booking.flight_booking:
-                    flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+                    flight_route = ""
+                    if booking.flight_booking:
+                        flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
 
-                variables_values = f"{booking.user.name}|{flight_route}|{booking.reference_code}"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{flight_route}|{booking.reference_code}"
 
-                print("flight booking confirmation variables_values", variables_values)
-                send_template_sms(mobile_number, template_code, variables_values)
-                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                generate_user_notification(
-                    notification_type='FLIGHT_BOOKING_CONFIRMATION',
-                    user=booking.user,
-                    variables_values=variables_values,
-                    booking_id=booking.id,
-                    group_name=group_name
-                )
+                    print("flight booking confirmation variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_BOOKING_CONFIRMATION',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
 
         elif notification_type == 'FLIGHT_BOOKING_CANCEL':
             booking_id = params.get('booking_id')
             refund_amount = params.get('refund_amount', 0)
 
             booking = get_booking(booking_id)
-            if booking and booking.user.mobile_number:
-                mobile_number = booking.user.mobile_number
-                template_code = "FLIGHT_BOOKING_CANCEL"
-                variables_values = f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_CANCEL"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{refund_amount}"
 
-                print("flight booking cancellation variables_values", variables_values)
-                send_template_sms(mobile_number, template_code, variables_values)
-                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                generate_user_notification(
-                    notification_type='FLIGHT_BOOKING_CANCEL',
-                    user=booking.user,
-                    variables_values=variables_values,
-                    booking_id=booking.id,
-                    group_name=group_name
-                )
+                    print("flight booking cancellation variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_BOOKING_CANCEL',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
 
         elif notification_type == 'FLIGHT_TICKET_ISSUED':
             booking_id = params.get('booking_id')
 
             booking = get_booking(booking_id)
-            if booking and booking.user.mobile_number:
-                mobile_number = booking.user.mobile_number
-                template_code = "FLIGHT_TICKET_ISSUED"
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
                 
-                flight_route = ""
-                if booking.flight_booking:
-                    flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+                if mobile_number:
+                    template_code = "FLIGHT_TICKET_ISSUED"
+                    
+                    flight_route = ""
+                    pnr = booking.reference_code
+                    if booking.flight_booking:
+                        flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+                        # Use airline PNR if available, otherwise use booking reference
+                        if booking.flight_booking.airline_pnr:
+                            pnr = booking.flight_booking.airline_pnr
 
-                variables_values = f"{booking.user.name}|{flight_route}|{booking.reference_code}"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{flight_route}|{pnr}"
 
-                print("flight ticket issued variables_values", variables_values)
+                    print("flight ticket issued variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_TICKET_ISSUED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'FLIGHT_BOOKING_RESCHEDULED':
+            booking_id = params.get('booking_id')
+            new_departure = params.get('new_departure', '')
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_RESCHEDULED"
+                    
+                    # Format departure datetime if not already formatted
+                    if not new_departure and booking.flight_booking and booking.flight_booking.departure_date:
+                        from django.utils import timezone
+                        dep_date = booking.flight_booking.departure_date
+                        new_departure = dep_date.strftime('%B %d, %Y %I:%M %p')
+                    
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{new_departure}"
+
+                    print("flight booking rescheduled variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_BOOKING_RESCHEDULED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'FLIGHT_BOOKING_FAILED':
+            booking_id = params.get('booking_id', None)
+            user_id = params.get('user_id', None)
+            failure_reason = params.get('failure_reason', 'payment gateway error')
+            refund_amount = params.get('refund_amount', 0)
+
+            mobile_number = None
+            contact_name = None
+            booking = None
+            
+            if booking_id:
+                booking = get_booking(booking_id)
+                if booking:
+                    # Get contact info (mobile, name) - uses stored contact or user profile
+                    mobile_number, contact_name = get_booking_contact_info(booking)
+            elif user_id:
+                try:
+                    user = User.objects.get(id=user_id)
+                    if user and user.mobile_number:
+                        mobile_number = user.mobile_number
+                        contact_name = user.name
+                except User.DoesNotExist:
+                    print(f"User with ID {user_id} not found")
+                    return
+            
+            if mobile_number:
+                template_code = "FLIGHT_BOOKING_FAILED"
+                # Use contact name if available, otherwise user name
+                name = contact_name or (booking.user.name if booking and booking.user else (user.name if 'user' in locals() else 'Customer'))
+                variables_values = f"{name}|{failure_reason}|{refund_amount}"
+
+                print("flight booking failed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
-                group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                generate_user_notification(
-                    notification_type='FLIGHT_TICKET_ISSUED',
-                    user=booking.user,
-                    variables_values=variables_values,
-                    booking_id=booking.id,
-                    group_name=group_name
-                )
+                if booking and booking.user:
+                    group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                    generate_user_notification(
+                        notification_type='FLIGHT_BOOKING_FAILED',
+                        user=booking.user,
+                        variables_values=variables_values,
+                        booking_id=booking.id,
+                        group_name=group_name
+                    )
+
+        elif notification_type == 'FLIGHT_SERVICES_ADDED':
+            booking_id = params.get('booking_id')
+            additional_charge = params.get('additional_charge', 0)
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_SERVICES_ADDED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{additional_charge}"
+
+                    print("flight services added variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_SERVICES_ADDED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'FLIGHT_HOLD_BOOKING':
+            booking_id = params.get('booking_id')
+            hold_expiry = params.get('hold_expiry', '')
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_BOOKING"
+                    
+                    # Format hold expiry datetime if not already formatted
+                    if not hold_expiry and booking.flight_booking and booking.flight_booking.hold_expires_at:
+                        from django.utils import timezone
+                        expiry = booking.flight_booking.hold_expires_at
+                        hold_expiry = expiry.strftime('%B %d, %Y %I:%M %p')
+                    
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{hold_expiry}"
+
+                    print("flight hold booking variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_HOLD_BOOKING',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'FLIGHT_HOLD_CANCELLED':
+            booking_id = params.get('booking_id')
+            cancellation_reason = params.get('cancellation_reason', 'payment timeout')
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_CANCELLED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{cancellation_reason}"
+
+                    print("flight hold cancelled variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_HOLD_CANCELLED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'FLIGHT_HOLD_REQUESTED':
+            booking_id = params.get('booking_id')
+            hold_expiry = params.get('hold_expiry', '')
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_REQUESTED"
+                    
+                    # Format hold expiry datetime if not already formatted
+                    if not hold_expiry and booking.flight_booking and booking.flight_booking.hold_expires_at:
+                        from django.utils import timezone
+                        expiry = booking.flight_booking.hold_expires_at
+                        hold_expiry = expiry.strftime('%B %d, %Y %I:%M %p')
+                    
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{hold_expiry}"
+
+                    print("flight hold requested variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='FLIGHT_HOLD_REQUESTED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
+
+        elif notification_type == 'CUSTOMER_FLIGHT_HOLD_CANCELLED':
+            booking_id = params.get('booking_id')
+            booking_url = params.get('booking_url', 'https://idbk.in/flights')
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+                
+                if mobile_number:
+                    template_code = "CUSTOMER_FLIGHT_HOLD_CANCELLED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (booking.user.name if booking.user else 'Customer')
+                    variables_values = f"{name}|{booking.reference_code}|{booking_url}"
+
+                    print("customer flight hold cancelled variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        generate_user_notification(
+                            notification_type='CUSTOMER_FLIGHT_HOLD_CANCELLED',
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name
+                        )
 
         elif notification_type == 'PAYMENT_FAILED_INFO':
             booking_id = params.get('booking_id', None)

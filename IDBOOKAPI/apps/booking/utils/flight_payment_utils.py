@@ -219,13 +219,27 @@ class FlightPaymentProcessor:
                 'transaction_id': payment_detail.merchant_transaction_id
             })
             
-            # For reschedule/SSR, update booking amount and skip AirIQ booking
+            # For reschedule/SSR/ticket issuance, update booking amount and skip AirIQ booking
             transaction_type = self.payment_data.get('transaction_type', 'flight_booking_payment')
-            if transaction_type in ('reschedule_payment', 'ssr_payment'):
+            if transaction_type in ('reschedule_payment', 'ssr_payment', 'ticket_issuance_payment'):
                 # Update booking total payment made
                 self.booking.total_payment_made = (self.booking.total_payment_made or Decimal('0')) + amount
                 self.booking.save(update_fields=['total_payment_made'])
-                self._send_booking_notifications()
+                
+                # For ticket issuance, update flight booking status if still PENDING_PAYMENT
+                if transaction_type == 'ticket_issuance_payment' and self.flight_booking:
+                    if self.flight_booking.status == 'PENDING_PAYMENT':
+                        # Check if this was a BlockPNR booking
+                        airiq_request = self.flight_booking.airiq_request_data or {}
+                        if airiq_request.get('BlockPNR', False):
+                            self.flight_booking.status = 'HELD'
+                        else:
+                            self.flight_booking.status = 'CONFIRMED'
+                        self.flight_booking.save(update_fields=['status'])
+                
+                # Only send notifications for reschedule/SSR (ticket issuance will send after ticket is issued)
+                if transaction_type != 'ticket_issuance_payment':
+                    self._send_booking_notifications()
                 return {
                     'success': True,
                     'payment_method': 'wallet',
@@ -294,7 +308,13 @@ class FlightPaymentProcessor:
             # Prepare PhonePe payload
             merchant_id = settings.MERCHANT_ID
             redirect_url = self.payment_data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', '')
-            callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/phonepe-callback/"
+            
+            # Determine callback URL based on transaction type
+            transaction_type = self.payment_data.get('transaction_type', 'flight_booking_payment')
+            if transaction_type == 'ticket_issuance_payment':
+                callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ticket/phonepe-callback/"
+            else:
+                callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/phonepe-callback/"
             
             payload = {
                 "merchantId": merchant_id,
@@ -1228,6 +1248,145 @@ def process_reschedule_phonepe_callback(callback_data: dict) -> Dict:
         }
 
 
+def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
+    """
+    Process PhonePe callback for ticket issuance payment
+    
+    Args:
+        callback_data: PhonePe callback data from request
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        import base64
+        import json as _json
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        
+        response = callback_data.get('response')
+        if not response:
+            return {
+                'success': False,
+                'error': 'Invalid callback data',
+                'error_code': 'INVALID_CALLBACK'
+            }
+        
+        data = base64.b64decode(response)
+        decoded = data.decode('utf-8')
+        json_data = _json.loads(decoded)
+        sub = json_data.get('data', {})
+        merchant_txn = sub.get('merchantTransactionId', '')
+        code = json_data.get('code', '')
+        state = sub.get('state', '')
+        amount = Decimal(str((sub.get('amount', 0) or 0) / 100))
+
+        # Update payment details
+        is_success = code == 'PAYMENT_SUCCESS' and state == 'COMPLETED'
+        update_booking_payment_details(merchant_txn, {
+            'code': code,
+            'message': json_data.get('message', ''),
+            'transaction_id': sub.get('transactionId', ''),
+            'amount': float(amount),
+            'is_transaction_success': is_success,
+        })
+
+        booking_id = get_booking_from_payment(merchant_txn)
+        booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+        flight_booking = booking.flight_booking
+        
+        if not flight_booking:
+            return {
+                'success': False,
+                'error': 'Flight booking not found',
+                'error_code': 'BOOKING_NOT_FOUND'
+            }
+        
+        if is_success:
+            # Payment successful - proceed directly to ticket issuance
+            # For HELD bookings, we don't need to call Book API again
+            # We'll directly call IssueTicket API after payment
+            try:
+                # Issue ticket via AirIQ IssueTicket API
+                if not all([flight_booking.airiq_track_id, flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+                    return {
+                        'success': False,
+                        'error': 'Missing required PNR or track ID for ticket issuance',
+                        'error_code': 'MISSING_PNR_DATA'
+                    }
+                
+                ticket_response = airiq_service.issue_ticket(
+                    booking_track_id=flight_booking.airiq_track_id,
+                    airiq_pnr=flight_booking.airiq_pnr,
+                    airline_pnr=flight_booking.airline_pnr,
+                    booking_amount=float(booking.final_amount),
+                    payment_mode='T'  # Always use "T" for Agent Deposit
+                )
+                
+                # Save ticket response using FlightPaymentProcessor
+                processor = FlightPaymentProcessor(booking, booking.user, {})
+                processor.flight_booking = flight_booking
+                
+                # Use the existing method to update from AirIQ response
+                processor._update_flight_booking_from_airiq_response(ticket_response)
+                
+                # Update status to TICKETED
+                flight_booking.status = 'TICKETED'
+                flight_booking.ticketed_at = timezone.now()
+                
+                # Persist ticket response in airiq_response_data
+                blob = flight_booking.airiq_response_data or {}
+                blob['ticket_response'] = ticket_response
+                flight_booking.airiq_response_data = blob
+                
+                # Save all updates
+                flight_booking.save()
+                
+                # Update main booking status
+                booking.status = 'confirmed'
+                booking.save()
+                
+                return {
+                    'success': True,
+                    'payment_success': True,
+                    'ticket_issued': True,
+                    'ticket_response': ticket_response,
+                    'booking_id': booking_id,
+                    'message': 'Payment successful and ticket issued'
+                }
+                
+            except AirIQException as e:
+                logger.error(f"AirIQ error during ticket issuance callback: {str(e)}")
+                return {
+                    'success': False,
+                    'error': f'Ticket issuance failed: {str(e)}',
+                    'error_code': 'TICKET_ISSUANCE_FAILED',
+                    'payment_success': True  # Payment was successful
+                }
+            except Exception as e:
+                logger.error(f"Error during ticket issuance callback: {str(e)}")
+                return {
+                    'success': False,
+                    'error': f'Unexpected error: {str(e)}',
+                    'error_code': 'TICKET_ISSUANCE_ERROR',
+                    'payment_success': True
+                }
+        else:
+            # Payment failed
+            return {
+                'success': True,
+                'payment_success': False,
+                'message': 'Payment failed'
+            }
+
+    except Exception as e:
+        logger.error(f"Ticket issuance PhonePe callback error: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Callback processing failed: {str(e)}',
+            'error_code': 'CALLBACK_ERROR'
+        }
+
+
 def process_ssr_phonepe_callback(callback_data: dict) -> Dict:
     """
     Process PhonePe callback for SSR (ancillary services) payment
@@ -1429,13 +1588,13 @@ class FlightPaymentCallbackProcessor:
                     }
                 )
             else:
-                # Send payment failure SMS
+                # Send payment failure SMS - use flight-specific template
                 send_booking_sms_task.delay(
-                    notification_type='PAYMENT_FAILED_INFO',
+                    notification_type='FLIGHT_BOOKING_FAILED',
                     params={
                         'booking_id': booking.id,
-                        'failed_amount': amount,
-                        'payment_purpose': 'Flight Booking'
+                        'failure_reason': 'payment gateway error',
+                        'refund_amount': amount
                     }
                 )
             

@@ -454,8 +454,9 @@ class BookingViewSet(viewsets.ModelViewSet, BookingMixins, ValidationMixins,
                 
                 # Send notifications
                 if booking.status == 'confirmed':
+                    from apps.booking.tasks import send_flight_booking_task
                     send_booking_email_task.delay(booking.id, 'flight-booking-confirmation')
-                    send_booking_sms_task.delay(booking.id, 'FLIGHT_BOOKING_CONFIRMATION')
+                    send_flight_booking_task.delay(booking.id, 'confirmed')
                 
                 self.log_info(
                     f"Flight booking verification completed for booking {booking_id}",

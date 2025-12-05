@@ -168,7 +168,7 @@ def send_flight_booking_confirmation_task(booking_id: int, notification_data: di
     """
     try:
         from apps.booking.models import Booking
-        from apps.booking.tasks import send_booking_email_task, send_booking_sms_task
+        from apps.booking.tasks import send_booking_email_task, send_flight_booking_task
         
         booking = Booking.objects.select_related('flight_booking', 'user').get(
             id=booking_id, 
@@ -179,8 +179,8 @@ def send_flight_booking_confirmation_task(booking_id: int, notification_data: di
         # 1) Email confirmation with attached ticket (if any)
         send_booking_email_task.delay(booking_id, 'confirmed-booking')
         
-        # 2) SMS confirmation using existing templates/notification integrations
-        send_booking_sms_task.delay('FLIGHT_BOOKING_CONFIRMATION', {'booking_id': booking_id})
+        # 2) SMS confirmation using flight booking task wrapper
+        send_flight_booking_task.delay(booking_id, 'confirmed')
         
         logger.info(f"Flight booking confirmation notifications queued for booking {booking_id}")
         
@@ -206,29 +206,25 @@ def send_flight_status_update_task(booking_id: int, status_update: dict):
     """
     try:
         from apps.booking.models import Booking
-        from apps.booking.tasks import send_booking_email_task, send_booking_sms_task
+        from apps.booking.tasks import send_booking_email_task, send_flight_booking_task
         
         booking = Booking.objects.select_related('flight_booking', 'user').get(
             id=booking_id,
             booking_type='FLIGHT'
         )
         
-        # Determine SMS notification type mapping supported by send_booking_sms_task
-        sms_type = None
-        if status_update.get('cancellation'):
-            sms_type = 'FLIGHT_BOOKING_CANCEL'
-        # For other updates (delay/gate change), reuse EMAIL only for now
-        
         # Always send an email via the generic booking email task for status update templates
-        # Note: booking.tasks doesn't have a generic template switch here, so keep using confirmed-booking email
-        # or extend booking.tasks if specific email templates are needed.
         send_booking_email_task.delay(booking_id, 'confirmed-booking')
         
-        if sms_type:
-            params = {'booking_id': booking_id}
-            if sms_type == 'FLIGHT_BOOKING_CANCEL':
-                params['refund_amount'] = status_update.get('refund_amount', 0)
-            send_booking_sms_task.delay(sms_type, params)
+        # Handle cancellation SMS notification
+        if status_update.get('cancellation'):
+            refund_amount = status_update.get('refund_amount', 0)
+            send_flight_booking_task.delay(
+                booking_id, 
+                'cancelled',
+                refund_amount=refund_amount
+            )
+        # For other updates (delay/gate change), reuse EMAIL only for now
         
         logger.info(f"Flight status update notifications queued for booking {booking_id}")
         

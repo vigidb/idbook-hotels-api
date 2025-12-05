@@ -852,7 +852,7 @@ class AirIQService:
         ]
 
     def issue_ticket(self, booking_track_id: str, airiq_pnr: str, 
-                    airline_pnr: str, booking_amount: float) -> dict:
+                    airline_pnr: str, booking_amount: float, payment_mode: str = "T") -> dict:
         """
         Issue ticket for held booking
         Args:
@@ -860,6 +860,7 @@ class AirIQService:
             airiq_pnr: AirIQ PNR from booking response
             airline_pnr: Airline PNR from booking response
             booking_amount: Total booking amount
+            payment_mode: Payment mode (T = Agent Deposit, default "T")
         """
         if not self._is_token_valid():
             self.authenticate()
@@ -875,7 +876,7 @@ class AirIQService:
             "AirIqPNR": airiq_pnr,
             "AirlinePNR": airline_pnr,
             "BookingAmount": str(booking_amount),
-            "PaymentMode": "T"
+            "PaymentMode": payment_mode
         }
         
         response_data, is_success = self._make_request(
@@ -1472,7 +1473,7 @@ class AirIQService:
         """
         Generic proxy caller that:
         - ensures authentication and token header
-        - injects AgentInfo if missing
+        - injects AgentInfo ONLY if missing (pure proxy behavior)
         - routes to the correct AirIQ endpoint by name (case-insensitive)
         Returns (response_data, is_success)
         """

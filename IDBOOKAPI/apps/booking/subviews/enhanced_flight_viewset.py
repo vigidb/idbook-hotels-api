@@ -358,6 +358,15 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                                 status_code=status.HTTP_400_BAD_REQUEST
                             )
             
+            # Check if BlockPNR is true - if so, call AirIQ directly and skip payment flow
+            block_pnr = bool(request.data.get('BlockPNR', False))
+            
+            if block_pnr:
+                # BlockPNR flow: Call AirIQ directly, save response, and return
+                return self._handle_block_pnr_booking(
+                    request, booking_user, processor, pricing_validation, company, fare_rules_resp
+                )
+            
             # Create booking WITHOUT AirIQ integration (payment pending)
             with transaction.atomic():
                 booking, flight_booking = self._create_booking_local_only(
@@ -1044,7 +1053,42 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+    @action(detail=False, methods=['post'], url_path='ticket/phonepe-callback', permission_classes=[])
+    def ticket_phonepe_callback(self, request):
+        """Handle PhonePe callback for ticket issuance payment"""
+        try:
+            from apps.booking.utils.flight_payment_utils import process_ticket_issuance_phonepe_callback
+            
+            result = process_ticket_issuance_phonepe_callback(request.data)
+            
+            if not result.get('success'):
+                return self.get_error_response(
+                    message=result.get('error', 'Callback processing failed'),
+                    status='error',
+                    status_code=status.HTTP_400_BAD_REQUEST if result.get('error_code') == 'INVALID_CALLBACK' else status.HTTP_502_BAD_GATEWAY,
+                )
+            
+            if result.get('ticket_issued'):
+                return self.get_response(
+                    data=result,
+                    message='Ticket issued successfully',
+                    status='success',
+                    status_code=status.HTTP_200_OK,
+                )
+            
+            return self.get_response(
+                data={'payment_success': result.get('payment_success', False)},
+                message=result.get('message', 'Callback processed'),
+                status='success',
+                status_code=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            self.log_error(f"Ticket issuance PhonePe callback error: {str(e)}")
+            return self.get_error_response(
+                message=f'Callback processing failed: {str(e)}',
+                status='error',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def _handle_ssr_wallet_payment(self, booking, flight_booking, ancillary_request, payment_amount, meals, baggage, seats, other, request):
         """Handle wallet payment for SSR: deduct -> call AirIQ -> update or refund"""
@@ -1943,6 +1987,332 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         
         return booking_data
     
+    def _handle_block_pnr_booking(self, request, booking_user, processor, pricing_validation, company, fare_rules_resp):
+        """Handle BlockPNR booking: Call AirIQ directly, save response, and return"""
+        try:
+            # Build AirIQ booking request
+            airiq_request = self._build_airiq_booking_request(request.data, pricing_validation)
+            
+            # Convert AirIQ request format to format expected by airiq_service.create_booking
+            booking_data = self._convert_airiq_request_to_booking_data(airiq_request, request.data, pricing_validation)
+            
+            # Get track_id
+            track_id = airiq_request.get('TrackId') or request.data.get('TrackId')
+            if not track_id:
+                return self.get_error_response(
+                    message="TrackId is required for BlockPNR booking",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Call AirIQ create_booking with block_pnr=True
+            try:
+                airiq_response = airiq_service.create_booking(
+                    booking_data=booking_data,
+                    track_id=track_id,
+                    block_pnr=True
+                )
+            except AirIQException as e:
+                self.log_error(f"AirIQ BlockPNR booking failed: {str(e)}")
+                return self.get_error_response(
+                    message=f"Failed to create BlockPNR booking: {str(e)}",
+                    status="error",
+                    status_code=status.HTTP_502_BAD_GATEWAY
+                )
+            
+            # Check if booking was successful
+            status_block = airiq_response.get('Status', {})
+            if status_block.get('ResultCode') != '1':
+                error_msg = status_block.get('Error', 'Booking failed')
+                return self.get_error_response(
+                    message=f"BlockPNR booking failed: {error_msg}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Create local booking records
+            with transaction.atomic():
+                booking, flight_booking = self._create_booking_local_only(
+                    processor, request.data, pricing_validation, company=company
+                )
+                
+                # Extract booking details from AirIQ response
+                booking_details = self._extract_airiq_booking_details(airiq_response)
+                
+                # Update flight booking with AirIQ response data
+                flight_booking.airiq_pnr = booking_details.get('airiq_pnr', '')
+                flight_booking.airline_pnr = booking_details.get('airline_pnr', '')
+                flight_booking.airiq_track_id = booking_details.get('track_id', track_id)
+                flight_booking.status = 'HELD'  # BlockPNR creates a held booking
+                flight_booking.hold_expires_at = timezone.now() + timedelta(hours=24)
+                
+                # Save the complete AirIQ response
+                flight_booking.airiq_response_data = airiq_response
+                flight_booking.airiq_request_data = airiq_request
+                flight_booking.pricing_validation_data = pricing_validation
+                
+                # Update booking from AirIQ response (extract PNRs, amounts, etc.)
+                self._update_booking_from_airiq_response(booking, flight_booking, airiq_response)
+                
+                # Ensure HELD status is preserved for BlockPNR bookings (in case update method changed it)
+                flight_booking.status = 'HELD'
+                
+                if fare_rules_resp:
+                    flight_booking.fare_rules = fare_rules_resp
+                
+                # Save flight_booking (already saved in _update_booking_from_airiq_response, but save again to ensure all updates are persisted)
+                flight_booking.save()
+                
+                # Update main booking status
+                booking.status = 'pending'  # Held booking is pending until payment
+                booking.save()
+            
+            # Prepare response data
+            response_data = {
+                'booking_id': booking.id,
+                'booking_reference': flight_booking.booking_reference,
+                'status': flight_booking.status,
+                'total_amount': float(booking.final_amount),
+                'hold_expires_at': flight_booking.hold_expires_at.isoformat() if flight_booking.hold_expires_at else None,
+                'guest_token': booking.guest_access_token,
+                'booking_details': {
+                    'flying_from': flight_booking.flying_from,
+                    'flying_to': flight_booking.flying_to,
+                    'departure_date': flight_booking.departure_date.isoformat() if flight_booking.departure_date else None,
+                    'flight_trip': flight_booking.flight_trip,
+                    'passenger_count': booking.adult_count + booking.child_count + booking.infant_count
+                },
+                'pnrs': {
+                    'airiq_pnr_primary': flight_booking.airiq_pnr,
+                    'airline_pnr_primary': flight_booking.airline_pnr,
+                    'airiq_pnrs': flight_booking.airiq_pnrs or [],
+                    'airline_pnrs': flight_booking.airline_pnrs or [],
+                    'airiq_track_ids': flight_booking.airiq_track_ids or [],
+                },
+                'booked_itineraries': flight_booking.booked_itineraries or [],
+                'amount_breakdown': {
+                    'currency': pricing_validation.get('currency', 'INR'),
+                    'basic_amount': float(pricing_validation.get('basic_amount', 0)),
+                    'gross_amount': float(pricing_validation.get('gross_amount', booking.final_amount)),
+                    'taxes': pricing_validation.get('tax_breakdown', {}),
+                    'gst': pricing_validation.get('gst_breakdown', {}),
+                    'ssr': pricing_validation.get('ssr_breakdown', {}),
+                    'total_discount': float(pricing_validation.get('total_discount', 0)),
+                    'final_amount': float(pricing_validation.get('final_amount', booking.final_amount)),
+                    'payable_amount': float(pricing_validation.get('payable_amount', booking.final_amount)),
+                },
+                'airiq_response': airiq_response  # Include full AirIQ response
+            }
+            
+            self.log_info(
+                f"BlockPNR booking created: {flight_booking.booking_reference}",
+                extra={
+                    'booking_id': booking.id,
+                    'track_id': track_id,
+                    'user_id': booking_user.id if booking_user else None,
+                    'airiq_pnr': flight_booking.airiq_pnr,
+                    'amount': float(booking.final_amount)
+                }
+            )
+            
+            return self.get_response(
+                data=response_data,
+                message="BlockPNR booking created successfully",
+                status="held",
+                status_code=status.HTTP_201_CREATED
+            )
+            
+        except Exception as e:
+            import traceback
+            trace_id = uuid.uuid4().hex[:8]
+            tb = traceback.format_exc()
+            self.log_error(f"[_handle_block_pnr_booking][{trace_id}] {str(e)}\n{tb}")
+            return self.get_error_response(
+                message="An error occurred while creating BlockPNR booking",
+                status="error",
+                errors=[{"trace_id": trace_id, "error": str(e)}],
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _convert_airiq_request_to_booking_data(self, airiq_request: dict, request_data: dict, pricing_validation: dict) -> dict:
+        """Convert AirIQ request format to format expected by airiq_service.create_booking"""
+        # Extract passengers from PaxDetailsInfo
+        passengers = []
+        for pax in airiq_request.get('PaxDetailsInfo', []):
+            passengers.append({
+                'passenger_ref': pax.get('PaxRefNumber', '1'),
+                'title': pax.get('Title', 'MR'),
+                'first_name': pax.get('FirstName', ''),
+                'last_name': pax.get('LastName', ''),
+                'date_of_birth': pax.get('DOB', ''),
+                'gender': pax.get('Gender', 'Male'),
+                'pax_type': pax.get('PaxType', 'ADT'),
+                'passport_number': pax.get('PassportNo', ''),
+                'passport_expiry': pax.get('PassportExpiry', ''),
+                'passport_issued_date': pax.get('PassportIssuedDate', ''),
+                'passport_country_code': pax.get('PassportCountryCode', ''),
+                'infant_ref': pax.get('InfantRef', '')
+            })
+        
+        # Extract token from ItineraryFlightsInfo (use first itinerary's token)
+        token = ''
+        itinerary_flights_info = airiq_request.get('ItineraryFlightsInfo', [])
+        if itinerary_flights_info:
+            # Get token from first itinerary item
+            token = itinerary_flights_info[0].get('Token', '')
+            # Fallback to pricing_validation token if not found
+            if not token and pricing_validation:
+                token = pricing_validation.get('pricing_token', '')
+        
+        # Extract flight segments from ItineraryFlightsInfo
+        flight_segments = []
+        for itin in itinerary_flights_info:
+            flights = itin.get('FlighstInfo', []) or itin.get('FlightsInfo', [])
+            flight_segments.extend(flights)
+        
+        # Extract GST info
+        gst_info = airiq_request.get('GSTInfo', {})
+        gst = {}
+        if gst_info.get('GSTNumber'):
+            gst = {
+                'number': gst_info.get('GSTNumber', ''),
+                'company_name': gst_info.get('GSTCompanyName', ''),
+                'address': gst_info.get('GSTAddress', ''),
+                'email': gst_info.get('GSTEmailID', ''),
+                'mobile': gst_info.get('GSTMobileNumber', '')
+            }
+        
+        # Extract contact info
+        address = airiq_request.get('AddressDetails', {})
+        contact = {
+            'country_code': address.get('CountryCode', '91'),
+            'phone': address.get('ContactNumber', ''),
+            'email': address.get('EmailID', '')
+        }
+        
+        # Extract ancillary services
+        seats = []
+        meals = []
+        baggage = []
+        other_services = []
+        for itin in itinerary_flights_info:
+            seats.extend(itin.get('SeatsSSRInfo', []))
+            meals.extend(itin.get('MealsSSRInfo', []))
+            baggage.extend(itin.get('BaggSSRInfo', []))
+            other_services.extend(itin.get('OtherSSRInfo', []))
+        
+        return {
+            'token': token,  # Include token for airiq_service.create_booking
+            'passengers': passengers,
+            'flight_segments': flight_segments,
+            'gst': gst,
+            'contact': contact,
+            'adults': airiq_request.get('AdultCount', 1),
+            'children': airiq_request.get('ChildCount', 0),
+            'infants': airiq_request.get('InfantCount', 0),
+            'origin': airiq_request.get('BaseOrigin', ''),
+            'destination': airiq_request.get('BaseDestination', ''),
+            'trip_type': airiq_request.get('TripType', 'O'),
+            'total_amount': pricing_validation.get('final_amount', 0) if pricing_validation else 0,
+            'seats': seats,
+            'meals': meals,
+            'baggage': baggage,
+            'other_services': other_services
+        }
+    
+    def _update_booking_from_airiq_response(self, booking: Booking, flight_booking: FlightBooking, airiq_response: dict):
+        """Update booking and flight_booking from AirIQ BlockPNR response"""
+        try:
+            # Extract additional details from Bookingresponse before calling update method
+            booking_response = airiq_response.get('Bookingresponse', {})
+            itinerary_details = booking_response.get('ItinearyDetails', [])
+            
+            # Extract ticketing time limit and store in airiq_response_data
+            ticketing_time_limit = None
+            if itinerary_details:
+                itin = itinerary_details[0]
+                items = itin.get('Item', [])
+                if items:
+                    item = items[0]
+                    ticketing_time_limit = item.get('TicketingTimeLimit', '')
+                    
+                    # Extract total amount from response if available
+                    total_amount = itin.get('TotalAmount', '')
+                    if total_amount:
+                        try:
+                            booking.final_amount = Decimal(str(total_amount))
+                        except Exception:
+                            pass
+                    
+                    # Extract payment details
+                    payment_details = item.get('PaymentDetails', {})
+                    payment_items = payment_details.get('Item', [])
+                    if payment_items:
+                        payment_item = payment_items[0]
+                        amount = payment_item.get('Amount', '')
+                        if amount:
+                            try:
+                                booking.final_amount = Decimal(str(amount))
+                            except Exception:
+                                pass
+            
+            # Use the existing method to update from response (this saves the flight_booking)
+            self._update_booking_from_retrieve_response(booking, flight_booking, airiq_response)
+            
+            # Store ticketing time limit in airiq_response_data after update
+            if ticketing_time_limit:
+                if not flight_booking.airiq_response_data:
+                    flight_booking.airiq_response_data = {}
+                if isinstance(flight_booking.airiq_response_data, dict):
+                    flight_booking.airiq_response_data['ticketing_time_limit'] = ticketing_time_limit
+                    flight_booking.save(update_fields=['airiq_response_data'])
+        except Exception as e:
+            logger.warning(f"Error updating booking from AirIQ response: {e}")
+    
+    def _save_ticket_response(self, booking: Booking, flight_booking: FlightBooking, ticket_response: dict):
+        """Save ticket response data from AirIQ IssueTicket API"""
+        try:
+            from apps.booking.utils.flight_payment_utils import FlightPaymentProcessor
+            
+            # Update flight booking with ticket response using FlightPaymentProcessor
+            # This will properly extract ticket numbers, PNRs, and other details
+            processor = FlightPaymentProcessor(booking, booking.user, {})
+            processor.flight_booking = flight_booking
+            
+            # Use the existing method to update from AirIQ response
+            # The ticket response has the same structure as booking response
+            processor._update_flight_booking_from_airiq_response(ticket_response)
+            
+            # Update status to TICKETED
+            flight_booking.status = 'TICKETED'
+            flight_booking.ticketed_at = timezone.now()
+            
+            # Persist ticket response in airiq_response_data
+            blob = flight_booking.airiq_response_data or {}
+            blob['ticket_response'] = ticket_response
+            flight_booking.airiq_response_data = blob
+            
+            # Save all updates
+            flight_booking.save()
+            
+            # Update main booking status
+            booking.status = 'confirmed'
+            booking.save()
+            
+        except Exception as e:
+            logger.error(f"Error saving ticket response for booking {booking.id}: {str(e)}")
+            # Still try to save basic info even if full update fails
+            try:
+                flight_booking.status = 'TICKETED'
+                blob = flight_booking.airiq_response_data or {}
+                blob['ticket_response'] = ticket_response
+                flight_booking.airiq_response_data = blob
+                flight_booking.save()
+                booking.status = 'confirmed'
+                booking.save()
+            except Exception:
+                pass
+    
     def _create_booking_local_only(self, processor: FlightBookingProcessor, 
                                  request_data: dict, pricing_validation: dict, company=None) -> tuple:
         """Create booking locally without AirIQ integration"""
@@ -2131,8 +2501,23 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         
         if block_pnr:
             flight_booking.hold_expires_at = timezone.now() + timedelta(hours=24)
-        
-        flight_booking.save()
+            flight_booking.save()
+            # Send hold booking SMS notification
+            try:
+                from apps.booking.tasks import send_booking_sms_task
+                hold_expiry_str = flight_booking.hold_expires_at.strftime('%B %d, %Y %I:%M %p')
+                send_booking_sms_task.delay(
+                    notification_type='FLIGHT_HOLD_REQUESTED',
+                    params={
+                        'booking_id': booking.id,
+                        'hold_expiry': hold_expiry_str
+                    }
+                )
+                self.log_info(f"Hold booking SMS notification queued for booking {booking.id}")
+            except Exception as e:
+                self.log_error(f"Error queuing hold booking SMS: {str(e)}")
+        else:
+            flight_booking.save()
         
         # Create passenger records
         self._create_passenger_records(booking, flight_booking, processor.booking_data['passengers'])
@@ -2442,19 +2827,28 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             flight_booking.airiq_track_ids = list(track_ids)
             flight_booking.booked_itineraries = booked_list
             
-            # Infer status
-            if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT', 'HELD', 'CONFIRMED']:
+            # Infer status - preserve HELD status for BlockPNR bookings
+            if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT']:
                 if flight_booking.ticket_numbers:
                     flight_booking.status = 'TICKETED'
                 elif airiq_pnrs:
                     flight_booking.status = 'CONFIRMED'
+            # Only update to CONFIRMED if currently HELD and we have ticket numbers (ticketed)
+            elif flight_booking.status == 'HELD':
+                if flight_booking.ticket_numbers:
+                    flight_booking.status = 'TICKETED'
+                # Keep HELD status if not ticketed yet
             # Persist amounts on main booking if missing
             if gross_amount_primary is not None and float(booking.final_amount or 0) == 0.0:
                 from decimal import Decimal
                 booking.final_amount = Decimal(str(gross_amount_primary))
-            # Sync parent booking status
+            # Sync parent booking status - only for CONFIRMED/TICKETED, not HELD
             if flight_booking.status in ['CONFIRMED', 'TICKETED'] and booking.status != 'confirmed':
                 booking.status = 'confirmed'
+                flight_booking.save()
+                booking.save()
+            elif flight_booking.status == 'HELD' and booking.status != 'pending':
+                booking.status = 'pending'
                 flight_booking.save()
                 booking.save()
                 pay = (hdr.get('PaymentDetails') or {}).get('Item') or []
@@ -2554,20 +2948,27 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                                 ensure_service('BAGGAGE', '', bag_pref, bag_amt)
                 except Exception:
                     pass
-                # Infer status
+                # Infer status - preserve HELD status for BlockPNR bookings
                 ticket_status = (hdr.get('TicketStatus') or '').upper()
-                if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT', 'HELD', 'CONFIRMED']:
+                if not flight_booking.status or flight_booking.status in ['INITIATED', 'PENDING_PAYMENT']:
                     if ticket_numbers:
                         flight_booking.status = 'TICKETED'
                     elif ticket_status == 'CONFIRMED':
                         flight_booking.status = 'CONFIRMED'
+                # Only update HELD status if ticketed
+                elif flight_booking.status == 'HELD':
+                    if ticket_numbers:
+                        flight_booking.status = 'TICKETED'
+                    # Keep HELD status if not ticketed yet
                 # Persist amounts if missing on main booking
                 if gross_amount is not None and float(booking.final_amount or 0) == 0.0:
                     from decimal import Decimal
                     booking.final_amount = Decimal(str(gross_amount))
-                # Sync parent booking status
+                # Sync parent booking status - only for CONFIRMED/TICKETED, not HELD
                 if flight_booking.status in ['CONFIRMED', 'TICKETED'] and booking.status != 'confirmed':
                     booking.status = 'confirmed'
+                elif flight_booking.status == 'HELD' and booking.status != 'pending':
+                    booking.status = 'pending'
             flight_booking.save()
             booking.save()
         except Exception as e:
@@ -2618,29 +3019,17 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
         Issue ticket for confirmed flight booking
         
         This endpoint issues tickets for a confirmed flight booking via AirIQ.
-        The booking must be in 'CONFIRMED' status with valid PNRs.
+        For HELD bookings (BlockPNR=true), it will:
+        1. Check payment status
+        2. If not paid, require payment
+        3. After payment, confirm the booking with AirIQ (convert HELD to CONFIRMED)
+        4. Then issue the ticket
+        
+        For CONFIRMED bookings, it directly issues the ticket.
         """
         try:
+            print("issue_ticket")
             booking, flight_booking = self.get_flight_booking(booking_id)
-            
-            # Validate booking status
-            if flight_booking.status == 'PENDING_PAYMENT':
-                return self.get_error_response(
-                    message="Payment is required before ticket issuance",
-                    status="error", 
-                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                    errors=[{
-                        "action": "redirect_to_payment",
-                        "booking_id": booking_id,
-                        "amount": str(booking.final_amount)
-                    }]
-                )
-            elif flight_booking.status != 'CONFIRMED':
-                return self.get_error_response(
-                    message=f"Tickets can only be issued for confirmed bookings. Current status: {flight_booking.status}",
-                    status="error",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
             
             # Check if already ticketed
             if flight_booking.status == 'TICKETED':
@@ -2650,42 +3039,262 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Handle HELD bookings (BlockPNR=true) - need payment and confirmation first
+            if flight_booking.status == 'HELD':
+                # Check if payment is done
+                from django.db.models import Sum
+                total_paid = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
+                try:
+                    total_paid_float = float(total_paid)
+                except Exception:
+                    total_paid_float = 0.0
+                
+                balance_due = float(booking.final_amount) - total_paid_float
+                
+                # If payment not complete, require payment
+                if balance_due > 0.01:  # Allow small rounding differences
+                    # Get payment method and redirect URL from request
+                    payment_method = (request.data.get('payment_method') or '').strip().upper()
+                    redirect_url = request.data.get('redirect_url', '')
+                    
+                    # If no payment method provided, try to default to wallet if user is authenticated
+                    if not payment_method and request.user and request.user.is_authenticated:
+                        # Check if user has sufficient wallet balance
+                        try:
+                            from apps.booking.utils.booking_utils import check_wallet_balance_for_booking
+                            company_id = None
+                            if hasattr(request.user, 'default_group') and request.user.default_group in ('CORP-ADMIN', 'CORP-EMP', 'CORPORATE-GRP'):
+                                company_id = getattr(request.user, 'company_id', None)
+                            
+                            can_pay, balance_info = check_wallet_balance_for_booking(booking, request.user, company_id=company_id)
+                            if can_pay:
+                                payment_method = 'WALLET'
+                        except Exception as e:
+                            self.log_error(f"Error checking wallet balance for default payment: {str(e)}")
+                    
+                    # Handle wallet payment
+                    if payment_method == 'WALLET':
+                        from apps.booking.utils.flight_payment_utils import FlightPaymentProcessor
+                        from decimal import Decimal
+                        
+                        # Create payment processor for wallet payment
+                        processor = FlightPaymentProcessor(booking, request.user, {
+                            'payment_channel': 'WALLET',
+                            'amount': str(balance_due),
+                            'transaction_type': 'ticket_issuance_payment'
+                        }, request=request)
+                        
+                        # Process wallet payment
+                        payment_result = processor.initiate_payment(allow_confirmed=True)
+                        
+                        if not payment_result.get('success'):
+                            return self.get_error_response(
+                                message=f"Wallet payment failed: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        # Wallet payment successful - proceed directly to ticket issuance
+                        # For HELD bookings, we don't need to call Book API again
+                        # We'll directly call IssueTicket API after payment
+                        booking.refresh_from_db()
+                        flight_booking.refresh_from_db()
+                        
+                        # Recalculate balance_due after payment
+                        from django.db.models import Sum
+                        total_paid_after = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
+                        try:
+                            total_paid_float_after = float(total_paid_after)
+                        except Exception:
+                            total_paid_float_after = 0.0
+                        
+                        balance_due_after = float(booking.final_amount) - total_paid_float_after
+                        
+                        # Update status if still PENDING_PAYMENT (wallet payment for ticket issuance may not update status)
+                        if flight_booking.status == 'PENDING_PAYMENT' and balance_due_after <= 0.01:
+                            # Payment is complete, so update status to HELD (for BlockPNR bookings) or CONFIRMED
+                            # Check if this was a BlockPNR booking
+                            airiq_request = flight_booking.airiq_request_data or {}
+                            if airiq_request.get('BlockPNR', False):
+                                flight_booking.status = 'HELD'
+                            else:
+                                flight_booking.status = 'CONFIRMED'
+                            flight_booking.save(update_fields=['status'])
+                        
+                        # Skip to ticket issuance section below (no need to confirm via Book API)
+                        # Payment is complete, so we'll skip the status check for PENDING_PAYMENT
+                    
+                    # Handle PhonePe payment
+                    elif payment_method in ['PHONEPE', 'PHONE_PAY', 'PHONE PAY']:
+                        from apps.booking.utils.flight_payment_utils import FlightPaymentProcessor
+                        from decimal import Decimal
+                        from apps.booking.utils.db_utils import create_booking_payment_details
+                        from IDBOOKAPI.utils import get_unique_id_from_time
+                        
+                        # Create payment detail with metadata for ticket issuance callback
+                        append_id = get_unique_id_from_time()
+                        payment_detail = create_booking_payment_details(booking.id, append_id)
+                        
+                        # Store metadata for callback to know this is for ticket issuance
+                        update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                            'transaction_type': 'ticket_issuance_payment',
+                            'booking_id': booking_id,
+                            'flight_booking_id': flight_booking.id
+                        })
+                        
+                        # Create payment processor with ticket issuance transaction type
+                        # redirect_url is optional - FlightPaymentProcessor will use default callback URL based on transaction_type
+                        payment_data = {
+                            'payment_channel': 'PHONE PAY',
+                            'amount': str(balance_due),
+                            'transaction_type': 'ticket_issuance_payment'
+                        }
+                        if redirect_url:
+                            payment_data['redirect_url'] = redirect_url
+                        
+                        processor = FlightPaymentProcessor(booking, request.user, payment_data, request=request)
+                        
+                        # Initiate PhonePe payment
+                        payment_result = processor.initiate_payment(allow_confirmed=True)
+                        
+                        if payment_result.get('success'):
+                            return self.get_response(
+                                data={
+                                    'payment_url': payment_result.get('payment_url'),
+                                    'transaction_id': payment_result.get('transaction_id'),
+                                    'payment_method': payment_method,
+                                    'amount': float(balance_due),
+                                    'message': 'Please complete payment to proceed with ticket issuance'
+                                },
+                                message="Payment gateway initiated. Complete payment to issue ticket.",
+                                status="payment_required",
+                                status_code=status.HTTP_200_OK
+                            )
+                        else:
+                            return self.get_error_response(
+                                message=f"Failed to initiate payment: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                    
+                    # Otherwise, return payment required error (no payment method provided or unsupported method)
+                    else:
+                        error_message = "Payment is required before ticket issuance"
+                        if payment_method:
+                            error_message += f". Unsupported payment method: {payment_method}. Supported methods: WALLET, PHONEPE, PHONE_PAY"
+                        else:
+                            error_message += ". Please provide payment_method (WALLET, PHONEPE, or PHONE_PAY) in the request"
+                        
+                        return self.get_error_response(
+                            message=error_message,
+                            status="error", 
+                            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            errors=[{
+                                "action": "redirect_to_payment",
+                                "booking_id": booking_id,
+                                "amount": str(balance_due),
+                                "total_amount": str(booking.final_amount),
+                                "paid_amount": str(total_paid_float),
+                                "payment_method": payment_method if payment_method else None,
+                                "redirect_url": redirect_url if redirect_url else None,
+                                "supported_payment_methods": ["WALLET", "PHONEPE", "PHONE_PAY"]
+                            }]
+                        )
+                
+                # Payment is complete - for HELD bookings, we proceed directly to ticket issuance
+                # No need to call Book API again - IssueTicket API will handle the ticket issuance
+                # The booking status can remain HELD until ticket is issued
+            
+            # Validate booking status - allow HELD or CONFIRMED bookings for ticket issuance
+            # HELD bookings with payment complete can proceed to ticket issuance
+            # Also check if payment is complete even if status is still PENDING_PAYMENT (e.g., after wallet payment)
+            if flight_booking.status == 'PENDING_PAYMENT':
+                # Recalculate balance to check if payment was just completed
+                from django.db.models import Sum
+                total_paid_check = booking.booking_payment.filter(is_transaction_success=True).aggregate(total=Sum('amount'))['total'] or 0
+                try:
+                    total_paid_float_check = float(total_paid_check)
+                except Exception:
+                    total_paid_float_check = 0.0
+                
+                balance_due_check = float(booking.final_amount) - total_paid_float_check
+                
+                # If payment is still due, return error
+                if balance_due_check > 0.01:
+                    return self.get_error_response(
+                        message="Payment is required before ticket issuance",
+                        status="error", 
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        errors=[{
+                            "action": "redirect_to_payment",
+                            "booking_id": booking_id,
+                            "amount": str(balance_due_check)
+                        }]
+                    )
+                # Payment is complete, update status and continue
+                else:
+                    # Update status to HELD (for BlockPNR) or CONFIRMED
+                    airiq_request = flight_booking.airiq_request_data or {}
+                    if airiq_request.get('BlockPNR', False):
+                        flight_booking.status = 'HELD'
+                    else:
+                        flight_booking.status = 'CONFIRMED'
+                    flight_booking.save(update_fields=['status'])
+            elif flight_booking.status not in ['HELD', 'CONFIRMED']:
+                return self.get_error_response(
+                    message=f"Tickets can only be issued for HELD or CONFIRMED bookings. Current status: {flight_booking.status}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get PNRs and track IDs - support both single fields and arrays
+            airiq_pnr = flight_booking.airiq_pnr
+            airline_pnr = flight_booking.airline_pnr
+            airiq_track_id = flight_booking.airiq_track_id
+            
+            # Fallback to arrays if single fields are empty
+            if not airiq_pnr:
+                airiq_pnrs_list = flight_booking.airiq_pnrs or []
+                if airiq_pnrs_list:
+                    airiq_pnr = airiq_pnrs_list[0] if isinstance(airiq_pnrs_list, list) else str(airiq_pnrs_list)
+            
+            if not airline_pnr:
+                airline_pnrs_list = flight_booking.airline_pnrs or []
+                if airline_pnrs_list:
+                    airline_pnr = airline_pnrs_list[0] if isinstance(airline_pnrs_list, list) else str(airline_pnrs_list)
+            
+            if not airiq_track_id:
+                airiq_track_ids_list = flight_booking.airiq_track_ids or []
+                if airiq_track_ids_list:
+                    airiq_track_id = airiq_track_ids_list[0] if isinstance(airiq_track_ids_list, list) else str(airiq_track_ids_list)
+            
             # Validate required AirIQ data
-            if not all([flight_booking.airiq_track_id, flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+            if not all([airiq_track_id, airiq_pnr, airline_pnr]):
                 return self.get_error_response(
                     message="Flight booking missing required PNR or track ID",
                     status="error",
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Get payment method from request (default to "T" for Agent Deposit)
+            payment_method = request.data.get('payment_method', 'T').upper()
+            redirect_url = request.data.get('redirect_url', '')
+            
+            # Validate payment method for AirIQ IssueTicket API
+            # PaymentMode should be "T" for Agent Deposit
+            payment_mode = 'T'  # Always use "T" for AirIQ IssueTicket API
+            
             # Call AirIQ service to issue ticket
             ticket_response = airiq_service.issue_ticket(
-                booking_track_id=flight_booking.airiq_track_id,
-                airiq_pnr=flight_booking.airiq_pnr,
-                airline_pnr=flight_booking.airline_pnr,
-                booking_amount=float(booking.final_amount)
+                booking_track_id=airiq_track_id,
+                airiq_pnr=airiq_pnr,
+                airline_pnr=airline_pnr,
+                booking_amount=float(booking.final_amount),
+                payment_mode=payment_mode
             )
             
-            # Persist ticketing response for reference
-            try:
-                blob = flight_booking.airiq_response_data or {}
-                blob['ticket_response'] = ticket_response
-                flight_booking.airiq_response_data = blob
-            except Exception:
-                pass
-            
-            # Update booking status to ticketed
-            flight_booking.status = 'TICKETED'
-            
-            # Extract ticket numbers if available in response
-            if 'TicketNumbers' in ticket_response:
-                flight_booking.ticket_numbers = ticket_response['TicketNumbers']
-            
-            flight_booking.save()
-            
-            # Update main booking status
-            booking.status = 'confirmed'
-            booking.save()
+            # Save ticket response data properly
+            self._save_ticket_response(booking, flight_booking, ticket_response)
             
             self.log_info(
                 f"Ticket issued for booking {booking_id}",
@@ -2693,7 +3302,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     'booking_id': booking_id,
                     'flight_booking_id': flight_booking.id,
                     'airiq_pnr': flight_booking.airiq_pnr,
-                    'user_id': request.user.id
+                    'user_id': request.user.id if request.user.is_authenticated else None
                 }
             )
             
@@ -3121,6 +3730,214 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
             print("Error cancelling booking:", str(e))
             return self.get_error_response(
                 message="An unexpected error occurred",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Cancel held booking (BlockPNR). This endpoint is specifically for cancelling bookings that are in HELD status before ticket issuance.",
+        manual_parameters=[
+            openapi.Parameter(
+                'booking_id',
+                openapi.IN_PATH,
+                description="Flight booking ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'airiq_pnr': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="AirIQ PNR (optional, will use booking's PNR if not provided)"
+                ),
+                'airline_pnr': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Airline PNR (optional, will use booking's PNR if not provided)"
+                ),
+                'guest_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Guest access token (required for guest bookings, optional for authenticated users)"
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Hold cancellation processed successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'cancel_status': openapi.Schema(type=openapi.TYPE_STRING),
+                                'remarks': openapi.Schema(type=openapi.TYPE_STRING),
+                                'booking_status': openapi.Schema(type=openapi.TYPE_STRING),
+                                'airiq_response': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    description="Hold cancel response from AirIQ"
+                                )
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="Bad request - booking not in HELD status or missing PNRs"),
+            404: openapi.Response(description="Booking not found"),
+            500: openapi.Response(description="AirIQ service error")
+        }
+    )
+    @action(detail=False, methods=['post'], url_path=r'(?P<booking_id>\d+)/cancel-hold')
+    def cancel_hold(self, request, booking_id=None):
+        """
+        Cancel held booking (BlockPNR)
+        This endpoint cancels bookings that are in HELD status (BlockPNR=true bookings)
+        """
+        try:
+            booking, flight_booking = self.get_flight_booking(booking_id)
+            
+            # Validate booking is in HELD status
+            if flight_booking.status != 'HELD':
+                return self.get_error_response(
+                    message=f"Hold cancellation is only available for HELD bookings. Current status: {flight_booking.status}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get PNRs from request or use booking's PNRs
+            airiq_pnr = request.data.get('airiq_pnr') or flight_booking.airiq_pnr
+            airline_pnr = request.data.get('airline_pnr') or flight_booking.airline_pnr
+            
+            if not airiq_pnr:
+                return self.get_error_response(
+                    message="AirIQ PNR is required for hold cancellation",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not airline_pnr:
+                return self.get_error_response(
+                    message="Airline PNR is required for hold cancellation",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Call AirIQ hold cancel API
+            try:
+                cancel_response = airiq_service.hold_cancel(
+                    airiq_pnr=airiq_pnr,
+                    airline_pnr=airline_pnr
+                )
+            except AirIQException as e:
+                self.log_error(f"AirIQ hold cancel failed for booking {booking_id}: {str(e)}")
+                return self.get_error_response(
+                    message=f"Failed to cancel hold: {str(e)}",
+                    status="error",
+                    status_code=status.HTTP_502_BAD_GATEWAY
+                )
+            
+            # Check response status
+            cancel_status = cancel_response.get('CancelStatus', '').upper()
+            status_info = cancel_response.get('Status', {})
+            result_code = status_info.get('ResultCode', '0')
+            remarks = cancel_response.get('Remarks', '')
+            
+            # Update booking status based on response
+            if cancel_status == 'SUCCESS' and result_code == '1':
+                # Successfully cancelled
+                flight_booking.status = 'CANCELLED'
+                flight_booking.cancelled_at = timezone.now()
+                
+                # Save hold cancel response
+                blob = flight_booking.airiq_response_data or {}
+                blob['hold_cancel_response'] = cancel_response
+                flight_booking.airiq_response_data = blob
+                
+                flight_booking.save(update_fields=['status', 'cancelled_at', 'airiq_response_data'])
+                
+                # Update main booking status
+                booking.status = 'canceled'
+                booking.save(update_fields=['status'])
+                
+                self.log_info(
+                    f"Hold cancelled successfully for booking {booking_id}",
+                    extra={
+                        'booking_id': booking.id,
+                        'flight_booking_id': flight_booking.id,
+                        'airiq_pnr': airiq_pnr,
+                        'airline_pnr': airline_pnr,
+                        'user_id': request.user.id if request.user.is_authenticated else None
+                    }
+                )
+                
+                return self.get_response(
+                    data={
+                        'cancel_status': cancel_status,
+                        'remarks': remarks,
+                        'booking_status': flight_booking.status,
+                        'airiq_response': cancel_response
+                    },
+                    message=remarks or "Hold cancelled successfully",
+                    status="success",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                # Cancellation failed or pending
+                error_msg = status_info.get('Error', '') or remarks or 'Hold cancellation failed'
+                
+                # Save response even if failed
+                blob = flight_booking.airiq_response_data or {}
+                blob['hold_cancel_response'] = cancel_response
+                flight_booking.airiq_response_data = blob
+                flight_booking.save(update_fields=['airiq_response_data'])
+                
+                self.log_error(
+                    f"Hold cancel failed for booking {booking_id}: {error_msg}",
+                    extra={
+                        'booking_id': booking.id,
+                        'flight_booking_id': flight_booking.id,
+                        'airiq_pnr': airiq_pnr,
+                        'airline_pnr': airline_pnr,
+                        'cancel_status': cancel_status,
+                        'result_code': result_code
+                    }
+                )
+                
+                return self.get_error_response(
+                    message=error_msg,
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        'cancel_status': cancel_status,
+                        'remarks': remarks,
+                        'booking_status': flight_booking.status,
+                        'airiq_response': cancel_response
+                    }
+                )
+                
+        except ValueError as e:
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except AirIQException as e:
+            self.log_error(f"AirIQ error cancelling hold for booking {booking_id}: {str(e)}")
+            return self.get_error_response(
+                message=f"Unable to process hold cancellation: {str(e)}",
+                status="error",
+                status_code=status.HTTP_502_BAD_GATEWAY
+            )
+        except Exception as e:
+            self.log_error(f"Unexpected error cancelling hold for booking {booking_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return self.get_error_response(
+                message="An unexpected error occurred while cancelling hold",
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
