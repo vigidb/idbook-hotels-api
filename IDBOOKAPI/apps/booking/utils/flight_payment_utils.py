@@ -310,11 +310,48 @@ class FlightPaymentProcessor:
             redirect_url = self.payment_data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', '')
             
             # Determine callback URL based on transaction type
+            # Handle trailing slash in CALLBACK_URL to avoid double slashes
+            base_url = settings.CALLBACK_URL.rstrip('/')
             transaction_type = self.payment_data.get('transaction_type', 'flight_booking_payment')
+            
+            # IMPORTANT: For ticket issuance payments, use the specific ticket callback URL
+            # Do NOT use default flight payment callback URL
+            # This is critical - ticket issuance must use its own callback endpoint
             if transaction_type == 'ticket_issuance_payment':
-                callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ticket/phonepe-callback/"
+                callback_url = f"{base_url}/api/v1/booking/flight-bookings/ticket/phonepe-callback/"
+                logger.info(f"TICKET ISSUANCE: Using ticket callback URL: {callback_url}")
+                print(f"=== PhonePe Payment: TICKET ISSUANCE - Using ticket callback URL: {callback_url} ===")
+            elif transaction_type in ('reschedule_payment', 'ssr_payment'):
+                # For reschedule and SSR, use their specific callbacks
+                if transaction_type == 'reschedule_payment':
+                    callback_url = f"{base_url}/api/v1/booking/flight-bookings/reschedule/phonepe-callback/"
+                else:  # ssr_payment
+                    callback_url = f"{base_url}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/"
+                logger.info(f"{transaction_type.upper()}: Using callback URL: {callback_url}")
+                print(f"=== PhonePe Payment: {transaction_type.upper()} - Using callback URL: {callback_url} ===")
             else:
-                callback_url = f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/phonepe-callback/"
+                # Default flight booking payment callback
+                callback_url = f"{base_url}/api/v1/booking/flight-payment/phonepe-callback/"
+                logger.info(f"DEFAULT: Using flight payment callback URL: {callback_url}")
+                print(f"=== PhonePe Payment: DEFAULT - Using flight payment callback URL: {callback_url} ===")
+            
+            # Log transaction type to verify it's being passed correctly
+            logger.info(f"PhonePe payment - Transaction type: {transaction_type}, Callback URL: {callback_url}")
+            print(f"=== PhonePe Payment Details ===")
+            print(f"Transaction Type: {transaction_type}")
+            print(f"Callback URL: {callback_url}")
+            print(f"Merchant Transaction ID: {payment_detail.merchant_transaction_id}")
+            print(f"Amount: {amount}")
+            print("=" * 50)
+            
+            # CRITICAL CHECK: Verify ticket issuance is using correct callback
+            if transaction_type == 'ticket_issuance_payment':
+                expected_callback = f"{base_url}/api/v1/booking/flight-bookings/ticket/phonepe-callback/"
+                if callback_url != expected_callback:
+                    error_msg = f"CRITICAL ERROR: Ticket issuance callback URL mismatch! Expected: {expected_callback}, Got: {callback_url}"
+                    logger.error(error_msg)
+                    print(f"ERROR: {error_msg}")
+                    raise ValueError(error_msg)
             
             payload = {
                 "merchantId": merchant_id,
@@ -326,6 +363,10 @@ class FlightPaymentProcessor:
                 "callbackUrl": callback_url,
                 "paymentInstrument": {"type": "PAY_PAGE"}
             }
+            
+            # Log the complete payload (without sensitive data)
+            logger.info(f"PhonePe payload - Callback URL: {payload.get('callbackUrl')}, Transaction Type: {transaction_type}")
+            print(f"=== PhonePe Payload Callback URL: {payload.get('callbackUrl')} ===")
             
             # Log payment request
             payment_log = {
@@ -388,7 +429,9 @@ class FlightPaymentProcessor:
         try:
             payu_mixin = PayUMixin()
             
-            # Prepare PayU payload
+            # Prepare PayU payload - handle trailing slash in CALLBACK_URL
+            base_url = settings.CALLBACK_URL.rstrip('/')
+            
             payload = {
                 'key': settings.PAYU_KEY,
                 'txnid': payment_detail.merchant_transaction_id,
@@ -397,8 +440,8 @@ class FlightPaymentProcessor:
                 'firstname': self.user.first_name if self.user else 'Guest',
                 'email': self.user.email if self.user else self.payment_data.get('email', ''),
                 'phone': self.user.mobile_number if self.user else self.payment_data.get('phone', ''),
-                'surl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/payu-success/",
-                'furl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-payment/payu-failure/",
+                'surl': f"{base_url}/api/v1/booking/flight-payment/payu-success/",
+                'furl': f"{base_url}/api/v1/booking/flight-payment/payu-failure/",
             }
             
             # Generate hash
@@ -1258,13 +1301,27 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
     Returns:
         Dict with processing result
     """
+    # Use print for immediate visibility
+    print("=" * 80)
+    print("=== process_ticket_issuance_phonepe_callback CALLED ===")
+    print(f"Callback data type: {type(callback_data)}")
+    print(f"Callback data: {callback_data}")
+    print("=" * 80)
+    
     try:
         import base64
         import json as _json
         from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from django.utils import timezone
+        
+        logger.info("=== Ticket Issuance PhonePe Callback Started ===")
+        logger.info(f"Callback data received: {callback_data}")
+        print("=== Ticket Issuance PhonePe Callback Started ===")
+        print(f"Callback data received: {callback_data}")
         
         response = callback_data.get('response')
         if not response:
+            logger.error("No response data in callback")
             return {
                 'success': False,
                 'error': 'Invalid callback data',
@@ -1280,6 +1337,9 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
         state = sub.get('state', '')
         amount = Decimal(str((sub.get('amount', 0) or 0) / 100))
 
+        logger.info(f"Merchant Transaction ID: {merchant_txn}")
+        logger.info(f"Payment Code: {code}, State: {state}, Amount: {amount}")
+
         # Update payment details
         is_success = code == 'PAYMENT_SUCCESS' and state == 'COMPLETED'
         update_booking_payment_details(merchant_txn, {
@@ -1291,8 +1351,53 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
         })
 
         booking_id = get_booking_from_payment(merchant_txn)
+        logger.info(f"Booking ID from payment: {booking_id}")
+        print(f"Booking ID from payment: {booking_id}")
+        
+        # Refresh booking from database to get latest data
         booking = Booking.objects.select_related('flight_booking').get(id=booking_id)
+        booking.refresh_from_db()
         flight_booking = booking.flight_booking
+        
+        if not flight_booking:
+            logger.error(f"Flight booking not found for booking {booking_id}")
+            print(f"ERROR: Flight booking not found for booking {booking_id}")
+            return {
+                'success': False,
+                'error': 'Flight booking not found',
+                'error_code': 'BOOKING_NOT_FOUND'
+            }
+        
+        # Refresh flight_booking to get latest data
+        flight_booking.refresh_from_db()
+        
+        # Verify this is a ticket issuance payment by checking transaction_details
+        payment_detail = BookingPaymentDetail.objects.filter(merchant_transaction_id=merchant_txn).first()
+        if payment_detail and payment_detail.transaction_details:
+            transaction_type = payment_detail.transaction_details.get('transaction_type')
+            logger.info(f"Transaction type from payment detail: {transaction_type}")
+            print(f"Transaction type from payment detail: {transaction_type}")
+            if transaction_type != 'ticket_issuance_payment':
+                logger.warning(f"Payment {merchant_txn} is not a ticket issuance payment (type: {transaction_type})")
+                return {
+                    'success': False,
+                    'error': f'This callback is not for ticket issuance payment. Transaction type: {transaction_type}',
+                    'error_code': 'INVALID_TRANSACTION_TYPE'
+                }
+        else:
+            logger.warning(f"Could not find payment detail or transaction_details for {merchant_txn}")
+            print(f"WARNING: Could not find payment detail or transaction_details for {merchant_txn}")
+        
+        # Log current flight booking status and PNR data
+        logger.info(f"Flight booking status: {flight_booking.status}")
+        logger.info(f"Flight booking PNR data - track_id: {flight_booking.airiq_track_id}, airiq_pnr: {flight_booking.airiq_pnr}, airline_pnr: {flight_booking.airline_pnr}")
+        print(f"Flight booking status: {flight_booking.status}")
+        print(f"Flight booking PNR data:")
+        print(f"  - track_id: {flight_booking.airiq_track_id}")
+        print(f"  - airiq_pnr: {flight_booking.airiq_pnr}")
+        print(f"  - airline_pnr: {flight_booking.airline_pnr}")
+        print(f"  - airiq_pnrs (array): {flight_booking.airiq_pnrs}")
+        print(f"  - airline_pnrs (array): {flight_booking.airline_pnrs}")
         
         if not flight_booking:
             return {
@@ -1302,25 +1407,82 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
             }
         
         if is_success:
+            logger.info(f"Payment successful for booking {booking_id}. Proceeding to ticket issuance...")
+            
+            # Update booking total payment made (similar to wallet payment flow)
+            booking.total_payment_made = (booking.total_payment_made or Decimal('0')) + amount
+            booking.save(update_fields=['total_payment_made'])
+            logger.info(f"Updated booking total_payment_made to {booking.total_payment_made}")
+            
             # Payment successful - proceed directly to ticket issuance
             # For HELD bookings, we don't need to call Book API again
             # We'll directly call IssueTicket API after payment
             try:
-                # Issue ticket via AirIQ IssueTicket API
-                if not all([flight_booking.airiq_track_id, flight_booking.airiq_pnr, flight_booking.airline_pnr]):
+                # Check if already ticketed
+                if flight_booking.status == 'TICKETED':
+                    logger.info(f"Booking {booking_id} is already ticketed. Skipping ticket issuance.")
+                    return {
+                        'success': True,
+                        'payment_success': True,
+                        'ticket_issued': True,
+                        'message': 'Payment successful. Ticket already issued.',
+                        'booking_id': booking_id
+                    }
+                
+                # Get PNRs and track IDs - support both single fields and arrays (same logic as issue_ticket endpoint)
+                airiq_pnr = flight_booking.airiq_pnr
+                airline_pnr = flight_booking.airline_pnr
+                airiq_track_id = flight_booking.airiq_track_id
+                
+                # Fallback to arrays if single fields are empty (same as issue_ticket endpoint)
+                if not airiq_pnr:
+                    airiq_pnrs_list = flight_booking.airiq_pnrs or []
+                    if airiq_pnrs_list:
+                        airiq_pnr = airiq_pnrs_list[0] if isinstance(airiq_pnrs_list, list) else str(airiq_pnrs_list)
+                        logger.info(f"Using airiq_pnr from array: {airiq_pnr}")
+                        print(f"Using airiq_pnr from array: {airiq_pnr}")
+                
+                if not airline_pnr:
+                    airline_pnrs_list = flight_booking.airline_pnrs or []
+                    if airline_pnrs_list:
+                        airline_pnr = airline_pnrs_list[0] if isinstance(airline_pnrs_list, list) else str(airline_pnrs_list)
+                        logger.info(f"Using airline_pnr from array: {airline_pnr}")
+                        print(f"Using airline_pnr from array: {airline_pnr}")
+                
+                if not airiq_track_id:
+                    airiq_track_ids_list = flight_booking.airiq_track_ids or []
+                    if airiq_track_ids_list:
+                        airiq_track_id = airiq_track_ids_list[0] if isinstance(airiq_track_ids_list, list) else str(airiq_track_ids_list)
+                        logger.info(f"Using airiq_track_id from array: {airiq_track_id}")
+                        print(f"Using airiq_track_id from array: {airiq_track_id}")
+                
+                # Check if we have all required PNR data
+                if not all([airiq_track_id, airiq_pnr, airline_pnr]):
+                    logger.error(f"Missing PNR data for booking {booking_id}: track_id={airiq_track_id}, airiq_pnr={airiq_pnr}, airline_pnr={airline_pnr}")
+                    print(f"ERROR: Missing PNR data for booking {booking_id}")
+                    print(f"  track_id: {airiq_track_id}")
+                    print(f"  airiq_pnr: {airiq_pnr}")
+                    print(f"  airline_pnr: {airline_pnr}")
                     return {
                         'success': False,
-                        'error': 'Missing required PNR or track ID for ticket issuance',
+                        'error': f'Missing required PNR or track ID for ticket issuance. track_id={airiq_track_id}, airiq_pnr={airiq_pnr}, airline_pnr={airline_pnr}',
                         'error_code': 'MISSING_PNR_DATA'
                     }
                 
+                logger.info(f"Calling AirIQ issue_ticket API for booking {booking_id}")
+                logger.info(f"Track ID: {airiq_track_id}, AirIQ PNR: {airiq_pnr}, Airline PNR: {airline_pnr}")
+                print(f"Calling AirIQ issue_ticket API for booking {booking_id}")
+                print(f"Track ID: {airiq_track_id}, AirIQ PNR: {airiq_pnr}, Airline PNR: {airline_pnr}")
+                
                 ticket_response = airiq_service.issue_ticket(
-                    booking_track_id=flight_booking.airiq_track_id,
-                    airiq_pnr=flight_booking.airiq_pnr,
-                    airline_pnr=flight_booking.airline_pnr,
+                    booking_track_id=airiq_track_id,
+                    airiq_pnr=airiq_pnr,
+                    airline_pnr=airline_pnr,
                     booking_amount=float(booking.final_amount),
                     payment_mode='T'  # Always use "T" for Agent Deposit
                 )
+                
+                logger.info(f"AirIQ issue_ticket API response received for booking {booking_id}")
                 
                 # Save ticket response using FlightPaymentProcessor
                 processor = FlightPaymentProcessor(booking, booking.user, {})
@@ -1340,10 +1502,14 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
                 
                 # Save all updates
                 flight_booking.save()
+                logger.info(f"Flight booking {flight_booking.id} status updated to TICKETED")
                 
                 # Update main booking status
                 booking.status = 'confirmed'
                 booking.save()
+                logger.info(f"Booking {booking_id} status updated to confirmed")
+                
+                logger.info(f"=== Ticket Issuance PhonePe Callback Completed Successfully for booking {booking_id} ===")
                 
                 return {
                     'success': True,
@@ -1355,7 +1521,9 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
                 }
                 
             except AirIQException as e:
-                logger.error(f"AirIQ error during ticket issuance callback: {str(e)}")
+                logger.error(f"AirIQ error during ticket issuance callback for booking {booking_id}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return {
                     'success': False,
                     'error': f'Ticket issuance failed: {str(e)}',
@@ -1363,7 +1531,9 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
                     'payment_success': True  # Payment was successful
                 }
             except Exception as e:
-                logger.error(f"Error during ticket issuance callback: {str(e)}")
+                logger.error(f"Error during ticket issuance callback for booking {booking_id}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return {
                     'success': False,
                     'error': f'Unexpected error: {str(e)}',
@@ -1372,6 +1542,7 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
                 }
         else:
             # Payment failed
+            logger.warning(f"Payment failed for booking {booking_id}. Code: {code}, State: {state}")
             return {
                 'success': True,
                 'payment_success': False,
@@ -1380,6 +1551,8 @@ def process_ticket_issuance_phonepe_callback(callback_data: dict) -> Dict:
 
     except Exception as e:
         logger.error(f"Ticket issuance PhonePe callback error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             'success': False,
             'error': f'Callback processing failed: {str(e)}',
@@ -2006,7 +2179,7 @@ def handle_reschedule_phonepe_payment(booking: Booking, flight_booking: FlightBo
             'amount': int(payment_amount * 100),
             'redirectUrl': (request.data.get('redirect_url') if request else None) or getattr(settings, 'FRONTEND_URL', ''),
             'redirectMode': 'REDIRECT',
-            'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/reschedule/phonepe-callback/",
+            'callbackUrl': f"{settings.CALLBACK_URL.rstrip('/')}/api/v1/booking/flight-bookings/reschedule/phonepe-callback/",
             'paymentInstrument': {'type': 'PAY_PAGE'}
         }
         

@@ -8,6 +8,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.utils import timezone
@@ -937,7 +939,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 'amount': int(payment_amount * 100),
                 'redirectUrl': request.data.get('redirect_url') or getattr(settings, 'FRONTEND_URL', ''),
                 'redirectMode': 'REDIRECT',
-                'callbackUrl': f"{settings.CALLBACK_URL}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/",
+                'callbackUrl': f"{settings.CALLBACK_URL.rstrip('/')}/api/v1/booking/flight-bookings/ancillary/phonepe-callback/",
                 'paymentInstrument': {'type': 'PAY_PAGE'}
             }
             
@@ -1053,13 +1055,37 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(detail=False, methods=['post'], url_path='ticket/phonepe-callback', permission_classes=[])
+    @action(detail=False, methods=['post'], url_path='ticket/phonepe-callback', permission_classes=[AllowAny])
     def ticket_phonepe_callback(self, request):
         """Handle PhonePe callback for ticket issuance payment"""
+        # Use print statements for immediate visibility (these go to console/logs)
+        print("=" * 80)
+        print("TICKET ISSUANCE PHONEPE CALLBACK ENDPOINT CALLED")
+        print(f"Request method: {request.method}")
+        print(f"Request path: {request.path}")
+        print(f"Request data: {request.data}")
+        # Note: Cannot access request.body after request.data is accessed in DRF
+        print("=" * 80)
+        
         try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            logger.info("=" * 80)
+            logger.info("TICKET ISSUANCE PHONEPE CALLBACK ENDPOINT CALLED")
+            logger.info(f"Request method: {request.method}")
+            logger.info(f"Request path: {request.path}")
+            logger.info(f"Request data: {request.data}")
+            # Note: Cannot access request.body after request.data is accessed in DRF
+            logger.info(f"Request headers: {dict(request.headers)}")
+            logger.info("=" * 80)
+            
             from apps.booking.utils.flight_payment_utils import process_ticket_issuance_phonepe_callback
             
+            print("Calling process_ticket_issuance_phonepe_callback...")
             result = process_ticket_issuance_phonepe_callback(request.data)
+            print(f"Callback processing result: {result}")
+            logger.info(f"Callback processing result: {result}")
             
             if not result.get('success'):
                 return self.get_error_response(
@@ -1083,7 +1109,12 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 status_code=status.HTTP_200_OK,
             )
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(f"Ticket issuance PhonePe callback endpoint error: {str(e)}")
+            logger.error(f"Error traceback: {error_trace}")
             self.log_error(f"Ticket issuance PhonePe callback error: {str(e)}")
+            self.log_error(f"Error traceback: {error_trace}")
             return self.get_error_response(
                 message=f'Callback processing failed: {str(e)}',
                 status='error',
@@ -3126,34 +3157,151 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                     
                     # Handle PhonePe payment
                     elif payment_method in ['PHONEPE', 'PHONE_PAY', 'PHONE PAY']:
+                        print("Processing PhonePe payment")
                         from apps.booking.utils.flight_payment_utils import FlightPaymentProcessor
                         from decimal import Decimal
                         from apps.booking.utils.db_utils import create_booking_payment_details
                         from IDBOOKAPI.utils import get_unique_id_from_time
+                        from apps.booking.utils.booking_utils import validate_guest_access_token
+                        
+                        # Validate authentication: user must be authenticated OR provide valid guest token
+                        is_authenticated = False
+                        guest_token = None
+                        guest_booking = None
+                        
+                        # Check if user is authenticated with JWT (not guest token)
+                        if request.user and request.user.is_authenticated:
+                            # Verify it's not a guest token by checking Authorization header
+                            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+                            if auth_header.startswith('Bearer '):
+                                token_string = auth_header.split(' ', 1)[1]
+                                # If it's a guest token, don't consider it as authenticated
+                                if not (token_string.startswith('guest_') or token_string.startswith('user_')):
+                                    is_authenticated = True
+                            else:
+                                # No Authorization header, but user is authenticated (might be session-based)
+                                is_authenticated = True
+                        
+                        # If not authenticated, check for guest token
+                        if not is_authenticated:
+                            # Check Authorization header
+                            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+                            if auth_header.startswith('Bearer '):
+                                token_string = auth_header.split(' ', 1)[1]
+                                if token_string.startswith('guest_') or token_string.startswith('user_'):
+                                    guest_token = token_string
+                            
+                            # Check query params
+                            if not guest_token:
+                                guest_token = request.query_params.get('guest_token')
+                            
+                            # Check request data
+                            if not guest_token:
+                                guest_token = request.data.get('guest_token')
+                            
+                            # Validate guest token if provided
+                            if guest_token:
+                                guest_booking = validate_guest_access_token(guest_token)
+                                if not guest_booking:
+                                    return self.get_error_response(
+                                        message="Invalid guest token",
+                                        status="error",
+                                        status_code=status.HTTP_401_UNAUTHORIZED
+                                    )
+                                # Verify guest token matches the booking
+                                if guest_booking.id != booking.id:
+                                    return self.get_error_response(
+                                        message="Guest token does not match booking",
+                                        status="error",
+                                        status_code=status.HTTP_403_FORBIDDEN
+                                    )
+                            else:
+                                # Neither authenticated nor guest token provided
+                                return self.get_error_response(
+                                    message="Authentication required. Please provide a valid authentication token or guest token.",
+                                    status="error",
+                                    status_code=status.HTTP_401_UNAUTHORIZED
+                                )
                         
                         # Create payment detail with metadata for ticket issuance callback
-                        append_id = get_unique_id_from_time()
+                        # Determine booking type and use booking.user.id (all bookings have a user)
+                        # Get the user from booking (works for both authenticated and guest users)
+                        booking_user = booking.user
+                        if not booking_user:
+                            return self.get_error_response(
+                                message="Booking user not found",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        # Determine booking type based on user's group and company_id
+                        from apps.authentication.utils.token_utils import get_user_active_group
+                        from apps.authentication.utils.group_utils import is_corporate_user, is_b2c_user
+                        from apps.authentication.constants import CORPORATE_GROUPS, B2C_GROUPS
+                        
+                        # Get active group (from token if available, otherwise from user)
+                        active_group = get_user_active_group(booking_user, request)
+                        user_default_group = getattr(booking_user, 'default_group', '') or ''
+                        user_group = active_group or user_default_group
+                        
+                        # Determine booking type prefix
+                        if is_corporate_user(user_group) or (booking.company_id and booking_user.company_id):
+                            # Corporate booking
+                            booking_type_prefix = "TKTCORP"
+                        elif is_b2c_user(user_group) or user_group in B2C_GROUPS:
+                            # Guest/B2C booking
+                            booking_type_prefix = "TKTGUEST"
+                        else:
+                            # Regular user booking
+                            booking_type_prefix = "TKTUSER"
+                        
+                        # Use booking.user.id for all bookings (guest bookings also have a user)
+                        append_id = f"{booking_type_prefix}{booking_user.id}"
+                        
                         payment_detail = create_booking_payment_details(booking.id, append_id)
                         
-                        # Store metadata for callback to know this is for ticket issuance
-                        update_booking_payment_details(payment_detail.merchant_transaction_id, {
+                        # Store metadata in transaction_details for callback to know this is for ticket issuance
+                        # transaction_details is a JSONField, so we need to set it directly on the object
+                        payment_detail.transaction_details = {
                             'transaction_type': 'ticket_issuance_payment',
                             'booking_id': booking_id,
                             'flight_booking_id': flight_booking.id
-                        })
+                        }
+                        payment_detail.save()
                         
                         # Create payment processor with ticket issuance transaction type
-                        # redirect_url is optional - FlightPaymentProcessor will use default callback URL based on transaction_type
+                        # IMPORTANT: transaction_type must be 'ticket_issuance_payment' to use correct callback URL
                         payment_data = {
                             'payment_channel': 'PHONE PAY',
                             'amount': str(balance_due),
-                            'transaction_type': 'ticket_issuance_payment'
+                            'transaction_type': 'ticket_issuance_payment'  # This ensures ticket callback URL is used
                         }
                         if redirect_url:
                             payment_data['redirect_url'] = redirect_url
                         
-                        processor = FlightPaymentProcessor(booking, request.user, payment_data, request=request)
+                        # Log payment data to verify transaction_type is set correctly
+                        logger.info(f"Ticket issuance PhonePe payment - Payment data: {payment_data}")
+                        print("=" * 80)
+                        print("CREATING FLIGHTPAYMENTPROCESSOR FOR TICKET ISSUANCE PHONEPE PAYMENT")
+                        print(f"Payment Data: {payment_data}")
+                        print(f"Transaction Type: {payment_data.get('transaction_type')}")
+                        print("=" * 80)
                         
+                        # Create payment processor
+                        # Always use booking.user (all bookings have a user, including guest bookings)
+                        # booking.user contains the user associated with the booking
+                        processor = FlightPaymentProcessor(booking, booking_user, payment_data, request=request)
+                        
+                        # Verify transaction_type is set in processor
+                        processor_transaction_type = processor.payment_data.get('transaction_type')
+                        logger.info(f"Processor payment_data transaction_type: {processor_transaction_type}")
+                        print(f"Processor payment_data transaction_type: {processor_transaction_type}")
+                        
+                        if processor_transaction_type != 'ticket_issuance_payment':
+                            logger.error(f"ERROR: Transaction type mismatch! Expected 'ticket_issuance_payment', got '{processor_transaction_type}'")
+                            print(f"ERROR: Transaction type mismatch! Expected 'ticket_issuance_payment', got '{processor_transaction_type}'")
+                        
+                        print("Initiating PhonePe payment for ticket issuance...")
                         # Initiate PhonePe payment
                         payment_result = processor.initiate_payment(allow_confirmed=True)
                         
@@ -3330,6 +3478,7 @@ class EnhancedFlightBookingViewSet(viewsets.ViewSet, StandardResponseMixin, Logg
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         except Exception as e:
+            print("Exception in issue_ticket:", str(e))
             self.log_error(f"Error issuing ticket for booking {booking_id}: {str(e)}")
             return self.get_error_response(
                 message="An unexpected error occurred",
