@@ -3,6 +3,7 @@
 ##from django.contrib.contenttypes.models import ContentType
 ##from django.contrib.sessions.models import Session
 from django.db import models
+
 ##from django.db.models.signals import pre_save, post_save
 ##
 ##from accounts.signals import user_logged_in
@@ -130,19 +131,14 @@ from apps.authentication.models import User
 ##
 ##user_logged_in.connect(user_logged_in_receiver)
 
+
 class PropertyAnalytics(models.Model):
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
-    ip_address = models.CharField(max_length=220, blank=True, default='')
+    ip_address = models.CharField(max_length=220, blank=True, default="")
     property_info = models.ForeignKey(Property, null=True, on_delete=models.CASCADE)
     visit_count = models.PositiveIntegerField()
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ('created',)
-    
-    
-    
-    
-
-
+        ordering = ("created",)

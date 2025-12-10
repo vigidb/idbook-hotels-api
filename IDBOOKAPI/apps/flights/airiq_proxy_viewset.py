@@ -45,22 +45,23 @@ class AirIQProxyViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin):
             self.log_error(f"AirIQ proxy error for endpoint {endpoint}: {str(e)}")
             # Return error in AirIQ format if possible
             error_response = {
-                "Status": {
-                    "ResultCode": "0",
-                    "Error": str(e),
-                    "SequenceID": ""
-                }
+                "Status": {"ResultCode": "0", "Error": str(e), "SequenceID": ""}
             }
             return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             # Log the actual error for debugging
-            self.log_error(f"AirIQ proxy unexpected error for endpoint {endpoint}: {str(e)}", exc_info=True)
+            self.log_error(
+                f"AirIQ proxy unexpected error for endpoint {endpoint}: {str(e)}",
+                exc_info=True,
+            )
             # Return error in AirIQ format
             error_response = {
                 "Status": {
                     "ResultCode": "-1",
                     "Error": f"EX-{str(e)}",
-                    "SequenceID": ""
+                    "SequenceID": "",
                 }
             }
-            return Response(error_response, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                error_response, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

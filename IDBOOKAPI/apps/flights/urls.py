@@ -7,16 +7,16 @@ from .airiq_proxy_viewset import AirIQProxyViewSet
 # Create DRF router
 router = DefaultRouter()
 # Enhanced flight search with pricing sessions (RECOMMENDED)
-router.register(r'search', EnhancedFlightSearchViewSet, basename='flight-search')
+router.register(r"search", EnhancedFlightSearchViewSet, basename="flight-search")
 # Legacy flight search for backward compatibility
-router.register(r'legacy-search', FlightSearchViewSet, basename='legacy-flight-search')
-router.register(r'pricing', FlightPricingViewSet, basename='flight-pricing')
-router.register(r'airiq-proxy', AirIQProxyViewSet, basename='airiq-proxy')
+router.register(r"legacy-search", FlightSearchViewSet, basename="legacy-flight-search")
+router.register(r"pricing", FlightPricingViewSet, basename="flight-pricing")
+router.register(r"airiq-proxy", AirIQProxyViewSet, basename="airiq-proxy")
 
-app_name = 'flights'
+app_name = "flights"
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path("", include(router.urls)),
 ]
 
 # URL patterns will be:

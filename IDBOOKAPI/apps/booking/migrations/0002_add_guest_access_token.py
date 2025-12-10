@@ -6,18 +6,41 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('booking', '0001_initial'),
+        ("booking", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='booking',
-            name='guest_access_token',
-            field=models.CharField(blank=True, help_text='Secure token for guest users to access their booking without authentication', max_length=255, null=True, unique=True),
+            model_name="booking",
+            name="guest_access_token",
+            field=models.CharField(
+                blank=True,
+                help_text="Secure token for guest users to access their booking without authentication",
+                max_length=255,
+                null=True,
+                unique=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='flightbooking',
-            name='status',
-            field=models.CharField(choices=[('INITIATED', 'Booking Initiated'), ('PENDING_PAYMENT', 'Pending Payment'), ('HELD', 'Booking Held'), ('CONFIRMED', 'Confirmed'), ('TICKETED', 'Ticketed'), ('CANCELLED', 'Cancelled'), ('COMPLETED', 'Completed'), ('REFUNDED', 'Refunded'), ('EXPIRED', 'Expired'), ('FAILED', 'Failed'), ('RESCHEDULED', 'Rescheduled')], default='INITIATED', help_text='Flight booking status', max_length=20),
+            model_name="flightbooking",
+            name="status",
+            field=models.CharField(
+                choices=[
+                    ("INITIATED", "Booking Initiated"),
+                    ("PENDING_PAYMENT", "Pending Payment"),
+                    ("HELD", "Booking Held"),
+                    ("CONFIRMED", "Confirmed"),
+                    ("TICKETED", "Ticketed"),
+                    ("CANCELLED", "Cancelled"),
+                    ("COMPLETED", "Completed"),
+                    ("REFUNDED", "Refunded"),
+                    ("EXPIRED", "Expired"),
+                    ("FAILED", "Failed"),
+                    ("RESCHEDULED", "Rescheduled"),
+                ],
+                default="INITIATED",
+                help_text="Flight booking status",
+                max_length=20,
+            ),
         ),
     ]

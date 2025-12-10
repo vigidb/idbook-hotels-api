@@ -21,23 +21,32 @@ email_from, password = EMAIL_SENDER, EMAIL_SENDER_PASSWORD
 
 # email_list = RECEIVERS_EMAIL
 
+
 def list_to_string(input_list):
     initial_string = ","
     return initial_string.join(input_list)
 
 
-def email_sender(receivers_email, email_subject, html_body, cc_email=None,
-                 bcc_email=None, reply_to=None, file_to_send=None, file_path=None):
+def email_sender(
+    receivers_email,
+    email_subject,
+    html_body,
+    cc_email=None,
+    bcc_email=None,
+    reply_to=None,
+    file_to_send=None,
+    file_path=None,
+):
     msg = MIMEMultipart()
     msg["From"] = email_from
     msg["To"] = list_to_string(receivers_email)
     msg["Subject"] = email_subject
 
     if cc_email is not None:
-       msg["Cc"] = list_to_string(cc_email)
+        msg["Cc"] = list_to_string(cc_email)
 
     if reply_to is not None:
-        msg.add_header('reply-to', reply_to)
+        msg.add_header("reply-to", reply_to)
 
     if html_body is not None:
         part = MIMEText(html_body, "html")
@@ -69,7 +78,9 @@ def email_sender(receivers_email, email_subject, html_body, cc_email=None,
             attachment.set_payload(fp.read())
             fp.close()
             encoders.encode_base64(attachment)
-        attachment.add_header("Content-Disposition", "attachment", filename=file_to_send)
+        attachment.add_header(
+            "Content-Disposition", "attachment", filename=file_to_send
+        )
         msg.attach(attachment)
 
     server = smtplib.SMTP("smtp.gmail.com:587")
@@ -77,26 +88,41 @@ def email_sender(receivers_email, email_subject, html_body, cc_email=None,
     server.login(email_from, password)
 
     if (cc_email and bcc_email) is not None:
-        server.sendmail(email_from, receivers_email + cc_email + bcc_email, msg.as_string())
+        server.sendmail(
+            email_from, receivers_email + cc_email + bcc_email, msg.as_string()
+        )
         server.quit()
-        print("{} mail sent successfully to {}".format(strftime("%d-%m-%Y %H:%M:%S", localtime()),
-                                                       receivers_email + cc_email + bcc_email))
+        print(
+            "{} mail sent successfully to {}".format(
+                strftime("%d-%m-%Y %H:%M:%S", localtime()),
+                receivers_email + cc_email + bcc_email,
+            )
+        )
     elif cc_email is not None:
         server.sendmail(email_from, receivers_email + cc_email, msg.as_string())
         server.quit()
-        print("{} mail sent successfully to {}".format(strftime("%d-%m-%Y %H:%M:%S", localtime()),
-                                                       receivers_email + cc_email))
-
+        print(
+            "{} mail sent successfully to {}".format(
+                strftime("%d-%m-%Y %H:%M:%S", localtime()), receivers_email + cc_email
+            )
+        )
 
     elif bcc_email is not None:
         server.sendmail(email_from, receivers_email + bcc_email, msg.as_string())
         server.quit()
-        print("{} mail sent successfully to {}".format(strftime("%d-%m-%Y %H:%M:%S", localtime()),
-                                                       receivers_email + bcc_email))
+        print(
+            "{} mail sent successfully to {}".format(
+                strftime("%d-%m-%Y %H:%M:%S", localtime()), receivers_email + bcc_email
+            )
+        )
     else:
         server.sendmail(email_from, receivers_email, msg.as_string())
         server.quit()
-        print("{} mail sent successfully to {}".format(strftime("%d-%m-%Y %H:%M:%S", localtime()), receivers_email))
+        print(
+            "{} mail sent successfully to {}".format(
+                strftime("%d-%m-%Y %H:%M:%S", localtime()), receivers_email
+            )
+        )
 
 
 subject = "test"
@@ -105,4 +131,8 @@ html_body = """
 <p>Congratulations on your joining us, </p>
 """
 
-email_sender(RECEIVERS_EMAIL, subject, html_body,)
+email_sender(
+    RECEIVERS_EMAIL,
+    subject,
+    html_body,
+)

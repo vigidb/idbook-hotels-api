@@ -4,6 +4,7 @@ from django.contrib.auth.models import Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import AbstractUser, Permission
 from django.contrib.auth.admin import UserAdmin
+
 # from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from .models import Role, UserOtp
 
@@ -42,22 +43,19 @@ class CustomUserAdmin(BaseUserAdmin):
     # The fields to be used in displaying the User model.
     # These override the definitions on the base UserAdmin
     # that reference specific fields on auth.User.
-    list_display = ('id', 'custom_id', 'email', 'mobile_number', 'category')
+    list_display = ("id", "custom_id", "email", "mobile_number", "category")
     fieldsets = (
-        (None, {'fields': ('email', 'password')}),
-       # ('Full name', {'fields': ()}),
-       #  ('Permissions', {'fields': ('is_active',)}),
+        (None, {"fields": ("email", "password")}),
+        # ('Full name', {'fields': ()}),
+        #  ('Permissions', {'fields': ('is_active',)}),
     )
     # add_fieldsets is not a standard ModelAdmin attribute. UserAdmin
     # overrides get_fieldsets to use this attribute when creating a user.
     add_fieldsets = (
-        (None, {
-            'classes': ('wide',),
-            'fields': ('email', 'password1', 'password2')}
-        ),
+        (None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),
     )
-    search_fields = ('email', 'category')
-    ordering = ('id',)
+    search_fields = ("email", "category")
+    ordering = ("id",)
     filter_horizontal = ()
 
 
@@ -69,16 +67,16 @@ admin.site.register(Permission)
 
 
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'short_code')
+    list_display = ("id", "name", "short_code")
+
 
 class UserOtpAdmin(admin.ModelAdmin):
-    list_display = ('id', 'otp', 'created')
+    list_display = ("id", "otp", "created")
 
 
 admin.site.register(Role, RoleAdmin)
 admin.site.register(UserOtp, UserOtpAdmin)
 
-admin.site.site_title = 'IDBookHotels Admin Panel'
-admin.site.site_header = 'IDBookHotels'
-admin.site.index_title = 'Welcome to IDBookHotels'
-
+admin.site.site_title = "IDBookHotels Admin Panel"
+admin.site.site_header = "IDBookHotels"
+admin.site.index_title = "Welcome to IDBookHotels"

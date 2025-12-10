@@ -11,4 +11,3 @@ class CalendarRoom(models.Model):
 
     class Meta:
         managed = False
-    

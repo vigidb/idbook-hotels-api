@@ -4,25 +4,49 @@ from django.urls import reverse, reverse_lazy
 from django.db import models
 from django.db.models import Q
 from django.db.models.signals import pre_save, post_save
-from django.contrib.auth.models import (AbstractBaseUser, BaseUserManager)
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.core.mail import send_mail
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework.authtoken.models import Token
-from django.core.validators import (BaseValidator, FileExtensionValidator, URLValidator, EmailValidator, validate_slug,
-                                    RegexValidator, MinValueValidator, MaxValueValidator)
+from django.core.validators import (
+    BaseValidator,
+    FileExtensionValidator,
+    URLValidator,
+    EmailValidator,
+    validate_slug,
+    RegexValidator,
+    MinValueValidator,
+    MaxValueValidator,
+)
 from apps.authentication.models import User
 
-from IDBOOKAPI.utils import (unique_key_generator, unique_referral_id_generator, )
-from IDBOOKAPI.validators import get_filename, validate_file_extension, calculate_age, MinAgeValidator
+from IDBOOKAPI.utils import (
+    unique_key_generator,
+    unique_referral_id_generator,
+)
+from IDBOOKAPI.validators import (
+    get_filename,
+    validate_file_extension,
+    calculate_age,
+    MinAgeValidator,
+)
 from IDBOOKAPI.basic_resources import (
-    ENQUIRY_CHOICES, STATE_CHOICES, IMAGE_TYPE_CHOICES,
-    COUNTRY_CHOICES, NOTIFICATION_TYPE, SUBSCRIPTION_TYPE,
-    PAYMENT_TYPE, PAYMENT_MEDIUM, AUTH_WORKFLOW, DISCOUNT_TYPE,
-    RULES_CHOICES)
+    ENQUIRY_CHOICES,
+    STATE_CHOICES,
+    IMAGE_TYPE_CHOICES,
+    COUNTRY_CHOICES,
+    NOTIFICATION_TYPE,
+    SUBSCRIPTION_TYPE,
+    PAYMENT_TYPE,
+    PAYMENT_MEDIUM,
+    AUTH_WORKFLOW,
+    DISCOUNT_TYPE,
+    RULES_CHOICES,
+)
 
-from django.core.validators import (EmailValidator, RegexValidator)
+from django.core.validators import EmailValidator, RegexValidator
 
 
 class AmenityCategory(models.Model):
@@ -36,11 +60,13 @@ class AmenityCategory(models.Model):
         return self.title
 
     class Meta:
-        verbose_name_plural = 'Amenity_Categories'
+        verbose_name_plural = "Amenity_Categories"
 
 
 class Amenity(models.Model):
-    amenity_category = models.ForeignKey(AmenityCategory, on_delete=models.DO_NOTHING, related_name='amenity_category')
+    amenity_category = models.ForeignKey(
+        AmenityCategory, on_delete=models.DO_NOTHING, related_name="amenity_category"
+    )
     title = models.CharField(max_length=200, unique=True)
 
     active = models.BooleanField(default=True)
@@ -51,7 +77,7 @@ class Amenity(models.Model):
         return self.title
 
     class Meta:
-        verbose_name_plural = 'Amenities'
+        verbose_name_plural = "Amenities"
 
 
 class RoomType(models.Model):
@@ -79,10 +105,14 @@ class Occupancy(models.Model):
 class Address(models.Model):
     full_address = models.CharField(max_length=100, help_text="Full address")
     district = models.CharField(max_length=50, help_text="District")
-    state = models.CharField(max_length=50, choices=STATE_CHOICES, default='', help_text="State")
-    country = models.CharField(max_length=50, choices=COUNTRY_CHOICES, default='INDIA',
-                               help_text="Country")
+    state = models.CharField(
+        max_length=50, choices=STATE_CHOICES, default="", help_text="State"
+    )
+    country = models.CharField(
+        max_length=50, choices=COUNTRY_CHOICES, default="INDIA", help_text="Country"
+    )
     pin_code = models.PositiveIntegerField(default=000000, help_text="PIN code")
+
 
 # class FCMToken(models.Model):
 #     user = models.ForeignKey(User, on_delete=models.DO_NOTHING, null=True, related_name='fcm_user')
@@ -116,8 +146,9 @@ class Address(models.Model):
 #         return str(self.user.email)
 #
 
+
 class BankDetail(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bank_detail')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bank_detail")
     bank_name = models.CharField(max_length=100, blank=True, null=True)
     account_holder_name = models.CharField(max_length=100, blank=True, null=True)
     account_number = models.CharField(max_length=15, blank=True, null=True)
@@ -130,8 +161,12 @@ class BankDetail(models.Model):
     qrcode = models.ImageField()
     payment_url = models.URLField()
 
-    razorpay_vpa_fund_account_id = models.CharField(max_length=100, blank=True, null=True)
-    razorpay_bank_fund_account_id = models.CharField(max_length=100, blank=True, null=True)
+    razorpay_vpa_fund_account_id = models.CharField(
+        max_length=100, blank=True, null=True
+    )
+    razorpay_bank_fund_account_id = models.CharField(
+        max_length=100, blank=True, null=True
+    )
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -142,20 +177,41 @@ class BankDetail(models.Model):
 
 
 class CompanyDetail(models.Model):
-    #user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
-    added_user = models.ForeignKey(User, on_delete=models.CASCADE,
-                                   related_name='company_list', null=True, blank=True)
-    business_rep = models.ForeignKey(User, on_delete=models.CASCADE,
-                                   related_name='business_representative', null=True, blank=True)
+    # user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='company_detail')
+    added_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="company_list",
+        null=True,
+        blank=True,
+    )
+    business_rep = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="business_representative",
+        null=True,
+        blank=True,
+    )
 
     company_name = models.CharField(max_length=50)
     brand_name = models.CharField(max_length=100, null=True, blank=True)
-    company_logo = models.FileField(upload_to='company/logo/', blank=True, null=True)
-    company_phone = models.CharField(max_length=50, null=True, blank=True,
-                                     validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
-                                                                message='Enter a valid phone number')])
-    company_email = models.EmailField(validators=[EmailValidator],
-                              null=True, blank=True, help_text="Email address of the company.")
+    company_logo = models.FileField(upload_to="company/logo/", blank=True, null=True)
+    company_phone = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\+?1?\d{9,15}$", message="Enter a valid phone number"
+            )
+        ],
+    )
+    company_email = models.EmailField(
+        validators=[EmailValidator],
+        null=True,
+        blank=True,
+        help_text="Email address of the company.",
+    )
     domain_name = models.CharField(max_length=50, blank=True, null=True)
     company_website = models.URLField(null=True, blank=True)
     gstin_no = models.CharField(max_length=100, null=True)
@@ -163,28 +219,48 @@ class CompanyDetail(models.Model):
     registered_address = models.TextField(blank=True, null=True)
 
     contact_person_name = models.CharField(max_length=50, null=True, blank=True)
-    contact_number = models.CharField(max_length=10, null=True, blank=True,
-                                      validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
-                                                                message='Enter a valid phone number')])
+    contact_number = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\+?1?\d{9,15}$", message="Enter a valid phone number"
+            )
+        ],
+    )
     designation = models.CharField(max_length=50, null=True, blank=True)
-    contact_email_address = models.EmailField(validators=[EmailValidator],
-                                              null=True, blank=True, help_text="Email address of the contact person.")
-    
+    contact_email_address = models.EmailField(
+        validators=[EmailValidator],
+        null=True,
+        blank=True,
+        help_text="Email address of the contact person.",
+    )
+
     district = models.CharField(max_length=20, null=True, blank=True)
-    state = models.CharField(max_length=30, default='')
-    country = models.CharField(max_length=25, default='INDIA')
+    state = models.CharField(max_length=30, default="")
+    country = models.CharField(max_length=25, default="INDIA")
     pin_code = models.PositiveIntegerField(null=True, blank=True)
 
-    location = models.CharField(max_length=255, null=True, blank=True,
-                                help_text="Google map URL")
+    location = models.CharField(
+        max_length=255, null=True, blank=True, help_text="Google map URL"
+    )
     latitude = models.FloatField(default=0, help_text="Latitude")
     longitude = models.FloatField(default=0, help_text="Longitude")
     approved = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True, help_text="Whether the company is active.")
+    is_active = models.BooleanField(
+        default=True, help_text="Whether the company is active."
+    )
 
 
 class UploadedMedia(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uploaded_by', blank=True, null=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="uploaded_by",
+        blank=True,
+        null=True,
+    )
     title = models.CharField(max_length=200, blank=True, null=True)
     file_name = models.CharField(max_length=200, blank=True, null=True)
     file_id = models.CharField(max_length=200, blank=True, null=True)
@@ -203,7 +279,6 @@ class UploadedMedia(models.Model):
     active = models.BooleanField(default=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-
 
 
 # class PayoutCalculation(models.Model):
@@ -329,16 +404,31 @@ class UploadedMedia(models.Model):
 
 
 class Enquiry(models.Model):
-    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name='user_enquiry')
-    name = models.CharField(max_length=100, blank=True, default='')
-    phone_no = models.CharField(max_length=10, blank=True, null=True,
-                                validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$',
-                                                           message='Enter a valid phone number')])
-    email = models.EmailField(validators=[EmailValidator],
-                              null=True, blank=True, help_text="Email address of the user.")
-    
-    replied_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, related_name='user_reply')
-    subject = models.CharField(max_length=150, choices=ENQUIRY_CHOICES, default='Other')
+    user = models.ForeignKey(
+        User, null=True, on_delete=models.CASCADE, related_name="user_enquiry"
+    )
+    name = models.CharField(max_length=100, blank=True, default="")
+    phone_no = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\+?1?\d{9,15}$", message="Enter a valid phone number"
+            )
+        ],
+    )
+    email = models.EmailField(
+        validators=[EmailValidator],
+        null=True,
+        blank=True,
+        help_text="Email address of the user.",
+    )
+
+    replied_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, null=True, related_name="user_reply"
+    )
+    subject = models.CharField(max_length=150, choices=ENQUIRY_CHOICES, default="Other")
     enquiry_msg = models.TextField(blank=True, null=True)
     enquiry_reply = models.TextField(blank=True, null=True)
     read = models.BooleanField(default=False)
@@ -348,10 +438,13 @@ class Enquiry(models.Model):
     active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ('created',)
+        ordering = ("created",)
+
+
 ##
 ##    def __str__(self):
 ##        return 'Reply by {} on {}'.format(self.replied_by, self.user)
+
 
 class Subscriber(models.Model):
     email = models.EmailField(validators=[EmailValidator])
@@ -361,13 +454,12 @@ class Subscriber(models.Model):
 
     def __str__(self):
         return self.email
-    
 
 
 class AboutUs(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='about/', blank=True, null=True)
+    image = models.ImageField(upload_to="about/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -380,7 +472,7 @@ class AboutUs(models.Model):
 class PrivacyPolicy(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='privacy-policy/', blank=True, null=True)
+    image = models.ImageField(upload_to="privacy-policy/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -393,7 +485,9 @@ class PrivacyPolicy(models.Model):
 class RefundAndCancellationPolicy(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='refund-and-cancellation-policy/', blank=True, null=True)
+    image = models.ImageField(
+        upload_to="refund-and-cancellation-policy/", blank=True, null=True
+    )
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -406,7 +500,7 @@ class RefundAndCancellationPolicy(models.Model):
 class TermsAndConditions(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='terms-and-conditions/', blank=True, null=True)
+    image = models.ImageField(upload_to="terms-and-conditions/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -419,7 +513,7 @@ class TermsAndConditions(models.Model):
 class Legality(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='legality/', blank=True,null=True)
+    image = models.ImageField(upload_to="legality/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -432,7 +526,7 @@ class Legality(models.Model):
 class Career(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='career/', blank=True,null=True)
+    image = models.ImageField(upload_to="career/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -445,7 +539,7 @@ class Career(models.Model):
 class FAQs(models.Model):
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='faqs/', blank=True,null=True)
+    image = models.ImageField(upload_to="faqs/", blank=True, null=True)
 
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -453,6 +547,7 @@ class FAQs(models.Model):
 
     def __str__(self):
         return self.title
+
 
 class CountryDetails(models.Model):
     country_name = models.CharField(max_length=150, blank=True, null=True)
@@ -465,16 +560,25 @@ class CountryDetails(models.Model):
 
 
 class UserNotification(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
-    send_by = models.ForeignKey(User, on_delete=models.CASCADE,
-                                blank=True, null=True, related_name='sender_notifications')
-    notification_type =  models.CharField(max_length=50, choices=NOTIFICATION_TYPE, default='GENERAL')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="user_notifications"
+    )
+    send_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="sender_notifications",
+    )
+    notification_type = models.CharField(
+        max_length=50, choices=NOTIFICATION_TYPE, default="GENERAL"
+    )
     title = models.CharField(max_length=150, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     is_read = models.BooleanField(default=False)
     redirect_url = models.TextField(blank=True, null=True)
     image_link = models.TextField(blank=True, null=True)
-    group_name =  models.CharField(max_length=30, blank=True, default="")
+    group_name = models.CharField(max_length=30, blank=True, default="")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -484,22 +588,27 @@ class UserNotification(models.Model):
     def __str__(self):
         return self.user.email
 
+
 class MessageTemplate(models.Model):
     message_id = models.CharField(max_length=50, unique=True)
     template_code = models.CharField(max_length=255)
     template_message = models.TextField()
-    
+
     def __str__(self):
         return self.template_code
 
+
 class Subscription(models.Model):
     name = models.CharField(max_length=50)
-    subscription_type = models.CharField(
-        max_length=50, choices=SUBSCRIPTION_TYPE)
+    subscription_type = models.CharField(max_length=50, choices=SUBSCRIPTION_TYPE)
     price = models.PositiveIntegerField(default=0)
     level = models.PositiveIntegerField()
-    discount = models.PositiveSmallIntegerField(default=0, help_text="Discount for Subscription")
-    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE, default='PERCENT')
+    discount = models.PositiveSmallIntegerField(
+        default=0, help_text="Discount for Subscription"
+    )
+    discount_type = models.CharField(
+        max_length=20, choices=DISCOUNT_TYPE, default="PERCENT"
+    )
     final_price = models.PositiveIntegerField(default=0)
     details = models.JSONField(default=list)
     is_popular = models.BooleanField(default=False)
@@ -508,37 +617,54 @@ class Subscription(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering=["level"]
+        ordering = ["level"]
 
     def __str__(self):
         return self.name
 
+
 class UserSubscription(models.Model):
-    MANDATE_STATUS_CHOICES = (("pending", "pending"),("initiated","initiated"),
-                              ("active", "active"),("failed", "failed"),
-                              ("cancel_initiated", "cancel_initiated"), ("cancelled", "cancelled"),
-                              ("cancel_failed","cancel_failed"), ("expired", "expired"))
-    
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_subscription')
-    idb_sub = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='user_idbsub',
-                                null=True, help_text="Idbook subscription")
-    pg_subid = models.CharField(max_length=100, blank=True,
-                                help_text='payment gateway subscription id')
+    MANDATE_STATUS_CHOICES = (
+        ("pending", "pending"),
+        ("initiated", "initiated"),
+        ("active", "active"),
+        ("failed", "failed"),
+        ("cancel_initiated", "cancel_initiated"),
+        ("cancelled", "cancelled"),
+        ("cancel_failed", "cancel_failed"),
+        ("expired", "expired"),
+    )
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="user_subscription"
+    )
+    idb_sub = models.ForeignKey(
+        Subscription,
+        on_delete=models.CASCADE,
+        related_name="user_idbsub",
+        null=True,
+        help_text="Idbook subscription",
+    )
+    pg_subid = models.CharField(
+        max_length=100, blank=True, help_text="payment gateway subscription id"
+    )
     merchant_userid = models.CharField(max_length=100, blank=True)
     merchant_subid = models.CharField(max_length=100, blank=True)
-    mandate_tnx_id = models.CharField(max_length=100, blank=True,
-                                      help_text="Mandate transaction id")
-    recrinit_tnx_id = models.CharField(max_length=100, blank=True,
-                                      help_text="Recurring init transaction id")
-##    notify_request_id = models.CharField(max_length=100, blank=True)
+    mandate_tnx_id = models.CharField(
+        max_length=100, blank=True, help_text="Mandate transaction id"
+    )
+    recrinit_tnx_id = models.CharField(
+        max_length=100, blank=True, help_text="Recurring init transaction id"
+    )
+    ##    notify_request_id = models.CharField(max_length=100, blank=True)
     notification_id = models.CharField(max_length=100, blank=True)
 
     # payment_frequency = models.CharField(max_length=50, choices=PAYMENT_FREQUENCY, default='')
-    payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, default='')
-    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default='')
-    upi_id = models.CharField(max_length=50, blank=True, default='')
+    payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPE, default="")
+    payment_medium = models.CharField(max_length=50, choices=PAYMENT_MEDIUM, default="")
+    upi_id = models.CharField(max_length=50, blank=True, default="")
     is_upi_valid = models.BooleanField(default=False)
-    sub_workflow = models.CharField(max_length=50, choices=AUTH_WORKFLOW, default='')
+    sub_workflow = models.CharField(max_length=50, choices=AUTH_WORKFLOW, default="")
 
     sub_start_date = models.DateTimeField(null=True)
     sub_end_date = models.DateTimeField(null=True)
@@ -549,31 +675,42 @@ class UserSubscription(models.Model):
     subscription_amount = models.IntegerField(default=0)
     total_amount = models.IntegerField(default=0)
     # mandate_tnx_amount = models.IntegerField(default=0)
-    transaction_amount = models.IntegerField(default=0, help_text="last transaction amount")
+    transaction_amount = models.IntegerField(
+        default=0, help_text="last transaction amount"
+    )
 
     # is_mandate_paid = models.BooleanField(default=False)
-    mandate_status = models.CharField(max_length=50, choices=MANDATE_STATUS_CHOICES,
-                                      default='pending')
+    mandate_status = models.CharField(
+        max_length=50, choices=MANDATE_STATUS_CHOICES, default="pending"
+    )
     last_mandate_check = models.DateTimeField(null=True)
-    
+
     paid = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
 
     is_cancel_initiated = models.BooleanField(default=False)
     is_cancelled = models.BooleanField(default=False)
-    cancel_tnx_id = models.CharField(max_length=100, blank=True,
-                                     help_text="Cancel transaction id")
-    
+    cancel_tnx_id = models.CharField(
+        max_length=100, blank=True, help_text="Cancel transaction id"
+    )
+
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+
 class SubRecurringTransaction(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_sub_recurtrans')
-    user_sub = models.ForeignKey(UserSubscription, on_delete=models.CASCADE,
-                                 related_name='usersub_recur_transaction')
-    recrinit_tnx_id = models.CharField(max_length=100, blank=True,
-                                      help_text="Recurring init transaction id")
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="user_sub_recurtrans"
+    )
+    user_sub = models.ForeignKey(
+        UserSubscription,
+        on_delete=models.CASCADE,
+        related_name="usersub_recur_transaction",
+    )
+    recrinit_tnx_id = models.CharField(
+        max_length=100, blank=True, help_text="Recurring init transaction id"
+    )
     notify_request_id = models.CharField(max_length=100, blank=True)
     notification_id = models.CharField(max_length=100, blank=True)
     invoice_display_no = models.CharField(max_length=100, blank=True)
@@ -584,14 +721,15 @@ class SubRecurringTransaction(models.Model):
 
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    
-    
+
+
 class BasicAdminConfig(models.Model):
     code = models.CharField(max_length=25, blank=True, null=True)
     value = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f"{self.code}: {self.value}"
+
 
 class FeatureSubscription(models.Model):
     title = models.CharField(max_length=255)
@@ -601,40 +739,51 @@ class FeatureSubscription(models.Model):
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     level = models.PositiveIntegerField()
-    subscription = models.ForeignKey('Subscription', on_delete=models.CASCADE, 
-                                   related_name='features', blank=True, null=True)
+    subscription = models.ForeignKey(
+        "Subscription",
+        on_delete=models.CASCADE,
+        related_name="features",
+        blank=True,
+        null=True,
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["level"]
-        
+
     def __str__(self):
         return self.title
-        
+
     def save(self, *args, **kwargs):
         if not self.subscription:
             try:
                 matching_subscription = Subscription.objects.get(
-                    level=self.level, 
-                    subscription_type=self.type
+                    level=self.level, subscription_type=self.type
                 )
                 self.subscription = matching_subscription
             except Subscription.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
 
+
 class BasicRulesConfig(models.Model):
-    start_limit = models.PositiveIntegerField(default=0, help_text="Start range of bookings or other things")
-    end_limit = models.PositiveIntegerField(default=0, help_text="End range of bookings or other things")
-    value = models.PositiveIntegerField(default=0, help_text="Percent or value of the respective discount, cashback etc.")
-    rules_for = models.CharField(max_length=50, choices=RULES_CHOICES, default='OTHERS')
+    start_limit = models.PositiveIntegerField(
+        default=0, help_text="Start range of bookings or other things"
+    )
+    end_limit = models.PositiveIntegerField(
+        default=0, help_text="End range of bookings or other things"
+    )
+    value = models.PositiveIntegerField(
+        default=0,
+        help_text="Percent or value of the respective discount, cashback etc.",
+    )
+    rules_for = models.CharField(max_length=50, choices=RULES_CHOICES, default="OTHERS")
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ('created',)
+        ordering = ("created",)
 
     def __str__(self):
         return f"{self.rules_for} ({self.start_limit}-{self.end_limit}) => {self.value}"
-

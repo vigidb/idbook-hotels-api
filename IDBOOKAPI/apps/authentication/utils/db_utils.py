@@ -6,14 +6,17 @@ from apps.authentication.models import User, UserOtp
 from apps.customer.models import Customer
 from django.utils import timezone
 
+
 def get_group_by_name(name):
-    #CORPORATE-GRP
+    # CORPORATE-GRP
     group = Group.objects.filter(name=name).first()
     return group
+
 
 def get_role_by_name(name):
     role = Role.objects.filter(name=name).first()
     return role
+
 
 def get_user_by_referralcode(refferal_code):
     if refferal_code:
@@ -22,23 +25,27 @@ def get_user_by_referralcode(refferal_code):
     else:
         return None
 
+
 def update_user_first_booking(user_id):
     if user_id:
         User.objects.filter(id=user_id).update(first_booking=True)
 
+
 def get_user_from_email(email):
     user = User.objects.filter(email=email).first()
     return user
+
 
 def create_user(user_details, customer_details=None):
     user = User.objects.create(**user_details)
     if not customer_details:
         Customer.objects.create(user=user, active=True)
     else:
-        customer_details['user_id'] = user.id
-        customer_details['active'] = True
+        customer_details["user_id"] = user.id
+        customer_details["active"] = True
         Customer.objects.create(**customer_details)
     return user
+
 
 # def create_email_otp(otp, to_email, otp_for):
 #     # delete any previous otp for the user account
@@ -48,9 +55,10 @@ def create_user(user_details, customer_details=None):
 #         otp=otp, otp_type='EMAIL',
 #         user_account=to_email, otp_for=otp_for)
 
+
 def create_email_otp(otp, to_email, otp_for):
     existing_otp = UserOtp.objects.filter(user_account=to_email).first()
-    
+
     if existing_otp:
         existing_otp.otp = otp
         existing_otp.otp_for = otp_for
@@ -59,12 +67,13 @@ def create_email_otp(otp, to_email, otp_for):
         existing_otp.save()
     else:
         UserOtp.objects.create(
-            otp=otp, 
-            otp_type='EMAIL',
-            user_account=to_email, 
+            otp=otp,
+            otp_type="EMAIL",
+            user_account=to_email,
             otp_for=otp_for,
-            otp_generate_tries=1
+            otp_generate_tries=1,
         )
+
 
 # def create_mobile_otp(otp, mobile_number, otp_for):
 #     # delete any previous otp for the user account
@@ -75,9 +84,10 @@ def create_email_otp(otp, to_email, otp_for):
 #         user_account=mobile_number,
 #          otp_for=otp_for)
 
+
 def create_mobile_otp(otp, mobile_number, otp_for):
     existing_otp = UserOtp.objects.filter(user_account=mobile_number).first()
-    
+
     if existing_otp:
         existing_otp.otp = otp
         existing_otp.otp_for = otp_for
@@ -86,59 +96,70 @@ def create_mobile_otp(otp, mobile_number, otp_for):
         existing_otp.save()
     else:
         UserOtp.objects.create(
-            otp=otp, 
-            otp_type='MOBILE',
-            user_account=mobile_number, 
+            otp=otp,
+            otp_type="MOBILE",
+            user_account=mobile_number,
             otp_for=otp_for,
-            otp_generate_tries=1
+            otp_generate_tries=1,
         )
 
+
 def get_userid_list(username, group=None):
-    user_objs = User.objects.filter(
-        Q(email=username)|Q(mobile_number=username))
+    user_objs = User.objects.filter(Q(email=username) | Q(mobile_number=username))
     if group:
         user_objs = user_objs.filter(groups=group)
-        
-    user_objs = user_objs.values(
-        'id', 'email', 'mobile_number')
+
+    user_objs = user_objs.values("id", "email", "mobile_number")
     return user_objs
+
 
 def is_role_exist(user_objs, role):
     is_exist = user_objs.filter(roles=role).exists()
     return is_exist
-    
+
 
 def get_user_details(user_id, username):
-    """ need to remove the user id"""
-    user_detail = User.objects.filter(id=user_id).filter(
-        Q(email=username)|Q(mobile_number=username)).first()
+    """need to remove the user id"""
+    user_detail = (
+        User.objects.filter(id=user_id)
+        .filter(Q(email=username) | Q(mobile_number=username))
+        .first()
+    )
     return user_detail
+
 
 def get_group_based_user_details(group, username):
-    user_detail = User.objects.filter(groups=group, is_active=True).filter(
-        Q(email=username)|Q(mobile_number=username)).first()
+    user_detail = (
+        User.objects.filter(groups=group, is_active=True)
+        .filter(Q(email=username) | Q(mobile_number=username))
+        .first()
+    )
     return user_detail
-
 
 
 def get_user_otp_details(email, mobile_number, otp):
-    user_otp_detail = UserOtp.objects.filter(
-        otp=otp, otp_for='SIGNUP').filter(
-            Q(user_account=email)|Q(user_account=mobile_number)).first()
+    user_otp_detail = (
+        UserOtp.objects.filter(otp=otp, otp_for="SIGNUP")
+        .filter(Q(user_account=email) | Q(user_account=mobile_number))
+        .first()
+    )
     return user_otp_detail
+
 
 def check_email_otp(email, otp, otp_for):
     user_otp = UserOtp.objects.filter(
-        user_account=email, otp=otp,
-        otp_for=otp_for).first()
+        user_account=email, otp=otp, otp_for=otp_for
+    ).first()
     return user_otp
+
 
 def check_mobile_otp(mobile_number, otp, otp_for):
     user_otp = UserOtp.objects.filter(
-        user_account=mobile_number, otp=otp,
-        otp_for=otp_for).first()
+        user_account=mobile_number, otp=otp, otp_for=otp_for
+    ).first()
     return user_otp
-    
+
+
 def reset_otp_counter(user_account):
     """Reset the OTP attempt counter and login attempts after successful operations"""
     try:
@@ -154,6 +175,7 @@ def reset_otp_counter(user_account):
         print(f"Error resetting OTP counter: {e}")
     return False
 
+
 def increment_login_attempts(user_account):
     """Increment the login attempt counter"""
     try:
@@ -167,6 +189,7 @@ def increment_login_attempts(user_account):
         print(f"Error incrementing login attempts: {e}")
     return False
 
+
 def increment_pwd_reset_attempts(user_account):
     """Increment the password reset attempt counter"""
     try:
@@ -179,6 +202,7 @@ def increment_pwd_reset_attempts(user_account):
     except Exception as e:
         print(f"Error incrementing password reset attempts: {e}")
     return False
+
 
 def increment_verify_attempts(user_account):
     """Increment the OTP verification attempt counter"""

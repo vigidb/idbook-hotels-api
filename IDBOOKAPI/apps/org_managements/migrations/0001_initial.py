@@ -15,28 +15,60 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='BusinessDetail',
+            name="BusinessDetail",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('business_name', models.CharField(max_length=150)),
-                ('hsn_sac_no', models.CharField(max_length=100, null=True)),
-                ('business_logo', models.FileField(blank=True, null=True, upload_to='business/logo/')),
-                ('business_phone', models.CharField(blank=True, max_length=50, null=True)),
-                ('business_email', models.CharField(blank=True, max_length=50, null=True)),
-                ('domain_name', models.CharField(blank=True, max_length=50, null=True)),
-                ('full_address', models.CharField(blank=True, max_length=500, null=True)),
-                ('gstin_no', models.CharField(blank=True, max_length=100, null=True)),
-                ('pan_no', models.CharField(blank=True, max_length=100, null=True)),
-                ('website_url', models.URLField(blank=True)),
-                ('state', models.CharField(blank=True, default='', max_length=50)),
-                ('country', models.CharField(default='INDIA', max_length=25)),
-                ('active', models.BooleanField(default=False, help_text='Whether the business is active.')),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='business_detail', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("business_name", models.CharField(max_length=150)),
+                ("hsn_sac_no", models.CharField(max_length=100, null=True)),
+                (
+                    "business_logo",
+                    models.FileField(blank=True, null=True, upload_to="business/logo/"),
+                ),
+                (
+                    "business_phone",
+                    models.CharField(blank=True, max_length=50, null=True),
+                ),
+                (
+                    "business_email",
+                    models.CharField(blank=True, max_length=50, null=True),
+                ),
+                ("domain_name", models.CharField(blank=True, max_length=50, null=True)),
+                (
+                    "full_address",
+                    models.CharField(blank=True, max_length=500, null=True),
+                ),
+                ("gstin_no", models.CharField(blank=True, max_length=100, null=True)),
+                ("pan_no", models.CharField(blank=True, max_length=100, null=True)),
+                ("website_url", models.URLField(blank=True)),
+                ("state", models.CharField(blank=True, default="", max_length=50)),
+                ("country", models.CharField(default="INDIA", max_length=25)),
+                (
+                    "active",
+                    models.BooleanField(
+                        default=False, help_text="Whether the business is active."
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="business_detail",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ('created',),
+                "ordering": ("created",),
             },
         ),
     ]

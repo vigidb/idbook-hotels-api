@@ -4,8 +4,6 @@ from apps.coupons.viewsets import *
 
 router = routers.DefaultRouter()
 
-router.register(r'coupons', CouponViewSet, basename='coupons')
+router.register(r"coupons", CouponViewSet, basename="coupons")
 
-urlpatterns = [
-
-]
+urlpatterns = []

@@ -5,32 +5,71 @@ from rest_framework import views, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import (
-    CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
+    CreateAPIView,
+    ListAPIView,
+    GenericAPIView,
+    RetrieveAPIView,
+    UpdateAPIView,
 )
 from django_filters.rest_framework import DjangoFilterBackend
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
 from .serializers import (
-    AmenityCategorySerializer, AmenitySerializer, EnquirySerializer, RoomTypeSerializer, OccupancySerializer,
-    AddressSerializer, AboutUsSerializer, PrivacyPolicySerializer, RefundAndCancellationPolicySerializer,
-    TermsAndConditionsSerializer, LegalitySerializer, CareerSerializer, FAQsSerializer, CompanyDetailSerializer,
-    UploadedMediaSerializer, CountryDetailsSerializer, UserNotificationSerializer, SubscriberSerializer,
-    SubscriptionSerializer, UserSubscriptionSerializer, FeatureSubscriptionSerializer,
-    BasicRulesConfigSerializer
+    AmenityCategorySerializer,
+    AmenitySerializer,
+    EnquirySerializer,
+    RoomTypeSerializer,
+    OccupancySerializer,
+    AddressSerializer,
+    AboutUsSerializer,
+    PrivacyPolicySerializer,
+    RefundAndCancellationPolicySerializer,
+    TermsAndConditionsSerializer,
+    LegalitySerializer,
+    CareerSerializer,
+    FAQsSerializer,
+    CompanyDetailSerializer,
+    UploadedMediaSerializer,
+    CountryDetailsSerializer,
+    UserNotificationSerializer,
+    SubscriberSerializer,
+    SubscriptionSerializer,
+    UserSubscriptionSerializer,
+    FeatureSubscriptionSerializer,
+    BasicRulesConfigSerializer,
 )
 from .models import (
-    CompanyDetail, AmenityCategory, Amenity, Enquiry, RoomType, Occupancy, Address,
-    AboutUs, PrivacyPolicy, RefundAndCancellationPolicy, TermsAndConditions, Legality,
-    Career, FAQs, UploadedMedia, CountryDetails, UserNotification, Subscriber, Subscription,
-    UserSubscription, FeatureSubscription, BasicRulesConfig
-    )
+    CompanyDetail,
+    AmenityCategory,
+    Amenity,
+    Enquiry,
+    RoomType,
+    Occupancy,
+    Address,
+    AboutUs,
+    PrivacyPolicy,
+    RefundAndCancellationPolicy,
+    TermsAndConditions,
+    Legality,
+    Career,
+    FAQs,
+    UploadedMedia,
+    CountryDetails,
+    UserNotification,
+    Subscriber,
+    Subscription,
+    UserSubscription,
+    FeatureSubscription,
+    BasicRulesConfig,
+)
 from apps.log_management.models import UserSubscriptionLogs
 
 from IDBOOKAPI.utils import (
-    paginate_queryset, get_unique_id_from_time,
-    get_date_from_string
-    )
+    paginate_queryset,
+    get_unique_id_from_time,
+    get_date_from_string,
+)
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
@@ -39,7 +78,7 @@ import requests, json
 import traceback
 import base64
 
-#from rest_framework import decorators
+# from rest_framework import decorators
 from rest_framework.decorators import action
 from django.db.models import Q
 from django.conf import settings
@@ -51,74 +90,102 @@ from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 
 from apps.org_resources.tasks import send_enquiry_email_task, pro_member_send_sms_task
 from apps.org_resources.utils.db_utils import (
-    is_corporate_email_exist, is_corporate_number_exist, get_subscription,
-    update_subrecur_transaction, add_wallet_bonus_for_subscription)
+    is_corporate_email_exist,
+    is_corporate_number_exist,
+    get_subscription,
+    update_subrecur_transaction,
+    add_wallet_bonus_for_subscription,
+)
 from apps.org_resources.utils.subscription_utils import (
-    subscription_phone_pe_process, subscription_payu_process,
-    subscription_cancel_payu_process)
+    subscription_phone_pe_process,
+    subscription_payu_process,
+    subscription_cancel_payu_process,
+)
 from IDBOOKAPI.utils import paginate_queryset
 
 from datetime import datetime
 import pytz
 from dateutil.relativedelta import relativedelta
 
+
 class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CompanyDetail.objects.all()
     serializer_class = CompanyDetailSerializer
     # permission_classes = [IsAuthenticated]
     permission_classes = []
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    http_method_names = ["get", "post", "put", "patch", "delete"]
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
 
-    permission_classes_by_action = {'create': [AllowAny], 'update': [IsAuthenticated],
-                                    'destroy': [IsAuthenticated]}
+    permission_classes_by_action = {
+        "create": [AllowAny],
+        "update": [IsAuthenticated],
+        "destroy": [IsAuthenticated],
+    }
 
     def get_permissions(self):
-        try: 
-            return [permission() for permission in self.permission_classes_by_action[self.action]]
-        except KeyError: 
+        try:
+            return [
+                permission()
+                for permission in self.permission_classes_by_action[self.action]
+            ]
+        except KeyError:
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
     def contact_verification(self):
         error_list = []
-        
-        company_email = self.request.data.get('company_email', '')
-        company_phone = self.request.data.get('company_phone', '')
-        contact_number = self.request.data.get('contact_number', '')
-        contact_email_address = self.request.data.get('contact_email_address', '')
+
+        company_email = self.request.data.get("company_email", "")
+        company_phone = self.request.data.get("company_phone", "")
+        contact_number = self.request.data.get("contact_number", "")
+        contact_email_address = self.request.data.get("contact_email_address", "")
 
         # otp for company email
-        otp_cmp_email = self.request.data.get('otp_cmp_email', None)
+        otp_cmp_email = self.request.data.get("otp_cmp_email", None)
         # otp for contact mobile
-        otp_cnt_mob = self.request.data.get('otp_cnt_mob', None)
-        otp_cnt_email = self.request.data.get('otp_cnt_email', None)
-        
+        otp_cnt_mob = self.request.data.get("otp_cnt_mob", None)
+        otp_cnt_email = self.request.data.get("otp_cnt_email", None)
+
         if otp_cmp_email and otp_cnt_mob and otp_cnt_email:
             # company email verify
             cmpobj_emailotp = auth_db_utils.check_email_otp(
-                company_email, otp_cmp_email, 'VERIFY')
+                company_email, otp_cmp_email, "VERIFY"
+            )
             if not cmpobj_emailotp:
-                error_list.append({"field":"company_email",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Email OTP"})
+                error_list.append(
+                    {
+                        "field": "company_email",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Email OTP",
+                    }
+                )
 
-            # contact number verify    
+            # contact number verify
             cntobj_mobotp = auth_db_utils.check_mobile_otp(
-                contact_number, otp_cnt_mob, 'SIGNUP')
+                contact_number, otp_cnt_mob, "SIGNUP"
+            )
             if not cntobj_mobotp:
-                error_list.append({"field":"contact_number",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Mobile OTP"})
+                error_list.append(
+                    {
+                        "field": "contact_number",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Mobile OTP",
+                    }
+                )
 
             # contact email verify
             cntobj_emailotp = auth_db_utils.check_email_otp(
-                contact_email_address, otp_cnt_email, 'SIGNUP')
+                contact_email_address, otp_cnt_email, "SIGNUP"
+            )
             if not cntobj_emailotp:
-                error_list.append({"field":"contact_email_address",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Email OTP"})
+                error_list.append(
+                    {
+                        "field": "contact_email_address",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Email OTP",
+                    }
+                )
 
         if error_list:
             return error_list
@@ -126,138 +193,199 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         group_name = "CORPORATE-GRP"
         self.grp, self.role = get_group_based_on_name(group_name)
         if not self.grp or not self.role:
-            error_list.append({"field":"",
-                           "error_code":"INVALID_GRP",
-                           "message": "Invalid Group"})
+            error_list.append(
+                {"field": "", "error_code": "INVALID_GRP", "message": "Invalid Group"}
+            )
             return error_list
 
         # check corporate email exist
         is_exist = is_corporate_email_exist(company_email)
         if is_exist:
-            error_list.append({"field":"company_email",
-                           "error_code":"CMP_EMAIL_EXIST",
-                           "message": "Company email already exist"})
+            error_list.append(
+                {
+                    "field": "company_email",
+                    "error_code": "CMP_EMAIL_EXIST",
+                    "message": "Company email already exist",
+                }
+            )
 
         # check corporate number exist
         is_number_exist = is_corporate_number_exist(company_phone)
         if is_number_exist:
-            error_list.append({"field":"company_phone",
-                           "error_code":"CMP_NUMBER_EXIST",
-                           "message": "Company number already exist"})
+            error_list.append(
+                {
+                    "field": "company_phone",
+                    "error_code": "CMP_NUMBER_EXIST",
+                    "message": "Company number already exist",
+                }
+            )
 
         # check contact email exist
         cntemail_grp_users = auth_db_utils.get_userid_list(
-            contact_email_address, group=self.grp)
+            contact_email_address, group=self.grp
+        )
         if cntemail_grp_users:
-            error_list.append({"field":"contact_email_address",
-                           "error_code":"CNT_EMAIL_EXIST",
-                           "message": "Contact email already exist"})
-            
+            error_list.append(
+                {
+                    "field": "contact_email_address",
+                    "error_code": "CNT_EMAIL_EXIST",
+                    "message": "Contact email already exist",
+                }
+            )
+
         # check contact number exist
-        mobile_grp_users = auth_db_utils.get_userid_list(
-            contact_number, group=self.grp)
+        mobile_grp_users = auth_db_utils.get_userid_list(contact_number, group=self.grp)
         if mobile_grp_users:
-            error_list.append({"field":"contact_number",
-                           "error_code":"CNT_MOB_EXIST",
-                           "message": "Contact number already exist"})
+            error_list.append(
+                {
+                    "field": "contact_number",
+                    "error_code": "CNT_MOB_EXIST",
+                    "message": "Contact number already exist",
+                }
+            )
 
         return error_list
 
     def update_corporate_verification(self, instance):
         error_list = []
         # daneshvar.khot@sandnetwork.in
-        company_name = self.request.data.get('company_name', '')
-        company_email = self.request.data.get('company_email', '')
-        company_phone = self.request.data.get('company_phone', '')
-        contact_number = self.request.data.get('contact_number', '')
-        contact_email_address = self.request.data.get('contact_email_address', '')
+        company_name = self.request.data.get("company_name", "")
+        company_email = self.request.data.get("company_email", "")
+        company_phone = self.request.data.get("company_phone", "")
+        contact_number = self.request.data.get("contact_number", "")
+        contact_email_address = self.request.data.get("contact_email_address", "")
 
         if company_name and instance.company_name != company_name:
-            error_list.append({"field":"company_name",
-                               "error_code":"UPDATE_NOT_PERMITTED",
-                               "message": "company name update not allowed"})
+            error_list.append(
+                {
+                    "field": "company_name",
+                    "error_code": "UPDATE_NOT_PERMITTED",
+                    "message": "company name update not allowed",
+                }
+            )
 
         if company_email and instance.company_email != company_email:
-            error_list.append({"field":"company_email",
-                               "error_code":"UPDATE_NOT_PERMITTED",
-                               "message": "company email update not allowed"})
+            error_list.append(
+                {
+                    "field": "company_email",
+                    "error_code": "UPDATE_NOT_PERMITTED",
+                    "message": "company email update not allowed",
+                }
+            )
 
         if company_phone and instance.company_phone != company_phone:
-            error_list.append({"field":"company_phone",
-                               "error_code":"UPDATE_NOT_PERMITTED",
-                               "message": "company_phone update not allowed"})
-            
+            error_list.append(
+                {
+                    "field": "company_phone",
+                    "error_code": "UPDATE_NOT_PERMITTED",
+                    "message": "company_phone update not allowed",
+                }
+            )
 
         if contact_number and instance.contact_number != contact_number:
-            error_list.append({"field":"contact_number",
-                               "error_code":"UPDATE_NOT_PERMITTED",
-                               "message": "contact_number update not allowed"})
+            error_list.append(
+                {
+                    "field": "contact_number",
+                    "error_code": "UPDATE_NOT_PERMITTED",
+                    "message": "contact_number update not allowed",
+                }
+            )
 
-        if contact_email_address and instance.contact_email_address != contact_email_address:
-            error_list.append({"field":"contact_email_address",
-                               "error_code":"UPDATE_NOT_PERMITTED",
-                               "message": "contact_email_address update not allowed"})
+        if (
+            contact_email_address
+            and instance.contact_email_address != contact_email_address
+        ):
+            error_list.append(
+                {
+                    "field": "contact_email_address",
+                    "error_code": "UPDATE_NOT_PERMITTED",
+                    "message": "contact_email_address update not allowed",
+                }
+            )
 
         return error_list
-                 
-        
 
     def update_contact_verification(self, instance):
         error_list = []
-        
-        company_email = self.request.data.get('company_email', '')
-        company_phone = self.request.data.get('company_phone', '')
-        contact_number = self.request.data.get('contact_number', '')
-        contact_email_address = self.request.data.get('contact_email_address', '')
+
+        company_email = self.request.data.get("company_email", "")
+        company_phone = self.request.data.get("company_phone", "")
+        contact_number = self.request.data.get("contact_number", "")
+        contact_email_address = self.request.data.get("contact_email_address", "")
 
         # otp for company email
-        otp_cmp_email = self.request.data.get('otp_cmp_email', None)
+        otp_cmp_email = self.request.data.get("otp_cmp_email", None)
         # otp for contact mobile
-        otp_cnt_mob = self.request.data.get('otp_cnt_mob', None)
-        otp_cnt_email = self.request.data.get('otp_cnt_email', None)
+        otp_cnt_mob = self.request.data.get("otp_cnt_mob", None)
+        otp_cnt_email = self.request.data.get("otp_cnt_email", None)
 
-        
         # company email verify
         if company_email and instance.company_email != company_email:
             cmpobj_emailotp = auth_db_utils.check_email_otp(
-                company_email, otp_cmp_email, 'VERIFY')
+                company_email, otp_cmp_email, "VERIFY"
+            )
             if not cmpobj_emailotp:
-                error_list.append({"field":"company_email",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Email OTP"})
+                error_list.append(
+                    {
+                        "field": "company_email",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Email OTP",
+                    }
+                )
 
             # check corporate email exist
             is_exist = is_corporate_email_exist(company_email)
             if is_exist:
-                error_list.append({"field":"company_email",
-                               "error_code":"CMP_EMAIL_EXIST",
-                               "message": "Company email already exist"})
+                error_list.append(
+                    {
+                        "field": "company_email",
+                        "error_code": "CMP_EMAIL_EXIST",
+                        "message": "Company email already exist",
+                    }
+                )
 
         # check corporate number exist
         if company_phone and instance.company_phone != company_phone:
             is_number_exist = is_corporate_number_exist(company_phone)
             if is_number_exist:
-                error_list.append({"field":"company_phone",
-                               "error_code":"CMP_NUMBER_EXIST",
-                               "message": "Company number already exist"})
+                error_list.append(
+                    {
+                        "field": "company_phone",
+                        "error_code": "CMP_NUMBER_EXIST",
+                        "message": "Company number already exist",
+                    }
+                )
 
         # contact number verify
         if contact_number and instance.contact_number != contact_number:
             cntobj_mobotp = auth_db_utils.check_mobile_otp(
-                contact_number, otp_cnt_mob, 'SIGNUP')
+                contact_number, otp_cnt_mob, "SIGNUP"
+            )
             if not cntobj_mobotp:
-                error_list.append({"field":"contact_number",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Mobile OTP"})
+                error_list.append(
+                    {
+                        "field": "contact_number",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Mobile OTP",
+                    }
+                )
 
         # contact email verify
-        if contact_email_address and instance.contact_email_address != contact_email_address:
+        if (
+            contact_email_address
+            and instance.contact_email_address != contact_email_address
+        ):
             cntobj_emailotp = auth_db_utils.check_email_otp(
-                contact_email_address, otp_cnt_email, 'SIGNUP')
+                contact_email_address, otp_cnt_email, "SIGNUP"
+            )
             if not cntobj_emailotp:
-                error_list.append({"field":"contact_email_address",
-                               "error_code":"INVALID_OTP",
-                               "message": "Invalid Email OTP"})
+                error_list.append(
+                    {
+                        "field": "contact_email_address",
+                        "error_code": "INVALID_OTP",
+                        "message": "Invalid Email OTP",
+                    }
+                )
 
         if error_list:
             return error_list
@@ -265,49 +393,67 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         group_name = "CORPORATE-GRP"
         self.grp, self.role = get_group_based_on_name(group_name)
         if not self.grp or not self.role:
-            error_list.append({"field":"",
-                           "error_code":"INVALID_GRP",
-                           "message": "Invalid Group"})
+            error_list.append(
+                {"field": "", "error_code": "INVALID_GRP", "message": "Invalid Group"}
+            )
             return error_list
 
         # check corporate email exist
         if company_email and instance.company_email != company_email:
             is_exist = is_corporate_email_exist(company_email)
             if is_exist:
-                error_list.append({"field":"company_email",
-                               "error_code":"CMP_EMAIL_EXIST",
-                               "message": "Company email already exist"})
+                error_list.append(
+                    {
+                        "field": "company_email",
+                        "error_code": "CMP_EMAIL_EXIST",
+                        "message": "Company email already exist",
+                    }
+                )
 
         # check contact email exist
-        if contact_email_address and instance.contact_email_address != contact_email_address:
+        if (
+            contact_email_address
+            and instance.contact_email_address != contact_email_address
+        ):
             cntemail_grp_users = auth_db_utils.get_userid_list(
-                contact_email_address, group=self.grp)
+                contact_email_address, group=self.grp
+            )
             if cntemail_grp_users:
-                error_list.append({"field":"contact_email_address",
-                               "error_code":"CNT_EMAIL_EXIST",
-                               "message": "Contact email already exist"})
-            
+                error_list.append(
+                    {
+                        "field": "contact_email_address",
+                        "error_code": "CNT_EMAIL_EXIST",
+                        "message": "Contact email already exist",
+                    }
+                )
+
         # check contact number exist
         if contact_number and instance.contact_number != contact_number:
             mobile_grp_users = auth_db_utils.get_userid_list(
-                contact_number, group=self.grp)
+                contact_number, group=self.grp
+            )
             if mobile_grp_users:
-                error_list.append({"field":"contact_number",
-                               "error_code":"CNT_MOB_EXIST",
-                               "message": "Contact number already exist"})
-                
-        return error_list
-        
+                error_list.append(
+                    {
+                        "field": "contact_number",
+                        "error_code": "CNT_MOB_EXIST",
+                        "message": "Contact number already exist",
+                    }
+                )
 
+        return error_list
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         error_list = self.contact_verification()
         if error_list:
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
 
         # Create an instance of your serializer with the request data
@@ -316,30 +462,34 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             company_detail = serializer.save()
-            
-            #response = super().create(request, *args, **kwargs)
 
-##            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
-##            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
+            # response = super().create(request, *args, **kwargs)
+
+            ##            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
+            ##            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
 
             # create or update user based on company email
-            user = User.objects.filter(email=company_detail.contact_email_address).first()
+            user = User.objects.filter(
+                email=company_detail.contact_email_address
+            ).first()
             if not user:
-                user = User.objects.create(name=company_detail.contact_person_name,
-                                           email=company_detail.contact_email_address,
-                                           mobile_number=company_detail.contact_number,
-                                           company_id=company_detail.id,
-                                           default_group='CORPORATE-GRP')
+                user = User.objects.create(
+                    name=company_detail.contact_person_name,
+                    email=company_detail.contact_email_address,
+                    mobile_number=company_detail.contact_number,
+                    company_id=company_detail.id,
+                    default_group="CORPORATE-GRP",
+                )
                 Customer.objects.create(user_id=user.id, active=True)
             else:
-                #user.category='CL-ADMIN'
-                user.default_group='CORPORATE-GRP'
-                user.company_id=company_detail.id
+                # user.category='CL-ADMIN'
+                user.default_group = "CORPORATE-GRP"
+                user.company_id = company_detail.id
                 user.save()
                 customer = Customer.objects.filter(user_id=user.id).first()
                 if not customer:
                     Customer.objects.create(user_id=user.id, active=True)
-                    
+
             if user:
                 # add group and roles
                 if self.grp:
@@ -350,68 +500,75 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 if user.default_group == "CORPORATE-GRP":
                     print("calling email")
                     extra_context = {
-                        'company_name': company_detail.company_name,
-                        'brand_name': company_detail.brand_name,
-                        'company_email': company_detail.company_email,
-                        'company_website': company_detail.company_website,
-                        'GSTIN_number': company_detail.gstin_no,
-                        'PAN_number': company_detail.pan_no,
-                        'registered_address': company_detail.registered_address,
-                        'pincode': company_detail.pin_code,
-                        'company_logo': company_detail.company_logo.url
+                        "company_name": company_detail.company_name,
+                        "brand_name": company_detail.brand_name,
+                        "company_email": company_detail.company_email,
+                        "company_website": company_detail.company_website,
+                        "GSTIN_number": company_detail.gstin_no,
+                        "PAN_number": company_detail.pan_no,
+                        "registered_address": company_detail.registered_address,
+                        "pincode": company_detail.pin_code,
+                        "company_logo": company_detail.company_logo.url,
                     }
                     print("extra_context", extra_context)
-                    send_signup_email_task.apply_async(args=[
-                        company_detail.contact_person_name,
-                        [company_detail.contact_email_address],
-                        user.default_group,
-                        extra_context  # context with company info
-                    ])
-                    
+                    send_signup_email_task.apply_async(
+                        args=[
+                            company_detail.contact_person_name,
+                            [company_detail.contact_email_address],
+                            user.default_group,
+                            extra_context,  # context with company info
+                        ]
+                    )
+
                 refresh = RefreshToken.for_user(user)
 
-                user_roles = [uroles for uroles in user.roles.values('id','name')]
-                user_groups = [ugroups for ugroups in user.groups.values('id','name')]
+                user_roles = [uroles for uroles in user.roles.values("id", "name")]
+                user_groups = [ugroups for ugroups in user.groups.values("id", "name")]
 
-                data = {'refreshToken': str(refresh),
-                        'groups': user_groups,
-                        'roles': user_roles,
-                        'accessToken': str(refresh.access_token),
-                        'expiresIn': 0,
-                        'company': serializer.data,
-                        }
+                data = {
+                    "refreshToken": str(refresh),
+                    "groups": user_groups,
+                    "roles": user_roles,
+                    "accessToken": str(refresh.access_token),
+                    "expiresIn": 0,
+                    "company": serializer.data,
+                }
             else:
-                data = {'refreshToken': "",
-                        'accessToken': "",
-                        'expiresIn': 0,
-                        'company': serializer.data,
-                        }
+                data = {
+                    "refreshToken": "",
+                    "accessToken": "",
+                    "expiresIn": 0,
+                    "company": serializer.data,
+                }
 
             # Create a custom response
             custom_response = self.get_response(
-                status='success',
+                status="success",
                 data=data,  # Use the data from the default response
                 message="CompanyDetail Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
-##            # If the serializer is not valid, create a custom response with error details
-##            custom_response = self.get_response(
-##                data=serializer.errors,  # Use the serializer's error details
-##                message="Validation Error",
-##                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-##                is_error=True
-##            )
-            
+            ##            # If the serializer is not valid, create a custom response with error details
+            ##            custom_response = self.get_response(
+            ##                data=serializer.errors,  # Use the serializer's error details
+            ##                message="Validation Error",
+            ##                status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
+            ##                is_error=True
+            ##            )
+
             error_list = self.custom_serializer_error(serializer.errors)
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                    errors=error_list,error_code="VALIDATION_ERROR",
-                                                    status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
-    
+
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -419,27 +576,34 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         instance = self.get_object()
 
         # Check if company_name is provided (mandatory field)
-        company_name = request.data.get('company_name', '')
-        if not company_name or company_name.strip() == '':
-            error_list = [{
-                "field": "company_name",
-                "error_code": "REQUIRED_FIELD",
-                "message": "company_name is required and cannot be empty"
-            }]
+        company_name = request.data.get("company_name", "")
+        if not company_name or company_name.strip() == "":
+            error_list = [
+                {
+                    "field": "company_name",
+                    "error_code": "REQUIRED_FIELD",
+                    "message": "company_name is required and cannot be empty",
+                }
+            ]
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
 
         error_list = self.update_corporate_verification(instance)
         if error_list:
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
-        
 
         # Create an instance of your serializer with the request data and the object to be updated
         serializer = self.get_serializer(instance, data=request.data)
@@ -453,14 +617,17 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="CompanyDetail Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
             error_list = self.custom_serializer_error(serializer.errors)
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                    errors=error_list,error_code="VALIDATION_ERROR",
-                                                    status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -468,27 +635,27 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-##        offset = int(self.request.query_params.get('offset', 0))
-##        limit = int(self.request.query_params.get('limit', 10))
-        search = request.query_params.get('search', '')
-        approved = request.query_params.get('approved', None)
+        ##        offset = int(self.request.query_params.get('offset', 0))
+        ##        limit = int(self.request.query_params.get('limit', 10))
+        search = request.query_params.get("search", "")
+        approved = request.query_params.get("approved", None)
 
         if search:
-            search_q_filter = Q(company_name__icontains=search) | Q(brand_name__icontains=search)
+            search_q_filter = Q(company_name__icontains=search) | Q(
+                brand_name__icontains=search
+            )
             self.queryset = self.queryset.filter(search_q_filter)
 
         if approved is not None:
-            if approved.lower() == 'true':
+            if approved.lower() == "true":
                 self.queryset = self.queryset.filter(approved=True)
-            elif approved.lower() == 'false':
+            elif approved.lower() == "false":
                 self.queryset = self.queryset.filter(approved=False)
 
+        ##        count = self.queryset.count()
+        ##        self.queryset = self.queryset[offset:offset+limit]
 
-##        count = self.queryset.count()
-##        self.queryset = self.queryset[offset:offset+limit]
-
-        count, self.queryset = paginate_queryset(self.request,  self.queryset)
-        
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -497,11 +664,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="List Retrieved",
                 count=count,
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -509,13 +675,13 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    #@decorators.action(permission_classes=[IsAuthenticated])
+    # @decorators.action(permission_classes=[IsAuthenticated])
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -528,7 +694,6 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -536,47 +701,59 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='create',
-            url_name='create-company', permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="create",
+        url_name="create-company",
+        permission_classes=[IsAuthenticated],
+    )
     def create_company_by_badmin(self, request):
         buser_id = request.user.id
 
         error_list = self.contact_verification()
         if error_list:
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
-        
+
         # Create an instance of your serializer with the request data
         serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             company_detail = serializer.save()
-            #response = super().create(request, *args, **kwargs)
-            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
-            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
+            # response = super().create(request, *args, **kwargs)
+            grp = auth_db_utils.get_group_by_name("CORPORATE-GRP")
+            role = auth_db_utils.get_role_by_name("CORP-ADMIN")
 
             # create or update user based on company email
-            user = User.objects.filter(email=company_detail.contact_email_address).first()
+            user = User.objects.filter(
+                email=company_detail.contact_email_address
+            ).first()
             if not user:
-                user = User.objects.create(name=company_detail.contact_person_name,
-                                           email=company_detail.contact_email_address,
-                                           mobile_number=company_detail.contact_number,
-                                           company_id=company_detail.id,
-                                           default_group='CORPORATE-GRP')
+                user = User.objects.create(
+                    name=company_detail.contact_person_name,
+                    email=company_detail.contact_email_address,
+                    mobile_number=company_detail.contact_number,
+                    company_id=company_detail.id,
+                    default_group="CORPORATE-GRP",
+                )
                 Customer.objects.create(user_id=user.id, active=True)
             else:
-                user.company_id=company_detail.id
-                user.default_group='CORPORATE-GRP'
+                user.company_id = company_detail.id
+                user.default_group = "CORPORATE-GRP"
                 user.save()
 
                 customer = Customer.objects.filter(user_id=user.id).first()
@@ -590,55 +767,71 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
             # Create a custom response
             custom_response = self.get_response(
-                status='success',
+                status="success",
                 data=serializer.data,  # Use the data from the default response
                 message="CompanyDetail Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                    errors=error_list,error_code="VALIDATION_ERROR",
-                                                    status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    @action(detail=True, methods=['PATCH'], url_path='update/contact',
-            url_name='update-contact', permission_classes=[IsAuthenticated])
+    @action(
+        detail=True,
+        methods=["PATCH"],
+        url_path="update/contact",
+        url_name="update-contact",
+        permission_classes=[IsAuthenticated],
+    )
     def update_contact(self, request, pk):
 
         # Check if company_name is provided (mandatory field)
-        company_name = self.request.data.get('company_name', '')
-        if not company_name or company_name.strip() == '':
-            error_list = [{
-                "field": "company_name",
-                "error_code": "REQUIRED_FIELD", 
-                "message": "company_name is required and cannot be empty"
-            }]
+        company_name = self.request.data.get("company_name", "")
+        if not company_name or company_name.strip() == "":
+            error_list = [
+                {
+                    "field": "company_name",
+                    "error_code": "REQUIRED_FIELD",
+                    "message": "company_name is required and cannot be empty",
+                }
+            ]
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
 
-        company_email = self.request.data.get('company_email', '')
-        company_phone = self.request.data.get('company_phone', '')
-        contact_number = self.request.data.get('contact_number', '')
-        contact_email_address = self.request.data.get('contact_email_address', '')
-        contact_person_name = self.request.data.get('contact_person_name','')
+        company_email = self.request.data.get("company_email", "")
+        company_phone = self.request.data.get("company_phone", "")
+        contact_number = self.request.data.get("contact_number", "")
+        contact_email_address = self.request.data.get("contact_email_address", "")
+        contact_person_name = self.request.data.get("contact_person_name", "")
 
         contact_user_update = False
-        
+
         instance = self.get_object()
-        
+
         error_list = self.update_contact_verification(instance)
         if error_list:
             response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list, error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
 
         # Update company_name (mandatory field)
@@ -650,7 +843,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             instance.company_phone = company_phone
         if contact_number and instance.contact_number != contact_number:
             instance.contact_number = contact_number
-        if contact_email_address and instance.contact_email_address != contact_email_address:
+        if (
+            contact_email_address
+            and instance.contact_email_address != contact_email_address
+        ):
             instance.contact_email_address = contact_email_address
             contact_user_update = True
         if contact_person_name and instance.contact_person_name != contact_person_name:
@@ -660,60 +856,62 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         if contact_user_update:
             user = User.objects.filter(email=instance.contact_email_address).first()
             if not user:
-                user = User.objects.create(name=instance.contact_person_name,
-                                           email=instance.contact_email_address,
-                                           mobile_number=instance.contact_number,
-                                           company_id=instance.id,
-                                           default_group='CORPORATE-GRP')
+                user = User.objects.create(
+                    name=instance.contact_person_name,
+                    email=instance.contact_email_address,
+                    mobile_number=instance.contact_number,
+                    company_id=instance.id,
+                    default_group="CORPORATE-GRP",
+                )
                 Customer.objects.create(user_id=user.id, active=True)
             else:
-                user.company_id=instance.id
-                user.default_group='CORPORATE-GRP'
+                user.company_id = instance.id
+                user.default_group = "CORPORATE-GRP"
                 user.save()
 
                 customer = Customer.objects.filter(user_id=user.id).first()
                 if not customer:
                     Customer.objects.create(user_id=user.id, active=True)
 
-            if self.grp and not user.groups.filter(name='CORPORATE-GRP'):
+            if self.grp and not user.groups.filter(name="CORPORATE-GRP"):
                 user.groups.add(self.grp)
-            if self.role and not user.roles.filter(name='CORP-ADMIN'):
+            if self.role and not user.roles.filter(name="CORP-ADMIN"):
                 user.roles.add(self.role)
 
         serializer = CompanyDetailSerializer(instance)
 
         custom_response = self.get_response(
-            status='success',
+            status="success",
             data=serializer.data,  # Use the data from the default response
             message="Company contact details updated",
             status_code=status.HTTP_200_OK,  # 201 for successful creation
         )
         return custom_response
-        
-        
 
     def destroy(self, request, pk=None):
         try:
             instance = self.get_object()
             company_id = instance.id
-            
+
             # Find the user associated with this company (contact person)
             user = User.objects.filter(email=instance.contact_email_address).first()
-            
+
             if user:
                 # Get user's current groups and roles
                 user_groups = user.groups.all()
                 user_roles = user.roles.all()
-                
+
                 # Check if user has only CORPORATE-GRP group and CORP-ADMIN role
-                corporate_group = user_groups.filter(name='CORPORATE-GRP').first()
-                corp_admin_role = user_roles.filter(name='CORP-ADMIN').first()
-                
+                corporate_group = user_groups.filter(name="CORPORATE-GRP").first()
+                corp_admin_role = user_roles.filter(name="CORP-ADMIN").first()
+
                 has_only_corporate_access = (
-                    user_groups.count() == 1 and corporate_group and
-                    user_roles.count() == 1 and corp_admin_role
+                    user_groups.count() == 1
+                    and corporate_group
+                    and user_roles.count() == 1
+                    and corp_admin_role
                 )
-                
+
                 if has_only_corporate_access:
                     # Delete customer details only when deleting user completely
                     customer = Customer.objects.filter(user_id=user.id).first()
@@ -726,7 +924,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                     if customer:
                         customer.delete()
                         print(f"Deleted customer for user: {user.email}")
-                    
+
                     # User has only corporate access - delete the user completely
                     user_email = user.email
                     user.delete()
@@ -737,39 +935,41 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                     if corporate_group:
                         user.groups.remove(corporate_group)
                         print(f"Removed CORPORATE-GRP from user: {user.email}")
-                    
+
                     if corp_admin_role:
                         user.roles.remove(corp_admin_role)
                         print(f"Removed CORP-ADMIN role from user: {user.email}")
-                    
+
                     # Clear company_id if it matches the company being deleted
                     if user.company_id == company_id:
                         user.company_id = None
-                        
+
                     # Update default_group if it was CORPORATE-GRP
-                    if user.default_group == 'CORPORATE-GRP':
+                    if user.default_group == "CORPORATE-GRP":
                         # Set to the first available group or empty string
                         remaining_groups = user.groups.all()
                         if remaining_groups.exists():
                             user.default_group = remaining_groups.first().name
                         else:
-                            user.default_group = ''
-                    
+                            user.default_group = ""
+
                     user.save()
-                    print(f"Updated user access for: {user.email} (Customer data preserved)")
-            
+                    print(
+                        f"Updated user access for: {user.email} (Customer data preserved)"
+                    )
+
             # Delete the company details completely
             company_name = instance.company_name
             instance.delete()
             print(f"Deleted company: {company_name}")
-            
+
             custom_response = self.get_response(
-                status='success', 
+                status="success",
                 data=None,
                 message="Company and associated data deleted successfully",
                 status_code=status.HTTP_200_OK,
             )
-            
+
         except Exception as e:
             print(f"Error during company deletion: {str(e)}")
             custom_response = self.get_error_response(
@@ -777,19 +977,18 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 status="error",
                 errors=[str(e)],
                 error_code="DELETION_ERROR",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        
+
         self.log_response(custom_response)
         return custom_response
-        
 
 
 class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = UploadedMedia.objects.all()
     serializer_class = UploadedMediaSerializer
     # permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ["get", "post", "put", "patch"]
     # filter_backends = [DjangoFilterBackend]
     # filterset_fields = ['service_category', 'area_name', 'city_name', 'starting_price', 'rating',]
 
@@ -808,7 +1007,6 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Media Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -816,7 +1014,7 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -840,7 +1038,6 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Media Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -848,7 +1045,7 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -866,7 +1063,6 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -874,7 +1070,7 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -892,7 +1088,6 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -900,18 +1095,22 @@ class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 
-class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class AmenityCategoryViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = AmenityCategory.objects.all()
     serializer_class = AmenityCategorySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -928,7 +1127,6 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=response.data,  # Use the data from the default response
                 message="AmenityCategory Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -936,7 +1134,7 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -960,7 +1158,6 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=response.data,  # Use the data from the default response
                 message="AmenityCategory Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -968,7 +1165,7 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -986,7 +1183,6 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -994,7 +1190,7 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1012,7 +1208,6 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -1020,7 +1215,7 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1030,11 +1225,17 @@ class AmenityCategoryViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
 class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Amenity.objects.all()
     serializer_class = AmenitySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = [
-        'amenity_category__id', 'amenity_category__title', 'amenity_category__active', 'title', 'active'
+        "amenity_category__id",
+        "amenity_category__title",
+        "amenity_category__active",
+        "title",
+        "active",
     ]
 
     def create(self, request, *args, **kwargs):
@@ -1052,7 +1253,6 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Amenity Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -1060,7 +1260,7 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1084,7 +1284,6 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Amenity Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -1092,7 +1291,7 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1110,7 +1309,6 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -1118,7 +1316,7 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1136,7 +1334,6 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -1144,7 +1341,7 @@ class AmenityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1155,14 +1352,14 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     queryset = Enquiry.objects.all()
     serializer_class = EnquirySerializer
     permission_classes = []
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ["get", "post", "put", "patch"]
 
     def get_queryset(self):
         queryset = Enquiry.objects.all()
 
-        phone_no = self.request.query_params.get('phone_no')
-        email = self.request.query_params.get('email')
-        name = self.request.query_params.get('name')
+        phone_no = self.request.query_params.get("phone_no")
+        email = self.request.query_params.get("email")
+        name = self.request.query_params.get("name")
 
         if phone_no:
             queryset = queryset.filter(phone_no__icontains=phone_no)
@@ -1171,15 +1368,15 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if name:
             queryset = queryset.filter(name__icontains=name)
 
-        queryset = queryset.order_by('-created')
+        queryset = queryset.order_by("-created")
 
-        offset = self.request.query_params.get('offset')
-        limit = self.request.query_params.get('limit')
+        offset = self.request.query_params.get("offset")
+        limit = self.request.query_params.get("limit")
 
         if offset is not None and limit is not None:
             offset = int(offset)
             limit = int(limit)
-            queryset = queryset[offset:offset + limit]
+            queryset = queryset[offset : offset + limit]
 
         return queryset
 
@@ -1192,7 +1389,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
-            enquiry_id = response.data.get('id')
+            enquiry_id = response.data.get("id")
             print("enquiry id", enquiry_id)
             send_enquiry_email_task.apply_async(args=[enquiry_id])
             # Create a custom response
@@ -1200,13 +1397,16 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Enquiry Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             serializer_errors = self.custom_serializer_error(serializer.errors)
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                      errors=serializer_errors,error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=serializer_errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
@@ -1229,7 +1429,6 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Enquiry Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -1237,7 +1436,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1248,7 +1447,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         # self.queryset = self.get_queryset()
         # offset = request.query_params.get('offset')
         # limit = request.query_params.get('limit')
-        
+
         # if offset is not None and limit is not None:
         #     count, self.queryset = paginate_queryset(request, self.queryset)
         # else:
@@ -1266,7 +1465,6 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 count=count,
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -1274,7 +1472,7 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1292,7 +1490,6 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -1300,34 +1497,41 @@ class EnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+
 class SubscriberViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Subscriber.objects.all()
     serializer_class = SubscriberSerializer
     permission_classes = []
-    http_method_names = ['get', 'post', 'put', 'patch']
-
-    
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
 
-        email = self.request.data.get('email', None)
+        email = self.request.data.get("email", None)
         if not email:
-            custom_response = self.get_error_response(message="Missing email", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Missing email",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
         subscriber_obj = Subscriber.objects.filter(email=email)
         if subscriber_obj.exists():
-            custom_response = self.get_error_response(message="Email already subscribed", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Email already subscribed",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
         serializer = self.get_serializer(data=request.data)
@@ -1346,86 +1550,103 @@ class SubscriberViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
-        
+
+
 class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
     # permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
-    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
-                                    'list':[AllowAny], 'destroy': [IsAuthenticated]}
+    permission_classes_by_action = {
+        "create": [IsAuthenticated],
+        "update": [IsAuthenticated],
+        "list": [AllowAny],
+        "destroy": [IsAuthenticated],
+    }
 
     def get_permissions(self):
-        try: 
-            return [permission() for permission in self.permission_classes_by_action[self.action]]
-        except KeyError: 
+        try:
+            return [
+                permission()
+                for permission in self.permission_classes_by_action[self.action]
+            ]
+        except KeyError:
             # action is not set return default permission_classes
             return [permission() for permission in self.permission_classes]
 
     def subscription_filter_ops(self):
         filter_dict = {}
-        param_dict= self.request.query_params
-        
+        param_dict = self.request.query_params
+
         for key in param_dict:
             param_value = param_dict[key]
-            if key in ('active', 'subscription_type', 'is_popular'):
+            if key in ("active", "subscription_type", "is_popular"):
                 filter_dict[key] = param_value
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
-            
+
     def calculate_final_price(self, price, discount, discount_type):
 
         final_price = price
-        
+
         if discount and discount_type:
-            if discount_type == 'AMOUNT':
+            if discount_type == "AMOUNT":
                 final_price = price - discount
-            elif discount_type == 'PERCENT':
+            elif discount_type == "PERCENT":
                 discount_amount = (discount * price) / 100
                 final_price = price - discount_amount
         return final_price
-        
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        name = self.request.data.get('name', '')
-        subscription_type = self.request.data.get('subscription_type', '')
-        price = self.request.data.get('price', 0)
-        discount = self.request.data.get('discount', 0)
-        discount_type = self.request.data.get('discount_type', 'PERCENT')
-        is_popular = self.request.data.get('is_popular', False)
+        name = self.request.data.get("name", "")
+        subscription_type = self.request.data.get("subscription_type", "")
+        price = self.request.data.get("price", 0)
+        discount = self.request.data.get("discount", 0)
+        discount_type = self.request.data.get("discount_type", "PERCENT")
+        is_popular = self.request.data.get("is_popular", False)
 
         is_name_exist = self.queryset.filter(
-            name__iexact=name, subscription_type=subscription_type,
-            active=True)
-        
+            name__iexact=name, subscription_type=subscription_type, active=True
+        )
+
         if is_name_exist:
-            custom_response = self.get_error_response(message="Name exist", status="error",
-                                                      errors=[],error_code="DUPLICATE_NAME",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Name exist",
+                status="error",
+                errors=[],
+                error_code="DUPLICATE_NAME",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
         try:
             price = int(price)
             discount = int(discount)
-            final_price = int(self.calculate_final_price(price, discount, discount_type))
+            final_price = int(
+                self.calculate_final_price(price, discount, discount_type)
+            )
 
             data_copy = request.data.copy()
-            data_copy['final_price'] = final_price
-            data_copy['is_popular'] = is_popular
+            data_copy["final_price"] = final_price
+            data_copy["is_popular"] = is_popular
 
         except (ValueError, TypeError):
             return self.get_error_response(
-                message="Invalid price or discount values", 
+                message="Invalid price or discount values",
                 status="error",
                 errors=[],
                 error_code="INVALID_VALUES",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         serializer = self.get_serializer(data=data_copy)
@@ -1441,16 +1662,19 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
             custom_response = self.get_response(
                 # data=response.data,  # Use the data from the default response
                 data=serializer.data,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="Subscription Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -1459,44 +1683,52 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
     def partial_update(self, request, *args, **kwargs):
         # Get the object to be updated
         instance = self.get_object()
-        
-        name = self.request.data.get('name', instance.name)
-        subscription_type = self.request.data.get('subscription_type', instance.subscription_type)
-        price = self.request.data.get('price', instance.price)
-        discount = self.request.data.get('discount', instance.discount)
-        discount_type = self.request.data.get('discount_type', instance.discount_type)
-        active = self.request.data.get('active', None)
-        is_popular = self.request.data.get('is_popular', instance.is_popular)
+
+        name = self.request.data.get("name", instance.name)
+        subscription_type = self.request.data.get(
+            "subscription_type", instance.subscription_type
+        )
+        price = self.request.data.get("price", instance.price)
+        discount = self.request.data.get("discount", instance.discount)
+        discount_type = self.request.data.get("discount_type", instance.discount_type)
+        active = self.request.data.get("active", None)
+        is_popular = self.request.data.get("is_popular", instance.is_popular)
 
         is_name_exist = self.queryset.filter(
-            name__iexact=name, subscription_type=subscription_type, active=True).exclude(
-                id=instance.id)
-            
+            name__iexact=name, subscription_type=subscription_type, active=True
+        ).exclude(id=instance.id)
+
         if is_name_exist:
-            custom_response = self.get_error_response(message="Name exist", status="error",
-                                                      errors=[],error_code="DUPLICATE_NAME",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Name exist",
+                status="error",
+                errors=[],
+                error_code="DUPLICATE_NAME",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
-        
+
         # Calculate final price
         try:
             price = int(price)
             discount = int(discount)
-            final_price = int(self.calculate_final_price(price, discount, discount_type))
-            
+            final_price = int(
+                self.calculate_final_price(price, discount, discount_type)
+            )
+
             data_copy = request.data.copy()
-            data_copy['final_price'] = final_price
-            data_copy['is_popular'] = is_popular
+            data_copy["final_price"] = final_price
+            data_copy["is_popular"] = is_popular
         except (ValueError, TypeError):
             custom_response = self.get_error_response(
-                message="Invalid price or discount values", 
+                message="Invalid price or discount values",
                 status="error",
                 errors=[],
                 error_code="INVALID_VALUES",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-        
+
         serializer = self.get_serializer(instance, data=data_copy, partial=True)
         # Create an instance of your serializer with the request data and the object to be updated
         # serializer = self.get_serializer(instance, data=request.data, partial=True)
@@ -1504,11 +1736,11 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         if serializer.is_valid():
             # response = super().partial_update(request, *args, **kwargs)
             serializer.save()
-            
+
             custom_response = self.get_response(
                 # data=response.data,  # Use the data from the default response
                 data=serializer.data,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="Update success",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
             )
@@ -1516,33 +1748,34 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", status="error",
-                errors=error_list,error_code="VALIDATION_ERROR", status_code=status.HTTP_400_BAD_REQUEST)
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
-
-    
-        
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
         self.subscription_filter_ops()
-        
+
         # paginate the result
-        count, self.queryset = paginate_queryset(self.request,  self.queryset)
-        
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
+
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
 
         # If the response status code is OK (200), it's a successful listing
         custom_response = self.get_response(
-            status='success',
+            status="success",
             count=count,
             data=response.data,  # Use the data from the default response
             message="List Retrieved",
             status_code=status.HTTP_200_OK,  # 200 for successful listing
         )
-        
+
         return custom_response
 
     def destroy(self, request, pk=None):
@@ -1551,74 +1784,86 @@ class SubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
         instance.delete()
 
         custom_response = self.get_response(
-            status='success', data=None, count=1,
+            status="success",
+            data=None,
+            count=1,
             message="Subscription deleted",
             status_code=status.HTTP_200_OK,
-            )
+        )
         return custom_response
 
 
-class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class UserSubscriptionViewset(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = UserSubscription.objects.all()
     serializer_class = UserSubscriptionSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'patch', 'delete']
+    http_method_names = ["get", "post", "patch", "delete"]
 
-##    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
-##                                    'list':[AllowAny], 'destroy': [IsAuthenticated]}
-##
-##    def get_permissions(self):
-##        try: 
-##            return [permission() for permission in self.permission_classes_by_action[self.action]]
-##        except KeyError: 
-##            # action is not set return default permission_classes
-##            return [permission() for permission in self.permission_classes]
+    ##    permission_classes_by_action = {'create': [IsAuthenticated], 'update': [IsAuthenticated],
+    ##                                    'list':[AllowAny], 'destroy': [IsAuthenticated]}
+    ##
+    ##    def get_permissions(self):
+    ##        try:
+    ##            return [permission() for permission in self.permission_classes_by_action[self.action]]
+    ##        except KeyError:
+    ##            # action is not set return default permission_classes
+    ##            return [permission() for permission in self.permission_classes]
 
     def user_subscription_param_ops(self):
-        
+
         filter_dict = {}
         # fetch filter parameters
-        param_dict= self.request.query_params
+        param_dict = self.request.query_params
         for key in param_dict:
-            if key in ('user', 'idb_sub',
-                       'paid', 'active', 'is_cancelled',
-                       'is_cancel_initiated'):
+            if key in (
+                "user",
+                "idb_sub",
+                "paid",
+                "active",
+                "is_cancelled",
+                "is_cancel_initiated",
+            ):
                 filter_dict[key] = param_dict[key]
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
 
-        # search 
-        search = self.request.query_params.get('search', '')
+        # search
+        search = self.request.query_params.get("search", "")
         if search:
-            search_q_filter = Q(pg_subid__icontains=search) | Q(mandate_tnx_id__icontains=search) | Q(cancel_tnx_id__icontains=search)
+            search_q_filter = (
+                Q(pg_subid__icontains=search)
+                | Q(mandate_tnx_id__icontains=search)
+                | Q(cancel_tnx_id__icontains=search)
+            )
             self.queryset = self.queryset.filter(search_q_filter)
 
     def property_order_ops(self):
-        ordering_params = self.request.query_params.get('ordering', None)
+        ordering_params = self.request.query_params.get("ordering", None)
         if ordering_params:
-            ordering_list = ordering_params.split(',')
+            ordering_list = ordering_params.split(",")
             self.queryset = self.queryset.order_by(*ordering_list)
-
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         user_id = self.request.user.id
-        idb_sub_id = request.data.get('idb_sub')
-        upi = request.data.get('upi', '')
-        payment_medium = request.data.get('payment_medium')
-        daily = request.data.get('daily', 0)
-        
-        name = request.data.get('name')
-        email = request.data.get('email')
-        mobile_number = request.data.get('mobile_number')
+        idb_sub_id = request.data.get("idb_sub")
+        upi = request.data.get("upi", "")
+        payment_medium = request.data.get("payment_medium")
+        daily = request.data.get("daily", 0)
 
-        start_date = request.data.get('start_date')
-        end_date = request.data.get('end_date')
+        name = request.data.get("name")
+        email = request.data.get("email")
+        mobile_number = request.data.get("mobile_number")
+
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
 
         start_date = get_date_from_string(start_date)
         end_date = get_date_from_string(end_date)
-        
+
         usersub_obj = None
         data = {}
 
@@ -1627,59 +1872,82 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         # merchant_userid = get_unique_id_from_time(merchant_userid)
 
         # generate merchant subscription id
-        merchant_subid = "%s%d%d" %("MSUB", user_id, idb_sub_id)
+        merchant_subid = "%s%d%d" % ("MSUB", user_id, idb_sub_id)
         merchant_subid = get_unique_id_from_time(merchant_subid)
-        
-        user_subscription_dict = {"user_id":user_id,
-                                  "idb_sub_id":idb_sub_id}
-        
+
+        user_subscription_dict = {"user_id": user_id, "idb_sub_id": idb_sub_id}
+
         subscription = get_subscription(idb_sub_id)
         if not subscription:
             custom_response = self.get_error_response(
-                message="Subscription not exist", status="error",
-                errors=[],error_code="SUBSCRIPTION_NOT_EXIST",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Subscription not exist",
+                status="error",
+                errors=[],
+                error_code="SUBSCRIPTION_NOT_EXIST",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
         auth_request_id = "%s%d" % ("TX", user_id)
         auth_request_id = get_unique_id_from_time(auth_request_id)
 
-        if payment_medium == 'PayU':
-            user_subscription_dict['payment_type'] = 'PAYMENT GATEWAY'
-            user_subscription_dict['payment_medium'] = payment_medium
-            params = {'merchant_userid':merchant_userid,'merchant_subid':merchant_subid,
-                      "txnid":auth_request_id, "amount":subscription.final_price,
-                      # "txnid":auth_request_id, "amount":subscription.price,
-                      "subscription_name":subscription.name,
-                      "subscription_type":subscription.subscription_type,
-                      "firstname":name,
-                      "email":email, "phone":mobile_number,
-                      "start_date":start_date,"end_date":end_date,
-                      "daily":daily}
-         
-            response, usersub_obj = subscription_payu_process(user_subscription_dict, params)
-            
-            data = {"url":response.url, "text":response.text, "status_code":response.status_code}
-            
+        if payment_medium == "PayU":
+            user_subscription_dict["payment_type"] = "PAYMENT GATEWAY"
+            user_subscription_dict["payment_medium"] = payment_medium
+            params = {
+                "merchant_userid": merchant_userid,
+                "merchant_subid": merchant_subid,
+                "txnid": auth_request_id,
+                "amount": subscription.final_price,
+                # "txnid":auth_request_id, "amount":subscription.price,
+                "subscription_name": subscription.name,
+                "subscription_type": subscription.subscription_type,
+                "firstname": name,
+                "email": email,
+                "phone": mobile_number,
+                "start_date": start_date,
+                "end_date": end_date,
+                "daily": daily,
+            }
 
-        elif payment_medium == 'PhonePe':
+            response, usersub_obj = subscription_payu_process(
+                user_subscription_dict, params
+            )
+
+            data = {
+                "url": response.url,
+                "text": response.text,
+                "status_code": response.status_code,
+            }
+
+        elif payment_medium == "PhonePe":
             error_response_dict, usersub_obj = subscription_phone_pe_process(
-                user_subscription_dict, merchant_subid, merchant_userid,
-                subscription, mobile_number, upi, auth_request_id, user_id)
+                user_subscription_dict,
+                merchant_subid,
+                merchant_userid,
+                subscription,
+                mobile_number,
+                upi,
+                auth_request_id,
+                user_id,
+            )
 
             if error_response_dict:
                 custom_response = self.get_error_response(
-                        message=error_response_dict.get('message', ''), status="error",
-                        errors=[],error_code=error_response_dict.get('error_code', ''),
-                        status_code=status.HTTP_400_BAD_REQUEST)
+                    message=error_response_dict.get("message", ""),
+                    status="error",
+                    errors=[],
+                    error_code=error_response_dict.get("error_code", ""),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
                 return custom_response
-            
+
             seriaizer = UserSubscriptionSerializer(usersub_obj)
             data = serializer.data
-            
+
         custom_response = self.get_response(
             data=data,  # Use the data from the default response
-            status='success',
+            status="success",
             message="User Subscription Initiated",
             status_code=status.HTTP_201_CREATED,  # 201 for successful creation
         )
@@ -1693,7 +1961,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
         self.user_subscription_param_ops()
         self.property_order_ops()
         # paginate the result
-        count, self.queryset = paginate_queryset(self.request,  self.queryset)
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
@@ -1706,98 +1974,116 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 data=response.data,  # Use the data from the default response
                 message="User Subscription List",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
-            custom_response = self.get_error_response(message="Validation Error", status="error",
-                                                      errors=[],error_code="VALIDATION_ERROR",
-                                                      status_code=status.HTTP_400_BAD_REQUEST)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='cancel',
-            url_name='cancel', permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="cancel",
+        url_name="cancel",
+        permission_classes=[IsAuthenticated],
+    )
     def cancel_subscription(self, request):
-        
+
         user_id = self.request.user.id
-        user_sub_id = request.data.get('user_sub')
-        payment_medium = request.data.get('payment_medium')
+        user_sub_id = request.data.get("user_sub")
+        payment_medium = request.data.get("payment_medium")
         data = {}
-        user_sub_logs = {"api_code":"SUB-CANC"} # log
-        
+        user_sub_logs = {"api_code": "SUB-CANC"}  # log
+
         user_sub = UserSubscription.objects.filter(id=user_sub_id).first()
         if not user_sub:
             custom_response = self.get_error_response(
-                message="Subscription not found", status="error",
-                errors=[],error_code="SUBSCRIPTION_MISSING",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Subscription not found",
+                status="error",
+                errors=[],
+                error_code="SUBSCRIPTION_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
-        user_sub_logs['user_id'] = user_sub.user.id
-        user_sub_logs['user_sub_id'] = user_sub.id # log
-        user_sub_logs['pg_subid'] = user_sub.pg_subid # log
-        
+        user_sub_logs["user_id"] = user_sub.user.id
+        user_sub_logs["user_sub_id"] = user_sub.id  # log
+        user_sub_logs["pg_subid"] = user_sub.pg_subid  # log
+
         pg_subid = user_sub.pg_subid
 
         tnx_id = "%s%d" % ("CANC", user_id)
         tnx_id = get_unique_id_from_time(tnx_id)
-        user_sub_logs['tnx_id'] = tnx_id # log
+        user_sub_logs["tnx_id"] = tnx_id  # log
 
         user_sub.is_cancel_initiated = True
         user_sub.cancel_tnx_id = tnx_id
 
-##        amount = user_sub.total_amount
-##        subscription_name = user_sub.idb_sub.name
-##        name = self.request.user.name
-##        email = self.request.user.email
-##        phone = self.request.user.mobile_number
-##        
-##        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
-##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
-##                  "subscription_name":subscription_name, "firstname": name,
-##                  "email":email, "phone":phone
-##                  }
+        ##        amount = user_sub.total_amount
+        ##        subscription_name = user_sub.idb_sub.name
+        ##        name = self.request.user.name
+        ##        email = self.request.user.email
+        ##        phone = self.request.user.mobile_number
+        ##
+        ##        params = {"key":settings.PAYU_KEY, "txnid":tnx_id, "amount":amount,
+        ##                  "udf1":"", "udf2":"", "udf3":"", "udf4":"", "udf5":"",
+        ##                  "subscription_name":subscription_name, "firstname": name,
+        ##                  "email":email, "phone":phone
+        ##                  }
 
-        if payment_medium == 'PayU':
+        if payment_medium == "PayU":
             response = subscription_cancel_payu_process(pg_subid, tnx_id)
             data = response.json()
-            if data.get('statusCode', '') == 1:
+            if data.get("statusCode", "") == 1:
                 user_sub.mandate_status = "cancel_initiated"
-                user_sub_logs['status_code'] = 200
-            if data.get('statusCode', '') == 0:
+                user_sub_logs["status_code"] = 200
+            if data.get("statusCode", "") == 0:
                 user_sub.mandate_status = "cancel_failed"
-                user_sub_logs['status_code'] = 400
-            if data.get('status', '') == 0:
+                user_sub_logs["status_code"] = 400
+            if data.get("status", "") == 0:
                 user_sub.mandate_status = "cancel_failed"
-                user_sub_logs['status_code'] = 400
-                
+                user_sub_logs["status_code"] = 400
 
-        user_sub.save() # save subscription with cancellation details
+        user_sub.save()  # save subscription with cancellation details
 
-        user_sub_logs['status_response'] = data # log      
+        user_sub_logs["status_response"] = data  # log
         # log entry
         UserSubscriptionLogs.objects.create(**user_sub_logs)
-        
+
         custom_response = self.get_response(
             data=data,  # Use the data from the default response
-            status='success',
+            status="success",
             message="User Subscription Initiated",
             status_code=status.HTTP_201_CREATED,  # 201 for successful creation
         )
 
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='cancel-webhook',
-            url_name='cancel-webhook', permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="cancel-webhook",
+        url_name="cancel-webhook",
+        permission_classes=[],
+    )
     def cancel_subscription_webhook(self, request):
 
         try:
             status_response = request.data
-            user_sub_logs = {"api_code":"SUBCANC-CALBAK", "status_response":status_response} # log
+            user_sub_logs = {
+                "api_code": "SUBCANC-CALBAK",
+                "status_response": status_response,
+            }  # log
 
-            pg_subid = request.data.get('authPayuId', '')
-            cancel_status = request.data.get('status', '')
+            pg_subid = request.data.get("authPayuId", "")
+            cancel_status = request.data.get("status", "")
 
             user_sub = UserSubscription.objects.filter(pg_subid=pg_subid).first()
             if user_sub:
@@ -1805,8 +2091,7 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 user_sub_logs["user_sub_id"] = user_sub.id
                 user_sub_logs["pg_subid"] = user_sub.pg_subid
                 user_sub_logs["tnx_id"] = user_sub.cancel_tnx_id
-                
-                
+
                 if cancel_status == "CANCEL_SUCCESS":
                     user_sub.mandate_status = "cancelled"
                     user_sub_logs["status_code"] = 200
@@ -1815,77 +2100,87 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                     user_sub_logs["status_code"] = 400
 
                 user_sub.save()
-                
+
         except Exception as e:
             print(e)
-            user_sub_logs['error_message'] = str(e)
+            user_sub_logs["error_message"] = str(e)
 
         UserSubscriptionLogs.objects.create(**user_sub_logs)
 
         custom_response = self.get_response(
             data=request.data,  # Use the data from the default response
-            status='success',
+            status="success",
             message="User Subscription Cancellation details",
             status_code=status.HTTP_201_CREATED,  # 201 for successful creation
         )
 
         return custom_response
-        
 
-    @action(detail=False, methods=['POST'], url_path='payu-sucess',
-            url_name='payu-sucess', permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="payu-sucess",
+        url_name="payu-sucess",
+        permission_classes=[],
+    )
     def subscription_payu_success(self, request):
-        user_sub_logs = {"api_code":"MNDT-CLBAK"} # log
+        user_sub_logs = {"api_code": "MNDT-CLBAK"}  # log
         try:
             post_data = request.data
             subscription_data_json = json.dumps(post_data)
             print(subscription_data_json)
-            user_sub_logs['status_response'] = subscription_data_json # log
+            user_sub_logs["status_response"] = subscription_data_json  # log
 
-            transaction_id = post_data.get('txnid')
-            pg_subid = post_data.get('mihpayid')
-            user_sub_logs['pg_subid'] = pg_subid # log
-            user_sub_logs['tnx_id'] = transaction_id
-            tranx_mode = post_data.get('mode')
-            
-            mnd_status = post_data.get('status')
+            transaction_id = post_data.get("txnid")
+            pg_subid = post_data.get("mihpayid")
+            user_sub_logs["pg_subid"] = pg_subid  # log
+            user_sub_logs["tnx_id"] = transaction_id
+            tranx_mode = post_data.get("mode")
+
+            mnd_status = post_data.get("status")
             # log
             if mnd_status == "success":
-                user_sub_logs['status_code'] = 200
+                user_sub_logs["status_code"] = 200
             else:
-                user_sub_logs['status_code'] = 400
-                
-            net_amount_debit = int(post_data.get('net_amount_debit'))
-            if tranx_mode=="CC":
+                user_sub_logs["status_code"] = 400
+
+            net_amount_debit = int(post_data.get("net_amount_debit"))
+            if tranx_mode == "CC":
                 # credit card
                 pass
 
             timezone = pytz.timezone(settings.TIME_ZONE)
             current_date = datetime.now(timezone)
-            
-            user_sub_obj = UserSubscription.objects.filter(mandate_tnx_id=transaction_id).first()
+
+            user_sub_obj = UserSubscription.objects.filter(
+                mandate_tnx_id=transaction_id
+            ).first()
             if user_sub_obj:
                 # for logs
                 user_id = user_sub_obj.user.id
                 user_subid = user_sub_obj.id
-                user_sub_logs['user_id'] = user_id
-                user_sub_logs['user_sub_id'] = user_subid
-                
+                user_sub_logs["user_id"] = user_id
+                user_sub_logs["user_sub_id"] = user_subid
+
                 user_sub_obj.last_paid_date = current_date
                 subscription_type = user_sub_obj.idb_sub.subscription_type
                 if subscription_type == "Monthly":
                     sub_next_payment_date = current_date + relativedelta(months=1)
                     user_sub_obj.next_payment_date = sub_next_payment_date
-                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
+                    user_sub_obj.next_notify_date = (
+                        sub_next_payment_date - relativedelta(days=3)
+                    )
                 elif subscription_type == "Yearly":
                     sub_next_payment_date = current_date + relativedelta(years=1)
                     # user_sub_obj.next_payment_date = current_date + sub_next_payment_date
                     user_sub_obj.next_payment_date = sub_next_payment_date
-                    user_sub_obj.next_notify_date = sub_next_payment_date - relativedelta(days=3)
-                
+                    user_sub_obj.next_notify_date = (
+                        sub_next_payment_date - relativedelta(days=3)
+                    )
+
                 user_sub_obj.pg_subid = pg_subid
                 user_sub_obj.transaction_amount = net_amount_debit
-                if mnd_status == 'success':
+                if mnd_status == "success":
                     user_sub_obj.paid = True
                     user_sub_obj.active = True
                     user_sub_obj.mandate_status = "initiated"
@@ -1896,149 +2191,186 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
                     # Send Pro Member Welcome SMS notification
                     pro_member_send_sms_task.apply_async(
                         kwargs={
-                            'notification_type': 'PRO_MEMBER_WELCOME',
-                            'params': {
-                                'user_id': user_sub_obj.user.id,
-                                'membership_type': user_sub_obj.idb_sub.name,
-                                'expiry_date': user_sub_obj.sub_end_date.strftime('%d-%m-%Y') if user_sub_obj.sub_end_date else ''
-                            }
+                            "notification_type": "PRO_MEMBER_WELCOME",
+                            "params": {
+                                "user_id": user_sub_obj.user.id,
+                                "membership_type": user_sub_obj.idb_sub.name,
+                                "expiry_date": (
+                                    user_sub_obj.sub_end_date.strftime("%d-%m-%Y")
+                                    if user_sub_obj.sub_end_date
+                                    else ""
+                                ),
+                            },
                         }
                     )
                 user_sub_obj.save()
-                
+
             custom_response = self.get_response(
                 data=subscription_data_json,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="User Subscription Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
             )
         except Exception as e:
-            user_sub_logs['error_message'] = str(e)
+            user_sub_logs["error_message"] = str(e)
             custom_response = self.get_error_response(
-                message=str(e), status="error",
-                errors=[],error_code="CALLBACK_ERRROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="CALLBACK_ERRROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         # create log
-        UserSubscriptionLogs.objects.create(**user_sub_logs)   
+        UserSubscriptionLogs.objects.create(**user_sub_logs)
         return custom_response
 
-    @action(detail=False, methods=['POST'], url_path='payu-payment-response',
-            url_name='payu-payment-response', permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="payu-payment-response",
+        url_name="payu-payment-response",
+        permission_classes=[],
+    )
     def payment_payu_response(self, request):
-        user_sub_logs = {"api_code":"CMN-CALBAK"}
+        user_sub_logs = {"api_code": "CMN-CALBAK"}
 
         try:
             post_data = request.data
             payment_data_json = json.dumps(post_data)
-            
-            transaction_id = post_data.get('txnid')
-            pg_subid = post_data.get('mihpayid')
-            user_sub_logs['pg_subid'] = pg_subid # log
-            user_sub_logs['tnx_id'] = transaction_id
-            user_sub_logs['status_response'] = payment_data_json
 
-            response_status = post_data.get('status')
+            transaction_id = post_data.get("txnid")
+            pg_subid = post_data.get("mihpayid")
+            user_sub_logs["pg_subid"] = pg_subid  # log
+            user_sub_logs["tnx_id"] = transaction_id
+            user_sub_logs["status_response"] = payment_data_json
+
+            response_status = post_data.get("status")
             # log
             if response_status == "success":
-                user_sub_logs['status_code'] = 200
+                user_sub_logs["status_code"] = 200
             else:
-                user_sub_logs['status_code'] = 400
+                user_sub_logs["status_code"] = 400
 
             user_sub_obj = UserSubscription.objects.filter(
-                Q(mandate_tnx_id=transaction_id) | Q(pg_subid=pg_subid)).first()
+                Q(mandate_tnx_id=transaction_id) | Q(pg_subid=pg_subid)
+            ).first()
             print("user sub obj::", user_sub_obj)
             if user_sub_obj:
                 user_id = user_sub_obj.user.id
                 user_subid = user_sub_obj.id
 
-                user_sub_logs['user_id'] = user_id
-                user_sub_logs['user_sub_id'] = user_subid
+                user_sub_logs["user_id"] = user_id
+                user_sub_logs["user_sub_id"] = user_subid
 
             custom_response = self.get_response(
                 data=payment_data_json,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="Payu Subscription Response",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
             )
         except Exception as e:
-            user_sub_logs['error_message'] = str(e)
+            user_sub_logs["error_message"] = str(e)
             custom_response = self.get_error_response(
-                message=str(e), status="error",
-                errors=[],error_code="CALLBACK_ERRROR",
-                status_code=status.HTTP_400_BAD_REQUEST)
-            
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="CALLBACK_ERRROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
         UserSubscriptionLogs.objects.create(**user_sub_logs)
-        
+
         return custom_response
 
-
-    @action(detail=False, methods=['POST'], url_path='submit-auth-init/pe-callbackurl',
-            url_name='submit-auth-init-pe-callbackurl', permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="submit-auth-init/pe-callbackurl",
+        url_name="submit-auth-init-pe-callbackurl",
+        permission_classes=[],
+    )
     def submit_auth_init_pe_callbackurl(self, request):
         user_sub_logs = {}
-        
+
         try:
             self.log_request(request)
-            
-            response = request.data.get('response', None)
+
+            response = request.data.get("response", None)
             if not response:
                 custom_response = self.get_error_response(
-                    message="Error in Response", status="error",
-                    errors=[], error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST)
+                    message="Error in Response",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
                 return custom_response
 
             data = base64.b64decode(response)
-            decoded_data = data.decode('utf-8')
+            decoded_data = data.decode("utf-8")
             json_data = json.loads(decoded_data)
             # add log for response json
-            user_sub_logs['api_code'] = "MNDT-CLBAK"
-            user_sub_logs['status_response'] = json_data if json_data else {}
+            user_sub_logs["api_code"] = "MNDT-CLBAK"
+            user_sub_logs["status_response"] = json_data if json_data else {}
             if json_data:
-                code = json_data.get('code')
-                user_sub_logs['status_code'] = 200 if code == "SUCCESS" else 400
+                code = json_data.get("code")
+                user_sub_logs["status_code"] = 200 if code == "SUCCESS" else 400
 
-                auth_data = json_data.get('data', {})
-                pg_subscription_id = auth_data.get('subscriptionDetails', {}).get("subscriptionId", "")
-                #pg_subscription_id = "OM2504191131437470597164"
-                subscription_state = auth_data.get('subscriptionDetails', {}).get("state", "")
-                
+                auth_data = json_data.get("data", {})
+                pg_subscription_id = auth_data.get("subscriptionDetails", {}).get(
+                    "subscriptionId", ""
+                )
+                # pg_subscription_id = "OM2504191131437470597164"
+                subscription_state = auth_data.get("subscriptionDetails", {}).get(
+                    "state", ""
+                )
+
                 if pg_subscription_id:
                     user_sub_logs["pg_subid"] = pg_subscription_id
-                    user_sub = UserSubscription.objects.filter(pg_subid=pg_subscription_id).first()
+                    user_sub = UserSubscription.objects.filter(
+                        pg_subid=pg_subscription_id
+                    ).first()
                     if user_sub:
-                        user_sub_logs['user_sub_id'] = user_sub.id
-                        user_sub_logs['user_id'] = user_sub.user_id
+                        user_sub_logs["user_sub_id"] = user_sub.id
+                        user_sub_logs["user_id"] = user_sub.user_id
                         sub_workflow = user_sub.sub_workflow
                         subscription_type = user_sub.idb_sub.subscription_type
                         if sub_workflow == "TRANSACTION":
-                            transaction_details = auth_data.get('transactionDetails', {})
-                            transaction_amount = transaction_details.get('amount', 0)
-                            transaction_state = transaction_details.get('state', None)
+                            transaction_details = auth_data.get(
+                                "transactionDetails", {}
+                            )
+                            transaction_amount = transaction_details.get("amount", 0)
+                            transaction_state = transaction_details.get("state", None)
                             current_date = datetime.now()
                             if transaction_state == "COMPLETED":
                                 user_sub.paid = True
                                 user_sub.transaction_amount = transaction_amount
                                 user_sub.last_paid_date = current_date
                                 if subscription_type == "Monthly":
-                                    user_sub.next_payment_date = current_date + relativedelta(months=1)
+                                    user_sub.next_payment_date = (
+                                        current_date + relativedelta(months=1)
+                                    )
                                 elif subscription_type == "Yearly":
-                                    user_sub.next_payment_date = current_date + relativedelta(years=1)
-                                user_sub.next_notify_date = user_sub.next_payment_date - relativedelta(days=1)
+                                    user_sub.next_payment_date = (
+                                        current_date + relativedelta(years=1)
+                                    )
+                                user_sub.next_notify_date = (
+                                    user_sub.next_payment_date - relativedelta(days=1)
+                                )
                                 user_sub.sub_start_date = current_date
                                 # user_sub.sub_end_date = sub_end_date
                             else:
                                 user_sub.paid = False
                                 user_sub.transaction_amount = transaction_amount
-                                
+
                         if subscription_state == "ACTIVE":
                             user_sub.active = True
                         else:
                             user_sub.active = False
                         # save the details
                         user_sub.save()
-            
+
         except Exception as e:
             print(e)
 
@@ -2047,80 +2379,101 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
         custom_response = self.get_response(
             data={},  # Use the data from the default response
-            status='success',
+            status="success",
             message="Mandate response received",
             status_code=status.HTTP_200_OK,
         )
         return custom_response
-    
 
-    @action(detail=False, methods=['POST'], url_path='recur-init/pe-callbackurl',
-            url_name='recur-init-pe-callbackurl', permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="recur-init/pe-callbackurl",
+        url_name="recur-init-pe-callbackurl",
+        permission_classes=[],
+    )
     def recur_init_pe_callbackurl(self, request):
         recur_init_logs = {}
         trans_dict = {}
         try:
             self.log_request(request)
-            
-            response = request.data.get('response', None)
+
+            response = request.data.get("response", None)
             if not response:
                 custom_response = self.get_error_response(
-                    message="Error in Response", status="error",
-                    errors=[], error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST)
+                    message="Error in Response",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
                 return custom_response
 
             data = base64.b64decode(response)
-            decoded_data = data.decode('utf-8')
+            decoded_data = data.decode("utf-8")
             json_data = json.loads(decoded_data)
 
             # log entry
-            recur_init_logs['api_code'] = "RECRINIT-CALBAK"
-            recur_init_logs['status_response'] = json_data if json_data else {}
+            recur_init_logs["api_code"] = "RECRINIT-CALBAK"
+            recur_init_logs["status_response"] = json_data if json_data else {}
 
             if json_data:
-                code = json_data.get('code')
+                code = json_data.get("code")
                 # log entry
-                recur_init_logs['status_code'] = 200 if code == "SUCCESS" else 400
+                recur_init_logs["status_code"] = 200 if code == "SUCCESS" else 400
 
-                recur_data = json_data.get('data', {})
-                transaction_id = recur_data.get('transactionId')
-                notification_state = recur_data.get('notificationDetails', {}).get("state")
-                transaction_amount = recur_data.get('notificationDetails', {}).get("amount")
-                pg_subscription_id = recur_data.get('subscriptionDetails', {}).get("subscriptionId")
+                recur_data = json_data.get("data", {})
+                transaction_id = recur_data.get("transactionId")
+                notification_state = recur_data.get("notificationDetails", {}).get(
+                    "state"
+                )
+                transaction_amount = recur_data.get("notificationDetails", {}).get(
+                    "amount"
+                )
+                pg_subscription_id = recur_data.get("subscriptionDetails", {}).get(
+                    "subscriptionId"
+                )
                 # log entry
-                recur_init_logs['pg_subid'] = pg_subscription_id
+                recur_init_logs["pg_subid"] = pg_subscription_id
 
-                trans_dict['transaction_amount'] = transaction_amount
-                trans_dict['callbak_state'] = notification_state
+                trans_dict["transaction_amount"] = transaction_amount
+                trans_dict["callbak_state"] = notification_state
 
                 if pg_subscription_id:
-                    user_sub = UserSubscription.objects.filter(pg_subid=pg_subscription_id).first()
+                    user_sub = UserSubscription.objects.filter(
+                        pg_subid=pg_subscription_id
+                    ).first()
                     subscription_type = user_sub.idb_sub.subscription_type
                     user_sub.transaction_amount = transaction_amount
                     # log entry
-                    recur_init_logs['user_id'] = user_sub.user.id
-                    recur_init_logs['user_sub_id'] = user_sub.id
+                    recur_init_logs["user_id"] = user_sub.user.id
+                    recur_init_logs["user_sub_id"] = user_sub.id
                     if notification_state == "NOTIFIED":
                         user_sub.paid = True
-                        trans_dict['paid'] = True
+                        trans_dict["paid"] = True
                         current_date = datetime.now()
                         user_sub.last_paid_date = current_date
-                        
+
                         if subscription_type == "Monthly":
-                            user_sub.next_payment_date = current_date + relativedelta(months=1)
+                            user_sub.next_payment_date = current_date + relativedelta(
+                                months=1
+                            )
                         elif subscription_type == "Yearly":
-                            user_sub.next_payment_date = current_date + relativedelta(years=1)    
-                        user_sub.next_notify_date = user_sub.next_payment_date - relativedelta(days=1)
+                            user_sub.next_payment_date = current_date + relativedelta(
+                                years=1
+                            )
+                        user_sub.next_notify_date = (
+                            user_sub.next_payment_date - relativedelta(days=1)
+                        )
                     else:
                         user_sub.paid = False
                         user_sub.active = False
-                        
+
                     user_sub.save()
-                    
-                # update recurring transaction details    
+
+                # update recurring transaction details
                 update_subrecur_transaction(transaction_id, trans_dict)
-                    
+
         except Exception as e:
             print(e)
 
@@ -2128,19 +2481,20 @@ class UserSubscriptionViewset(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
         custom_response = self.get_response(
             data={},  # Use the data from the default response
-            status='success',
+            status="success",
             message="Recur Init Callback Success",
             status_code=status.HTTP_200_OK,
         )
         return custom_response
 
-    
 
 class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = RoomType.objects.all()
     serializer_class = RoomTypeSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2157,7 +2511,6 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="RoomType Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2165,7 +2518,7 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2189,7 +2542,6 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="RoomType Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2197,7 +2549,7 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2215,7 +2567,6 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2223,7 +2574,7 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2241,7 +2592,6 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2249,7 +2599,7 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2259,8 +2609,10 @@ class RoomTypeViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Occupancy.objects.all()
     serializer_class = OccupancySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2277,7 +2629,6 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Occupancy Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2285,7 +2636,7 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2309,7 +2660,6 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Occupancy Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2317,7 +2667,7 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2335,7 +2685,6 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2343,7 +2692,7 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2361,7 +2710,6 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2369,7 +2717,7 @@ class OccupancyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2380,7 +2728,7 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     queryset = Address.objects.all()
     serializer_class = AddressSerializer
     # permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2397,7 +2745,6 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Occupancy Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2405,7 +2752,7 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2429,7 +2776,6 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Occupancy Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2437,7 +2783,7 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2455,7 +2801,6 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2463,7 +2808,7 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2481,7 +2826,6 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2489,7 +2833,7 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2499,8 +2843,10 @@ class AddressViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = AboutUs.objects.all()
     serializer_class = AboutUsSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2517,7 +2863,6 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="AboutUs Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2525,7 +2870,7 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2549,7 +2894,6 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="AboutUs Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2557,7 +2901,7 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2575,7 +2919,6 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2583,7 +2926,7 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2601,7 +2944,6 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2609,7 +2951,7 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2619,8 +2961,10 @@ class AboutUsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = PrivacyPolicy.objects.all()
     serializer_class = PrivacyPolicySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2637,7 +2981,6 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="PrivacyPolicy Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2645,7 +2988,7 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2669,7 +3012,6 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="PrivacyPolicy Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2677,7 +3019,7 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2695,7 +3037,6 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2703,7 +3044,7 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2721,7 +3062,6 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2729,18 +3069,22 @@ class PrivacyPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 
-class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class RefundAndCancellationPolicyViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = RefundAndCancellationPolicy.objects.all()
     serializer_class = RefundAndCancellationPolicySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2757,7 +3101,6 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=response.data,  # Use the data from the default response
                 message="Refund And Cancellation Policy Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2765,7 +3108,7 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2789,7 +3132,6 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=response.data,  # Use the data from the default response
                 message="Refund And Cancellation Policy Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2797,7 +3139,7 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2815,7 +3157,6 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2823,7 +3164,7 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2841,7 +3182,6 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2849,18 +3189,22 @@ class RefundAndCancellationPolicyViewSet(viewsets.ModelViewSet, StandardResponse
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 
-class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class TermsAndConditionsViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = TermsAndConditions.objects.all()
     serializer_class = TermsAndConditionsSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2877,7 +3221,6 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Terms And Conditions Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2885,7 +3228,7 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2909,7 +3252,6 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Terms And Conditions Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -2917,7 +3259,7 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2935,7 +3277,6 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2943,7 +3284,7 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2961,7 +3302,6 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -2969,7 +3309,7 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -2979,8 +3319,10 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
 class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Legality.objects.all()
     serializer_class = LegalitySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -2997,7 +3339,6 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="Legality Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3005,7 +3346,7 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3029,7 +3370,6 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="Legality Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3037,7 +3377,7 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3055,7 +3395,6 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3063,7 +3402,7 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3081,7 +3420,6 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3089,7 +3427,7 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3099,8 +3437,10 @@ class LegalityViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Career.objects.all()
     serializer_class = CareerSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -3117,7 +3457,6 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="Career Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3125,7 +3464,7 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3149,7 +3488,6 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="Career Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3157,7 +3495,7 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3175,7 +3513,6 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3183,7 +3520,7 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3201,7 +3538,6 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3209,7 +3545,7 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3219,8 +3555,10 @@ class CareerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = FAQs.objects.all()
     serializer_class = FAQsSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -3237,7 +3575,6 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="FAQs Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3245,7 +3582,7 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3269,7 +3606,6 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="FAQs Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3277,7 +3613,7 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3295,7 +3631,6 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3303,7 +3638,7 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -3321,7 +3656,6 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3329,18 +3663,19 @@ class FAQsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
 
 class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CountryDetails.objects.all()
     serializer_class = CountryDetailsSerializer
     # permission_classes = [IsAuthenticated]
     permission_classes = []
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -3354,7 +3689,6 @@ class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -3362,15 +3696,18 @@ class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-
-    @action(detail=False, methods=['POST'], url_path='populate-data',
-            url_name='populate-data')
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="populate-data",
+        url_name="populate-data",
+    )
     def populate_data(self, request):
 
         print("inside populate data")
@@ -3379,7 +3716,9 @@ class CountryDetailsViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         COUNTRY_API_KEY = settings.COUNTRY_API_KEY
 
         url = "https://api.data.gov.in/resource/37231365-78ba-44d5-ac22-3deec40b9197?\
-api-key={key}&format=json&limit=800".format(key=COUNTRY_API_KEY)
+api-key={key}&format=json&limit=800".format(
+            key=COUNTRY_API_KEY
+        )
 
         payload = {}
         headers = {}
@@ -3387,58 +3726,63 @@ api-key={key}&format=json&limit=800".format(key=COUNTRY_API_KEY)
         response = requests.request("GET", url, headers=headers, data=payload)
 
         data = response.json()
-        records = data['records']
+        records = data["records"]
         for state in records:
-            state_code = state['state_code']
-            state_name = state['state_name_english']
-            district_name = state['district_name_english']
-##            print(district_name)
-            if state_dict.get(state_name, ''):
-                dict_list = state_dict[state_name].get('district_list', [])
+            state_code = state["state_code"]
+            state_name = state["state_name_english"]
+            district_name = state["district_name_english"]
+            ##            print(district_name)
+            if state_dict.get(state_name, ""):
+                dict_list = state_dict[state_name].get("district_list", [])
                 dict_list.append(district_name)
-                state_dict[state_name]['district_list'] = dict_list
+                state_dict[state_name]["district_list"] = dict_list
             else:
-                state_dict[state_name] = {'state_code':state_code, 'district_list':[district_name]}
-                
-        CountryDetails.objects.filter(country_name="India").update(country_details=state_dict)
-            
+                state_dict[state_name] = {
+                    "state_code": state_code,
+                    "district_list": [district_name],
+                }
+
+        CountryDetails.objects.filter(country_name="India").update(
+            country_details=state_dict
+        )
+
         custom_response = self.get_response(
             data=state_dict,  # Use the data from the default response
             message="Success",
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-            )
+        )
         return custom_response
 
-class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+
+class UserNotificationViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = UserNotification.objects.all()
     serializer_class = UserNotificationSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
     def notification_filter_ops(self):
-        
+
         filter_dict = {}
         user_id = None
-        
-        user_id = self.request.user.id
-        filter_dict['user__id'] = user_id
-        
-        
-        # filter 
-        is_read = self.request.query_params.get('is_read', None)
-        if is_read:
-            filter_dict['is_read'] = is_read
 
-        group_name = self.request.query_params.get('group_name', '')
+        user_id = self.request.user.id
+        filter_dict["user__id"] = user_id
+
+        # filter
+        is_read = self.request.query_params.get("is_read", None)
+        if is_read:
+            filter_dict["is_read"] = is_read
+
+        group_name = self.request.query_params.get("group_name", "")
         if group_name:
-            filter_dict['group_name'] = group_name
+            filter_dict["group_name"] = group_name
 
         self.queryset = self.queryset.filter(**filter_dict)
 
-
-
     def partial_update(self, request, *args, **kwargs):
-        #self.log_request(request)  # Log the incoming request
+        # self.log_request(request)  # Log the incoming request
 
         # Get the object to be updated
         instance = self.get_object()
@@ -3457,7 +3801,6 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 data=response.data,  # Use the data from the default response
                 message="FAQs Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -3465,18 +3808,23 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
-        #self.log_response(custom_response)  # Log the custom response before returning
+        # self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    @action(detail=False, methods=['GET'], url_path='user-based/retrieve',
-            url_name='user-based-retrieve', permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="user-based/retrieve",
+        url_name="user-based-retrieve",
+        permission_classes=[IsAuthenticated],
+    )
     def get_user_based_notification(self, request, *args, **kwargs):
-        #user = request.user
-        #self.queryset = self.queryset.filter(user=user)
-        #count = self.queryset.count()
+        # user = request.user
+        # self.queryset = self.queryset.filter(user=user)
+        # count = self.queryset.count()
 
         # filter
         self.notification_filter_ops()
@@ -3489,7 +3837,7 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
             # If the response status code is OK (200), it's a successful listing
             custom_response = self.get_response(
                 data=response.data,  # Use the data from the default response
-                status='success',
+                status="success",
                 message="List Retrieved",
                 count=count,
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
@@ -3500,12 +3848,11 @@ class UserNotificationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
-        #self.log_response(custom_response)  # Log the custom response before returning
+        # self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
-
 
 
 class GetDistrictStateView(APIView):
@@ -3518,44 +3865,50 @@ class GetDistrictStateView(APIView):
                 return Response({"district": query, "state": data["state"]})
         return Response({"error": f"Query '{query}' not found."}, status=404)
 
-class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+
+class FeatureSubscriptionViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = FeatureSubscription.objects.all()
     serializer_class = FeatureSubscriptionSerializer
-    http_method_names = ['get', 'post', 'patch', 'delete']
+    http_method_names = ["get", "post", "patch", "delete"]
     permission_classes_by_action = {
-        'create': [IsAuthenticated], 
-        'update': [IsAuthenticated],
-        'partial_update': [IsAuthenticated],
-        'list': [AllowAny], 
-        'retrieve': [AllowAny],
-        'destroy': [IsAuthenticated]
+        "create": [IsAuthenticated],
+        "update": [IsAuthenticated],
+        "partial_update": [IsAuthenticated],
+        "list": [AllowAny],
+        "retrieve": [AllowAny],
+        "destroy": [IsAuthenticated],
     }
-    
+
     def get_permissions(self):
-        try: 
-            return [permission() for permission in self.permission_classes_by_action[self.action]]
-        except KeyError: 
+        try:
+            return [
+                permission()
+                for permission in self.permission_classes_by_action[self.action]
+            ]
+        except KeyError:
             return [permission() for permission in self.permission_classes]
-    
+
     def feature_subscription_filter_ops(self):
         filter_dict = {}
         param_dict = self.request.query_params
-        
+
         for key in param_dict:
             param_value = param_dict[key]
-            if key in ('is_active', 'type', 'level', 'subscription'):
-                if key == 'is_active':
-                    if param_value.lower() in ('true', '1', 'yes'):
+            if key in ("is_active", "type", "level", "subscription"):
+                if key == "is_active":
+                    if param_value.lower() in ("true", "1", "yes"):
                         filter_dict[key] = True
-                    elif param_value.lower() in ('false', '0', 'no'):
+                    elif param_value.lower() in ("false", "0", "no"):
                         filter_dict[key] = False
                 else:
                     filter_dict[key] = param_value
-        
+
         if filter_dict:
             filtered_queryset = FeatureSubscription.objects.filter(**filter_dict)
             self.queryset = filtered_queryset
-    
+
     def list(self, request, *args, **kwargs):
         self.log_request(request)
         original_queryset = self.queryset
@@ -3567,7 +3920,7 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
 
         custom_response = self.get_response(
             data=response.data,
-            status='success',
+            status="success",
             message="Feature Subscriptions Retrieved",
             count=count,
             status_code=status.HTTP_200_OK,
@@ -3575,46 +3928,44 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
 
         self.log_response(custom_response)
         return custom_response
-    
+
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)
-        
+
         response = super().retrieve(request, *args, **kwargs)
         custom_response = self.get_response(
             data=response.data,
             count=1,
-            status='success',
+            status="success",
             message="Feature Subscription Retrieved",
             status_code=status.HTTP_200_OK,
         )
-        
+
         self.log_response(custom_response)
         return custom_response
-    
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        title = self.request.data.get('title', '')
-        feature_key = self.request.data.get('feature_key', '')
-        type_val = self.request.data.get('type', '')
-        level = self.request.data.get('level', None)
-        
+        title = self.request.data.get("title", "")
+        feature_key = self.request.data.get("feature_key", "")
+        type_val = self.request.data.get("type", "")
+        level = self.request.data.get("level", None)
+
         # Check if a feature with the same title or key already exists for this level and type
         is_feature_exist = self.queryset.filter(
-            feature_key__iexact=feature_key, 
-            type=type_val,
-            level=level
+            feature_key__iexact=feature_key, type=type_val, level=level
         )
-        
+
         if is_feature_exist:
             custom_response = self.get_error_response(
-                message="Feature already exists", 
+                message="Feature already exists",
                 status="error",
                 errors=[],
                 error_code="DUPLICATE_FEATURE",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-            
+
         # Create an instance of the serializer with the request data
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
@@ -3622,143 +3973,146 @@ class FeatureSubscriptionViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
             # Create a custom response
             custom_response = self.get_response(
                 data=response.data,
-                status='success',
+                status="success",
                 message="Feature Subscription Created",
                 status_code=status.HTTP_201_CREATED,
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", 
+                message="Validation Error",
                 status="error",
                 errors=error_list,
-                error_code="VALIDATION_ERROR", 
-                status_code=status.HTTP_400_BAD_REQUEST
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-            
+
         self.log_response(custom_response)
         return custom_response
-    
+
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)
-        
+
         instance = self.get_object()
-        
+
         # Check if feature_key, type, or level is being updated
-        feature_key = request.data.get('feature_key')
-        type_val = request.data.get('type', instance.type)
-        level = request.data.get('level', instance.level)
-        
+        feature_key = request.data.get("feature_key")
+        type_val = request.data.get("type", instance.type)
+        level = request.data.get("level", instance.level)
+
         # Only validate if feature_key is being changed or type/level are being changed
-        if feature_key or ('type' in request.data) or ('level' in request.data):
+        if feature_key or ("type" in request.data) or ("level" in request.data):
             key_to_check = feature_key if feature_key else instance.feature_key
-            
+
             # Check if a feature with the same key already exists for this level and type (excluding this instance)
             is_feature_exist = FeatureSubscription.objects.filter(
-                feature_key__iexact=key_to_check,
-                type=type_val,
-                level=level
+                feature_key__iexact=key_to_check, type=type_val, level=level
             ).exclude(id=instance.id)
-            
+
             if is_feature_exist:
                 custom_response = self.get_error_response(
-                    message="Feature already exists", 
+                    message="Feature already exists",
                     status="error",
                     errors=[],
                     error_code="DUPLICATE_FEATURE",
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 return custom_response
-        
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
-        
+
         if serializer.is_valid():
-            if 'type' in request.data or 'level' in request.data:
+            if "type" in request.data or "level" in request.data:
                 try:
                     matching_subscription = Subscription.objects.get(
-                        level=level,
-                        subscription_type=type_val
+                        level=level, subscription_type=type_val
                     )
-                    serializer.validated_data['subscription'] = matching_subscription
+                    serializer.validated_data["subscription"] = matching_subscription
                 except Subscription.DoesNotExist:
-                    serializer.validated_data['subscription'] = None
-            
+                    serializer.validated_data["subscription"] = None
+
             updated_instance = serializer.save()
-            
+
             custom_response = self.get_response(
                 data=serializer.data,
-                status='success',
+                status="success",
                 message="Feature Subscription Updated",
                 status_code=status.HTTP_200_OK,
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", 
+                message="Validation Error",
                 status="error",
-                errors=error_list, 
+                errors=error_list,
                 error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
-            
-        self.log_response(custom_response)
-        return custom_response
-    
-    def destroy(self, request, *args, **kwargs):
-        self.log_request(request)
-        
-        instance = self.get_object()
-        instance.delete()
-        
-        custom_response = self.get_response(
-            data={},
-            status='success',
-            message="Feature Subscription Deleted",
-            status_code=status.HTTP_200_OK,
-        )
-        
+
         self.log_response(custom_response)
         return custom_response
 
-class BasicRulesConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+
+        instance = self.get_object()
+        instance.delete()
+
+        custom_response = self.get_response(
+            data={},
+            status="success",
+            message="Feature Subscription Deleted",
+            status_code=status.HTTP_200_OK,
+        )
+
+        self.log_response(custom_response)
+        return custom_response
+
+
+class BasicRulesConfigViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = BasicRulesConfig.objects.all()
     serializer_class = BasicRulesConfigSerializer
-    http_method_names = ['get', 'post', 'patch', 'delete']
+    http_method_names = ["get", "post", "patch", "delete"]
     permission_classes_by_action = {
-        'create': [IsAuthenticated], 
-        'update': [IsAuthenticated],
-        'partial_update': [IsAuthenticated],
-        'list': [IsAuthenticated], 
-        'retrieve': [IsAuthenticated],
-        'destroy': [IsAuthenticated]
+        "create": [IsAuthenticated],
+        "update": [IsAuthenticated],
+        "partial_update": [IsAuthenticated],
+        "list": [IsAuthenticated],
+        "retrieve": [IsAuthenticated],
+        "destroy": [IsAuthenticated],
     }
-    
+
     def get_permissions(self):
-        try: 
-            return [permission() for permission in self.permission_classes_by_action[self.action]]
-        except KeyError: 
+        try:
+            return [
+                permission()
+                for permission in self.permission_classes_by_action[self.action]
+            ]
+        except KeyError:
             return [permission() for permission in self.permission_classes]
-    
+
     def basic_rules_filter_ops(self):
         filter_dict = {}
         param_dict = self.request.query_params
-        
+
         for key in param_dict:
             param_value = param_dict[key]
-            if key in ('start_limit', 'end_limit', 'value', 'rules_for'):
-                if key in ('start_limit', 'end_limit', 'value'):
+            if key in ("start_limit", "end_limit", "value", "rules_for"):
+                if key in ("start_limit", "end_limit", "value"):
                     try:
                         filter_dict[key] = int(param_value)
                     except ValueError:
                         continue  # Skip invalid integer values
                 else:
                     filter_dict[key] = param_value
-        
+
         if filter_dict:
             filtered_queryset = BasicRulesConfig.objects.filter(**filter_dict)
             self.queryset = filtered_queryset
-    
+
     def list(self, request, *args, **kwargs):
         self.log_request(request)
         original_queryset = self.queryset
@@ -3770,7 +4124,7 @@ class BasicRulesConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
         custom_response = self.get_response(
             data=response.data,
-            status='success',
+            status="success",
             message="Basic Rules Config Retrieved",
             count=count,
             status_code=status.HTTP_200_OK,
@@ -3778,61 +4132,59 @@ class BasicRulesConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
 
         self.log_response(custom_response)
         return custom_response
-    
+
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)
-        
+
         response = super().retrieve(request, *args, **kwargs)
         custom_response = self.get_response(
             data=response.data,
             count=1,
-            status='success',
+            status="success",
             message="Basic Rules Config Retrieved",
             status_code=status.HTTP_200_OK,
         )
-        
+
         self.log_response(custom_response)
         return custom_response
-    
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)
-        
-        start_limit = self.request.data.get('start_limit')
-        end_limit = self.request.data.get('end_limit')
-        value = self.request.data.get('value')
-        rules_for = self.request.data.get('rules_for')
-        
+
+        start_limit = self.request.data.get("start_limit")
+        end_limit = self.request.data.get("end_limit")
+        value = self.request.data.get("value")
+        rules_for = self.request.data.get("rules_for")
+
         # Validate mandatory fields
         if start_limit is None or end_limit is None or value is None or not rules_for:
             custom_response = self.get_error_response(
-                message="start_limit, end_limit, value, and rules_for are mandatory fields", 
+                message="start_limit, end_limit, value, and rules_for are mandatory fields",
                 status="error",
                 errors=[],
                 error_code="MISSING_REQUIRED_FIELDS",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-        
+
         # Check if a rule with overlapping range already exists for this rules_for
-        overlapping_rules = BasicRulesConfig.objects.filter(
-            rules_for=rules_for
-        ).filter(
+        overlapping_rules = BasicRulesConfig.objects.filter(rules_for=rules_for).filter(
             # Check for range overlap: new range overlaps if:
             # new_start <= existing_end AND new_end >= existing_start
             start_limit__lte=end_limit,
-            end_limit__gte=start_limit
+            end_limit__gte=start_limit,
         )
-        
+
         if overlapping_rules.exists():
             custom_response = self.get_error_response(
-                message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}", 
+                message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}",
                 status="error",
                 errors=[],
                 error_code="OVERLAPPING_RANGE",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-            
+
         # Create an instance of the serializer with the request data
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
@@ -3841,91 +4193,97 @@ class BasicRulesConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
             custom_response = self.get_response(
                 data=response.data,
                 count=1,
-                status='success',
+                status="success",
                 message="Basic Rules Config Created",
                 status_code=status.HTTP_201_CREATED,
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", 
+                message="Validation Error",
                 status="error",
                 errors=error_list,
-                error_code="VALIDATION_ERROR", 
-                status_code=status.HTTP_400_BAD_REQUEST
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return custom_response
-            
+
         self.log_response(custom_response)
         return custom_response
-    
+
     def partial_update(self, request, *args, **kwargs):
         self.log_request(request)
-        
+
         instance = self.get_object()
-        
+
         # Get values from request or use existing instance values
-        start_limit = request.data.get('start_limit', instance.start_limit)
-        end_limit = request.data.get('end_limit', instance.end_limit)
-        rules_for = request.data.get('rules_for', instance.rules_for)
-        
+        start_limit = request.data.get("start_limit", instance.start_limit)
+        end_limit = request.data.get("end_limit", instance.end_limit)
+        rules_for = request.data.get("rules_for", instance.rules_for)
+
         # Only validate range overlap if start_limit, end_limit, or rules_for is being updated
-        if ('start_limit' in request.data) or ('end_limit' in request.data) or ('rules_for' in request.data):
+        if (
+            ("start_limit" in request.data)
+            or ("end_limit" in request.data)
+            or ("rules_for" in request.data)
+        ):
             # Check if a rule with overlapping range already exists for this rules_for (excluding this instance)
-            overlapping_rules = BasicRulesConfig.objects.filter(
-                rules_for=rules_for
-            ).filter(
-                # Check for range overlap
-                start_limit__lte=end_limit,
-                end_limit__gte=start_limit
-            ).exclude(id=instance.id)
-            
+            overlapping_rules = (
+                BasicRulesConfig.objects.filter(rules_for=rules_for)
+                .filter(
+                    # Check for range overlap
+                    start_limit__lte=end_limit,
+                    end_limit__gte=start_limit,
+                )
+                .exclude(id=instance.id)
+            )
+
             if overlapping_rules.exists():
                 custom_response = self.get_error_response(
-                    message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}", 
+                    message=f"Range {start_limit}-{end_limit} overlaps with existing range for {rules_for}",
                     status="error",
                     errors=[],
                     error_code="OVERLAPPING_RANGE",
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 return custom_response
-        
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
-        
+
         if serializer.is_valid():
             updated_instance = serializer.save()
-            
+
             custom_response = self.get_response(
                 data=serializer.data,
-                status='success',
+                status="success",
                 message="Basic Rules Config Updated",
                 status_code=status.HTTP_200_OK,
             )
         else:
             error_list = self.custom_serializer_error(serializer.errors)
             custom_response = self.get_error_response(
-                message="Validation Error", 
+                message="Validation Error",
                 status="error",
-                errors=error_list, 
+                errors=error_list,
                 error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
-            
+
         self.log_response(custom_response)
         return custom_response
-    
+
     def destroy(self, request, *args, **kwargs):
         self.log_request(request)
-        
+
         instance = self.get_object()
         instance.delete()
-        
+
         custom_response = self.get_response(
             data={},
-            status='success',
+            status="success",
             message="Basic Rules Config Deleted",
             status_code=status.HTTP_200_OK,
         )
-        
+
         self.log_response(custom_response)
         return custom_response

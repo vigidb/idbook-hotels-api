@@ -8,7 +8,9 @@ import requests
 from apps.flights.models import Airline
 
 
-OPENFLIGHTS_AIRLINES_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
+OPENFLIGHTS_AIRLINES_URL = (
+    "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
+)
 
 
 class Command(BaseCommand):
@@ -43,7 +45,9 @@ class Command(BaseCommand):
                 with open(source, "r", encoding="utf-8") as f:
                     self._import_file(f)
             else:
-                self.stdout.write(f"Downloading airlines.dat from {OPENFLIGHTS_AIRLINES_URL}...")
+                self.stdout.write(
+                    f"Downloading airlines.dat from {OPENFLIGHTS_AIRLINES_URL}..."
+                )
                 resp = requests.get(OPENFLIGHTS_AIRLINES_URL, timeout=60)
                 resp.raise_for_status()
                 content = resp.content.decode("utf-8", errors="replace")

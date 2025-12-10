@@ -6,18 +6,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('booking', '0002_add_guest_access_token'),
+        ("booking", "0002_add_guest_access_token"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='booking',
-            name='child_age_list',
+            model_name="booking",
+            name="child_age_list",
             field=models.JSONField(blank=True, default=list, null=True),
         ),
         migrations.AlterField(
-            model_name='booking',
-            name='on_hold_end_time',
-            field=models.DateTimeField(blank=True, help_text='Booking hold end time', null=True),
+            model_name="booking",
+            name="on_hold_end_time",
+            field=models.DateTimeField(
+                blank=True, help_text="Booking hold end time", null=True
+            ),
         ),
     ]

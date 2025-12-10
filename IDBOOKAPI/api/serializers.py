@@ -1,11 +1,36 @@
 from rest_framework import serializers
 from rest_framework import exceptions
 from django.contrib.auth import authenticate
-from api.models import (User, KYCDocument, BankDetail, PayoutCalculation, Banners, Deposit,
-                            Withdrawal, Transaction, Notification, Enquiry, Wallet, ShopDetail,
-                            Gallery, Stylist, Service, Appointment, Review, WorkingDay,
-                            AdminWallet, AboutUs, PrivacyPolicy, RefundAndCancellationPolicy,
-                            TermsAndConditions, Legality, Career, FAQs, PaymentGateway, FCMToken)
+from api.models import (
+    User,
+    KYCDocument,
+    BankDetail,
+    PayoutCalculation,
+    Banners,
+    Deposit,
+    Withdrawal,
+    Transaction,
+    Notification,
+    Enquiry,
+    Wallet,
+    ShopDetail,
+    Gallery,
+    Stylist,
+    Service,
+    Appointment,
+    Review,
+    WorkingDay,
+    AdminWallet,
+    AboutUs,
+    PrivacyPolicy,
+    RefundAndCancellationPolicy,
+    TermsAndConditions,
+    Legality,
+    Career,
+    FAQs,
+    PaymentGateway,
+    FCMToken,
+)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -13,14 +38,14 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField()
 
     def validate(self, data):
-        email = data.get('email', '')
-        password = data.get('password', '')
+        email = data.get("email", "")
+        password = data.get("password", "")
 
         if email and password:
             user = authenticate(username=email, password=password)
             if user:
                 if user.mobile_verified:
-                    data['user'] = user
+                    data["user"] = user
                 else:
                     msg = "User is not active"
                     raise exceptions.ValidationError(msg)
@@ -37,34 +62,36 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id",
-        "password",
-        "email",
-        "mobile",
-        "first_name",
-        "last_name",
-        "gender",
-        "profile_picture",
-        # "razorpay_customer_id",
-        # "razorpay_contact_id",
-        # "razorpay_order_id",
-        # "razorpay_payment_id",
-        # "referral",
-        # "level",
-        # "joining",
-        # "no_of_referral",
-        # "total_earning",
-        # "total_withdrawn",
-        # "daily_earning",
-        # "fcm_token",
-        "email_verified",
-        "mobile_verified",
-        "customer",
-        "shop_owner",
-        # "payment_received",
-        # "eligible",
-        "blocked",
-        "is_active",]
+        fields = [
+            "id",
+            "password",
+            "email",
+            "mobile",
+            "first_name",
+            "last_name",
+            "gender",
+            "profile_picture",
+            # "razorpay_customer_id",
+            # "razorpay_contact_id",
+            # "razorpay_order_id",
+            # "razorpay_payment_id",
+            # "referral",
+            # "level",
+            # "joining",
+            # "no_of_referral",
+            # "total_earning",
+            # "total_withdrawn",
+            # "daily_earning",
+            # "fcm_token",
+            "email_verified",
+            "mobile_verified",
+            "customer",
+            "shop_owner",
+            # "payment_received",
+            # "eligible",
+            "blocked",
+            "is_active",
+        ]
         # "reference"]
         # fields = '__all__'
 
@@ -73,7 +100,7 @@ class FCMTokenSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FCMToken
-        fields = '__all__'
+        fields = "__all__"
 
 
 class ReferenceSerializer(serializers.ModelSerializer):
@@ -89,7 +116,14 @@ class ReferredListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "profile_picture", "paid", "referral"]
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "profile_picture",
+            "paid",
+            "referral",
+        ]
 
 
 # class ProfileDetailSerializer(serializers.ModelSerializer):
@@ -107,31 +141,31 @@ class ReferredListSerializer(serializers.ModelSerializer):
 class WorkingDaySerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkingDay
-        fields = '__all__'
+        fields = "__all__"
 
 
 class ShopDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShopDetail
-        fields = '__all__'
+        fields = "__all__"
 
 
 class GallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = Gallery
-        fields = '__all__'
+        fields = "__all__"
 
 
 class StylistSerializer(serializers.ModelSerializer):
     class Meta:
         model = Stylist
-        fields = '__all__'
+        fields = "__all__"
 
 
 class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
-        fields = '__all__'
+        fields = "__all__"
 
 
 class AppointmentSerializer(serializers.ModelSerializer):
@@ -146,7 +180,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Appointment
-        fields = '__all__'
+        fields = "__all__"
 
     # def get_service_charge(self, obj):
     #     return 0
@@ -193,19 +227,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
-        fields = '__all__'
+        fields = "__all__"
 
 
 class KYCDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = KYCDocument
-        fields = '__all__'
+        fields = "__all__"
 
 
 class BankDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = BankDetail
-        fields = '__all__'
+        fields = "__all__"
         # fields = ['id', 'bank_name', 'account_holder_name', 'account_number', 'ifsc', 'upi',
         #           'razorpay_vpa_fund_account_id', 'razorpay_bank_fund_account_id', 'active', 'created', 'updated',
         #           'user']
@@ -214,19 +248,20 @@ class BankDetailSerializer(serializers.ModelSerializer):
 class PayoutCalculationSerializer(serializers.ModelSerializer):
     class Meta:
         model = PayoutCalculation
-        fields = '__all__'
+        fields = "__all__"
 
 
 class BannersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Banners
-        fields = '__all__'
+        fields = "__all__"
 
 
 class DepositSerializer(serializers.ModelSerializer):
     class Meta:
         model = Deposit
-        fields = '__all__'
+        fields = "__all__"
+
 
 #
 # class ActiveSerializer(serializers.ModelSerializer):
@@ -238,13 +273,13 @@ class DepositSerializer(serializers.ModelSerializer):
 class WithdrawalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Withdrawal
-        fields = '__all__'
+        fields = "__all__"
 
 
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
-        fields = '__all__'
+        fields = "__all__"
 
 
 class AdminWalletSerializer(serializers.ModelSerializer):
@@ -256,65 +291,65 @@ class AdminWalletSerializer(serializers.ModelSerializer):
 class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
-        fields = '__all__'
+        fields = "__all__"
 
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = '__all__'
+        fields = "__all__"
 
 
 class EnquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = Enquiry
-        fields = '__all__'
+        fields = "__all__"
 
 
 class AboutUsSerializer(serializers.ModelSerializer):
     class Meta:
         model = AboutUs
-        fields = '__all__'
+        fields = "__all__"
 
 
 class PrivacyPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = PrivacyPolicy
-        fields = '__all__'
+        fields = "__all__"
 
 
 class RefundAndCancellationPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = RefundAndCancellationPolicy
-        fields = '__all__'
+        fields = "__all__"
 
 
 class TermsAndConditionsSerializer(serializers.ModelSerializer):
     class Meta:
         model = TermsAndConditions
-        fields = '__all__'
+        fields = "__all__"
 
 
 class LegalitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Legality
-        fields = '__all__'
+        fields = "__all__"
 
 
 class CareerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Career
-        fields = '__all__'
+        fields = "__all__"
 
 
 class FAQsSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQs
-        fields = '__all__'
+        fields = "__all__"
 
 
 class PaymentGatewaySerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentGateway
-        fields = ('provider', 'enabled')
+        fields = ("provider", "enabled")
         # extra_kwargs = {'password': {'read_only': True}}

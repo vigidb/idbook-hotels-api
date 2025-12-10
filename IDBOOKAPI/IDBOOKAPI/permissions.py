@@ -33,16 +33,24 @@ class HasRoleModelPermission(BasePermission):
 
         codenames = get_related_model_codenames(view.queryset)
         if request.method == "GET":
-            filtered_codenames = {action for action in codenames if action.startswith('view_')}
-        elif request.method == 'POST':
-            filtered_codenames = {action for action in codenames if action.startswith('add_')}
-        elif request.method == 'PUT' or request.method == 'PATCH':
-            filtered_codenames = {action for action in codenames if action.startswith('change_')}
+            filtered_codenames = {
+                action for action in codenames if action.startswith("view_")
+            }
+        elif request.method == "POST":
+            filtered_codenames = {
+                action for action in codenames if action.startswith("add_")
+            }
+        elif request.method == "PUT" or request.method == "PATCH":
+            filtered_codenames = {
+                action for action in codenames if action.startswith("change_")
+            }
         else:
             filtered_codenames = []
 
         user_roles = user.roles.all()
-        if user_roles and user_roles.filter(permissions__codename__in=filtered_codenames):
+        if user_roles and user_roles.filter(
+            permissions__codename__in=filtered_codenames
+        ):
             return True
 
         return False
@@ -58,16 +66,24 @@ class AnonymousCanViewOnlyPermission(BasePermission):
             codenames = get_related_model_codenames(view.queryset)
 
             if request.method == "GET":
-                filtered_codenames = {action for action in codenames if action.startswith('view_')}
-            elif request.method == 'POST':
-                filtered_codenames = {action for action in codenames if action.startswith('add_')}
-            elif request.method in ('PUT', 'PATCH'):
-                filtered_codenames = {action for action in codenames if action.startswith('change_')}
+                filtered_codenames = {
+                    action for action in codenames if action.startswith("view_")
+                }
+            elif request.method == "POST":
+                filtered_codenames = {
+                    action for action in codenames if action.startswith("add_")
+                }
+            elif request.method in ("PUT", "PATCH"):
+                filtered_codenames = {
+                    action for action in codenames if action.startswith("change_")
+                }
             else:
                 filtered_codenames = []
 
             user_roles = user.roles.all()
-            if user_roles and user_roles.filter(permissions__codename__in=filtered_codenames):
+            if user_roles and user_roles.filter(
+                permissions__codename__in=filtered_codenames
+            ):
                 return True
 
         return False

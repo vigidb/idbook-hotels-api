@@ -5,13 +5,13 @@ from .models import TourPackage, Accommodation, InclusionExclusion, Vehicle, Dai
 class TourPackageForm(forms.ModelForm):
     class Meta:
         model = TourPackage
-        fields = '__all__'
+        fields = "__all__"
 
 
 class AccommodationForm(forms.ModelForm):
     class Meta:
         model = Accommodation
-        exclude = ('tour_package',)
+        exclude = ("tour_package",)
 
 
 AccommodationFormSet = forms.inlineformset_factory(
@@ -22,7 +22,7 @@ AccommodationFormSet = forms.inlineformset_factory(
 class InclusionExclusionForm(forms.ModelForm):
     class Meta:
         model = InclusionExclusion
-        exclude = ('tour_package',)
+        exclude = ("tour_package",)
 
 
 InclusionExclusionFormSet = forms.inlineformset_factory(
@@ -33,7 +33,7 @@ InclusionExclusionFormSet = forms.inlineformset_factory(
 class VehicleForm(forms.ModelForm):
     class Meta:
         model = Vehicle
-        exclude = ('tour_package',)
+        exclude = ("tour_package",)
 
 
 VehicleFormSet = forms.inlineformset_factory(
@@ -44,7 +44,7 @@ VehicleFormSet = forms.inlineformset_factory(
 class DailyPlanForm(forms.ModelForm):
     class Meta:
         model = DailyPlan
-        exclude = ('tour_package',)
+        exclude = ("tour_package",)
 
 
 DailyPlanFormSet = forms.inlineformset_factory(

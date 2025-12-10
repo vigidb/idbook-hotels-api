@@ -4,4 +4,4 @@ from apps.org_managements.viewsets import *
 
 router = routers.DefaultRouter()
 
-router.register(r'business-detail', BusinessDetailViewSet, basename='business_detail')
+router.register(r"business-detail", BusinessDetailViewSet, basename="business_detail")

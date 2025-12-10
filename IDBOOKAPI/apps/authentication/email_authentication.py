@@ -15,4 +15,3 @@ class EmailPasswordAuthBackend(ModelBackend):
                 return user
         except CustomUser.DoesNotExist:
             return None
-

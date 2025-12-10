@@ -6,53 +6,88 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('flights', '0001_initial'),
+        ("flights", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='airline',
-            name='active',
-            field=models.CharField(choices=[('Y', 'Active / recently active'), ('N', 'Defunct')], default='Y', help_text='OpenFlights active flag (Y/N). Not fully reliable.', max_length=1),
+            model_name="airline",
+            name="active",
+            field=models.CharField(
+                choices=[("Y", "Active / recently active"), ("N", "Defunct")],
+                default="Y",
+                help_text="OpenFlights active flag (Y/N). Not fully reliable.",
+                max_length=1,
+            ),
         ),
         migrations.AddField(
-            model_name='airline',
-            name='alias',
-            field=models.CharField(blank=True, help_text='Common alias / marketing name (eg. ANA for All Nippon Airways)', max_length=200),
+            model_name="airline",
+            name="alias",
+            field=models.CharField(
+                blank=True,
+                help_text="Common alias / marketing name (eg. ANA for All Nippon Airways)",
+                max_length=200,
+            ),
         ),
         migrations.AddField(
-            model_name='airline',
-            name='callsign',
-            field=models.CharField(blank=True, help_text='Airline callsign used in ATC communications', max_length=64),
+            model_name="airline",
+            name="callsign",
+            field=models.CharField(
+                blank=True,
+                help_text="Airline callsign used in ATC communications",
+                max_length=64,
+            ),
         ),
         migrations.AddField(
-            model_name='airline',
-            name='country',
-            field=models.CharField(blank=True, help_text='Country or territory where airline is based', max_length=100),
+            model_name="airline",
+            name="country",
+            field=models.CharField(
+                blank=True,
+                help_text="Country or territory where airline is based",
+                max_length=100,
+            ),
         ),
         migrations.AddField(
-            model_name='airline',
-            name='icao_code',
-            field=models.CharField(blank=True, help_text='3-letter ICAO airline code (may be blank)', max_length=4),
+            model_name="airline",
+            name="icao_code",
+            field=models.CharField(
+                blank=True,
+                help_text="3-letter ICAO airline code (may be blank)",
+                max_length=4,
+            ),
         ),
         migrations.AddField(
-            model_name='airline',
-            name='openflights_id',
-            field=models.IntegerField(blank=True, help_text='Unique OpenFlights identifier for this airline', null=True, unique=True),
+            model_name="airline",
+            name="openflights_id",
+            field=models.IntegerField(
+                blank=True,
+                help_text="Unique OpenFlights identifier for this airline",
+                null=True,
+                unique=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='airline',
-            name='code',
-            field=models.CharField(blank=True, help_text='2-letter IATA airline code (may be blank if not assigned)', max_length=3, null=True, unique=True),
+            model_name="airline",
+            name="code",
+            field=models.CharField(
+                blank=True,
+                help_text="2-letter IATA airline code (may be blank if not assigned)",
+                max_length=3,
+                null=True,
+                unique=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='airline',
-            name='is_active',
-            field=models.BooleanField(default=True, help_text='Internal flag to soft-disable airlines in our APIs'),
+            model_name="airline",
+            name="is_active",
+            field=models.BooleanField(
+                default=True,
+                help_text="Internal flag to soft-disable airlines in our APIs",
+            ),
         ),
         migrations.AlterField(
-            model_name='airline',
-            name='name',
+            model_name="airline",
+            name="name",
             field=models.CharField(max_length=200),
         ),
     ]

@@ -10,216 +10,524 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('booking', '0001_initial'),
+        ("booking", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='AirIQTokenCache',
+            name="AirIQTokenCache",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('token', models.TextField(help_text='Cached authentication token')),
-                ('expires_at', models.DateTimeField(help_text='Token expiration datetime')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('is_active', models.BooleanField(default=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("token", models.TextField(help_text="Cached authentication token")),
+                (
+                    "expires_at",
+                    models.DateTimeField(help_text="Token expiration datetime"),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("is_active", models.BooleanField(default=True)),
             ],
             options={
-                'db_table': 'airiq_token_cache',
-                'ordering': ['-created_at'],
+                "db_table": "airiq_token_cache",
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='Airline',
+            name="Airline",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('code', models.CharField(help_text='2-letter IATA airline code', max_length=3, unique=True)),
-                ('name', models.CharField(max_length=100)),
-                ('category', models.CharField(choices=[('LCC', 'Low Cost Carrier'), ('FSC', 'Full Service Carrier')], default='LCC', max_length=3)),
-                ('logo', models.ImageField(blank=True, null=True, upload_to='airlines/logos/')),
-                ('is_active', models.BooleanField(default=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "code",
+                    models.CharField(
+                        help_text="2-letter IATA airline code",
+                        max_length=3,
+                        unique=True,
+                    ),
+                ),
+                ("name", models.CharField(max_length=100)),
+                (
+                    "category",
+                    models.CharField(
+                        choices=[
+                            ("LCC", "Low Cost Carrier"),
+                            ("FSC", "Full Service Carrier"),
+                        ],
+                        default="LCC",
+                        max_length=3,
+                    ),
+                ),
+                (
+                    "logo",
+                    models.ImageField(
+                        blank=True, null=True, upload_to="airlines/logos/"
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'verbose_name': 'Airline',
-                'verbose_name_plural': 'Airlines',
-                'db_table': 'flights_airline',
+                "verbose_name": "Airline",
+                "verbose_name_plural": "Airlines",
+                "db_table": "flights_airline",
             },
         ),
         migrations.CreateModel(
-            name='Airport',
+            name="Airport",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('iata_code', models.CharField(help_text='3-letter IATA airport code', max_length=3, unique=True)),
-                ('icao_code', models.CharField(blank=True, help_text='4-letter ICAO airport code', max_length=4)),
-                ('name', models.CharField(max_length=200)),
-                ('city', models.CharField(max_length=100)),
-                ('country', models.CharField(max_length=100)),
-                ('timezone', models.CharField(blank=True, max_length=50)),
-                ('latitude', models.DecimalField(blank=True, decimal_places=6, max_digits=10, null=True)),
-                ('longitude', models.DecimalField(blank=True, decimal_places=6, max_digits=10, null=True)),
-                ('is_active', models.BooleanField(default=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "iata_code",
+                    models.CharField(
+                        help_text="3-letter IATA airport code",
+                        max_length=3,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "icao_code",
+                    models.CharField(
+                        blank=True, help_text="4-letter ICAO airport code", max_length=4
+                    ),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("city", models.CharField(max_length=100)),
+                ("country", models.CharField(max_length=100)),
+                ("timezone", models.CharField(blank=True, max_length=50)),
+                (
+                    "latitude",
+                    models.DecimalField(
+                        blank=True, decimal_places=6, max_digits=10, null=True
+                    ),
+                ),
+                (
+                    "longitude",
+                    models.DecimalField(
+                        blank=True, decimal_places=6, max_digits=10, null=True
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'verbose_name': 'Airport',
-                'verbose_name_plural': 'Airports',
-                'db_table': 'flights_airport',
+                "verbose_name": "Airport",
+                "verbose_name_plural": "Airports",
+                "db_table": "flights_airport",
             },
         ),
         migrations.CreateModel(
-            name='FlightInventory',
+            name="FlightInventory",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('flight_date', models.DateField(help_text='Specific date for this flight')),
-                ('departure_datetime', models.DateTimeField(help_text='Actual departure date and time')),
-                ('arrival_datetime', models.DateTimeField(help_text='Actual arrival date and time')),
-                ('total_seats', models.PositiveIntegerField(default=180)),
-                ('available_seats', models.PositiveIntegerField(default=180)),
-                ('booked_seats', models.PositiveIntegerField(default=0)),
-                ('economy_total', models.PositiveIntegerField(default=150)),
-                ('economy_available', models.PositiveIntegerField(default=150)),
-                ('business_total', models.PositiveIntegerField(default=20)),
-                ('business_available', models.PositiveIntegerField(default=20)),
-                ('first_total', models.PositiveIntegerField(default=10)),
-                ('first_available', models.PositiveIntegerField(default=10)),
-                ('economy_price', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('business_price', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('first_price', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('status', models.CharField(choices=[('ACTIVE', 'Active'), ('FULL', 'Fully Booked'), ('CANCELLED', 'Cancelled'), ('DELAYED', 'Delayed')], default='ACTIVE', max_length=20)),
-                ('is_active', models.BooleanField(default=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "flight_date",
+                    models.DateField(help_text="Specific date for this flight"),
+                ),
+                (
+                    "departure_datetime",
+                    models.DateTimeField(help_text="Actual departure date and time"),
+                ),
+                (
+                    "arrival_datetime",
+                    models.DateTimeField(help_text="Actual arrival date and time"),
+                ),
+                ("total_seats", models.PositiveIntegerField(default=180)),
+                ("available_seats", models.PositiveIntegerField(default=180)),
+                ("booked_seats", models.PositiveIntegerField(default=0)),
+                ("economy_total", models.PositiveIntegerField(default=150)),
+                ("economy_available", models.PositiveIntegerField(default=150)),
+                ("business_total", models.PositiveIntegerField(default=20)),
+                ("business_available", models.PositiveIntegerField(default=20)),
+                ("first_total", models.PositiveIntegerField(default=10)),
+                ("first_available", models.PositiveIntegerField(default=10)),
+                ("economy_price", models.DecimalField(decimal_places=2, max_digits=10)),
+                (
+                    "business_price",
+                    models.DecimalField(decimal_places=2, max_digits=10),
+                ),
+                ("first_price", models.DecimalField(decimal_places=2, max_digits=10)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("ACTIVE", "Active"),
+                            ("FULL", "Fully Booked"),
+                            ("CANCELLED", "Cancelled"),
+                            ("DELAYED", "Delayed"),
+                        ],
+                        default="ACTIVE",
+                        max_length=20,
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'verbose_name': 'Flight Inventory',
-                'verbose_name_plural': 'Flight Inventories',
-                'db_table': 'flights_inventory',
-                'ordering': ['flight_date', 'departure_datetime'],
+                "verbose_name": "Flight Inventory",
+                "verbose_name_plural": "Flight Inventories",
+                "db_table": "flights_inventory",
+                "ordering": ["flight_date", "departure_datetime"],
             },
         ),
         migrations.CreateModel(
-            name='FlightSearchSession',
+            name="FlightSearchSession",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('session_id', models.CharField(max_length=100, unique=True)),
-                ('origin', models.CharField(help_text='Origin airport IATA code', max_length=3)),
-                ('destination', models.CharField(help_text='Destination airport IATA code', max_length=3)),
-                ('departure_date', models.DateField()),
-                ('return_date', models.DateField(blank=True, null=True)),
-                ('trip_type', models.CharField(choices=[('O', 'One-way'), ('R', 'Round-trip'), ('Y', 'Round-trip Special')], default='O', max_length=1)),
-                ('flight_class', models.CharField(choices=[('E', 'Economy'), ('P', 'Premium Economy'), ('B', 'Business'), ('F', 'First')], default='E', max_length=1)),
-                ('adults', models.PositiveSmallIntegerField(default=1)),
-                ('children', models.PositiveSmallIntegerField(default=0)),
-                ('infants', models.PositiveSmallIntegerField(default=0)),
-                ('results_count', models.PositiveIntegerField(default=0)),
-                ('search_mode', models.CharField(choices=[('REALTIME', 'Real-time Booking'), ('INVENTORY', 'Pre-booked Inventory')], default='REALTIME', max_length=10)),
-                ('airiq_track_id', models.CharField(blank=True, max_length=255)),
-                ('airiq_token', models.TextField(blank=True)),
-                ('expires_at', models.DateTimeField()),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("session_id", models.CharField(max_length=100, unique=True)),
+                (
+                    "origin",
+                    models.CharField(
+                        help_text="Origin airport IATA code", max_length=3
+                    ),
+                ),
+                (
+                    "destination",
+                    models.CharField(
+                        help_text="Destination airport IATA code", max_length=3
+                    ),
+                ),
+                ("departure_date", models.DateField()),
+                ("return_date", models.DateField(blank=True, null=True)),
+                (
+                    "trip_type",
+                    models.CharField(
+                        choices=[
+                            ("O", "One-way"),
+                            ("R", "Round-trip"),
+                            ("Y", "Round-trip Special"),
+                        ],
+                        default="O",
+                        max_length=1,
+                    ),
+                ),
+                (
+                    "flight_class",
+                    models.CharField(
+                        choices=[
+                            ("E", "Economy"),
+                            ("P", "Premium Economy"),
+                            ("B", "Business"),
+                            ("F", "First"),
+                        ],
+                        default="E",
+                        max_length=1,
+                    ),
+                ),
+                ("adults", models.PositiveSmallIntegerField(default=1)),
+                ("children", models.PositiveSmallIntegerField(default=0)),
+                ("infants", models.PositiveSmallIntegerField(default=0)),
+                ("results_count", models.PositiveIntegerField(default=0)),
+                (
+                    "search_mode",
+                    models.CharField(
+                        choices=[
+                            ("REALTIME", "Real-time Booking"),
+                            ("INVENTORY", "Pre-booked Inventory"),
+                        ],
+                        default="REALTIME",
+                        max_length=10,
+                    ),
+                ),
+                ("airiq_track_id", models.CharField(blank=True, max_length=255)),
+                ("airiq_token", models.TextField(blank=True)),
+                ("expires_at", models.DateTimeField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Flight Search Session',
-                'verbose_name_plural': 'Flight Search Sessions',
-                'db_table': 'flights_search_session',
-                'ordering': ['-created_at'],
+                "verbose_name": "Flight Search Session",
+                "verbose_name_plural": "Flight Search Sessions",
+                "db_table": "flights_search_session",
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='FlightRoute',
+            name="FlightRoute",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('flight_number', models.CharField(help_text='Flight number without airline code', max_length=10)),
-                ('duration_minutes', models.PositiveIntegerField(help_text='Flight duration in minutes')),
-                ('distance_km', models.PositiveIntegerField(blank=True, help_text='Distance in kilometers', null=True)),
-                ('aircraft_type', models.CharField(blank=True, max_length=50)),
-                ('departure_time', models.TimeField(help_text='Scheduled departure time')),
-                ('arrival_time', models.TimeField(help_text='Scheduled arrival time')),
-                ('days_of_week', models.JSONField(default=list, help_text='Days of operation [1=Monday, 7=Sunday]')),
-                ('base_price', models.DecimalField(decimal_places=2, help_text='Base price in INR', max_digits=10)),
-                ('available_classes', models.JSONField(default=list, help_text='Available classes with pricing')),
-                ('is_active', models.BooleanField(default=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('airline', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routes', to='flights.airline')),
-                ('destination', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routes_as_destination', to='flights.airport')),
-                ('origin', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routes_as_origin', to='flights.airport')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "flight_number",
+                    models.CharField(
+                        help_text="Flight number without airline code", max_length=10
+                    ),
+                ),
+                (
+                    "duration_minutes",
+                    models.PositiveIntegerField(help_text="Flight duration in minutes"),
+                ),
+                (
+                    "distance_km",
+                    models.PositiveIntegerField(
+                        blank=True, help_text="Distance in kilometers", null=True
+                    ),
+                ),
+                ("aircraft_type", models.CharField(blank=True, max_length=50)),
+                (
+                    "departure_time",
+                    models.TimeField(help_text="Scheduled departure time"),
+                ),
+                ("arrival_time", models.TimeField(help_text="Scheduled arrival time")),
+                (
+                    "days_of_week",
+                    models.JSONField(
+                        default=list, help_text="Days of operation [1=Monday, 7=Sunday]"
+                    ),
+                ),
+                (
+                    "base_price",
+                    models.DecimalField(
+                        decimal_places=2, help_text="Base price in INR", max_digits=10
+                    ),
+                ),
+                (
+                    "available_classes",
+                    models.JSONField(
+                        default=list, help_text="Available classes with pricing"
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "airline",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="routes",
+                        to="flights.airline",
+                    ),
+                ),
+                (
+                    "destination",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="routes_as_destination",
+                        to="flights.airport",
+                    ),
+                ),
+                (
+                    "origin",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="routes_as_origin",
+                        to="flights.airport",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Flight Route',
-                'verbose_name_plural': 'Flight Routes',
-                'db_table': 'flights_route',
-                'unique_together': {('origin', 'destination', 'airline', 'flight_number')},
+                "verbose_name": "Flight Route",
+                "verbose_name_plural": "Flight Routes",
+                "db_table": "flights_route",
+                "unique_together": {
+                    ("origin", "destination", "airline", "flight_number")
+                },
             },
         ),
         migrations.CreateModel(
-            name='FlightOption',
+            name="FlightOption",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('airiq_flight_id', models.CharField(blank=True, help_text='AirIQ Flight ID', max_length=100)),
-                ('airline_code', models.CharField(max_length=3)),
-                ('flight_number', models.CharField(max_length=10)),
-                ('origin', models.CharField(max_length=3)),
-                ('destination', models.CharField(max_length=3)),
-                ('departure_datetime', models.DateTimeField()),
-                ('arrival_datetime', models.DateTimeField()),
-                ('flight_class', models.CharField(choices=[('E', 'Economy'), ('P', 'Premium Economy'), ('B', 'Business'), ('F', 'First')], max_length=1)),
-                ('fare_basis', models.CharField(blank=True, max_length=20)),
-                ('airline_category', models.CharField(choices=[('LCC', 'Low Cost Carrier'), ('FSC', 'Full Service Carrier')], max_length=3)),
-                ('stops', models.PositiveSmallIntegerField(default=0)),
-                ('duration_minutes', models.PositiveIntegerField()),
-                ('aircraft_type', models.CharField(blank=True, max_length=50)),
-                ('base_fare', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('taxes', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('total_fare', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('available_seats', models.PositiveIntegerField()),
-                ('baggage_info', models.JSONField(default=dict)),
-                ('fare_rules', models.JSONField(default=dict)),
-                ('is_refundable', models.BooleanField(default=False)),
-                ('can_hold', models.BooleanField(default=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('inventory_flight', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='flights.flightinventory')),
-                ('search_session', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='flight_options', to='flights.flightsearchsession')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "airiq_flight_id",
+                    models.CharField(
+                        blank=True, help_text="AirIQ Flight ID", max_length=100
+                    ),
+                ),
+                ("airline_code", models.CharField(max_length=3)),
+                ("flight_number", models.CharField(max_length=10)),
+                ("origin", models.CharField(max_length=3)),
+                ("destination", models.CharField(max_length=3)),
+                ("departure_datetime", models.DateTimeField()),
+                ("arrival_datetime", models.DateTimeField()),
+                (
+                    "flight_class",
+                    models.CharField(
+                        choices=[
+                            ("E", "Economy"),
+                            ("P", "Premium Economy"),
+                            ("B", "Business"),
+                            ("F", "First"),
+                        ],
+                        max_length=1,
+                    ),
+                ),
+                ("fare_basis", models.CharField(blank=True, max_length=20)),
+                (
+                    "airline_category",
+                    models.CharField(
+                        choices=[
+                            ("LCC", "Low Cost Carrier"),
+                            ("FSC", "Full Service Carrier"),
+                        ],
+                        max_length=3,
+                    ),
+                ),
+                ("stops", models.PositiveSmallIntegerField(default=0)),
+                ("duration_minutes", models.PositiveIntegerField()),
+                ("aircraft_type", models.CharField(blank=True, max_length=50)),
+                ("base_fare", models.DecimalField(decimal_places=2, max_digits=10)),
+                ("taxes", models.DecimalField(decimal_places=2, max_digits=10)),
+                ("total_fare", models.DecimalField(decimal_places=2, max_digits=10)),
+                ("available_seats", models.PositiveIntegerField()),
+                ("baggage_info", models.JSONField(default=dict)),
+                ("fare_rules", models.JSONField(default=dict)),
+                ("is_refundable", models.BooleanField(default=False)),
+                ("can_hold", models.BooleanField(default=False)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "inventory_flight",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="flights.flightinventory",
+                    ),
+                ),
+                (
+                    "search_session",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="flight_options",
+                        to="flights.flightsearchsession",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Flight Option',
-                'verbose_name_plural': 'Flight Options',
-                'db_table': 'flights_option',
-                'ordering': ['total_fare', 'departure_datetime'],
+                "verbose_name": "Flight Option",
+                "verbose_name_plural": "Flight Options",
+                "db_table": "flights_option",
+                "ordering": ["total_fare", "departure_datetime"],
             },
         ),
         migrations.AddField(
-            model_name='flightinventory',
-            name='route',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='inventory', to='flights.flightroute'),
+            model_name="flightinventory",
+            name="route",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="inventory",
+                to="flights.flightroute",
+            ),
         ),
         migrations.CreateModel(
-            name='AirIQApiLog',
+            name="AirIQApiLog",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('api_endpoint', models.CharField(max_length=50)),
-                ('http_method', models.CharField(max_length=10)),
-                ('request_data', models.JSONField(default=dict)),
-                ('response_data', models.JSONField(default=dict)),
-                ('result_code', models.CharField(choices=[('1', 'Success'), ('0', 'Failure'), ('-1', 'Exception'), ('2', 'Pending'), ('-2', 'Processing')], max_length=2)),
-                ('error_message', models.TextField(blank=True)),
-                ('response_time_ms', models.PositiveIntegerField(blank=True, null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('booking', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='api_logs', to='booking.flightbooking')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("api_endpoint", models.CharField(max_length=50)),
+                ("http_method", models.CharField(max_length=10)),
+                ("request_data", models.JSONField(default=dict)),
+                ("response_data", models.JSONField(default=dict)),
+                (
+                    "result_code",
+                    models.CharField(
+                        choices=[
+                            ("1", "Success"),
+                            ("0", "Failure"),
+                            ("-1", "Exception"),
+                            ("2", "Pending"),
+                            ("-2", "Processing"),
+                        ],
+                        max_length=2,
+                    ),
+                ),
+                ("error_message", models.TextField(blank=True)),
+                (
+                    "response_time_ms",
+                    models.PositiveIntegerField(blank=True, null=True),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "booking",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="api_logs",
+                        to="booking.flightbooking",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'AirIQ API Log',
-                'verbose_name_plural': 'AirIQ API Logs',
-                'db_table': 'flights_airiq_log',
-                'ordering': ['-created_at'],
+                "verbose_name": "AirIQ API Log",
+                "verbose_name_plural": "AirIQ API Logs",
+                "db_table": "flights_airiq_log",
+                "ordering": ["-created_at"],
             },
         ),
         migrations.AlterUniqueTogether(
-            name='flightinventory',
-            unique_together={('route', 'flight_date')},
+            name="flightinventory",
+            unique_together={("route", "flight_date")},
         ),
     ]

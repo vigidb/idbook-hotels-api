@@ -2,27 +2,50 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets
 from rest_framework import views, status
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+    IsAuthenticatedOrReadOnly,
+)
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import (
-    CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
+    CreateAPIView,
+    ListAPIView,
+    GenericAPIView,
+    RetrieveAPIView,
+    UpdateAPIView,
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.permissions import AnonymousCanViewOnlyPermission
-from .serializers import (TourPackageSerializer, AccommodationSerializer, InclusionExclusionSerializer,
-VehicleSerializer, DailyPlanSerializer, TourBankDetailSerializer, CustomerTourEnquirySerializer
+from .serializers import (
+    TourPackageSerializer,
+    AccommodationSerializer,
+    InclusionExclusionSerializer,
+    VehicleSerializer,
+    DailyPlanSerializer,
+    TourBankDetailSerializer,
+    CustomerTourEnquirySerializer,
 )
 from apps.org_resources.serializers import CompanyDetailSerializer
 from apps.org_resources.models import CompanyDetail
-from .models import (TourPackage, Accommodation, InclusionExclusion, Vehicle, DailyPlan, TourBankDetail,
-                     CustomerTourEnquiry)
+from .models import (
+    TourPackage,
+    Accommodation,
+    InclusionExclusion,
+    Vehicle,
+    DailyPlan,
+    TourBankDetail,
+    CustomerTourEnquiry,
+)
 
 
 class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = TourPackage.objects.all()
     serializer_class = TourPackageSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post", "put", "patch"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -39,7 +62,6 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -47,7 +69,7 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -71,7 +93,6 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -79,7 +100,7 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -97,7 +118,6 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -105,7 +125,7 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -123,7 +143,6 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -131,19 +150,20 @@ class TourPackageViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
-
 
 
 class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Accommodation.objects.all()
     serializer_class = AccommodationSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -160,7 +180,6 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -168,7 +187,7 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -192,7 +211,6 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -200,7 +218,7 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -218,7 +236,6 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -226,7 +243,7 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -244,7 +261,6 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -252,18 +268,22 @@ class AccommodationViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 
-class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class InclusionExclusionViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = InclusionExclusion.objects.all()
     serializer_class = InclusionExclusionSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -280,7 +300,6 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -288,7 +307,7 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -312,7 +331,6 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -320,7 +338,7 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -338,7 +356,6 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -346,7 +363,7 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -364,7 +381,6 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -372,7 +388,7 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -382,8 +398,10 @@ class InclusionExclusionViewSet(viewsets.ModelViewSet, StandardResponseMixin, Lo
 class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -400,7 +418,6 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -408,7 +425,7 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -432,7 +449,6 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -440,7 +456,7 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -458,7 +474,6 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -466,7 +481,7 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -484,7 +499,6 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -492,7 +506,7 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -502,8 +516,10 @@ class VehicleViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = DailyPlan.objects.all()
     serializer_class = DailyPlanSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -520,7 +536,6 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -528,7 +543,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -552,7 +567,6 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -560,7 +574,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -578,7 +592,6 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -586,7 +599,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -604,7 +617,6 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -612,7 +624,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -622,8 +634,12 @@ class DailyPlanViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixi
 class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = TourBankDetail.objects.all()
     serializer_class = TourBankDetailSerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get',]
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = [
+        "get",
+    ]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -640,7 +656,6 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -648,7 +663,7 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -672,7 +687,6 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -680,7 +694,7 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -698,7 +712,6 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -706,7 +719,7 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -724,7 +737,6 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -732,18 +744,22 @@ class TourBankDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 
-class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class CustomerTourEnquiryViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = CustomerTourEnquiry.objects.all()
     serializer_class = CustomerTourEnquirySerializer
-    permission_classes = [AnonymousCanViewOnlyPermission,]
-    http_method_names = ['get', 'post']
+    permission_classes = [
+        AnonymousCanViewOnlyPermission,
+    ]
+    http_method_names = ["get", "post"]
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -760,7 +776,6 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -768,7 +783,7 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -792,7 +807,6 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=response.data,  # Use the data from the default response
                 message="Applied Coupon Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
-
             )
         else:
             # If the serializer is not valid, create a custom response with error details
@@ -800,7 +814,7 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=serializer.errors,  # Use the serializer's error details
                 message="Validation Error",
                 status_code=status.HTTP_400_BAD_REQUEST,  # 400 for validation error
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -818,7 +832,6 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=response.data,  # Use the data from the default response
                 message="List Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful listing
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -826,7 +839,7 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -844,7 +857,6 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=response.data,  # Use the data from the default response
                 message="Item Retrieved",
                 status_code=status.HTTP_200_OK,  # 200 for successful retrieval
-
             )
         else:
             # If the response status code is not OK, it's an error
@@ -852,7 +864,7 @@ class CustomerTourEnquiryViewSet(viewsets.ModelViewSet, StandardResponseMixin, L
                 data=None,
                 message="Error Occurred",
                 status_code=response.status_code,  # Use the status code from the default response
-                is_error=True
+                is_error=True,
             )
 
         self.log_response(custom_response)  # Log the custom response before returning
@@ -880,7 +892,10 @@ class TourPackageDetailView(APIView):
                 daily_plans = DailyPlan.objects.filter(tour_id=id)
                 # tour_bank_details = TourBankDetail.objects.filter(tour_id=id)
             except TourPackage.DoesNotExist:
-                return Response({"error": "TourPackage with the specified id does not exist."}, status=404)
+                return Response(
+                    {"error": "TourPackage with the specified id does not exist."},
+                    status=404,
+                )
 
         # static serializers
         tour_bank_details = TourBankDetail.objects.filter(active=True)
@@ -889,21 +904,27 @@ class TourPackageDetailView(APIView):
         # Serialize the data for each model
         tour_package_serializer = TourPackageSerializer(tour_packages, many=True)
         accommodation_serializer = AccommodationSerializer(accommodations, many=True)
-        inclusion_exclusion_serializer = InclusionExclusionSerializer(inclusions_exclusions, many=True)
+        inclusion_exclusion_serializer = InclusionExclusionSerializer(
+            inclusions_exclusions, many=True
+        )
         vehicle_serializer = VehicleSerializer(vehicles, many=True)
         daily_plan_serializer = DailyPlanSerializer(daily_plans, many=True)
-        tour_bank_detail_serializer = TourBankDetailSerializer(tour_bank_details, many=True, context={'request': request})
-        tour_company_details_serializer = CompanyDetailSerializer(tour_company_details, many=True, context={'request': request})
+        tour_bank_detail_serializer = TourBankDetailSerializer(
+            tour_bank_details, many=True, context={"request": request}
+        )
+        tour_company_details_serializer = CompanyDetailSerializer(
+            tour_company_details, many=True, context={"request": request}
+        )
 
         # Combine the serialized data into a single dictionary
         data = {
-            'tour_packages': tour_package_serializer.data[0],
-            'accommodations': accommodation_serializer.data[0],
-            'inclusions_exclusions': inclusion_exclusion_serializer.data,
-            'vehicles': vehicle_serializer.data[0],
-            'daily_plans': daily_plan_serializer.data,
-            'tour_bank_details': tour_bank_detail_serializer.data[0],
-            'tour_company_details': tour_company_details_serializer.data[0],
+            "tour_packages": tour_package_serializer.data[0],
+            "accommodations": accommodation_serializer.data[0],
+            "inclusions_exclusions": inclusion_exclusion_serializer.data,
+            "vehicles": vehicle_serializer.data[0],
+            "daily_plans": daily_plan_serializer.data,
+            "tour_bank_details": tour_bank_detail_serializer.data[0],
+            "tour_company_details": tour_company_details_serializer.data[0],
         }
 
         return Response(data)

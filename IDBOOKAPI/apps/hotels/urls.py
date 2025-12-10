@@ -7,27 +7,52 @@ from apps.hotels.subviews import payout_viewset
 
 router = routers.DefaultRouter()
 
-router.register(r'properties/policy', related_viewset.PropertyPolicyViewSet, basename='properties-policy')
-router.register(r'properties/top-destination', related_viewset.TopDestinationViewSet, basename='properties-top-destination')
-router.register(r'properties/commission', related_viewset.PropertyCommissionViewSet, basename='properties-commission')
-router.register(r'properties/trending-places', related_viewset.TrendingPlacesViewSet, basename='properties-trending-places')
-router.register(r'landmarks', related_viewset.PropertyLandmarkViewSet, basename='landmarks')
-router.register(r'properties', PropertyViewSet, basename='properties')
-router.register(r'galleries', GalleryViewSet, basename='galleries')
-router.register(r'rooms', RoomViewSet, basename='rooms')
-router.register(r'rules', RuleViewSet, basename='rules')
-router.register(r'inclusions', InclusionViewSet, basename='inclusions')
-router.register(r'financial-details', FinancialDetailViewSet, basename='financial_details')
-#router.register(r'reviews', ReviewViewSet, basename='reviews')
-router.register(r'amenity-category', HotelAmenityCategoryViewSet, basename='amenity-category')
-router.register(r'room-category', RoomAmenityCategoryViewSet, basename='room-category')
-router.register(r'property-bank', PropertyBankDetailViewSet, basename='property-bank')
-router.register(r'block/property', BlockedPropertyViewSet, basename='blocked-property')
-router.register(r'calendar', calendar_viewset.PropertyCalendarViewSet, basename='calendar')
-router.register(r'room/dynamic-pricing', calendar_viewset.RoomPricingCalendarViewset,
-                basename='room-dynamic-pricing')
-router.register(r'payout', payout_viewset.PropertyPayoutViewset,
-                basename='payout')
+router.register(
+    r"properties/policy",
+    related_viewset.PropertyPolicyViewSet,
+    basename="properties-policy",
+)
+router.register(
+    r"properties/top-destination",
+    related_viewset.TopDestinationViewSet,
+    basename="properties-top-destination",
+)
+router.register(
+    r"properties/commission",
+    related_viewset.PropertyCommissionViewSet,
+    basename="properties-commission",
+)
+router.register(
+    r"properties/trending-places",
+    related_viewset.TrendingPlacesViewSet,
+    basename="properties-trending-places",
+)
+router.register(
+    r"landmarks", related_viewset.PropertyLandmarkViewSet, basename="landmarks"
+)
+router.register(r"properties", PropertyViewSet, basename="properties")
+router.register(r"galleries", GalleryViewSet, basename="galleries")
+router.register(r"rooms", RoomViewSet, basename="rooms")
+router.register(r"rules", RuleViewSet, basename="rules")
+router.register(r"inclusions", InclusionViewSet, basename="inclusions")
+router.register(
+    r"financial-details", FinancialDetailViewSet, basename="financial_details"
+)
+# router.register(r'reviews', ReviewViewSet, basename='reviews')
+router.register(
+    r"amenity-category", HotelAmenityCategoryViewSet, basename="amenity-category"
+)
+router.register(r"room-category", RoomAmenityCategoryViewSet, basename="room-category")
+router.register(r"property-bank", PropertyBankDetailViewSet, basename="property-bank")
+router.register(r"block/property", BlockedPropertyViewSet, basename="blocked-property")
+router.register(
+    r"calendar", calendar_viewset.PropertyCalendarViewSet, basename="calendar"
+)
+router.register(
+    r"room/dynamic-pricing",
+    calendar_viewset.RoomPricingCalendarViewset,
+    basename="room-dynamic-pricing",
+)
+router.register(r"payout", payout_viewset.PropertyPayoutViewset, basename="payout")
 
-urlpatterns = [
-]
+urlpatterns = []

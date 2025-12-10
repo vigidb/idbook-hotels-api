@@ -14,471 +14,1543 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('org_resources', '0001_initial'),
+        ("org_resources", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='CalendarRoom',
+            name="CalendarRoom",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('property_id', models.BigIntegerField()),
-                ('room_id', models.BigIntegerField()),
-                ('no_unavailable_rooms', models.PositiveSmallIntegerField(default=0)),
-                ('blocked_booked', models.CharField(max_length=50)),
-                ('start_date', models.DateTimeField()),
-                ('end_date', models.DateTimeField()),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("property_id", models.BigIntegerField()),
+                ("room_id", models.BigIntegerField()),
+                ("no_unavailable_rooms", models.PositiveSmallIntegerField(default=0)),
+                ("blocked_booked", models.CharField(max_length=50)),
+                ("start_date", models.DateTimeField()),
+                ("end_date", models.DateTimeField()),
             ],
             options={
-                'managed': False,
+                "managed": False,
             },
         ),
         migrations.CreateModel(
-            name='HotelAmenityCategory',
+            name="HotelAmenityCategory",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200, unique=True)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=200, unique=True)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'verbose_name_plural': 'HotelAmenity_Categories',
+                "verbose_name_plural": "HotelAmenity_Categories",
             },
         ),
         migrations.CreateModel(
-            name='PolicyDetails',
+            name="PolicyDetails",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('policy_details', models.JSONField(default=apps.hotels.utils.hotel_policies_utils.default_hotel_policy_json, null=True)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "policy_details",
+                    models.JSONField(
+                        default=apps.hotels.utils.hotel_policies_utils.default_hotel_policy_json,
+                        null=True,
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
             ],
         ),
         migrations.CreateModel(
-            name='Property',
+            name="Property",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('amenity_details', models.JSONField(default=dict, null=True)),
-                ('service_category', models.CharField(choices=[('Hotel', 'Hotel'), ('Hotel & Restaurant', 'Hotel & Restaurant'), ('Hotel, Bar & Restaurant', 'Hotel, Bar & Restaurant'), ('Hotel & Bar', 'Hotel & Bar'), ('Hotel, Bar, Spa & Restaurant', 'Hotel, Bar, Spa & Restaurant')], default='', help_text='Select the service category for this property.', max_length=255)),
-                ('custom_id', models.CharField(blank=True, db_index=True, help_text='Custom ID for the property.', max_length=15, null=True)),
-                ('name', models.CharField(db_index=True, help_text='Name of the property.', max_length=70)),
-                ('title', models.CharField(blank=True, default='', help_text='Display name of the property.', max_length=200)),
-                ('slug', models.SlugField(blank=True, help_text='Slug for the property URL.', max_length=200, unique=True)),
-                ('property_type', models.CharField(choices=[('Hotel', 'Hotel'), ('Cottage', 'Cottage'), ('Villa', 'Villa'), ('Cabin', 'Cabin'), ('Farmstay', 'Farmstay'), ('Houseboat', 'Houseboat'), ('Lighthouse', 'Lighthouse')], default='Hotel', max_length=50)),
-                ('rental_form', models.CharField(choices=[('entire place', 'entire place'), ('private room', 'private room'), ('share room', 'share room')], default='Private room', max_length=50)),
-                ('checkin_time', models.TimeField(help_text='Check-in time for the property.', null=True)),
-                ('checkout_time', models.TimeField(help_text='Check-out time for the property.', null=True)),
-                ('address', models.JSONField(default=IDBOOKAPI.utils.default_address_json)),
-                ('area_name', models.CharField(blank=True, default='', help_text='Area name where the property is located.', max_length=60)),
-                ('city_name', models.CharField(blank=True, default='', help_text='City name where the property is located.', max_length=35)),
-                ('state', models.CharField(blank=True, default='', help_text='State where the property is located.', max_length=50)),
-                ('country', models.CharField(blank=True, default='', help_text='Country where the property is located.', max_length=50)),
-                ('email', models.EmailField(blank=True, default='', max_length=254, validators=[django.core.validators.EmailValidator])),
-                ('email_list', models.JSONField(default=dict, help_text='["email 1", "email 2"]', null=True)),
-                ('phone_no', models.CharField(blank=True, default='', max_length=15, validators=[django.core.validators.RegexValidator(message='Enter a valid phone number', regex='^\\+?1?\\d{9,15}$')])),
-                ('phone_no_list', models.JSONField(default=dict, help_text='["phone 1", "phone 2"]', null=True)),
-                ('description', models.TextField(blank=True, default='')),
-                ('website_list', models.JSONField(default=dict, help_text='["website link 1", "website link 2"]', null=True)),
-                ('customer_care_no', models.CharField(blank=True, default='', max_length=15)),
-                ('starting_price', models.DecimalField(decimal_places=4, default=0.0, max_digits=15)),
-                ('starting_price_details', models.JSONField(default=apps.hotels.models.default_starting_price_json, null=True)),
-                ('rating', models.DecimalField(decimal_places=2, default=0.0, help_text='Rating of the property.', max_digits=3)),
-                ('total_rooms', models.PositiveIntegerField(default=1, help_text='Total number of rooms in the property.')),
-                ('chain_name', models.CharField(blank=True, default='', max_length=50)),
-                ('build_year', models.PositiveIntegerField(null=True)),
-                ('no_of_restaurant', models.PositiveIntegerField(default=0)),
-                ('no_of_kitchen', models.PositiveIntegerField(default=0)),
-                ('no_of_banquets', models.PositiveIntegerField(default=0)),
-                ('minimum_no_of_nights', models.PositiveIntegerField(default=0)),
-                ('maximum_no_of_nights', models.PositiveIntegerField(default=0)),
-                ('currency', models.CharField(blank=True, default='', max_length=50)),
-                ('vcc_currency', models.CharField(blank=True, default='', max_length=50)),
-                ('timezone', models.CharField(blank=True, default='', max_length=50)),
-                ('featured', models.BooleanField(default=False, help_text='Whether the property is featured.')),
-                ('franchise', models.BooleanField(default=False)),
-                ('policies', models.JSONField(default=dict, help_text='check default policy data in utils')),
-                ('property_ownership', models.CharField(blank=True, default='', max_length=100)),
-                ('legal_document', models.FileField(null=True, upload_to='hotels/property/legal-document/')),
-                ('current_page', models.PositiveIntegerField(default=0, help_text='Pages completed for property in Front End')),
-                ('review_star', models.DecimalField(decimal_places=2, default=0.0, help_text='Review Rating of the property.', max_digits=3)),
-                ('review_count', models.PositiveIntegerField(default=0, help_text='Total Reviews')),
-                ('additional_fields', models.JSONField(default=apps.hotels.models.default_property_additional_fields_json, help_text='Additional Fields related to the property', null=True)),
-                ('status', models.CharField(choices=[('Active', 'Active'), ('In-Active', 'In-Active'), ('In-Progress', 'In-Progress'), ('Completed', 'Completed')], default='In-Progress', max_length=50)),
-                ('is_slot_price_enabled', models.BooleanField(default=False)),
-                ('property_size', models.PositiveSmallIntegerField(default=0, help_text='Room Size')),
-                ('property_measurement_type', models.CharField(choices=[('square feet', 'square feet'), ('square meter', 'square meter')], default='', max_length=25)),
-                ('pay_at_hotel', models.BooleanField(default=True, help_text='If true, customer can pay at the hotel.')),
-                ('created', models.DateTimeField(auto_now_add=True, help_text='Date and time when the property was created.')),
-                ('updated', models.DateTimeField(auto_now=True, help_text='Date and time when the property was last updated.')),
-                ('service_agreement_pdf', models.FileField(blank=True, null=True, upload_to='hotels/service_agreements/')),
-                ('verify_token', models.CharField(blank=True, default='', max_length=255)),
-                ('is_svc_agreement_verified', models.BooleanField(default=False)),
-                ('verified_at', models.DateTimeField(blank=True, null=True)),
-                ('verified_ip', models.CharField(blank=True, default='', max_length=220)),
-                ('added_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_added_by', to=settings.AUTH_USER_MODEL)),
-                ('managed_by', models.ForeignKey(blank=True, help_text='Select a user as the property manager.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_manager', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("amenity_details", models.JSONField(default=dict, null=True)),
+                (
+                    "service_category",
+                    models.CharField(
+                        choices=[
+                            ("Hotel", "Hotel"),
+                            ("Hotel & Restaurant", "Hotel & Restaurant"),
+                            ("Hotel, Bar & Restaurant", "Hotel, Bar & Restaurant"),
+                            ("Hotel & Bar", "Hotel & Bar"),
+                            (
+                                "Hotel, Bar, Spa & Restaurant",
+                                "Hotel, Bar, Spa & Restaurant",
+                            ),
+                        ],
+                        default="",
+                        help_text="Select the service category for this property.",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "custom_id",
+                    models.CharField(
+                        blank=True,
+                        db_index=True,
+                        help_text="Custom ID for the property.",
+                        max_length=15,
+                        null=True,
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        db_index=True, help_text="Name of the property.", max_length=70
+                    ),
+                ),
+                (
+                    "title",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Display name of the property.",
+                        max_length=200,
+                    ),
+                ),
+                (
+                    "slug",
+                    models.SlugField(
+                        blank=True,
+                        help_text="Slug for the property URL.",
+                        max_length=200,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "property_type",
+                    models.CharField(
+                        choices=[
+                            ("Hotel", "Hotel"),
+                            ("Cottage", "Cottage"),
+                            ("Villa", "Villa"),
+                            ("Cabin", "Cabin"),
+                            ("Farmstay", "Farmstay"),
+                            ("Houseboat", "Houseboat"),
+                            ("Lighthouse", "Lighthouse"),
+                        ],
+                        default="Hotel",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "rental_form",
+                    models.CharField(
+                        choices=[
+                            ("entire place", "entire place"),
+                            ("private room", "private room"),
+                            ("share room", "share room"),
+                        ],
+                        default="Private room",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "checkin_time",
+                    models.TimeField(
+                        help_text="Check-in time for the property.", null=True
+                    ),
+                ),
+                (
+                    "checkout_time",
+                    models.TimeField(
+                        help_text="Check-out time for the property.", null=True
+                    ),
+                ),
+                (
+                    "address",
+                    models.JSONField(default=IDBOOKAPI.utils.default_address_json),
+                ),
+                (
+                    "area_name",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Area name where the property is located.",
+                        max_length=60,
+                    ),
+                ),
+                (
+                    "city_name",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="City name where the property is located.",
+                        max_length=35,
+                    ),
+                ),
+                (
+                    "state",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="State where the property is located.",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "country",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Country where the property is located.",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "email",
+                    models.EmailField(
+                        blank=True,
+                        default="",
+                        max_length=254,
+                        validators=[django.core.validators.EmailValidator],
+                    ),
+                ),
+                (
+                    "email_list",
+                    models.JSONField(
+                        default=dict, help_text='["email 1", "email 2"]', null=True
+                    ),
+                ),
+                (
+                    "phone_no",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        max_length=15,
+                        validators=[
+                            django.core.validators.RegexValidator(
+                                message="Enter a valid phone number",
+                                regex="^\\+?1?\\d{9,15}$",
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    "phone_no_list",
+                    models.JSONField(
+                        default=dict, help_text='["phone 1", "phone 2"]', null=True
+                    ),
+                ),
+                ("description", models.TextField(blank=True, default="")),
+                (
+                    "website_list",
+                    models.JSONField(
+                        default=dict,
+                        help_text='["website link 1", "website link 2"]',
+                        null=True,
+                    ),
+                ),
+                (
+                    "customer_care_no",
+                    models.CharField(blank=True, default="", max_length=15),
+                ),
+                (
+                    "starting_price",
+                    models.DecimalField(decimal_places=4, default=0.0, max_digits=15),
+                ),
+                (
+                    "starting_price_details",
+                    models.JSONField(
+                        default=apps.hotels.models.default_starting_price_json,
+                        null=True,
+                    ),
+                ),
+                (
+                    "rating",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Rating of the property.",
+                        max_digits=3,
+                    ),
+                ),
+                (
+                    "total_rooms",
+                    models.PositiveIntegerField(
+                        default=1, help_text="Total number of rooms in the property."
+                    ),
+                ),
+                ("chain_name", models.CharField(blank=True, default="", max_length=50)),
+                ("build_year", models.PositiveIntegerField(null=True)),
+                ("no_of_restaurant", models.PositiveIntegerField(default=0)),
+                ("no_of_kitchen", models.PositiveIntegerField(default=0)),
+                ("no_of_banquets", models.PositiveIntegerField(default=0)),
+                ("minimum_no_of_nights", models.PositiveIntegerField(default=0)),
+                ("maximum_no_of_nights", models.PositiveIntegerField(default=0)),
+                ("currency", models.CharField(blank=True, default="", max_length=50)),
+                (
+                    "vcc_currency",
+                    models.CharField(blank=True, default="", max_length=50),
+                ),
+                ("timezone", models.CharField(blank=True, default="", max_length=50)),
+                (
+                    "featured",
+                    models.BooleanField(
+                        default=False, help_text="Whether the property is featured."
+                    ),
+                ),
+                ("franchise", models.BooleanField(default=False)),
+                (
+                    "policies",
+                    models.JSONField(
+                        default=dict, help_text="check default policy data in utils"
+                    ),
+                ),
+                (
+                    "property_ownership",
+                    models.CharField(blank=True, default="", max_length=100),
+                ),
+                (
+                    "legal_document",
+                    models.FileField(
+                        null=True, upload_to="hotels/property/legal-document/"
+                    ),
+                ),
+                (
+                    "current_page",
+                    models.PositiveIntegerField(
+                        default=0, help_text="Pages completed for property in Front End"
+                    ),
+                ),
+                (
+                    "review_star",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Review Rating of the property.",
+                        max_digits=3,
+                    ),
+                ),
+                (
+                    "review_count",
+                    models.PositiveIntegerField(default=0, help_text="Total Reviews"),
+                ),
+                (
+                    "additional_fields",
+                    models.JSONField(
+                        default=apps.hotels.models.default_property_additional_fields_json,
+                        help_text="Additional Fields related to the property",
+                        null=True,
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("Active", "Active"),
+                            ("In-Active", "In-Active"),
+                            ("In-Progress", "In-Progress"),
+                            ("Completed", "Completed"),
+                        ],
+                        default="In-Progress",
+                        max_length=50,
+                    ),
+                ),
+                ("is_slot_price_enabled", models.BooleanField(default=False)),
+                (
+                    "property_size",
+                    models.PositiveSmallIntegerField(default=0, help_text="Room Size"),
+                ),
+                (
+                    "property_measurement_type",
+                    models.CharField(
+                        choices=[
+                            ("square feet", "square feet"),
+                            ("square meter", "square meter"),
+                        ],
+                        default="",
+                        max_length=25,
+                    ),
+                ),
+                (
+                    "pay_at_hotel",
+                    models.BooleanField(
+                        default=True,
+                        help_text="If true, customer can pay at the hotel.",
+                    ),
+                ),
+                (
+                    "created",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Date and time when the property was created.",
+                    ),
+                ),
+                (
+                    "updated",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Date and time when the property was last updated.",
+                    ),
+                ),
+                (
+                    "service_agreement_pdf",
+                    models.FileField(
+                        blank=True, null=True, upload_to="hotels/service_agreements/"
+                    ),
+                ),
+                (
+                    "verify_token",
+                    models.CharField(blank=True, default="", max_length=255),
+                ),
+                ("is_svc_agreement_verified", models.BooleanField(default=False)),
+                ("verified_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "verified_ip",
+                    models.CharField(blank=True, default="", max_length=220),
+                ),
+                (
+                    "added_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_added_by",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "managed_by",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Select a user as the property manager.",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_manager",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Property',
-                'verbose_name_plural': 'Properties',
-                'ordering': ('-created',),
-                'index_together': {('id', 'slug')},
+                "verbose_name": "Property",
+                "verbose_name_plural": "Properties",
+                "ordering": ("-created",),
+                "index_together": {("id", "slug")},
             },
         ),
         migrations.CreateModel(
-            name='Room',
+            name="Room",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('amenity_details', models.JSONField(default=dict, null=True)),
-                ('custom_id', models.CharField(blank=True, db_index=True, help_text='Custom ID for the room.', max_length=30, null=True)),
-                ('room_type', models.CharField(blank=True, choices=[('DELUXE', 'DELUXE'), ('CLASSIC', 'CLASSIC'), ('PREMIUM', 'PREMIUM')], default='', max_length=25)),
-                ('room_view', models.CharField(blank=True, choices=[('SEA VIEW', 'SEA VIEW'), ('RIVER VIEW', 'RIVER VIEW'), ('VALLEY VIEW', 'VALLEY VIEW'), ('CITY VIEW', 'CITY VIEW'), ('POOL VIEW', 'POOL VIEW'), ('SWIMMING POOL VIEW', 'SWIMMING POOL VIEW'), ('BEACH VIEW', 'BEACH VIEW'), ('MOUNTAIN VIEW', 'MOUNTAIN VIEW'), ('LAKE VIEW', 'LAKE VIEW'), ('TEMPLE VIEW', 'TEMPLE VIEW'), ('GARDEN VIEW', 'GARDEN VIEW'), ('HILL VIEW', 'HILL VIEW'), ('FOREST VIEW', 'FOREST VIEW'), ('TERRACE VIEW', 'TERRACE VIEW'), ('BALCONY VIEW', 'BALCONY VIEW'), ('JUNGLE VIEW', 'JUNGLE VIEW'), ('COURTYARD VIEW', 'COURTYARD VIEW'), ('PALACE VIEW', 'PALACE VIEW'), ('DESERT VIEW', 'DESERT VIEW'), ('NON VIEW', 'NON VIEW')], default='', max_length=25)),
-                ('bed_type', models.CharField(blank=True, choices=[('KING', 'KING'), ('QUEEN', 'QUEEN'), ('SINGLE', 'SINGLE')], default='', max_length=25)),
-                ('name', models.CharField(blank=True, default='', help_text='Name of the property.', max_length=70)),
-                ('description', models.TextField(blank=True, null=True)),
-                ('room_size', models.PositiveSmallIntegerField(default=0, help_text='Room Size')),
-                ('room_measurement_type', models.CharField(choices=[('square feet', 'square feet'), ('square meter', 'square meter')], default='', max_length=25)),
-                ('no_available_rooms', models.PositiveSmallIntegerField(default=0)),
-                ('meal_options', models.CharField(blank=True, choices=[('Accomodation only', 'Accomodation only'), ('Free Breakfast', 'Free Breakfast'), ('Free Breakfast and Lunch', 'Free Breakfast and Lunch'), ('Free Breakfast and Dinner', 'Free Breakfast and Dinner'), ('Free Breakfast, Lunch and Dinner', 'Free Breakfast, Lunch and Dinner'), ('Free Breakfast, Lunch, Dinner and Custom Inclusions', 'Free Breakfast, Lunch, Dinner and Custom Inclusions')], default='', max_length=100)),
-                ('is_smoking_allowed', models.BooleanField(default=False)),
-                ('extra_bed_type', models.CharField(blank=True, choices=[('Mattress', 'Mattress'), ('Cot', 'Cot'), ('Sofa cum bed', 'Sofa cum bed')], default='', max_length=30)),
-                ('is_extra_bed_available', models.BooleanField(default=False)),
-                ('room_occupancy', models.JSONField(default=apps.hotels.models.default_room_occupancy_json)),
-                ('room_price', models.JSONField(default=apps.hotels.models.default_room_price_json)),
-                ('is_slot_price_enabled', models.BooleanField(default=False)),
-                ('discount', models.PositiveSmallIntegerField(default=0, help_text='Discount percentage for the room (maximum 90%).')),
-                ('discount_type', models.CharField(choices=[('AMOUNT', 'AMOUNT'), ('PERCENT', 'PERCENT')], default='PERCENT', max_length=20)),
-                ('start_availability_date', models.DateField(null=True)),
-                ('end_availability_date', models.DateField(null=True)),
-                ('active', models.BooleanField(default=True, help_text='Whether the room is active.')),
-                ('created', models.DateTimeField(auto_now_add=True, help_text='Date and time when the room was created.')),
-                ('updated', models.DateTimeField(auto_now=True, help_text='Date and time when the room was last updated.')),
-                ('property', models.ForeignKey(help_text='Select the property this room belongs to.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_room', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("amenity_details", models.JSONField(default=dict, null=True)),
+                (
+                    "custom_id",
+                    models.CharField(
+                        blank=True,
+                        db_index=True,
+                        help_text="Custom ID for the room.",
+                        max_length=30,
+                        null=True,
+                    ),
+                ),
+                (
+                    "room_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("DELUXE", "DELUXE"),
+                            ("CLASSIC", "CLASSIC"),
+                            ("PREMIUM", "PREMIUM"),
+                        ],
+                        default="",
+                        max_length=25,
+                    ),
+                ),
+                (
+                    "room_view",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("SEA VIEW", "SEA VIEW"),
+                            ("RIVER VIEW", "RIVER VIEW"),
+                            ("VALLEY VIEW", "VALLEY VIEW"),
+                            ("CITY VIEW", "CITY VIEW"),
+                            ("POOL VIEW", "POOL VIEW"),
+                            ("SWIMMING POOL VIEW", "SWIMMING POOL VIEW"),
+                            ("BEACH VIEW", "BEACH VIEW"),
+                            ("MOUNTAIN VIEW", "MOUNTAIN VIEW"),
+                            ("LAKE VIEW", "LAKE VIEW"),
+                            ("TEMPLE VIEW", "TEMPLE VIEW"),
+                            ("GARDEN VIEW", "GARDEN VIEW"),
+                            ("HILL VIEW", "HILL VIEW"),
+                            ("FOREST VIEW", "FOREST VIEW"),
+                            ("TERRACE VIEW", "TERRACE VIEW"),
+                            ("BALCONY VIEW", "BALCONY VIEW"),
+                            ("JUNGLE VIEW", "JUNGLE VIEW"),
+                            ("COURTYARD VIEW", "COURTYARD VIEW"),
+                            ("PALACE VIEW", "PALACE VIEW"),
+                            ("DESERT VIEW", "DESERT VIEW"),
+                            ("NON VIEW", "NON VIEW"),
+                        ],
+                        default="",
+                        max_length=25,
+                    ),
+                ),
+                (
+                    "bed_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("KING", "KING"),
+                            ("QUEEN", "QUEEN"),
+                            ("SINGLE", "SINGLE"),
+                        ],
+                        default="",
+                        max_length=25,
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Name of the property.",
+                        max_length=70,
+                    ),
+                ),
+                ("description", models.TextField(blank=True, null=True)),
+                (
+                    "room_size",
+                    models.PositiveSmallIntegerField(default=0, help_text="Room Size"),
+                ),
+                (
+                    "room_measurement_type",
+                    models.CharField(
+                        choices=[
+                            ("square feet", "square feet"),
+                            ("square meter", "square meter"),
+                        ],
+                        default="",
+                        max_length=25,
+                    ),
+                ),
+                ("no_available_rooms", models.PositiveSmallIntegerField(default=0)),
+                (
+                    "meal_options",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("Accomodation only", "Accomodation only"),
+                            ("Free Breakfast", "Free Breakfast"),
+                            ("Free Breakfast and Lunch", "Free Breakfast and Lunch"),
+                            ("Free Breakfast and Dinner", "Free Breakfast and Dinner"),
+                            (
+                                "Free Breakfast, Lunch and Dinner",
+                                "Free Breakfast, Lunch and Dinner",
+                            ),
+                            (
+                                "Free Breakfast, Lunch, Dinner and Custom Inclusions",
+                                "Free Breakfast, Lunch, Dinner and Custom Inclusions",
+                            ),
+                        ],
+                        default="",
+                        max_length=100,
+                    ),
+                ),
+                ("is_smoking_allowed", models.BooleanField(default=False)),
+                (
+                    "extra_bed_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("Mattress", "Mattress"),
+                            ("Cot", "Cot"),
+                            ("Sofa cum bed", "Sofa cum bed"),
+                        ],
+                        default="",
+                        max_length=30,
+                    ),
+                ),
+                ("is_extra_bed_available", models.BooleanField(default=False)),
+                (
+                    "room_occupancy",
+                    models.JSONField(
+                        default=apps.hotels.models.default_room_occupancy_json
+                    ),
+                ),
+                (
+                    "room_price",
+                    models.JSONField(
+                        default=apps.hotels.models.default_room_price_json
+                    ),
+                ),
+                ("is_slot_price_enabled", models.BooleanField(default=False)),
+                (
+                    "discount",
+                    models.PositiveSmallIntegerField(
+                        default=0,
+                        help_text="Discount percentage for the room (maximum 90%).",
+                    ),
+                ),
+                (
+                    "discount_type",
+                    models.CharField(
+                        choices=[("AMOUNT", "AMOUNT"), ("PERCENT", "PERCENT")],
+                        default="PERCENT",
+                        max_length=20,
+                    ),
+                ),
+                ("start_availability_date", models.DateField(null=True)),
+                ("end_availability_date", models.DateField(null=True)),
+                (
+                    "active",
+                    models.BooleanField(
+                        default=True, help_text="Whether the room is active."
+                    ),
+                ),
+                (
+                    "created",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Date and time when the room was created.",
+                    ),
+                ),
+                (
+                    "updated",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Date and time when the room was last updated.",
+                    ),
+                ),
+                (
+                    "property",
+                    models.ForeignKey(
+                        help_text="Select the property this room belongs to.",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_room",
+                        to="hotels.property",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'room',
-                'verbose_name_plural': 'rooms',
-                'index_together': {('id', 'room_type')},
+                "verbose_name": "room",
+                "verbose_name_plural": "rooms",
+                "index_together": {("id", "room_type")},
             },
         ),
         migrations.CreateModel(
-            name='RoomAmenityCategory',
+            name="RoomAmenityCategory",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200, unique=True)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=200, unique=True)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'verbose_name_plural': 'RoomAmenity_Categories',
+                "verbose_name_plural": "RoomAmenity_Categories",
             },
         ),
         migrations.CreateModel(
-            name='TopDestinations',
+            name="TopDestinations",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('location_name', models.CharField(max_length=60)),
-                ('display_name', models.CharField(max_length=60)),
-                ('media', models.FileField(upload_to='hotels/top-destination/')),
-                ('no_of_hotels', models.PositiveIntegerField(default=0, help_text='Total Hotel count for the location')),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("location_name", models.CharField(max_length=60)),
+                ("display_name", models.CharField(max_length=60)),
+                ("media", models.FileField(upload_to="hotels/top-destination/")),
+                (
+                    "no_of_hotels",
+                    models.PositiveIntegerField(
+                        default=0, help_text="Total Hotel count for the location"
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
             ],
         ),
         migrations.CreateModel(
-            name='TrendingPlaces',
+            name="TrendingPlaces",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('location_name', models.CharField(max_length=60)),
-                ('display_name', models.CharField(max_length=60)),
-                ('media', models.FileField(upload_to='hotels/trending-places/')),
-                ('no_of_hotels', models.PositiveIntegerField(default=0, help_text='Total Hotel count for the location')),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("location_name", models.CharField(max_length=60)),
+                ("display_name", models.CharField(max_length=60)),
+                ("media", models.FileField(upload_to="hotels/trending-places/")),
+                (
+                    "no_of_hotels",
+                    models.PositiveIntegerField(
+                        default=0, help_text="Total Hotel count for the location"
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
             ],
         ),
         migrations.CreateModel(
-            name='UnavailableProperty',
+            name="UnavailableProperty",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('search_term', models.CharField(max_length=255)),
-                ('full_params', models.JSONField(blank=True, null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("search_term", models.CharField(max_length=255)),
+                ("full_params", models.JSONField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
         ),
         migrations.CreateModel(
-            name='Rule',
+            name="Rule",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('json_data', models.JSONField()),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('active', models.BooleanField(default=True)),
-                ('property', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_rule', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("json_data", models.JSONField()),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                ("active", models.BooleanField(default=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_rule",
+                        to="hotels.property",
+                    ),
+                ),
             ],
             options={
-                'ordering': ('created',),
+                "ordering": ("created",),
             },
         ),
         migrations.CreateModel(
-            name='RoomGallery',
+            name="RoomGallery",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('media', models.FileField(null=True, upload_to='hotels/room/media/')),
-                ('featured_image', models.BooleanField(default=False)),
-                ('caption', models.CharField(blank=True, default='', max_length=200)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('room', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='gallery_room', to='hotels.room')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("media", models.FileField(null=True, upload_to="hotels/room/media/")),
+                ("featured_image", models.BooleanField(default=False)),
+                ("caption", models.CharField(blank=True, default="", max_length=200)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "room",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="gallery_room",
+                        to="hotels.room",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'RoomGallery',
+                "verbose_name_plural": "RoomGallery",
             },
         ),
         migrations.CreateModel(
-            name='RoomAmenity',
+            name="RoomAmenity",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200, unique=True)),
-                ('detail', models.JSONField(default=dict, help_text='room amenity', null=True)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('room_amenity_category', models.ForeignKey(on_delete=django.db.models.deletion.DO_NOTHING, related_name='room_amenity', to='hotels.roomamenitycategory')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=200, unique=True)),
+                (
+                    "detail",
+                    models.JSONField(default=dict, help_text="room amenity", null=True),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "room_amenity_category",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        related_name="room_amenity",
+                        to="hotels.roomamenitycategory",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'RoomAmenities',
+                "verbose_name_plural": "RoomAmenities",
             },
         ),
         migrations.CreateModel(
-            name='PropertyPayoutDetails',
+            name="PropertyPayoutDetails",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('amount', models.DecimalField(decimal_places=6, max_digits=20)),
-                ('transaction_id', models.CharField(blank=True, max_length=100)),
-                ('batch_id', models.CharField(blank=True, max_length=100)),
-                ('batch_created_by', models.CharField(blank=True, choices=[('ADMIN', 'ADMIN'), ('AUTO', 'AUTO')], max_length=20)),
-                ('pg_ref_no', models.CharField(blank=True, max_length=100)),
-                ('transaction_type', models.CharField(blank=True, max_length=50)),
-                ('payment_medium', models.CharField(choices=[('PHONE PAY', 'PHONE PAY'), ('PayU', 'PayU'), ('Idbook', 'Idbook'), ('Hotel', 'Hotel'), ('NEFT', 'NEFT'), ('RTGS', 'RTGS'), ('IMPS', 'IMPS'), ('UPI', 'UPI'), ('NET_BANKING', 'Net Banking'), ('Others', 'Others')], default='', max_length=50)),
-                ('booking_list', models.JSONField(default=list)),
-                ('initiate_status', models.PositiveSmallIntegerField(null=True)),
-                ('initiate_message', models.CharField(blank=True, max_length=200)),
-                ('initiate_response', models.JSONField(null=True)),
-                ('initiate_date', models.DateTimeField(null=True)),
-                ('transaction_response', models.JSONField(null=True)),
-                ('paid', models.BooleanField(default=False)),
-                ('transaction_status', models.CharField(blank=True, max_length=50)),
-                ('transaction_executed_by', models.CharField(blank=True, choices=[('ADMIN', 'ADMIN'), ('AUTO', 'AUTO')], max_length=20)),
-                ('payout_reference_file', models.FileField(blank=True, null=True, upload_to='hotels/payout/transaction/')),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('payout_property', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='property_payout', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("amount", models.DecimalField(decimal_places=6, max_digits=20)),
+                ("transaction_id", models.CharField(blank=True, max_length=100)),
+                ("batch_id", models.CharField(blank=True, max_length=100)),
+                (
+                    "batch_created_by",
+                    models.CharField(
+                        blank=True,
+                        choices=[("ADMIN", "ADMIN"), ("AUTO", "AUTO")],
+                        max_length=20,
+                    ),
+                ),
+                ("pg_ref_no", models.CharField(blank=True, max_length=100)),
+                ("transaction_type", models.CharField(blank=True, max_length=50)),
+                (
+                    "payment_medium",
+                    models.CharField(
+                        choices=[
+                            ("PHONE PAY", "PHONE PAY"),
+                            ("PayU", "PayU"),
+                            ("Idbook", "Idbook"),
+                            ("Hotel", "Hotel"),
+                            ("NEFT", "NEFT"),
+                            ("RTGS", "RTGS"),
+                            ("IMPS", "IMPS"),
+                            ("UPI", "UPI"),
+                            ("NET_BANKING", "Net Banking"),
+                            ("Others", "Others"),
+                        ],
+                        default="",
+                        max_length=50,
+                    ),
+                ),
+                ("booking_list", models.JSONField(default=list)),
+                ("initiate_status", models.PositiveSmallIntegerField(null=True)),
+                ("initiate_message", models.CharField(blank=True, max_length=200)),
+                ("initiate_response", models.JSONField(null=True)),
+                ("initiate_date", models.DateTimeField(null=True)),
+                ("transaction_response", models.JSONField(null=True)),
+                ("paid", models.BooleanField(default=False)),
+                ("transaction_status", models.CharField(blank=True, max_length=50)),
+                (
+                    "transaction_executed_by",
+                    models.CharField(
+                        blank=True,
+                        choices=[("ADMIN", "ADMIN"), ("AUTO", "AUTO")],
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "payout_reference_file",
+                    models.FileField(
+                        blank=True, null=True, upload_to="hotels/payout/transaction/"
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "payout_property",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_payout",
+                        to="hotels.property",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='PropertyLandmark',
+            name="PropertyLandmark",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('landmark', models.CharField(help_text='Name of the landmark.', max_length=255)),
-                ('distance', models.DecimalField(decimal_places=3, help_text='Distance from the property (in meters).', max_digits=10)),
-                ('property', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='landmarks', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "landmark",
+                    models.CharField(help_text="Name of the landmark.", max_length=255),
+                ),
+                (
+                    "distance",
+                    models.DecimalField(
+                        decimal_places=3,
+                        help_text="Distance from the property (in meters).",
+                        max_digits=10,
+                    ),
+                ),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="landmarks",
+                        to="hotels.property",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='PropertyGallery',
+            name="PropertyGallery",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('media', models.FileField(blank=True, null=True, upload_to='hotels/property/media/')),
-                ('caption', models.CharField(blank=True, default='', max_length=200)),
-                ('featured_image', models.BooleanField(default=False)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('property', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='gallery_property', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "media",
+                    models.FileField(
+                        blank=True, null=True, upload_to="hotels/property/media/"
+                    ),
+                ),
+                ("caption", models.CharField(blank=True, default="", max_length=200)),
+                ("featured_image", models.BooleanField(default=False)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="gallery_property",
+                        to="hotels.property",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'PropertyGallery',
+                "verbose_name_plural": "PropertyGallery",
             },
         ),
         migrations.CreateModel(
-            name='PropertyCommission',
+            name="PropertyCommission",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('code', models.CharField(max_length=20, unique=True)),
-                ('commission_type', models.CharField(choices=[('AMOUNT', 'AMOUNT'), ('PERCENT', 'PERCENT')], max_length=20)),
-                ('commission', models.DecimalField(decimal_places=6, max_digits=20)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('property_comm', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='property_commission', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("code", models.CharField(max_length=20, unique=True)),
+                (
+                    "commission_type",
+                    models.CharField(
+                        choices=[("AMOUNT", "AMOUNT"), ("PERCENT", "PERCENT")],
+                        max_length=20,
+                    ),
+                ),
+                ("commission", models.DecimalField(decimal_places=6, max_digits=20)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "property_comm",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_commission",
+                        to="hotels.property",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='PropertyBankDetails',
+            name="PropertyBankDetails",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('account_number', models.CharField(max_length=35)),
-                ('ifsc', models.CharField(max_length=25)),
-                ('bank_name', models.CharField(max_length=35)),
-                ('gstin', models.CharField(blank=True, default='', max_length=25)),
-                ('pan', models.CharField(blank=True, default='', max_length=25)),
-                ('tan', models.CharField(blank=True, default='', max_length=25)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('property', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='property_bank', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("account_number", models.CharField(max_length=35)),
+                ("ifsc", models.CharField(max_length=25)),
+                ("bank_name", models.CharField(max_length=35)),
+                ("gstin", models.CharField(blank=True, default="", max_length=25)),
+                ("pan", models.CharField(blank=True, default="", max_length=25)),
+                ("tan", models.CharField(blank=True, default="", max_length=25)),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_bank",
+                        to="hotels.property",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='PayAtHotelSpendLimit',
+            name="PayAtHotelSpendLimit",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('start_limit', models.PositiveIntegerField(default=0, help_text='Start range of bookings for paying at hotel')),
-                ('end_limit', models.PositiveIntegerField(default=0, help_text='End range of bookings for paying at hotel')),
-                ('spend_limit', models.DecimalField(decimal_places=2, default=0.0, help_text='Max allowed spend for this booking range', max_digits=10)),
-                ('cancel_limit', models.DecimalField(decimal_places=2, default=0.0, help_text='Maximum cancellation amount for this booking range', max_digits=10)),
-                ('cancel_count', models.PositiveIntegerField(default=0, help_text='Number of cancellation for this booking range')),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('pro_spend_limit', models.DecimalField(decimal_places=2, default=0.0, max_digits=10)),
-                ('pro_level', models.PositiveIntegerField(blank=True, null=True)),
-                ('property_spend_limit', models.DecimalField(decimal_places=2, default=0.0, max_digits=10)),
-                ('property', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='hotels.property', verbose_name='booking_property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "start_limit",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="Start range of bookings for paying at hotel",
+                    ),
+                ),
+                (
+                    "end_limit",
+                    models.PositiveIntegerField(
+                        default=0, help_text="End range of bookings for paying at hotel"
+                    ),
+                ),
+                (
+                    "spend_limit",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Max allowed spend for this booking range",
+                        max_digits=10,
+                    ),
+                ),
+                (
+                    "cancel_limit",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Maximum cancellation amount for this booking range",
+                        max_digits=10,
+                    ),
+                ),
+                (
+                    "cancel_count",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="Number of cancellation for this booking range",
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "pro_spend_limit",
+                    models.DecimalField(decimal_places=2, default=0.0, max_digits=10),
+                ),
+                ("pro_level", models.PositiveIntegerField(blank=True, null=True)),
+                (
+                    "property_spend_limit",
+                    models.DecimalField(decimal_places=2, default=0.0, max_digits=10),
+                ),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to="hotels.property",
+                        verbose_name="booking_property",
+                    ),
+                ),
             ],
             options={
-                'ordering': ('created',),
+                "ordering": ("created",),
             },
         ),
         migrations.CreateModel(
-            name='Inclusion',
+            name="Inclusion",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('json_data', models.JSONField()),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('active', models.BooleanField(default=True)),
-                ('property', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_inclusion', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("json_data", models.JSONField()),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                ("active", models.BooleanField(default=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_inclusion",
+                        to="hotels.property",
+                    ),
+                ),
             ],
             options={
-                'ordering': ('created',),
+                "ordering": ("created",),
             },
         ),
         migrations.CreateModel(
-            name='HotelAmenity',
+            name="HotelAmenity",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200, unique=True)),
-                ('detail', models.JSONField(default=dict, help_text='Hotel Amenity', null=True)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('amenity_category', models.ForeignKey(on_delete=django.db.models.deletion.DO_NOTHING, related_name='hotel_amenity', to='hotels.hotelamenitycategory')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=200, unique=True)),
+                (
+                    "detail",
+                    models.JSONField(
+                        default=dict, help_text="Hotel Amenity", null=True
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "amenity_category",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        related_name="hotel_amenity",
+                        to="hotels.hotelamenitycategory",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'HotelAmenities',
+                "verbose_name_plural": "HotelAmenities",
             },
         ),
         migrations.CreateModel(
-            name='Gallery',
+            name="Gallery",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('active', models.BooleanField(default=True, help_text='Whether the gallery image is active.')),
-                ('created', models.DateTimeField(auto_now_add=True, help_text='Date and time when the gallery image was created.')),
-                ('updated', models.DateTimeField(auto_now=True, help_text='Date and time when the gallery image was last updated.')),
-                ('added_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='gallery_added_by', to=settings.AUTH_USER_MODEL)),
-                ('media', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='media', to='org_resources.uploadedmedia')),
-                ('property', models.ForeignKey(blank=True, help_text='Select the property for which this gallery image belongs.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_gallery', to='hotels.property')),
-                ('room', models.ForeignKey(blank=True, help_text='Select the room for which this gallery image belongs.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='room_gallery', to='hotels.room')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "active",
+                    models.BooleanField(
+                        default=True, help_text="Whether the gallery image is active."
+                    ),
+                ),
+                (
+                    "created",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        help_text="Date and time when the gallery image was created.",
+                    ),
+                ),
+                (
+                    "updated",
+                    models.DateTimeField(
+                        auto_now=True,
+                        help_text="Date and time when the gallery image was last updated.",
+                    ),
+                ),
+                (
+                    "added_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="gallery_added_by",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "media",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="media",
+                        to="org_resources.uploadedmedia",
+                    ),
+                ),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Select the property for which this gallery image belongs.",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_gallery",
+                        to="hotels.property",
+                    ),
+                ),
+                (
+                    "room",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Select the room for which this gallery image belongs.",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="room_gallery",
+                        to="hotels.room",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'Gallery',
+                "verbose_name_plural": "Gallery",
             },
         ),
         migrations.CreateModel(
-            name='FinancialDetail',
+            name="FinancialDetail",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('json_data', models.JSONField()),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('active', models.BooleanField(default=True)),
-                ('property', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_financial_detail', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("json_data", models.JSONField()),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                ("active", models.BooleanField(default=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_financial_detail",
+                        to="hotels.property",
+                    ),
+                ),
             ],
             options={
-                'ordering': ('created',),
+                "ordering": ("created",),
             },
         ),
         migrations.CreateModel(
-            name='FavoriteList',
+            name="FavoriteList",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('property', models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to='hotels.property')),
-                ('room', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='hotels.room')),
-                ('user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='user_favorites', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="hotels.property",
+                    ),
+                ),
+                (
+                    "room",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="hotels.room",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="user_favorites",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='DynamicRoomPricing',
+            name="DynamicRoomPricing",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('start_date', models.DateTimeField()),
-                ('end_date', models.DateTimeField()),
-                ('room_price', models.JSONField(default=apps.hotels.models.default_room_price_json)),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('for_property', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='property_dynamic_pricing', to='hotels.property')),
-                ('for_room', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='room_dynamic_pricing', to='hotels.room')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("start_date", models.DateTimeField()),
+                ("end_date", models.DateTimeField()),
+                (
+                    "room_price",
+                    models.JSONField(
+                        default=apps.hotels.models.default_room_price_json
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "for_property",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_dynamic_pricing",
+                        to="hotels.property",
+                    ),
+                ),
+                (
+                    "for_room",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="room_dynamic_pricing",
+                        to="hotels.room",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='BlockedProperty',
+            name="BlockedProperty",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('no_of_blocked_rooms', models.PositiveSmallIntegerField(default=0)),
-                ('is_entire_property', models.BooleanField(default=False)),
-                ('start_date', models.DateTimeField()),
-                ('end_date', models.DateTimeField()),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('blocked_property', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='blocked_property', to='hotels.property')),
-                ('blocked_room', models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='blocked_room', to='hotels.room')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("no_of_blocked_rooms", models.PositiveSmallIntegerField(default=0)),
+                ("is_entire_property", models.BooleanField(default=False)),
+                ("start_date", models.DateTimeField()),
+                ("end_date", models.DateTimeField()),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "blocked_property",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="blocked_property",
+                        to="hotels.property",
+                    ),
+                ),
+                (
+                    "blocked_room",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="blocked_room",
+                        to="hotels.room",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'BlockedProperty',
+                "verbose_name_plural": "BlockedProperty",
             },
         ),
         migrations.CreateModel(
-            name='MonthlyPayAtHotelEligibility',
+            name="MonthlyPayAtHotelEligibility",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('is_eligible', models.BooleanField(default=False, help_text='Is the user eligible for Pay at Hotel this month?')),
-                ('eligible_limit', models.DecimalField(decimal_places=2, default=0.0, help_text='Eligible spend limit for this month', max_digits=10, null=True)),
-                ('spent_amount', models.DecimalField(decimal_places=2, default=0.0, help_text='Amount spent by the user in a month', max_digits=10)),
-                ('total_booking_count', models.PositiveIntegerField(default=0, help_text='Total bookings made by the user this month', null=True)),
-                ('cancel_limit', models.DecimalField(decimal_places=2, default=0.0, help_text='Allowed cancel amount', max_digits=10, null=True)),
-                ('total_cancel_count', models.PositiveIntegerField(default=0, help_text='Allowed cancel count', null=True)),
-                ('is_blacklisted', models.BooleanField(default=False, help_text='Is the user blacklisted this month?')),
-                ('updated_by', models.CharField(default='Automatic', help_text='Who updated this record?', max_length=50)),
-                ('month', models.CharField(blank=True, default='', help_text='Month name like January, February etc.', max_length=20)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='monthly_pay_at_hotel_eligibility', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "is_eligible",
+                    models.BooleanField(
+                        default=False,
+                        help_text="Is the user eligible for Pay at Hotel this month?",
+                    ),
+                ),
+                (
+                    "eligible_limit",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Eligible spend limit for this month",
+                        max_digits=10,
+                        null=True,
+                    ),
+                ),
+                (
+                    "spent_amount",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Amount spent by the user in a month",
+                        max_digits=10,
+                    ),
+                ),
+                (
+                    "total_booking_count",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="Total bookings made by the user this month",
+                        null=True,
+                    ),
+                ),
+                (
+                    "cancel_limit",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0.0,
+                        help_text="Allowed cancel amount",
+                        max_digits=10,
+                        null=True,
+                    ),
+                ),
+                (
+                    "total_cancel_count",
+                    models.PositiveIntegerField(
+                        default=0, help_text="Allowed cancel count", null=True
+                    ),
+                ),
+                (
+                    "is_blacklisted",
+                    models.BooleanField(
+                        default=False, help_text="Is the user blacklisted this month?"
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.CharField(
+                        default="Automatic",
+                        help_text="Who updated this record?",
+                        max_length=50,
+                    ),
+                ),
+                (
+                    "month",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Month name like January, February etc.",
+                        max_length=20,
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="monthly_pay_at_hotel_eligibility",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ('-created',),
-                'unique_together': {('user', 'month')},
+                "ordering": ("-created",),
+                "unique_together": {("user", "month")},
             },
         ),
     ]

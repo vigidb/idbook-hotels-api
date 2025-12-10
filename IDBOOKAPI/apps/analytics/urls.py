@@ -5,8 +5,6 @@ from apps.analytics.views import *
 
 router = routers.DefaultRouter()
 
-router.register(r'property', PropertyAnalyticsViewSet, basename='property')
+router.register(r"property", PropertyAnalyticsViewSet, basename="property")
 
-urlpatterns = [
-
-]
+urlpatterns = []

@@ -10,27 +10,57 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('hotels', '0001_initial'),
+        ("hotels", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Coupon',
+            name="Coupon",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('code', models.CharField(max_length=6, unique=True)),
-                ('is_stay_date', models.BooleanField(default=False)),
-                ('stay_start_date', models.DateField(null=True)),
-                ('stay_end_date', models.DateField(null=True)),
-                ('is_booking_date', models.BooleanField(default=False)),
-                ('booking_start_date', models.DateField(null=True)),
-                ('booking_end_date', models.DateField(null=True)),
-                ('discount_type', models.CharField(choices=[('AMOUNT', 'AMOUNT'), ('PERCENT', 'PERCENT')], default='AMOUNT', max_length=20)),
-                ('discount', models.DecimalField(decimal_places=4, max_digits=15, validators=[django.core.validators.MinValueValidator(0)])),
-                ('active', models.BooleanField(default=True)),
-                ('created', models.DateTimeField(auto_now_add=True)),
-                ('updated', models.DateTimeField(auto_now=True)),
-                ('property', models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='property_coupon', to='hotels.property')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("code", models.CharField(max_length=6, unique=True)),
+                ("is_stay_date", models.BooleanField(default=False)),
+                ("stay_start_date", models.DateField(null=True)),
+                ("stay_end_date", models.DateField(null=True)),
+                ("is_booking_date", models.BooleanField(default=False)),
+                ("booking_start_date", models.DateField(null=True)),
+                ("booking_end_date", models.DateField(null=True)),
+                (
+                    "discount_type",
+                    models.CharField(
+                        choices=[("AMOUNT", "AMOUNT"), ("PERCENT", "PERCENT")],
+                        default="AMOUNT",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "discount",
+                    models.DecimalField(
+                        decimal_places=4,
+                        max_digits=15,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
+                ("active", models.BooleanField(default=True)),
+                ("created", models.DateTimeField(auto_now_add=True)),
+                ("updated", models.DateTimeField(auto_now=True)),
+                (
+                    "property",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="property_coupon",
+                        to="hotels.property",
+                    ),
+                ),
             ],
         ),
     ]

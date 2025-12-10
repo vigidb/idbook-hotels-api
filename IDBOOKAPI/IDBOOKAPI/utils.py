@@ -15,11 +15,12 @@ def get_current_date():
     current_date = timezone.now()
     return current_date
 
+
 def get_unique_id_from_time(append_id):
     epoch = time.time()
     unique_id = "%s%d" % (append_id, epoch)
     return unique_id
-    
+
 
 def last_calendar_month_day(date):
     day = None
@@ -28,10 +29,10 @@ def last_calendar_month_day(date):
     except Exception as e:
         print(e)
     return day
-    
+
 
 def random_string_generator(size=10, chars=string.ascii_lowercase + string.digits):
-    return ''.join(random.choice(chars) for _ in range(size))
+    return "".join(random.choice(chars) for _ in range(size))
 
 
 def unique_key_generator(instance):
@@ -88,17 +89,17 @@ def unique_slug_generator(instance, new_slug=None):
     qs_exists = Klass.objects.filter(slug=slug).exists()
     if qs_exists:
         new_slug = "{slug}-{randstr}".format(
-                    slug=slug,
-                    randstr=random_string_generator(size=4)
-                )
+            slug=slug, randstr=random_string_generator(size=4)
+        )
         return unique_slug_generator(instance, new_slug=new_slug)
     return slug
 
+
 def get_last_month_data(today):
-    '''
+    """
     Simple method to get the datetime objects for the
     start and end of last month.
-    '''
+    """
     this_month_start = datetime.datetime(today.year, today.month, 1)
     last_month_end = this_month_start - datetime.timedelta(days=1)
     last_month_start = datetime.datetime(last_month_end.year, last_month_end.month, 1)
@@ -106,10 +107,10 @@ def get_last_month_data(today):
 
 
 def get_month_data_range(months_ago=1, include_this_month=False):
-    '''
+    """
     A method that generates a list of dictionaires
     that describe any given amout of monthly data.
-    '''
+    """
     today = datetime.datetime.now().today()
     dates_ = []
     if include_this_month:
@@ -117,33 +118,39 @@ def get_month_data_range(months_ago=1, include_this_month=False):
         next_month = today.replace(day=28) + datetime.timedelta(days=4)
         # use next month's data to get this month's data breakdown
         start, end = get_last_month_data(next_month)
-        dates_.insert(0, {
-            "start": start.timestamp(),
-            "end": end.timestamp(),
-            "start_json": start.isoformat(),
-            "end_json": end.isoformat(),
-            "timesince": 0,
-            "year": start.year,
-            "month": str(start.strftime("%B")),
-            })
+        dates_.insert(
+            0,
+            {
+                "start": start.timestamp(),
+                "end": end.timestamp(),
+                "start_json": start.isoformat(),
+                "end_json": end.isoformat(),
+                "timesince": 0,
+                "year": start.year,
+                "month": str(start.strftime("%B")),
+            },
+        )
     for x in range(0, months_ago):
         start, end = get_last_month_data(today)
         today = start
-        dates_.insert(0, {
-            "start": start.timestamp(),
-            "end": end.timestamp(),
-            "start_json": start.isoformat(),
-            "end_json": end.isoformat(),
-            "timesince": int((datetime.datetime.now() - end).total_seconds()),
-            "year": start.year,
-            "month": str(start.strftime("%B"))
-        })
-    #dates_.reverse()
+        dates_.insert(
+            0,
+            {
+                "start": start.timestamp(),
+                "end": end.timestamp(),
+                "start_json": start.isoformat(),
+                "end_json": end.isoformat(),
+                "timesince": int((datetime.datetime.now() - end).total_seconds()),
+                "year": start.year,
+                "month": str(start.strftime("%B")),
+            },
+        )
+    # dates_.reverse()
     return dates_
 
 
 def get_client_ip(request):
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
     else:
@@ -153,19 +160,19 @@ def get_client_ip(request):
 
 def format_custom_id(prefix, number):
     formatted_number = str(number).zfill(6)
-    formatted_id = f'{prefix}{formatted_number}'
+    formatted_id = f"{prefix}{formatted_number}"
     return formatted_id
 
 
 def format_room_id(hotel_custom_id, room_type_prefix, room_number):
     formatted_number = str(room_number).zfill(7)
-    formatted_room_id = f'{hotel_custom_id}{room_type_prefix}{formatted_number}'
+    formatted_room_id = f"{hotel_custom_id}{room_type_prefix}{formatted_number}"
     return formatted_room_id
 
 
 def format_tour_id(prefix, number):
     formatted_number = str(number).zfill(6)
-    formatted_id = f'{prefix}{formatted_number}'
+    formatted_id = f"{prefix}{formatted_number}"
     return formatted_id
 
 
@@ -178,7 +185,7 @@ def format_tour_duration(input_str):
         return None
 
     # Use regular expression to extract nights and days
-    match = re.match(r'(\d+)N/(\d+)D', input_str)
+    match = re.match(r"(\d+)N/(\d+)D", input_str)
 
     if match:
         nights = int(match.group(1))
@@ -189,41 +196,46 @@ def format_tour_duration(input_str):
 
     return None
 
+
 def paginate_queryset(request, queryset):
-    offset = int(request.query_params.get('offset', 0))
-    limit = int(request.query_params.get('limit', 10))
+    offset = int(request.query_params.get("offset", 0))
+    limit = int(request.query_params.get("limit", 10))
 
     count = queryset.count()
-    queryset = queryset[offset:offset+limit]
+    queryset = queryset[offset : offset + limit]
 
     return count, queryset
 
+
 def order_ops(request, queryset):
-    ordering_params = request.query_params.get('ordering', None)
+    ordering_params = request.query_params.get("ordering", None)
     if ordering_params:
-        ordering_list = ordering_params.split(',')
+        ordering_list = ordering_params.split(",")
         queryset = queryset.order_by(*ordering_list)
     return queryset
+
 
 def calculate_tax(tax_in_percent, amount):
     tax_amount = (tax_in_percent * amount) / 100
     return tax_amount
 
-def get_days_from_string(start_date: str, end_date: str, string_format='%Y-%m-%d'):
+
+def get_days_from_string(start_date: str, end_date: str, string_format="%Y-%m-%d"):
     try:
-        #string_format = "%Y-%m-%dT%H:%M%z"
-        
+        # string_format = "%Y-%m-%dT%H:%M%z"
+
         start_date = datetime.datetime.strptime(start_date, string_format).date()
         end_date = datetime.datetime.strptime(end_date, string_format).date()
-        
+
         diff_date = end_date - start_date
-        
+
         return diff_date.days
     except Exception as e:
         print(e)
         return None
 
-def validate_date(date:str, date_format="%Y-%m-%dT%H:%M%z"):
+
+def validate_date(date: str, date_format="%Y-%m-%dT%H:%M%z"):
     try:
         datetime.datetime.strptime(date, date_format)
         return True
@@ -231,18 +243,21 @@ def validate_date(date:str, date_format="%Y-%m-%dT%H:%M%z"):
         print(e)
         return False
 
-def get_date_from_string(date:str, date_format="%Y-%m-%dT%H:%M%z"):
+
+def get_date_from_string(date: str, date_format="%Y-%m-%dT%H:%M%z"):
     try:
         conv_date = datetime.datetime.strptime(date, date_format)
         return conv_date
     except Exception as e:
         print(e)
         return False
-    
+
+
 def get_timediff_in_minutes(start_datetime, end_datetime):
     timediff = end_datetime - start_datetime
-    timediff_in_minutes = timediff.total_seconds()/60
+    timediff_in_minutes = timediff.total_seconds() / 60
     return timediff_in_minutes
+
 
 def get_dates_from_range(start_date, end_date):
     date_list = []
@@ -252,10 +267,11 @@ def get_dates_from_range(start_date, end_date):
         start_date += datetime.timedelta(days=1)
     return date_list
 
+
 def get_datetime_split_with_slot(start_datetime, end_datetime):
     slot_enabled_date = {}
-##    start_date_time = get_date_from_string(start_datetime)
-##    end_date_time = get_date_from_string(end_datetime)
+    ##    start_date_time = get_date_from_string(start_datetime)
+    ##    end_date_time = get_date_from_string(end_datetime)
 
     time_diff = end_datetime - start_datetime
     date_list = get_dates_from_range(start_datetime.date(), end_datetime.date())
@@ -274,15 +290,12 @@ def get_datetime_split_with_slot(start_datetime, end_datetime):
             slot_enabled_date[slot_date] = "12 Hrs"
         else:
             date_list.pop()
-            #slot_enabled_date[slot_date] = "24 Hrs"
-            
-            
-    print("slot enabled date::", slot_enabled_date, "date_list:",date_list)
-    
+            # slot_enabled_date[slot_date] = "24 Hrs"
+
+    print("slot enabled date::", slot_enabled_date, "date_list:", date_list)
+
     return date_list, slot_enabled_date
-    
-    
-    
+
 
 ##def quantize_decimal_value(value: Decimal):
 ##    try:
@@ -313,39 +326,48 @@ def find_state(district_name):
             return state_data["state"]
     return None
 
+
 def default_address_json():
-    address_json = {"building_or_hse_no": "",
-                    "pincode":"", "coordinates":{"lat":"", "lng":""},
-                    "location_url": ""}
+    address_json = {
+        "building_or_hse_no": "",
+        "pincode": "",
+        "coordinates": {"lat": "", "lng": ""},
+        "location_url": "",
+    }
     return address_json
+
 
 def validate_mobile_number(mobile_number):
     try:
-        regex_mb = RegexValidator(regex=r'^\+?1?\d{9,15}$')
+        regex_mb = RegexValidator(regex=r"^\+?1?\d{9,15}$")
         regex_mb(mobile_number)
         return True
     except Exception as e:
         return False
 
+
 def shorten_url(original_url):
     try:
         res = requests.post(
-            'https://api.short.io/links',
+            "https://api.short.io/links",
             json={
-                'domain': 'idbook.short.gy',
-                'originalURL': original_url,
+                "domain": "idbook.short.gy",
+                "originalURL": original_url,
             },
             headers={
-                'authorization': 'sk_TePXTbqYT3izjZpc',
-                'content-type': 'application/json'
+                "authorization": "sk_TePXTbqYT3izjZpc",
+                "content-type": "application/json",
             },
         )
         res.raise_for_status()
         data = res.json()
-        return data.get('shortURL', original_url)  # Return shortened URL or original if failed
+        return data.get(
+            "shortURL", original_url
+        )  # Return shortened URL or original if failed
     except Exception as e:
         print(f"Error shortening URL: {e}")
         return original_url
+
 
 # Example usage
 # state_name = "madhya Pradesh"

@@ -1,4 +1,5 @@
 from rest_framework import serializers, status
+
 # from django.contrib.auth.models import Permission, Group
 from django.core.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -6,6 +7,7 @@ from rest_framework.permissions import BasePermission
 
 # from apps.authentication.models import *
 from .models import Coupon
+
 # from booking.models import *
 # from carts.models import *
 # from coupons.models import *
@@ -15,13 +17,14 @@ from .models import Coupon
 # from hotels.models import *
 # from org_managements.models import *
 from apps.org_resources.models import *
+
 # from payment_gateways.models import *
 from IDBOOKAPI.utils import format_custom_id
 
 
 class CouponSerializer(serializers.ModelSerializer):
     code = serializers.CharField(required=False, allow_null=True)
-  
+
     class Meta:
         model = Coupon
         fields = "__all__"
@@ -32,5 +35,3 @@ class CouponSerializer(serializers.ModelSerializer):
         coupon.save()
 
         return coupon
-
-    

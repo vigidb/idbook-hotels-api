@@ -20,40 +20,40 @@ def refresh_airiq_token_task(self):
     """
     try:
         logger.info("Starting AirIQ token refresh task")
-        
+
         airiq_service = AirIQService()
         success = airiq_service.refresh_token_if_needed()
-        
+
         if success:
             # Get token status for logging
             status = AirIQService.get_token_status()
             logger.info(f"AirIQ token refresh successful: {status}")
             return {
-                'success': True,
-                'message': 'AirIQ token refreshed successfully',
-                'token_status': status
+                "success": True,
+                "message": "AirIQ token refreshed successfully",
+                "token_status": status,
             }
         else:
             logger.error("AirIQ token refresh failed")
             return {
-                'success': False,
-                'message': 'AirIQ token refresh failed',
-                'token_status': AirIQService.get_token_status()
+                "success": False,
+                "message": "AirIQ token refresh failed",
+                "token_status": AirIQService.get_token_status(),
             }
-            
+
     except Exception as e:
         logger.error(f"AirIQ token refresh task failed: {str(e)}")
-        
+
         # Retry with exponential backoff
         if self.request.retries < self.max_retries:
-            countdown = 2 ** self.request.retries * 60  # 1min, 2min, 4min
+            countdown = 2**self.request.retries * 60  # 1min, 2min, 4min
             logger.info(f"Retrying AirIQ token refresh in {countdown} seconds")
             raise self.retry(countdown=countdown, exc=e)
-        
+
         return {
-            'success': False,
-            'message': f'AirIQ token refresh failed after {self.max_retries} retries: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"AirIQ token refresh failed after {self.max_retries} retries: {str(e)}",
+            "error": str(e),
         }
 
 
@@ -65,23 +65,25 @@ def cleanup_expired_airiq_tokens_task():
     """
     try:
         logger.info("Starting AirIQ token cleanup task")
-        
+
         expired_count = AirIQService.cleanup_expired_tokens()
-        
-        logger.info(f"AirIQ token cleanup completed. Deactivated {expired_count} expired tokens")
-        
+
+        logger.info(
+            f"AirIQ token cleanup completed. Deactivated {expired_count} expired tokens"
+        )
+
         return {
-            'success': True,
-            'message': f'Cleaned up {expired_count} expired tokens',
-            'expired_count': expired_count
+            "success": True,
+            "message": f"Cleaned up {expired_count} expired tokens",
+            "expired_count": expired_count,
         }
-        
+
     except Exception as e:
         logger.error(f"AirIQ token cleanup task failed: {str(e)}")
         return {
-            'success': False,
-            'message': f'Token cleanup failed: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"Token cleanup failed: {str(e)}",
+            "error": str(e),
         }
 
 
@@ -93,26 +95,26 @@ def check_airiq_token_status_task():
     """
     try:
         status = AirIQService.get_token_status()
-        
+
         logger.info(f"AirIQ token status check: {status}")
-        
+
         # Alert if token needs refresh
-        if status.get('needs_refresh'):
+        if status.get("needs_refresh"):
             logger.warning("AirIQ token needs refresh - triggering refresh task")
             refresh_airiq_token_task.delay()
-        
+
         return {
-            'success': True,
-            'token_status': status,
-            'timestamp': timezone.now().isoformat()
+            "success": True,
+            "token_status": status,
+            "timestamp": timezone.now().isoformat(),
         }
-        
+
     except Exception as e:
         logger.error(f"AirIQ token status check failed: {str(e)}")
         return {
-            'success': False,
-            'message': f'Token status check failed: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"Token status check failed: {str(e)}",
+            "error": str(e),
         }
 
 
@@ -124,41 +126,41 @@ def emergency_airiq_token_refresh_task(self):
     """
     try:
         logger.warning("Starting emergency AirIQ token refresh")
-        
+
         airiq_service = AirIQService()
-        
+
         # Force new authentication regardless of current token status
         success = airiq_service.authenticate()
-        
+
         if success:
             status = AirIQService.get_token_status()
             logger.info(f"Emergency AirIQ token refresh successful: {status}")
             return {
-                'success': True,
-                'message': 'Emergency AirIQ token refresh successful',
-                'token_status': status
+                "success": True,
+                "message": "Emergency AirIQ token refresh successful",
+                "token_status": status,
             }
         else:
             logger.error("Emergency AirIQ token refresh failed")
-            return {
-                'success': False,
-                'message': 'Emergency AirIQ token refresh failed'
-            }
-            
+            return {"success": False, "message": "Emergency AirIQ token refresh failed"}
+
     except Exception as e:
         logger.error(f"Emergency AirIQ token refresh task failed: {str(e)}")
-        
+
         # Limited retries for emergency refresh
         if self.request.retries < self.max_retries:
             countdown = 30  # Retry in 30 seconds for emergency
-            logger.warning(f"Retrying emergency AirIQ token refresh in {countdown} seconds")
+            logger.warning(
+                f"Retrying emergency AirIQ token refresh in {countdown} seconds"
+            )
             raise self.retry(countdown=countdown, exc=e)
-        
+
         return {
-            'success': False,
-            'message': f'Emergency AirIQ token refresh failed after {self.max_retries} retries: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"Emergency AirIQ token refresh failed after {self.max_retries} retries: {str(e)}",
+            "error": str(e),
         }
+
 
 ## Idealy should be in booking tasks - Need to check and remove if not needed
 @shared_task
@@ -169,33 +171,36 @@ def send_flight_booking_confirmation_task(booking_id: int, notification_data: di
     try:
         from apps.booking.models import Booking
         from apps.booking.tasks import send_booking_email_task, send_flight_booking_task
-        
-        booking = Booking.objects.select_related('flight_booking', 'user').get(
-            id=booking_id, 
-            booking_type='FLIGHT'
+
+        booking = Booking.objects.select_related("flight_booking", "user").get(
+            id=booking_id, booking_type="FLIGHT"
         )
-        
+
         # Use existing booking task signatures correctly
         # 1) Email confirmation with attached ticket (if any)
-        send_booking_email_task.delay(booking_id, 'confirmed-booking')
-        
+        send_booking_email_task.delay(booking_id, "confirmed-booking")
+
         # 2) SMS confirmation using flight booking task wrapper
-        send_flight_booking_task.delay(booking_id, 'confirmed')
-        
-        logger.info(f"Flight booking confirmation notifications queued for booking {booking_id}")
-        
+        send_flight_booking_task.delay(booking_id, "confirmed")
+
+        logger.info(
+            f"Flight booking confirmation notifications queued for booking {booking_id}"
+        )
+
         return {
-            'success': True,
-            'message': f'Confirmation notifications queued for booking {booking_id}',
-            'booking_id': booking_id
+            "success": True,
+            "message": f"Confirmation notifications queued for booking {booking_id}",
+            "booking_id": booking_id,
         }
-        
+
     except Exception as e:
-        logger.error(f"Failed to send flight booking confirmation for booking {booking_id}: {str(e)}")
+        logger.error(
+            f"Failed to send flight booking confirmation for booking {booking_id}: {str(e)}"
+        )
         return {
-            'success': False,
-            'message': f'Failed to send confirmation: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"Failed to send confirmation: {str(e)}",
+            "error": str(e),
         }
 
 
@@ -207,37 +212,38 @@ def send_flight_status_update_task(booking_id: int, status_update: dict):
     try:
         from apps.booking.models import Booking
         from apps.booking.tasks import send_booking_email_task, send_flight_booking_task
-        
-        booking = Booking.objects.select_related('flight_booking', 'user').get(
-            id=booking_id,
-            booking_type='FLIGHT'
+
+        booking = Booking.objects.select_related("flight_booking", "user").get(
+            id=booking_id, booking_type="FLIGHT"
         )
-        
+
         # Always send an email via the generic booking email task for status update templates
-        send_booking_email_task.delay(booking_id, 'confirmed-booking')
-        
+        send_booking_email_task.delay(booking_id, "confirmed-booking")
+
         # Handle cancellation SMS notification
-        if status_update.get('cancellation'):
-            refund_amount = status_update.get('refund_amount', 0)
+        if status_update.get("cancellation"):
+            refund_amount = status_update.get("refund_amount", 0)
             send_flight_booking_task.delay(
-                booking_id, 
-                'cancelled',
-                refund_amount=refund_amount
+                booking_id, "cancelled", refund_amount=refund_amount
             )
         # For other updates (delay/gate change), reuse EMAIL only for now
-        
-        logger.info(f"Flight status update notifications queued for booking {booking_id}")
-        
+
+        logger.info(
+            f"Flight status update notifications queued for booking {booking_id}"
+        )
+
         return {
-            'success': True,
-            'message': f'Status update notifications queued for booking {booking_id}',
-            'booking_id': booking_id
+            "success": True,
+            "message": f"Status update notifications queued for booking {booking_id}",
+            "booking_id": booking_id,
         }
-        
+
     except Exception as e:
-        logger.error(f"Failed to send flight status update for booking {booking_id}: {str(e)}")
+        logger.error(
+            f"Failed to send flight status update for booking {booking_id}: {str(e)}"
+        )
         return {
-            'success': False,
-            'message': f'Failed to send status update: {str(e)}',
-            'error': str(e)
+            "success": False,
+            "message": f"Failed to send status update: {str(e)}",
+            "error": str(e),
         }

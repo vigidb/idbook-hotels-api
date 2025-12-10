@@ -37,7 +37,9 @@ def fix_search_url(url: Dict[str, Any]) -> None:
     raw = url.get("raw")
     path = url.get("path") or []
     if isinstance(raw, str) and "/flights/search/search/" in raw:
-        url["raw"] = raw.replace("/flights/search/search/", "/flights/search/availability/")
+        url["raw"] = raw.replace(
+            "/flights/search/search/", "/flights/search/availability/"
+        )
         try:
             i = path.index("search")
             if i + 1 < len(path) and path[i + 1] == "search":
@@ -57,7 +59,7 @@ def fix_booking_url(url: Dict[str, Any]) -> None:
         if path:
             if path and path[-1] == "":
                 if "create-booking" not in path:
-                    path.insert(len(path)-1, "create-booking")
+                    path.insert(len(path) - 1, "create-booking")
             else:
                 if "create-booking" not in path:
                     path.append("create-booking")
@@ -120,12 +122,31 @@ def build_booking_body(template_schema: Dict[str, Any]) -> Dict[str, Any]:
     trip_type = (template_schema.get("trip_type") or "O").upper()
 
     # Count pax types
-    adults = sum(1 for p in passengers if (p.get("passenger_type") or "ADT").upper() == "ADT") or 1
-    children = sum(1 for p in passengers if (p.get("passenger_type") or "").upper() == "CHD")
-    infants = sum(1 for p in passengers if (p.get("passenger_type") or "").upper() == "INF")
+    adults = (
+        sum(
+            1 for p in passengers if (p.get("passenger_type") or "ADT").upper() == "ADT"
+        )
+        or 1
+    )
+    children = sum(
+        1 for p in passengers if (p.get("passenger_type") or "").upper() == "CHD"
+    )
+    infants = sum(
+        1 for p in passengers if (p.get("passenger_type") or "").upper() == "INF"
+    )
 
-    pax_list = [pax_to_airiq(p, i+1) for i, p in enumerate(passengers)] or [
-        pax_to_airiq({"passenger_type": "ADT", "title": "MR", "first_name": "TEST", "last_name": "USER", "date_of_birth": "01/01/1990", "gender": "male"}, 1)
+    pax_list = [pax_to_airiq(p, i + 1) for i, p in enumerate(passengers)] or [
+        pax_to_airiq(
+            {
+                "passenger_type": "ADT",
+                "title": "MR",
+                "first_name": "TEST",
+                "last_name": "USER",
+                "date_of_birth": "01/01/1990",
+                "gender": "male",
+            },
+            1,
+        )
     ]
 
     return {
@@ -200,7 +221,13 @@ def transform_folder(folder: Dict[str, Any]) -> None:
             continue
 
         # Only operate on POST booking creation calls
-        if not (method == "POST" and isinstance(raw, str) and "/booking/flight-bookings/" in raw and "cancel" not in raw and "reschedule" not in raw):
+        if not (
+            method == "POST"
+            and isinstance(raw, str)
+            and "/booking/flight-bookings/" in raw
+            and "cancel" not in raw
+            and "reschedule" not in raw
+        ):
             continue
 
         # Normalize booking URL to create-booking endpoint
@@ -210,23 +237,29 @@ def transform_folder(folder: Dict[str, Any]) -> None:
         body = req.get("body") or {}
         raw_body = body.get("raw") if body.get("mode") == "raw" else None
         existing = _json_loads(raw_body) if isinstance(raw_body, str) else {}
-        if isinstance(existing, dict) and ("AdultCount" in existing and "ItineraryFlightsInfo" in existing):
+        if isinstance(existing, dict) and (
+            "AdultCount" in existing and "ItineraryFlightsInfo" in existing
+        ):
             continue
 
         # Build template schema from existing simplified body if present
         passengers = []
         contact = {}
         if isinstance(existing, dict):
-            passengers = existing.get("passengers") or existing.get("PaxDetailsInfo") or []
+            passengers = (
+                existing.get("passengers") or existing.get("PaxDetailsInfo") or []
+            )
             contact = existing.get("contact") or existing.get("AddressDetails") or {}
 
-        new_body = build_booking_body({
-            "passengers": passengers,
-            "contact": contact,
-            "base_origin": base_origin,
-            "base_destination": base_destination,
-            "trip_type": trip_type,
-        })
+        new_body = build_booking_body(
+            {
+                "passengers": passengers,
+                "contact": contact,
+                "base_origin": base_origin,
+                "base_destination": base_destination,
+                "trip_type": trip_type,
+            }
+        )
 
         req["body"] = {"mode": "raw", "raw": _json_dumps(new_body)}
         it["request"] = req
