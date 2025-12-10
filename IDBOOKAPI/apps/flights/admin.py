@@ -31,111 +31,6 @@ class AirportAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related()
 
 
-@admin.register(FlightRoute)
-class FlightRouteAdmin(admin.ModelAdmin):
-    list_display = ['get_route', 'airline', 'aircraft_type', 'duration_minutes', 'distance_km', 'is_active']
-    list_filter = ['airline', 'is_active', 'origin__country', 'destination__country']
-    search_fields = ['origin__iata_code', 'destination__iata_code', 'airline__name', 'aircraft_type']
-    list_editable = ['is_active']
-    raw_id_fields = ['origin', 'destination', 'airline']
-
-    def get_route(self, obj):
-        return f"{obj.origin.iata_code} → {obj.destination.iata_code}"
-    get_route.short_description = 'Route'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('origin', 'destination', 'airline')
-
-
-@admin.register(FlightInventory)
-class FlightInventoryAdmin(admin.ModelAdmin):
-    list_display = [
-        'get_flight_number', 'get_route', 'flight_date', 'status', 
-        'available_seats', 'total_seats', 'is_active'
-    ]
-    list_filter = [
-        'flight_date', 'status', 'is_active', 
-        'route__airline', 'route__origin__country'
-    ]
-    search_fields = [
-        'route__flight_number', 'route__origin__iata_code', 
-        'route__destination__iata_code', 'route__airline__name'
-    ]
-    list_editable = ['is_active']
-    date_hierarchy = 'flight_date'
-    raw_id_fields = ['route']
-    
-    def get_flight_number(self, obj):
-        return obj.route.full_flight_number
-    get_flight_number.short_description = 'Flight Number'
-
-    def get_route(self, obj):
-        return f"{obj.route.origin.iata_code} → {obj.route.destination.iata_code}"
-    get_route.short_description = 'Route'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('route__origin', 'route__destination', 'route__airline')
-
-
-
-
-
-
-@admin.register(FlightSearchSession)
-class FlightSearchSessionAdmin(admin.ModelAdmin):
-    list_display = [
-        'session_id', 'get_route', 'departure_date', 'trip_type', 'flight_class', 
-        'passenger_count', 'search_mode', 'created_at', 'expires_at'
-    ]
-    list_filter = [
-        'trip_type', 'flight_class', 'search_mode', 'created_at', 'expires_at'
-    ]
-    search_fields = [
-        'session_id', 'origin', 'destination', 'airiq_track_id'
-    ]
-    readonly_fields = ['session_id', 'created_at']
-    date_hierarchy = 'created_at'
-
-    def get_route(self, obj):
-        return f"{obj.origin} → {obj.destination}"
-    get_route.short_description = 'Route'
-
-    def passenger_count(self, obj):
-        return f"A:{obj.adults} C:{obj.children} I:{obj.infants}"
-    passenger_count.short_description = 'Passengers'
-
-
-@admin.register(FlightOption)
-class FlightOptionAdmin(admin.ModelAdmin):
-    list_display = [
-        'id', 'airline_code', 'flight_number', 'get_route', 'departure_datetime', 
-        'flight_class', 'total_fare', 'available_seats', 'is_refundable'
-    ]
-    list_filter = [
-        'airline_code', 'flight_class', 'departure_datetime', 'is_refundable', 'can_hold'
-    ]
-    search_fields = [
-        'airline_code', 'flight_number', 'origin', 'destination', 'airiq_flight_id'
-    ]
-    raw_id_fields = ['search_session', 'inventory_flight']
-    date_hierarchy = 'departure_datetime'
-
-    def get_route(self, obj):
-        return f"{obj.origin} → {obj.destination}"
-    get_route.short_description = 'Route'
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('search_session', 'inventory_flight')
-
-
-
-
-
-
-
-
-
-
 @admin.register(AirIQApiLog)
 class AirIQAPILogAdmin(admin.ModelAdmin):
     list_display = [
@@ -209,3 +104,107 @@ class AirIQTokenCacheAdmin(admin.ModelAdmin):
         queryset.update(is_active=True)
         self.message_user(request, f"Activated {queryset.count()} tokens.")
     activate_tokens.short_description = "Activate selected tokens"
+
+
+## Below are not used yet - for future reference only
+@admin.register(FlightRoute)
+class FlightRouteAdmin(admin.ModelAdmin):
+    list_display = ['get_route', 'airline', 'aircraft_type', 'duration_minutes', 'distance_km', 'is_active']
+    list_filter = ['airline', 'is_active', 'origin__country', 'destination__country']
+    search_fields = ['origin__iata_code', 'destination__iata_code', 'airline__name', 'aircraft_type']
+    list_editable = ['is_active']
+    raw_id_fields = ['origin', 'destination', 'airline']
+
+    def get_route(self, obj):
+        return f"{obj.origin.iata_code} → {obj.destination.iata_code}"
+    get_route.short_description = 'Route'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('origin', 'destination', 'airline')
+
+
+@admin.register(FlightInventory)
+class FlightInventoryAdmin(admin.ModelAdmin):
+    list_display = [
+        'get_flight_number', 'get_route', 'flight_date', 'status', 
+        'available_seats', 'total_seats', 'is_active'
+    ]
+    list_filter = [
+        'flight_date', 'status', 'is_active', 
+        'route__airline', 'route__origin__country'
+    ]
+    search_fields = [
+        'route__flight_number', 'route__origin__iata_code', 
+        'route__destination__iata_code', 'route__airline__name'
+    ]
+    list_editable = ['is_active']
+    date_hierarchy = 'flight_date'
+    raw_id_fields = ['route']
+    
+    def get_flight_number(self, obj):
+        return obj.route.full_flight_number
+    get_flight_number.short_description = 'Flight Number'
+
+    def get_route(self, obj):
+        return f"{obj.route.origin.iata_code} → {obj.route.destination.iata_code}"
+    get_route.short_description = 'Route'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('route__origin', 'route__destination', 'route__airline')
+
+
+
+@admin.register(FlightSearchSession)
+class FlightSearchSessionAdmin(admin.ModelAdmin):
+    list_display = [
+        'session_id', 'get_route', 'departure_date', 'trip_type', 'flight_class', 
+        'passenger_count', 'search_mode', 'created_at', 'expires_at'
+    ]
+    list_filter = [
+        'trip_type', 'flight_class', 'search_mode', 'created_at', 'expires_at'
+    ]
+    search_fields = [
+        'session_id', 'origin', 'destination', 'airiq_track_id'
+    ]
+    readonly_fields = ['session_id', 'created_at']
+    date_hierarchy = 'created_at'
+
+    def get_route(self, obj):
+        return f"{obj.origin} → {obj.destination}"
+    get_route.short_description = 'Route'
+
+    def passenger_count(self, obj):
+        return f"A:{obj.adults} C:{obj.children} I:{obj.infants}"
+    passenger_count.short_description = 'Passengers'
+
+
+@admin.register(FlightOption)
+class FlightOptionAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'airline_code', 'flight_number', 'get_route', 'departure_datetime', 
+        'flight_class', 'total_fare', 'available_seats', 'is_refundable'
+    ]
+    list_filter = [
+        'airline_code', 'flight_class', 'departure_datetime', 'is_refundable', 'can_hold'
+    ]
+    search_fields = [
+        'airline_code', 'flight_number', 'origin', 'destination', 'airiq_flight_id'
+    ]
+    raw_id_fields = ['search_session', 'inventory_flight']
+    date_hierarchy = 'departure_datetime'
+
+    def get_route(self, obj):
+        return f"{obj.origin} → {obj.destination}"
+    get_route.short_description = 'Route'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('search_session', 'inventory_flight')
+
+
+
+
+
+
+
+
+

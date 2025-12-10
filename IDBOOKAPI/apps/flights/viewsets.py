@@ -1,3 +1,6 @@
+## Below are not used. Invventory ticket are not possible to book. Only AirIQ block PNRs are possible to book.
+## Multiple class and fare are not supported by AirIQ in Live mode yet.
+## We can remove below if not needed. For future reference only.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response

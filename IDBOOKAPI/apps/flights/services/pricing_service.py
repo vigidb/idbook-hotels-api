@@ -1,3 +1,6 @@
+# Frontend is directly calling AirIQ API for pricing. So we don't need to use this service.
+# This is for future reference only to implment faster pricing response for user.
+
 """
 Comprehensive Flight Pricing Service
 Handles session-based pricing cache, total calculations, and AirIQ integration

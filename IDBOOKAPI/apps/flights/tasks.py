@@ -160,7 +160,7 @@ def emergency_airiq_token_refresh_task(self):
             'error': str(e)
         }
 
-
+## Idealy should be in booking tasks - Need to check and remove if not needed
 @shared_task
 def send_flight_booking_confirmation_task(booking_id: int, notification_data: dict):
     """

@@ -28,4 +28,5 @@ urlpatterns = [
 # /api/v1/flights/search/airports/ - GET - List airports
 # /api/v1/flights/search/airlines/ - GET - List airlines
 # /api/v1/flights/airiq-proxy/<Endpoint>/ - POST - Direct proxy to AirIQ endpoints (no auth needed)
+# /api/v1/flights/airiq-proxy/endpoints/ - GET - List available AirIQ endpoints
 # Note: Enhanced booking endpoints live under the booking app.

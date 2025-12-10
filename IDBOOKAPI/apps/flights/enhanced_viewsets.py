@@ -31,6 +31,153 @@ class EnhancedFlightSearchViewSet(viewsets.ViewSet, StandardResponseMixin, Loggi
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
+        method='get',
+        operation_description="Get list of airports",
+        manual_parameters=[
+            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING, 
+                            description='Search by IATA code, name, or city'),
+            openapi.Parameter('country', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                            description='Filter by country'),
+            openapi.Parameter('limit', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, default=50)
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path='airports')
+    def list_airports(self, request):
+        """Get list of airports with search and filtering"""
+        try:
+            search = request.query_params.get('search', '')
+            country = request.query_params.get('country', '')
+            limit = min(int(request.query_params.get('limit', 50)), 200)
+            
+            airports = Airport.objects.filter(is_active=True)
+            
+            if search:
+                airports = airports.filter(
+                    models.Q(iata_code__icontains=search) |
+                    models.Q(name__icontains=search) |
+                    models.Q(city__icontains=search)
+                )
+            
+            if country:
+                airports = airports.filter(country__icontains=country)
+            
+            airports = airports[:limit]
+            
+            airport_data = [
+                {
+                    'iata_code': airport.iata_code,
+                    'name': airport.name,
+                    'city': airport.city,
+                    'country': airport.country
+                }
+                for airport in airports
+            ]
+            
+            return self.get_response(
+                data=airport_data,
+                message="Airports retrieved successfully",
+                status="success",
+                count=len(airport_data),
+                status_code=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error fetching airports: {str(e)}")
+            return self.get_error_response(
+                message="Error retrieving airports",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        method='get',
+        operation_description="Search and filter airlines (backed by OpenFlights data)",
+        manual_parameters=[
+            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                              description='Free-text search across code, ICAO, name, alias, callsign, country'),
+            openapi.Parameter('country', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                              description='Filter by country (case-insensitive contains)'),
+            openapi.Parameter('iata', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                              description='Filter by IATA code (exact match)'),
+            openapi.Parameter('icao', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                              description='Filter by ICAO code (exact match)'),
+            openapi.Parameter('active', openapi.IN_QUERY, type=openapi.TYPE_STRING,
+                              description='Filter by OpenFlights active flag (Y/N)'),
+            openapi.Parameter('is_active', openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN,
+                              description='Filter by internal is_active flag (true/false). Defaults to true.'),
+            openapi.Parameter('limit', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, default=50,
+                              description='Maximum number of records to return (max 200)'),
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path='airlines')
+    def list_airlines(self, request):
+        """Advanced airline search API using OpenFlights-backed data.
+
+        Examples:
+        - `/api/v1/flights/search/airlines/?search=india`
+        - `/api/v1/flights/search/airlines/?iata=AI`
+        - `/api/v1/flights/search/airlines/?icao=AIC`
+        - `/api/v1/flights/search/airlines/?country=United%20States&active=Y`
+        """
+        try:
+            search = request.query_params.get('search', '').strip()
+            country = request.query_params.get('country', '').strip()
+            iata = request.query_params.get('iata', '').strip()
+            icao = request.query_params.get('icao', '').strip()
+            active = request.query_params.get('active', '').strip().upper()
+            is_active_param = request.query_params.get('is_active', '').strip().lower()
+            limit = min(int(request.query_params.get('limit', 50)), 200)
+
+            # Default to only internally active airlines unless explicitly overridden
+            qs = Airline.objects.all()
+            if is_active_param in {'true', '1', 'yes'} or is_active_param == '':
+                qs = qs.filter(is_active=True)
+            elif is_active_param in {'false', '0', 'no'}:
+                qs = qs.filter(is_active=False)
+
+            if iata:
+                qs = qs.filter(code__iexact=iata)
+            if icao:
+                qs = qs.filter(icao_code__iexact=icao)
+            if country:
+                qs = qs.filter(country__icontains=country)
+            if active in {'Y', 'N'}:
+                qs = qs.filter(active=active)
+            if search:
+                qs = qs.filter(
+                    models.Q(code__icontains=search)
+                    | models.Q(icao_code__icontains=search)
+                    | models.Q(name__icontains=search)
+                    | models.Q(alias__icontains=search)
+                    | models.Q(callsign__icontains=search)
+                    | models.Q(country__icontains=search)
+                )
+
+            qs = qs.order_by('name')[:limit]
+
+            from .serializers import AirlineSerializer
+
+            serializer = AirlineSerializer(qs, many=True, context={'request': request})
+
+            return self.get_response(
+                data=serializer.data,
+                message="Airlines retrieved successfully",
+                status="success",
+                count=len(serializer.data),
+                status_code=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching airlines: {str(e)}")
+            return self.get_error_response(
+                message="Error retrieving airlines",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    # Below are not used yet - the frontend is using airiq proxy viewset for availability, pricing and seat map - this is for future reference only
+
+    @swagger_auto_schema(
         method='post',
         operation_description="Search flights and create pricing session",
         request_body=openapi.Schema(
@@ -993,147 +1140,4 @@ class EnhancedFlightSearchViewSet(viewsets.ViewSet, StandardResponseMixin, Loggi
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @swagger_auto_schema(
-        method='get',
-        operation_description="Get list of airports",
-        manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING, 
-                            description='Search by IATA code, name, or city'),
-            openapi.Parameter('country', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                            description='Filter by country'),
-            openapi.Parameter('limit', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, default=50)
-        ]
-    )
-    @action(detail=False, methods=['get'], url_path='airports')
-    def list_airports(self, request):
-        """Get list of airports with search and filtering"""
-        try:
-            search = request.query_params.get('search', '')
-            country = request.query_params.get('country', '')
-            limit = min(int(request.query_params.get('limit', 50)), 200)
-            
-            airports = Airport.objects.filter(is_active=True)
-            
-            if search:
-                airports = airports.filter(
-                    models.Q(iata_code__icontains=search) |
-                    models.Q(name__icontains=search) |
-                    models.Q(city__icontains=search)
-                )
-            
-            if country:
-                airports = airports.filter(country__icontains=country)
-            
-            airports = airports[:limit]
-            
-            airport_data = [
-                {
-                    'iata_code': airport.iata_code,
-                    'name': airport.name,
-                    'city': airport.city,
-                    'country': airport.country
-                }
-                for airport in airports
-            ]
-            
-            return self.get_response(
-                data=airport_data,
-                message="Airports retrieved successfully",
-                status="success",
-                count=len(airport_data),
-                status_code=status.HTTP_200_OK
-            )
-            
-        except Exception as e:
-            logger.error(f"Error fetching airports: {str(e)}")
-            return self.get_error_response(
-                message="Error retrieving airports",
-                status="error",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @swagger_auto_schema(
-        method='get',
-        operation_description="Search and filter airlines (backed by OpenFlights data)",
-        manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='Free-text search across code, ICAO, name, alias, callsign, country'),
-            openapi.Parameter('country', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='Filter by country (case-insensitive contains)'),
-            openapi.Parameter('iata', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='Filter by IATA code (exact match)'),
-            openapi.Parameter('icao', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='Filter by ICAO code (exact match)'),
-            openapi.Parameter('active', openapi.IN_QUERY, type=openapi.TYPE_STRING,
-                              description='Filter by OpenFlights active flag (Y/N)'),
-            openapi.Parameter('is_active', openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN,
-                              description='Filter by internal is_active flag (true/false). Defaults to true.'),
-            openapi.Parameter('limit', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, default=50,
-                              description='Maximum number of records to return (max 200)'),
-        ]
-    )
-    @action(detail=False, methods=['get'], url_path='airlines')
-    def list_airlines(self, request):
-        """Advanced airline search API using OpenFlights-backed data.
-
-        Examples:
-        - `/api/v1/flights/search/airlines/?search=india`
-        - `/api/v1/flights/search/airlines/?iata=AI`
-        - `/api/v1/flights/search/airlines/?icao=AIC`
-        - `/api/v1/flights/search/airlines/?country=United%20States&active=Y`
-        """
-        try:
-            search = request.query_params.get('search', '').strip()
-            country = request.query_params.get('country', '').strip()
-            iata = request.query_params.get('iata', '').strip()
-            icao = request.query_params.get('icao', '').strip()
-            active = request.query_params.get('active', '').strip().upper()
-            is_active_param = request.query_params.get('is_active', '').strip().lower()
-            limit = min(int(request.query_params.get('limit', 50)), 200)
-
-            # Default to only internally active airlines unless explicitly overridden
-            qs = Airline.objects.all()
-            if is_active_param in {'true', '1', 'yes'} or is_active_param == '':
-                qs = qs.filter(is_active=True)
-            elif is_active_param in {'false', '0', 'no'}:
-                qs = qs.filter(is_active=False)
-
-            if iata:
-                qs = qs.filter(code__iexact=iata)
-            if icao:
-                qs = qs.filter(icao_code__iexact=icao)
-            if country:
-                qs = qs.filter(country__icontains=country)
-            if active in {'Y', 'N'}:
-                qs = qs.filter(active=active)
-            if search:
-                qs = qs.filter(
-                    models.Q(code__icontains=search)
-                    | models.Q(icao_code__icontains=search)
-                    | models.Q(name__icontains=search)
-                    | models.Q(alias__icontains=search)
-                    | models.Q(callsign__icontains=search)
-                    | models.Q(country__icontains=search)
-                )
-
-            qs = qs.order_by('name')[:limit]
-
-            from .serializers import AirlineSerializer
-
-            serializer = AirlineSerializer(qs, many=True, context={'request': request})
-
-            return self.get_response(
-                data=serializer.data,
-                message="Airlines retrieved successfully",
-                status="success",
-                count=len(serializer.data),
-                status_code=status.HTTP_200_OK
-            )
-
-        except Exception as e:
-            logger.error(f"Error fetching airlines: {str(e)}")
-            return self.get_error_response(
-                message="Error retrieving airlines",
-                status="error",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+    

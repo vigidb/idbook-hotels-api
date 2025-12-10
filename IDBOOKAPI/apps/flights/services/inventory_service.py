@@ -1,3 +1,5 @@
+## Below are not used yet. Invventory ticket are not possible to book. Only AirIQ block PNRs are possible to book.
+## We can remove below if not needed. For future reference only.
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from django.utils import timezone

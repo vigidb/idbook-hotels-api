@@ -13,6 +13,9 @@ from ..models import AirIQApiLog, FlightSearchSession, FlightOption, AirIQTokenC
 
 logger = logging.getLogger(__name__)
 
+# SSH Tunnel to Server to access AirIQ API with Static IP. (Find instructions in README.md to setup SSH tunnel)
+# Used for development and testing.
+# In production, we use the AirIQ API directly without SSH tunnel.
 proxies = {
     'http': 'http://localhost:8888',
     'https': 'http://localhost:8888',
@@ -108,6 +111,7 @@ class AirIQService:
         if 'Login' not in endpoint:
             # For regular API calls, use TOKEN authentication
             # Proactively refresh if new day or near expiry
+            # TODO:  Use cached token if available. rather than calling from database.
             if self._should_refresh_token() or not self._is_token_valid():
                 self.authenticate()
             headers['TOKEN'] = self._auth_token
@@ -434,7 +438,7 @@ class AirIQService:
             logger.error(f"AirIQ authentication failed: {error_msg}")
             raise AirIQException(f"Authentication failed: {error_msg}")
     
-    def refresh_token_if_needed(self) -> bool:
+    def refresh_token_if_needed(self) -> bool: 
         """
         Refresh token if needed (daily refresh or near expiry)
         This method can be called by scheduled tasks
@@ -519,6 +523,7 @@ class AirIQService:
         if not self._is_token_valid():
             self.authenticate()
         
+        # TODO:  Check AvailInfo, It may cause issues if not properly formatted. and user should be able to pass list of AvailInfo.
         # Build request payload
         payload = {
             "AgentInfo": {
@@ -899,6 +904,7 @@ class AirIQService:
         if not self._is_token_valid():
             self.authenticate()
         
+        # TODO:  Check Item, It may cause issues if not properly formatted. and user should be able to pass list of Item.
         payload = {
             "AgentInfo": {
                 "AgentId": self.agent_id,
@@ -985,6 +991,7 @@ class AirIQService:
         
         return response_data
     
+    # TODO: This one maybe redundant. We can use get_account_balance directly. Check and remove if not needed.
     def get_agent_balance(self) -> dict:
         """Get agent balance with success/failure wrapper for enhanced flight booking"""
         try:
@@ -1075,6 +1082,7 @@ class AirIQService:
         
         return response_data
 
+    # TODO:  Check Item, It may cause issues if not properly formatted. and user should be able to pass list of Item.
     def track_booking_status(self, booking_track_id: str) -> dict:
         """
         Track booking status
@@ -1109,6 +1117,7 @@ class AirIQService:
         
         return response_data
 
+    # TODO:  Check AvailInfo, It may cause issues if not properly formatted. and user should be able to pass list of AvailInfo. and ensure reschedule is working for round-trip flights.
     def reschedule_availability(self, trip_type: str, airiq_pnr: str, 
                                flight_segments: list, remarks: str = '') -> dict:
         """
