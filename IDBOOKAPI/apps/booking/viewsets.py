@@ -3337,7 +3337,7 @@ class BookingViewSet(
             status_code=status.HTTP_200_OK,
         )
 
-    # Flight Payment Integration Endpoints
+    # Flight Payment Integration Endpoints, TODO: This is not used anywhere, so we can remove it
     @action(
         detail=True,
         methods=["POST"],
@@ -3345,6 +3345,7 @@ class BookingViewSet(
         url_name="flight-payment-initiate",
         permission_classes=[IsAuthenticated],
     )
+    # TODO: This is not used anywhere, so we can remove it
     def initiate_flight_payment(self, request, pk):
         """Initiate payment for flight booking"""
 
@@ -3407,6 +3408,7 @@ class BookingViewSet(
         url_name="flight-payment-methods",
         permission_classes=[IsAuthenticated],
     )
+    # TODO: This is not used anywhere, so we can remove it
     def get_flight_payment_methods(self, request, pk):
         """Get available payment methods for flight booking"""
 
@@ -3458,6 +3460,7 @@ class BookingViewSet(
         url_name="flight-payment-phonepe-callback",
         permission_classes=[],
     )
+    # TODO: This is not used anywhere, so we can remove it
     def flight_payment_phonepe_callback(self, request):
         """Handle PhonePe payment callback for flight bookings"""
 
@@ -3501,6 +3504,7 @@ class BookingViewSet(
         url_name="flight-payment-payu-success",
         permission_classes=[],
     )
+    # TODO: This is not used anywhere, so we can remove it
     def flight_payment_payu_success(self, request):
         """Handle PayU success callback for flight bookings"""
 
@@ -3571,6 +3575,7 @@ class BookingViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    # TODO: This is not used anywhere, so we can remove it
     # Flight Booking Status and Retrieval Endpoints
     @action(
         detail=True,
@@ -3625,6 +3630,7 @@ class BookingViewSet(
         url_name="flight-status-update",
         permission_classes=[IsAuthenticated],
     )
+    # TODO: This is not used anywhere, so we can remove it
     def update_flight_status_from_airiq(self, request, pk):
         """Update flight booking status from AirIQ"""
 
@@ -3717,6 +3723,7 @@ class BookingViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    # TODO: This is not used anywhere, so we can remove it
     @action(
         detail=True,
         methods=["GET"],
@@ -3935,6 +3942,7 @@ class BookingViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    # TODO: This is not used anywhere, so we can remove it
     @action(
         detail=True,
         methods=["POST"],

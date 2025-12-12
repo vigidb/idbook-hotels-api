@@ -75,14 +75,14 @@ def update_user_contact_info(
     updated = False
     update_fields = []
 
-    # Update email if provided and different
-    if contact_email and contact_email.strip() and user.email != contact_email:
+    # Update email if it's empty and contact_email is provided
+    if not user.email and contact_email and contact_email.strip():
         user.email = contact_email.strip()
         update_fields.append("email")
         updated = True
 
-    # Update mobile number if provided and different
-    if contact_phone and contact_phone.strip():
+    # Update mobile number if it's empty and contact_phone is provided
+    if not user.mobile_number and contact_phone and contact_phone.strip():
         # Normalize phone number (remove spaces, dashes, etc.)
         normalized_phone = (
             contact_phone.strip()
@@ -96,11 +96,11 @@ def update_user_contact_info(
             update_fields.append("mobile_number")
             updated = True
 
-    # Update name if provided and different
-    if contact_name and contact_name.strip() and user.name != contact_name.strip():
+    # Update name if it's empty and contact_name is provided
+    if not user.name and contact_name and contact_name.strip():
         user.name = contact_name.strip()
         update_fields.append("name")
-        updated = True
+        updated = True    
 
     # Save if any fields were updated
     if updated and update_fields:

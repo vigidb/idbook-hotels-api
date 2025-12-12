@@ -3,6 +3,8 @@ Enhanced Flight Booking ViewSet
 Implements comprehensive flight booking flow with pricing sessions and AirIQ integration
 """
 
+# TODO: There is so many helper functions in this file, need to refactor and can be moved to separate files
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -898,7 +900,7 @@ class EnhancedFlightBookingViewSet(
         try:
             booking, flight_booking = self.get_flight_booking(pk)
 
-            airiq_pnr = request.data.get("AirIqPNR") or flight_booking.airiq_pnr
+            airiq_pnr = request.data.get("AirIqPNR") or request.data.get("airiq_pnr") or request.data.get("AiriqPNR") or flight_booking.airiq_pnr 
             airline_pnr = request.data.get("AirlinePNR") or flight_booking.airline_pnr
             track_id = (
                 request.data.get("TracKID")
@@ -1018,7 +1020,7 @@ class EnhancedFlightBookingViewSet(
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
+    # TODO: Found Duplication in this function within the file, need to refactor
     def _handle_ssr_wallet_payment(
         self,
         booking,
@@ -1609,7 +1611,7 @@ class EnhancedFlightBookingViewSet(
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
+    # TODO: Found Duplication in this function within the file, need to refactor
     def _handle_ssr_phonepe_payment(
         self, booking, flight_booking, ancillary_request, payment_amount, request
     ):
