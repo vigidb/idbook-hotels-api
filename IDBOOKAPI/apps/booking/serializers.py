@@ -1252,6 +1252,7 @@ class BookingSerializer(serializers.ModelSerializer):
                     "user_id": instance.user_id,
                     "name": instance.user.name,
                     "email": instance.user.email,
+                    "mobile_number": instance.user.mobile_number,
                 }
             if booking_type == "HOLIDAYPACK":
                 holidaypack_booking = instance.holiday_package_booking

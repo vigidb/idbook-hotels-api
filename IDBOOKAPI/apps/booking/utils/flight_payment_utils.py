@@ -1303,7 +1303,8 @@ def process_reschedule_phonepe_callback(callback_data: dict) -> Dict:
                 reschedule_req = metadata.get("reschedule_request") or {}
                 reschedule_resp = metadata.get("reschedule_response") or {}
                 if is_success:
-                    # Payment successful - call AirIQ Reschedule Confirm
+                    # Payment successful - NOW call AirIQ Reschedule Confirm
+                    # (Payment completed first, then CONFIRM is called)
                     try:
                         flight_booking = booking.flight_booking
 
@@ -2251,7 +2252,7 @@ def handle_reschedule_wallet_payment(
         }
         payment_detail.save()
 
-        # Deduct wallet
+        # Step 1: Deduct from wallet FIRST (payment must complete before CONFIRM)
         deduct_success = deduct_booking_amount(
             booking, company_id=company_id, request=request
         )
@@ -2262,7 +2263,7 @@ def handle_reschedule_wallet_payment(
                 "error_code": "WALLET_DEDUCTION_FAILED",
             }
 
-        # Update payment detail as paid
+        # Step 2: Update payment detail as paid (payment completed)
         update_booking_payment_details(
             payment_detail.merchant_transaction_id,
             {
@@ -2275,7 +2276,7 @@ def handle_reschedule_wallet_payment(
             },
         )
 
-        # Call AirIQ Reschedule Confirm
+        # Step 3: NOW call AirIQ Reschedule Confirm (only after payment is successful)
         try:
             # Check if multiple PNRs need to be rescheduled
             if reschedule_request.get("multi_pnr") and reschedule_request.get(
