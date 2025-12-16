@@ -15,6 +15,7 @@ from ..models import Booking, FlightBooking, BookingPaymentDetail, Invoice
 from apps.customer.models import Wallet, WalletTransaction
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 from apps.payment_gateways.mixins.payu_mixins import PayUMixin
+from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
 from apps.booking.utils.db_utils import (
     create_booking_payment_details,
     update_booking_payment_details,
@@ -139,6 +140,8 @@ class FlightPaymentProcessor:
             return self._process_phonepe_payment(amount, payment_detail)
         elif payment_channel == "PAYU":
             return self._process_payu_payment(amount, payment_detail)
+        elif payment_channel == "RAZORPAY":
+            return self._process_razorpay_payment(amount, payment_detail)
         else:
             return {
                 "success": False,
@@ -551,6 +554,133 @@ class FlightPaymentProcessor:
                 "success": False,
                 "error": str(e),
                 "error_code": "PAYU_PAYMENT_ERROR",
+            }
+
+    def _process_razorpay_payment(
+        self, amount: Decimal, payment_detail: BookingPaymentDetail
+    ) -> Dict:
+        """Process payment via Razorpay"""
+
+        try:
+            razorpay_mixin = RazorpayMixin()
+
+            # Get redirect URL from payment data or use default
+            redirect_url = self.payment_data.get(
+                "redirect_url",
+                f"{settings.CALLBACK_URL.rstrip('/')}/api/v1/booking/payment/razorpay/success/",
+            )
+
+            # Determine transaction type
+            transaction_type = self.payment_data.get(
+                "transaction_type", "flight_booking_payment"
+            )
+
+            # Prepare notes for Razorpay order
+            notes = {
+                "booking_id": str(self.booking.id),
+                "booking_type": self.booking.booking_type,
+                "transaction_type": transaction_type,
+                "merchant_transaction_id": payment_detail.merchant_transaction_id,
+            }
+
+            if self.flight_booking:
+                notes.update(
+                    {
+                        "flight_booking_id": str(self.flight_booking.id),
+                        "flying_from": self.flight_booking.flying_from or "",
+                        "flying_to": self.flight_booking.flying_to or "",
+                    }
+                )
+
+            # Create Razorpay order
+            receipt_id = payment_detail.merchant_transaction_id
+            order_result = razorpay_mixin.create_razorpay_order(
+                amount=float(amount),
+                currency="INR",
+                receipt=receipt_id,
+                notes=notes,
+            )
+
+            if not order_result.get("success"):
+                return {
+                    "success": False,
+                    "error": order_result.get("error", "Failed to create Razorpay order"),
+                    "error_code": order_result.get("error_code", "RAZORPAY_ORDER_ERROR"),
+                }
+
+            # Store Razorpay order in database
+            from apps.payment_gateways.models import RazorpayOrder
+
+            razorpay_order = RazorpayOrder.objects.create(
+                user=self.user if self.user else None,
+                booking=self.booking,
+                rp_id=order_result["order_id"],
+                entity="order",
+                amount=order_result["amount"],  # Amount in paise
+                amount_due=order_result["amount"],
+                currency=order_result["currency"],
+                receipt=receipt_id,
+                status=order_result["status"],
+                notes=notes,
+                created_at=str(int(timezone.now().timestamp())),
+            )
+
+            # Update payment detail
+            update_booking_payment_details(
+                payment_detail.merchant_transaction_id,
+                {
+                    "payment_type": "PAYMENT GATEWAY",
+                    "payment_medium": "RAZORPAY",
+                    "code": "PAYMENT_INITIATED",
+                    "message": "Payment initiated via Razorpay",
+                    "transaction_details": {
+                        "razorpay_order_id": order_result["order_id"],
+                        "razorpay_order_status": order_result["status"],
+                    },
+                },
+            )
+
+            # Create payment log
+            payment_log = {
+                "booking_id": self.booking.id,
+                "merchant_transaction_id": payment_detail.merchant_transaction_id,
+                "razorpay_order_id": order_result["order_id"],
+                "amount": float(amount),
+            }
+            create_booking_payment_log(payment_log)
+
+            # Get Razorpay public key for frontend
+            razorpay_key = getattr(settings, "RAZORPAY_KEY_ID", "")
+
+            return {
+                "success": True,
+                "payment_method": "razorpay",
+                "order_id": order_result["order_id"],
+                "razorpay_key": razorpay_key,
+                "amount": order_result["amount"],  # Amount in paise
+                "currency": order_result["currency"],
+                "name": self.user.first_name if self.user else "Guest",
+                "email": (
+                    self.user.email
+                    if self.user
+                    else self.payment_data.get("email", "")
+                ),
+                "contact": (
+                    self.user.mobile_number
+                    if self.user and hasattr(self.user, "mobile_number")
+                    else self.payment_data.get("phone", "")
+                ),
+                "redirect_url": redirect_url,
+                "transaction_id": payment_detail.merchant_transaction_id,
+                "message": "Razorpay payment order created successfully",
+            }
+
+        except Exception as e:
+            logger.error(f"Razorpay payment error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "error_code": "RAZORPAY_PAYMENT_ERROR",
             }
 
     def _confirm_flight_booking(self) -> bool:
@@ -1227,9 +1357,144 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
 
         # Confirm booking and auto-issue ticket
         with transaction.atomic():
-            processor._confirm_flight_booking()
+            confirmed = processor._confirm_flight_booking()
+            
+            if not confirmed:
+                # AirIQ booking failed - need to refund payment
+                logger.error(
+                    f"AirIQ booking failed for booking {booking_id} after payment. Initiating refund..."
+                )
+                
+                # Get payment details to determine payment method
+                payment_id = payment_details.get("payment_id") or payment_details.get("razorpay_payment_id")
+                payment_medium = payment_details.get("payment_medium", "")
+                
+                # Check if payment was via Razorpay
+                if payment_medium.upper() == "RAZORPAY" and payment_id:
+                    try:
+                        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+                        from apps.booking.utils.db_utils import update_booking_payment_details
+                        from decimal import Decimal
+                        
+                        razorpay_mixin = RazorpayMixin()
+                        refund_amount = Decimal(str(booking.final_amount))
+                        
+                        # Prepare refund notes
+                        refund_notes = {
+                            "reason": "AirIQ booking failed after payment",
+                            "booking_id": str(booking.id),
+                            "airiq_error": processor.last_error_message or "AirIQ booking failed",
+                            "timestamp": timezone.now().isoformat(),
+                        }
+                        
+                        # Process refund via Razorpay
+                        refund_result = razorpay_mixin.refund_payment(
+                            payment_id=payment_id,
+                            amount=float(refund_amount),
+                            notes=refund_notes,
+                            speed="normal"
+                        )
+                        
+                        if refund_result.get("success"):
+                            # Refund successful
+                            logger.info(
+                                f"Razorpay refund successful for booking {booking_id}. Refund ID: {refund_result.get('refund_id')}"
+                            )
+                            
+                            # Revert booking/flight statuses
+                            booking.status = "pending"
+                            booking.total_payment_made = Decimal("0.0")
+                            booking.save(update_fields=["status", "total_payment_made"])
+                            
+                            if booking.flight_booking:
+                                booking.flight_booking.status = "PENDING_PAYMENT"
+                                booking.flight_booking.save(update_fields=["status"])
+                            
+                            # Update payment record to reflect refund
+                            transaction_id = payment_details.get("transaction_id", "")
+                            if transaction_id:
+                                update_booking_payment_details(
+                                    transaction_id,
+                                    {
+                                        "code": "BOOKING_FAILED_REFUNDED",
+                                        "message": "Supplier booking failed; payment refunded",
+                                        "transaction_details": {
+                                            "refund_status": "refunded",
+                                            "refund_id": refund_result.get("refund_id"),
+                                            "refund_amount": float(refund_amount),
+                                            "airiq_error": processor.last_error_message,
+                                            "refund_data": refund_result,
+                                        },
+                                    },
+                                )
+                            
+                            logger.warning(
+                                f"Booking {booking_id} refunded due to AirIQ booking failure"
+                            )
+                            return False
+                        else:
+                            # Refund failed - log error but don't fail the transaction
+                            logger.error(
+                                f"Razorpay refund failed for booking {booking_id}: {refund_result.get('error')}"
+                            )
+                            
+                            # Mark booking as failed and payment for manual refund
+                            booking.status = "failed"
+                            booking.save(update_fields=["status"])
+                            
+                            transaction_id = payment_details.get("transaction_id", "")
+                            if transaction_id:
+                                update_booking_payment_details(
+                                    transaction_id,
+                                    {
+                                        "code": "BOOKING_FAILED_REFUND_REQUIRED",
+                                        "message": "Supplier booking failed; manual refund required",
+                                        "transaction_details": {
+                                            "refund_status": "refund_failed",
+                                            "refund_error": refund_result.get("error"),
+                                            "airiq_error": processor.last_error_message,
+                                            "refund_required": True,
+                                        },
+                                    },
+                                )
+                            
+                            return False
+                            
+                    except Exception as refund_error:
+                        logger.error(
+                            f"Error processing Razorpay refund for booking {booking_id}: {str(refund_error)}"
+                        )
+                        # Mark booking as failed
+                        booking.status = "failed"
+                        booking.save(update_fields=["status"])
+                        return False
+                else:
+                    # Payment method is not Razorpay or payment_id not available
+                    logger.warning(
+                        f"AirIQ booking failed for booking {booking_id}, but payment method ({payment_medium}) doesn't support automatic refund or payment_id missing"
+                    )
+                    # Mark booking as failed - manual refund required
+                    booking.status = "failed"
+                    booking.save(update_fields=["status"])
+                    
+                    transaction_id = payment_details.get("transaction_id", "")
+                    if transaction_id:
+                        from apps.booking.utils.db_utils import update_booking_payment_details
+                        update_booking_payment_details(
+                            transaction_id,
+                            {
+                                "code": "BOOKING_FAILED_REFUND_REQUIRED",
+                                "message": "Supplier booking failed; manual refund required",
+                                "transaction_details": {
+                                    "airiq_error": processor.last_error_message,
+                                    "refund_required": True,
+                                },
+                            },
+                        )
+                    
+                    return False
 
-            # Send notifications
+            # Send notifications only on confirmed booking
             processor._send_booking_notifications()
 
         logger.info(
@@ -2169,6 +2434,7 @@ def get_flight_payment_methods(user=None) -> list:
     payment_methods = [
         {"code": "PHONE PAY", "name": "PhonePe", "type": "gateway", "enabled": True},
         {"code": "PAYU", "name": "PayU", "type": "gateway", "enabled": True},
+        {"code": "RAZORPAY", "name": "Razorpay", "type": "gateway", "enabled": True},
     ]
 
     # Add wallet option if user has sufficient balance

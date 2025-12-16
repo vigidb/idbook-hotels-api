@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Razorpay Payment Test - IDBook</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .info-box strong {
+            color: #333;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+        
+        .order-details {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+        
+        .order-details h3 {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .order-details p {
+            margin: 5px 0;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💳 Razorpay Payment Test</h1>
+            <p>Test Razorpay payment integration</p>
+        </div>
+        
+        <div class="info-box">
+            <strong>Test Card Details:</strong><br>
+            Card: <strong>4111 1111 1111 1111</strong><br>
+            CVV: <strong>123</strong><br>
+            Expiry: <strong>12/25</strong> (any future date)
+        </div>
+        
+        <form id="paymentForm">
+        {% csrf_token %}
+            <div class="form-group">
+                <label for="order_id">Order ID *</label>
+                <input 
+                    type="text" 
+                    id="order_id" 
+                    name="order_id" 
+                    placeholder="order_RsHGQcVkYxisLT"
+                    value="{{ order_id|default:'' }}"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="razorpay_key">Razorpay Key ID *</label>
+                <input 
+                    type="text" 
+                    id="razorpay_key" 
+                    name="razorpay_key" 
+                    placeholder="rzp_test_xxxxx"
+                    value="{{ razorpay_key|default:'' }}"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="amount">Amount (in paise) *</label>
+                <input 
+                    type="number" 
+                    id="amount" 
+                    name="amount" 
+                    placeholder="197300"
+                    value="{{ amount|default:'' }}"
+                    min="1"
+                    step="1"
+                    autocomplete="off"
+                    required
+                >
+                <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                    Enter amount in paise (e.g., 197300 for ₹1973.00)
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="name">Name</label>
+                <input 
+                    type="text" 
+                    id="name" 
+                    name="name" 
+                    placeholder="Test User"
+                    value="{{ name|default:'' }}"
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input 
+                    type="text" 
+                    id="email" 
+                    name="email" 
+                    placeholder="test@example.com"
+                    value="{{ email|default:'' }}"
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="contact">Contact</label>
+                <input 
+                    type="text" 
+                    id="contact" 
+                    name="contact" 
+                    placeholder="9876543210"
+                    value="{{ contact|default:'' }}"
+                >
+            </div>
+            
+            <button type="submit" class="btn" id="payBtn">Pay Now</button>
+        </form>
+        
+        <div id="status" class="status"></div>
+        
+        {% if order_details %}
+        <div class="order-details">
+            <h3>Order Details</h3>
+            <p><strong>Order ID:</strong> {{ order_details.order_id }}</p>
+            <p><strong>Amount:</strong> ₹{{ order_details.amount|floatformat:2 }}</p>
+            <p><strong>Currency:</strong> {{ order_details.currency }}</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    <script>
+        // Clear any invalid values on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const amountField = document.getElementById('amount');
+            if (amountField) {
+                const value = amountField.value.trim();
+                // If value is not a number, clear it
+                if (value && isNaN(parseInt(value))) {
+                    console.warn('Invalid amount value detected:', value);
+                    amountField.value = '';
+                }
+                // Focus on amount field if it's empty
+                if (!value && document.getElementById('order_id').value) {
+                    amountField.focus();
+                }
+            }
+        });
+        
+        document.getElementById('paymentForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const orderId = document.getElementById('order_id').value.trim();
+            const razorpayKey = document.getElementById('razorpay_key').value.trim();
+            const amountStr = document.getElementById('amount').value.trim();
+            const name = document.getElementById('name').value.trim() || 'Test User';
+            const email = document.getElementById('email').value.trim() || 'test@example.com';
+            const contact = document.getElementById('contact').value.trim() || '9876543210';
+            
+            // Validate required fields
+            if (!orderId) {
+                showStatus('Please enter Order ID', 'error');
+                return;
+            }
+            
+            if (!razorpayKey) {
+                showStatus('Please enter Razorpay Key ID', 'error');
+                return;
+            }
+            
+            if (!amountStr || amountStr.trim() === '') {
+                showStatus('Please enter Amount (in paise)', 'error');
+                document.getElementById('amount').focus();
+                return;
+            }
+            
+            // Check if amount contains non-numeric characters
+            if (!/^\d+$/.test(amountStr)) {
+                showStatus('Amount must be a number only. Please remove any text. Current value: "' + amountStr + '"', 'error');
+                document.getElementById('amount').focus();
+                document.getElementById('amount').select();
+                return;
+            }
+            
+            const amount = parseInt(amountStr);
+            if (isNaN(amount) || amount <= 0) {
+                showStatus('Please enter a valid amount (must be a positive number). Current value: "' + amountStr + '"', 'error');
+                document.getElementById('amount').focus();
+                document.getElementById('amount').select();
+                return;
+            }
+            
+            // Log values for debugging
+            console.log('Form values:', {
+                orderId: orderId,
+                razorpayKey: razorpayKey,
+                amount: amount,
+                amountStr: amountStr,
+                name: name,
+                email: email,
+                contact: contact
+            });
+            
+            const payBtn = document.getElementById('payBtn');
+            payBtn.disabled = true;
+            payBtn.textContent = 'Processing...';
+            
+            // Razorpay options
+            const options = {
+                "key": razorpayKey,
+                "amount": amount,
+                "currency": "INR",
+                "name": "IDBook Hotels",
+                "description": "Test Payment",
+                "order_id": orderId,
+                "handler": function (response) {
+                    // Payment successful - show payment data for testing verify API
+                    showPaymentData(response);
+                },
+                "prefill": {
+                    "name": name,
+                    "email": email,
+                    "contact": contact
+                },
+                "theme": {
+                    "color": "#667eea"
+                },
+                "modal": {
+                    "ondismiss": function() {
+                        payBtn.disabled = false;
+                        payBtn.textContent = 'Pay Now';
+                        showStatus('Payment cancelled', 'info');
+                    }
+                }
+            };
+            
+            const rzp = new Razorpay(options);
+            rzp.open();
+        });
+        
+        function showPaymentData(response) {
+            const payBtn = document.getElementById('payBtn');
+            payBtn.disabled = false;
+            payBtn.textContent = 'Pay Now';
+            
+            // Create payment data for verify API
+            const paymentData = {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+            };
+            
+            // Show success message with payment data
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status success';
+            statusDiv.innerHTML = `
+                <strong>✅ Payment Successful!</strong><br><br>
+                <strong>Use this data to test the Verify API:</strong><br><br>
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px; font-family: monospace; font-size: 12px; text-align: left; max-height: 400px; overflow-y: auto;">
+                    <strong>Endpoint:</strong><br>
+                    <code style="background: #f5f5f5; padding: 5px 10px; border-radius: 4px; display: inline-block; margin: 5px 0;">POST ${window.location.origin}/api/v1/booking/payment/razorpay/verify/</code><br><br>
+                    <strong>Request Body:</strong><br>
+                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(paymentData, null, 2)}</pre>
+                </div>
+                <button onclick="testVerifyAPI()" class="btn" style="margin-top: 15px; background: #28a745; font-size: 14px; padding: 10px;">Test Verify API (Optional)</button>
+            `;
+            statusDiv.style.display = 'block';
+            
+            // Store payment data globally for verify function
+            window.paymentData = paymentData;
+            
+            console.log('✅ Payment Response from Razorpay:', response);
+            console.log('📋 Payment Data for Verify API:', paymentData);
+        }
+        
+        function testVerifyAPI() {
+            if (!window.paymentData) {
+                showStatus('No payment data available', 'error');
+                return;
+            }
+            
+            const verifyUrl = window.location.origin + '/api/v1/booking/payment/razorpay/verify/';
+            const statusDiv = document.getElementById('status');
+            
+            // Show loading state
+            statusDiv.className = 'status info';
+            statusDiv.innerHTML = '🔄 Verifying payment...';
+            statusDiv.style.display = 'block';
+            
+            // Get CSRF token from form or cookie
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken');
+            
+            fetch(verifyUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(window.paymentData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = `
+                        <strong>✅ Payment Verified and Booking Confirmed!</strong><br><br>
+                        <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px; font-family: monospace; font-size: 12px; text-align: left; max-height: 400px; overflow-y: auto;">
+                            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 0; white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                    console.log('✅ Verification Response:', data);
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = `
+                        <strong>❌ Payment Verification Failed</strong><br><br>
+                        <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px; font-family: monospace; font-size: 12px; text-align: left;">
+                            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 0; white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                    console.error('❌ Verification Error:', data);
+                }
+            })
+            .catch(error => {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `
+                    <strong>❌ Error Verifying Payment</strong><br><br>
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        ${error.message}
+                    </div>
+                `;
+                console.error('❌ Error:', error);
+            });
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status ' + type;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            
+            // Auto-hide success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>
+

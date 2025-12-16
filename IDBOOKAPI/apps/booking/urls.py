@@ -3,6 +3,7 @@ from rest_framework import routers
 from apps.booking.viewsets import *
 from apps.booking.subviews import payment_viewset, related_viewset, flight_viewset
 from apps.booking.subviews.enhanced_flight_viewset import EnhancedFlightBookingViewSet
+from apps.booking.views import RazorpayPaymentPageView
 
 router = routers.DefaultRouter()
 
@@ -27,4 +28,11 @@ router.register(
     basename="legacy-flight-bookings",
 )
 
-urlpatterns = []
+urlpatterns = [
+    # Razorpay payment test page
+    path(
+        "razorpay-payment/",
+        RazorpayPaymentPageView.as_view(),
+        name="razorpay-payment-page",
+    ),
+] + router.urls

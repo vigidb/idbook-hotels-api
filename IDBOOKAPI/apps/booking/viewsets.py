@@ -4,6 +4,8 @@ from rest_framework import viewsets
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import views, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from apps.booking.permissions import BookingRetrievePermission
 from apps.booking.authentication import BookingAuthentication
@@ -112,6 +114,7 @@ from apps.hotels.models import Property, MonthlyPayAtHotelEligibility
 from apps.coupons.utils.db_utils import get_coupon_from_code
 from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
 from apps.log_management.utils.db_utils import (
     create_booking_payment_log,
     create_booking_refund_log,
@@ -4239,7 +4242,10 @@ class AppliedCouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
 
 class BookingPaymentDetailViewSet(
-    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, PhonePayMixin
+    viewsets.ModelViewSet,
+    StandardResponseMixin,
+    LoggingMixin,
+    PhonePayMixin,
 ):
     queryset = BookingPaymentDetail.objects.all()
     serializer_class = BookingPaymentDetailSerializer
@@ -4628,8 +4634,128 @@ class BookingPaymentDetailViewSet(
                     print(f"Payment failed SMS scheduled for booking {booking_id}")
                     return custom_response
 
+            elif payment_channel == "RAZORPAY":
+                try:
+                    razorpay_mixin = RazorpayMixin()
+
+                    # Prepare notes for Razorpay order
+                    notes = {
+                        "booking_id": str(booking.id),
+                        "booking_type": booking.booking_type,
+                        "merchant_transaction_id": merchant_transaction_id,
+                    }
+
+                    if booking.booking_type == "HOTEL" and booking.hotel_booking:
+                        notes.update(
+                            {
+                                "hotel_booking_id": str(booking.hotel_booking.id),
+                                "property_id": (
+                                    str(booking.hotel_booking.confirmed_property_id)
+                                    if booking.hotel_booking.confirmed_property_id
+                                    else ""
+                                ),
+                            }
+                        )
+
+                    # Create Razorpay order
+                    order_result = razorpay_mixin.create_razorpay_order(
+                        amount=float(amount),
+                        currency="INR",
+                        receipt=merchant_transaction_id,
+                        notes=notes,
+                    )
+
+                    if not order_result.get("success"):
+                        booking_payment_log["response"] = {
+                            "error": order_result.get("error", "Failed to create Razorpay order")
+                        }
+                        custom_response = self.get_error_response(
+                            message=order_result.get("error", "Failed to create Razorpay order"),
+                            status="error",
+                            errors=[],
+                            error_code=order_result.get("error_code", "RAZORPAY_ORDER_ERROR"),
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                        create_booking_payment_log(booking_payment_log)
+                        return custom_response
+
+                    # Store Razorpay order in database
+                    from apps.payment_gateways.models import RazorpayOrder
+                    from django.utils import timezone as tz
+
+                    razorpay_order = RazorpayOrder.objects.create(
+                        user=user,
+                        booking=booking,
+                        rp_id=order_result["order_id"],
+                        entity="order",
+                        amount=order_result["amount"],  # Amount in paise
+                        amount_due=order_result["amount"],
+                        currency=order_result["currency"],
+                        receipt=merchant_transaction_id,
+                        status=order_result["status"],
+                        notes=notes,
+                        created_at=str(int(tz.now().timestamp())),
+                    )
+
+                    # Update payment detail
+                    booking_payment_detail.amount = float(amount)
+                    booking_payment_detail.payment_type = "PAYMENT GATEWAY"
+                    booking_payment_detail.payment_medium = "RAZORPAY"
+                    booking_payment_detail.code = "PAYMENT_INITIATED"
+                    booking_payment_detail.message = "Payment initiated via Razorpay"
+                    booking_payment_detail.transaction_details = {
+                        "razorpay_order_id": order_result["order_id"],
+                        "razorpay_order_status": order_result["status"],
+                    }
+                    booking_payment_detail.save()
+
+                    # Get Razorpay public key for frontend
+                    razorpay_key = getattr(settings, "RAZORPAY_KEY_ID", "")
+
+                    # Prepare response data
+                    response_data = {
+                        "order_id": order_result["order_id"],
+                        "razorpay_key": razorpay_key,
+                        "amount": order_result["amount"],  # Amount in paise
+                        "currency": order_result["currency"],
+                        "name": user.first_name if user else "Guest",
+                        "email": user.email if user else "",
+                        "contact": (
+                            user.mobile_number
+                            if user and hasattr(user, "mobile_number")
+                            else ""
+                        ),
+                        "redirect_url": redirect_url,
+                    }
+
+                    booking_payment_log["response"] = response_data
+                    booking_payment_log["razorpay_order_id"] = order_result["order_id"]
+
+                    custom_response = self.get_response(
+                        status="success",
+                        count=1,
+                        data=response_data,
+                        message="Razorpay payment order created successfully",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    create_booking_payment_log(booking_payment_log)
+                    return custom_response
+
+                except Exception as e:
+                    print(traceback.format_exc())
+                    booking_payment_log["response"] = {"error": str(e)}
+                    custom_response = self.get_error_response(
+                        message=f"Razorpay payment initiation failed: {str(e)}",
+                        status="error",
+                        errors=[],
+                        error_code="RAZORPAY_INITIATION_ERROR",
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                    create_booking_payment_log(booking_payment_log)
+                    return custom_response
+
             custom_response = self.get_error_response(
-                message="Invalid option",
+                message="Invalid payment channel",
                 status="error",
                 errors=[],
                 error_code="VALIDATION_ERROR",
@@ -4648,6 +4774,379 @@ class BookingPaymentDetailViewSet(
             )
             create_booking_payment_log(booking_payment_log)
             return custom_response
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="razorpay/verify",
+        url_name="razorpay-verify",
+        permission_classes=[],
+    )
+    def razorpay_verify_payment(self, request):
+        """Verify Razorpay payment and confirm booking"""
+
+        try:
+            self.log_request(request)
+
+            razorpay_order_id = request.data.get("razorpay_order_id")
+            razorpay_payment_id = request.data.get("razorpay_payment_id")
+            razorpay_signature = request.data.get("razorpay_signature")
+
+            if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+                return self.get_error_response(
+                    message="Missing required fields: razorpay_order_id, razorpay_payment_id, razorpay_signature",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Initialize Razorpay mixin
+            razorpay_mixin = RazorpayMixin()
+
+            # Verify payment signature
+            is_valid = razorpay_mixin.verify_payment_signature(
+                razorpay_order_id, razorpay_payment_id, razorpay_signature
+            )
+
+            if not is_valid:
+                return self.get_error_response(
+                    message="Invalid payment signature",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_SIGNATURE",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get payment details from Razorpay
+            payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+
+            if not payment_result.get("success"):
+                return self.get_error_response(
+                    message=payment_result.get("error", "Failed to fetch payment details"),
+                    status="error",
+                    errors=[],
+                    error_code=payment_result.get("error_code", "PAYMENT_FETCH_ERROR"),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_data = payment_result["payment"]
+
+            # Check if payment is successful
+            if payment_data.get("status") != "captured":
+                return self.get_error_response(
+                    message=f"Payment not captured. Status: {payment_data.get('status')}",
+                    status="error",
+                    errors=[],
+                    error_code="PAYMENT_NOT_CAPTURED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get Razorpay order from database
+            from apps.payment_gateways.models import RazorpayOrder
+
+            try:
+                razorpay_order = RazorpayOrder.objects.get(rp_id=razorpay_order_id)
+            except RazorpayOrder.DoesNotExist:
+                return self.get_error_response(
+                    message="Razorpay order not found",
+                    status="error",
+                    errors=[],
+                    error_code="ORDER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            booking = razorpay_order.booking
+            if not booking:
+                return self.get_error_response(
+                    message="Booking not found for this order",
+                    status="error",
+                    errors=[],
+                    error_code="BOOKING_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Update Razorpay order with payment details
+            razorpay_order.payment_id = razorpay_payment_id
+            razorpay_order.payment_status = payment_data.get("status")
+            razorpay_order.status = "paid"
+            razorpay_order.save()
+
+            # Find the payment detail record
+            payment_details = booking.booking_payment.filter(
+                transaction_details__razorpay_order_id=razorpay_order_id
+            ).first()
+
+            if not payment_details:
+                # Try to find by merchant transaction id from notes
+                merchant_txn_id = razorpay_order.notes.get("merchant_transaction_id")
+                if merchant_txn_id:
+                    payment_details = booking.booking_payment.filter(
+                        merchant_transaction_id=merchant_txn_id
+                    ).first()
+
+            if payment_details:
+                # Update payment detail
+                amount_paid = float(payment_data.get("amount", 0)) / 100  # Convert from paise to rupees
+                update_booking_payment_details(
+                    payment_details.merchant_transaction_id,
+                    {
+                        "transaction_id": razorpay_payment_id,
+                        "code": "PAYMENT_SUCCESS",
+                        "message": "Payment successful via Razorpay",
+                        "is_transaction_success": True,
+                        "transaction_details": {
+                            "razorpay_order_id": razorpay_order_id,
+                            "razorpay_payment_id": razorpay_payment_id,
+                            "razorpay_payment_status": payment_data.get("status"),
+                            "razorpay_payment_method": payment_data.get("method"),
+                        },
+                    },
+                )
+
+            # Handle booking confirmation based on booking type
+            if booking.booking_type == "FLIGHT":
+                # Use flight payment success handler
+                from apps.booking.utils.flight_payment_utils import (
+                    handle_flight_payment_success,
+                )
+
+                payment_details_dict = {
+                    "amount": float(payment_data.get("amount", 0)) / 100,
+                    "transaction_id": razorpay_payment_id,
+                    "payment_method": "RAZORPAY",
+                    "payment_medium": "RAZORPAY",
+                    "razorpay_order_id": razorpay_order_id,
+                    "razorpay_payment_id": razorpay_payment_id,
+                }
+
+                success = handle_flight_payment_success(booking.id, payment_details_dict)
+
+                if success:
+                    return self.get_response(
+                        status="success",
+                        data={
+                            "booking_id": booking.id,
+                            "payment_id": razorpay_payment_id,
+                            "order_id": razorpay_order_id,
+                            "status": "confirmed",
+                        },
+                        message="Payment verified and booking confirmed",
+                        status_code=status.HTTP_200_OK,
+                    )
+                else:
+                    # Booking failed or refund initiated
+                    # Refresh booking to get latest status
+                    booking.refresh_from_db()
+                    
+                    # Check if refund was initiated
+                    if payment_details:
+                        payment_details.refresh_from_db()
+                        refund_info = payment_details.transaction_details.get("refund_status") if payment_details.transaction_details else None
+                        
+                        if refund_info == "refunded":
+                            return self.get_response(
+                                status="error",
+                                data={
+                                    "booking_id": booking.id,
+                                    "payment_id": razorpay_payment_id,
+                                    "order_id": razorpay_order_id,
+                                    "status": booking.status,
+                                    "refund_status": "refunded",
+                                    "refund_id": payment_details.transaction_details.get("refund_id"),
+                                },
+                                message="AirIQ booking failed. Payment has been refunded.",
+                                status_code=status.HTTP_200_OK,
+                            )
+                        elif refund_info == "refund_failed" or payment_details.transaction_details.get("refund_required"):
+                            return self.get_response(
+                                status="error",
+                                data={
+                                    "booking_id": booking.id,
+                                    "payment_id": razorpay_payment_id,
+                                    "order_id": razorpay_order_id,
+                                    "status": booking.status,
+                                    "refund_status": "refund_required",
+                                },
+                                message="AirIQ booking failed. Manual refund required. Please contact support.",
+                                status_code=status.HTTP_200_OK,
+                            )
+                    
+                    return self.get_error_response(
+                        message="AirIQ booking failed after payment verification",
+                        status="error",
+                        errors=[],
+                        error_code="AIRIQ_BOOKING_FAILED",
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
+            else:
+                # For hotel and other booking types, use standard confirmation
+                amount_paid = float(payment_data.get("amount", 0)) / 100
+                self.set_booking_as_confirmed(booking.id, amount_paid)
+
+                return self.get_response(
+                    status="success",
+                    data={
+                        "booking_id": booking.id,
+                        "payment_id": razorpay_payment_id,
+                        "order_id": razorpay_order_id,
+                        "status": "confirmed",
+                    },
+                    message="Payment verified and booking confirmed",
+                    status_code=status.HTTP_200_OK,
+                )
+
+        except Exception as e:
+            logger.error(f"Razorpay payment verification error: {str(e)}")
+            print(traceback.format_exc())
+            return self.get_error_response(
+                message=f"Payment verification failed: {str(e)}",
+                status="error",
+                errors=[],
+                error_code="VERIFICATION_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="razorpay/webhook",
+        url_name="razorpay-webhook",
+        permission_classes=[],
+    )
+    def razorpay_webhook(self, request):
+        """Handle Razorpay webhook events"""
+
+        try:
+            # Get webhook signature from header
+            webhook_signature = request.headers.get("X-Razorpay-Signature", "")
+
+            # Get raw request body for signature verification
+            import json
+
+            payload = request.body.decode("utf-8")
+            webhook_data = json.loads(payload)
+
+            # Verify webhook signature
+            razorpay_mixin = RazorpayMixin()
+            is_valid = razorpay_mixin.verify_webhook_signature(payload, webhook_signature)
+
+            if not is_valid:
+                logger.warning("Invalid Razorpay webhook signature")
+                return Response(
+                    {"error": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Process webhook event
+            event = webhook_data.get("event")
+            payload_data = webhook_data.get("payload", {})
+
+            if event == "payment.captured":
+                payment_entity = payload_data.get("payment", {}).get("entity", {})
+                payment_id = payment_entity.get("id")
+                order_id = payment_entity.get("order_id")
+                payment_status = payment_entity.get("status")
+
+                if payment_status == "captured":
+                    # Find the Razorpay order
+                    from apps.payment_gateways.models import RazorpayOrder
+
+                    try:
+                        razorpay_order = RazorpayOrder.objects.get(rp_id=order_id)
+                        booking = razorpay_order.booking
+
+                        if booking and not booking.status == "confirmed":
+                            # Update payment status
+                            razorpay_order.payment_id = payment_id
+                            razorpay_order.payment_status = payment_status
+                            razorpay_order.status = "paid"
+                            razorpay_order.save()
+
+                            # Update booking payment detail
+                            payment_details = booking.booking_payment.filter(
+                                transaction_details__razorpay_order_id=order_id
+                            ).first()
+
+                            if payment_details:
+                                update_booking_payment_details(
+                                    payment_details.merchant_transaction_id,
+                                    {
+                                        "transaction_id": payment_id,
+                                        "code": "PAYMENT_SUCCESS",
+                                        "message": "Payment captured via Razorpay webhook",
+                                        "is_transaction_success": True,
+                                    },
+                                )
+
+                            # Confirm booking if not already confirmed
+                            if booking.booking_type == "FLIGHT":
+                                from apps.booking.utils.flight_payment_utils import (
+                                    handle_flight_payment_success,
+                                )
+
+                                amount = float(payment_entity.get("amount", 0)) / 100
+                                payment_details_dict = {
+                                    "amount": amount,
+                                    "transaction_id": payment_id,
+                                    "payment_method": "RAZORPAY",
+                                    "payment_medium": "RAZORPAY",
+                                    "razorpay_order_id": order_id,
+                                    "razorpay_payment_id": payment_id,
+                                }
+                                handle_flight_payment_success(
+                                    booking.id, payment_details_dict
+                                )
+                            else:
+                                amount = float(payment_entity.get("amount", 0)) / 100
+                                self.set_booking_as_confirmed(booking.id, amount)
+
+                    except RazorpayOrder.DoesNotExist:
+                        logger.warning(f"Razorpay order not found: {order_id}")
+
+            elif event == "payment.failed":
+                payment_entity = payload_data.get("payment", {}).get("entity", {})
+                payment_id = payment_entity.get("id")
+                order_id = payment_entity.get("order_id")
+
+                # Update order status
+                from apps.payment_gateways.models import RazorpayOrder
+
+                try:
+                    razorpay_order = RazorpayOrder.objects.get(rp_id=order_id)
+                    razorpay_order.payment_id = payment_id
+                    razorpay_order.payment_status = "failed"
+                    razorpay_order.status = "failed"
+                    razorpay_order.save()
+
+                    # Update payment detail if exists
+                    booking = razorpay_order.booking
+                    if booking:
+                        payment_details = booking.booking_payment.filter(
+                            transaction_details__razorpay_order_id=order_id
+                        ).first()
+
+                        if payment_details:
+                            update_booking_payment_details(
+                                payment_details.merchant_transaction_id,
+                                {
+                                    "code": "PAYMENT_FAILED",
+                                    "message": "Payment failed via Razorpay",
+                                    "is_transaction_success": False,
+                                },
+                            )
+                except RazorpayOrder.DoesNotExist:
+                    logger.warning(f"Razorpay order not found: {order_id}")
+
+            # Return success response to Razorpay
+            return Response({"status": "success"}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Razorpay webhook error: {str(e)}")
+            print(traceback.format_exc())
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def set_booking_as_confirmed(self, booking_id, amount):
         booking = Booking.objects.get(id=booking_id)

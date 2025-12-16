@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "apps.flights",
     "apps.log_management",
     "apps.analytics",
+    "apps.payment_gateways",
 ]
 
 MIDDLEWARE = [
@@ -306,6 +307,11 @@ AIRIQ_AGENT_ID = env("AIRIQ_AGENT_ID", default="")
 AIRIQ_USERNAME = env("AIRIQ_USERNAME")
 AIRIQ_PASSWORD = env("AIRIQ_PASSWORD")
 AIRIQ_API_VERSION = env("AIRIQ_API_VERSION", default="2.0")
+
+# Razorpay Configuration
+RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID", default="")
+RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
+RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
 
 # PAGINATION_PAGE_SIZE = env_config("PAGINATION_PAGE_SIZE")
 # NDR_EMAIL_HOST_USER = env_config("NDR_EMAIL_HOST_USER")

@@ -20,6 +20,7 @@ from pyfcm import FCMNotification
 import razorpay
 from .serializers import *
 from IDBOOKAPI.settings import *
+from django.conf import settings as django_settings
 from .utils import WORKING_DAYS, SERVICE_CATEGORY_TYPE_CHOICES
 from .models import *
 
@@ -1291,9 +1292,9 @@ class PaymentGatewayViewSet(viewsets.ModelViewSet):
         for i in self.get_queryset():
             pgp = {
                 "RAZORPAY": {
-                    "key": razorpay_key,
-                    "secret": razorpay_secret,
-                    "mode": "test",
+                    "key": getattr(django_settings, "RAZORPAY_KEY_ID", ""),
+                    "secret": "",  # Never expose secret key
+                    "mode": "test" if getattr(django_settings, "DEBUG", False) else "live",
                 },
                 "CASHFREE": {
                     "key": cashfree_client_id,

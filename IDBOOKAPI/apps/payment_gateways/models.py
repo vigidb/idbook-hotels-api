@@ -1,82 +1,50 @@
-from datetime import timedelta
-from django.conf import settings
-from django.urls import reverse, reverse_lazy
 from django.db import models
-from django.db.models import Q
-from django.db.models.signals import pre_save, post_save
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
-from django.core.mail import send_mail
-from django.template.loader import get_template
-from django.utils import timezone
-from django.utils.text import slugify
-from rest_framework.authtoken.models import Token
-from django.core.validators import (
-    BaseValidator,
-    FileExtensionValidator,
-    URLValidator,
-    EmailValidator,
-    validate_slug,
-    RegexValidator,
-    MinValueValidator,
-    MaxValueValidator,
-)
-
-
-from .utils import (
-    unique_key_generator,
-    GENDER_CHOICES,
-    PAYMENT_STATUS_CHOICES,
-    KYC_STATUS_CHOICES,
-    EDUCATION_CHOICES,
-    KYC_DOCUMENT_CHOICES,
-    TXN_TYPE_CHOICES,
-    PAYMENT_METHOD_CHOICES,
-    SERVICE_CATEGORY_TYPE_CHOICES,
-    SERVICE_TYPE_CHOICES,
-    DEPOSIT_STATUS,
-    STATE_CHOICES,
-    ENQUIRY_CHOICES,
-    PAYMENT_GATEWAY_STATUS_CHOICE,
-    unique_referral_id_generator,
-    WORKING_DAYS,
-    APPOINTMENT_STATUS,
-    FCM_TOKEN_CHOICE,
-    USER_TYPE_CHOICE,
-)
-from .validators import (
-    get_filename,
-    validate_file_extension,
-    calculate_age,
-    MinAgeValidator,
-)
 
 
 class RazorpayOrder(models.Model):
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="razorpay_user"
+        "authentication.User", on_delete=models.CASCADE, related_name="razorpay_user"
     )
-    rp_id = models.CharField(max_length=250)
+    booking = models.ForeignKey(
+        "booking.Booking",
+        on_delete=models.CASCADE,
+        related_name="razorpay_orders",
+        null=True,
+        blank=True,
+    )
+    rp_id = models.CharField(max_length=250)  # Razorpay order ID
     entity = models.CharField(max_length=50)
-    amount = models.PositiveSmallIntegerField(default=0)
-    amount_due = models.PositiveSmallIntegerField(default=0)
-    currency = models.CharField(max_length=50)
-    receipt = models.CharField(max_length=50)
-    offer_id = models.CharField(max_length=50)
-    status = models.CharField(max_length=50)
+    amount = models.PositiveIntegerField(default=0)  # Amount in paise
+    amount_due = models.PositiveIntegerField(default=0)  # Amount due in paise
+    currency = models.CharField(max_length=50, default="INR")
+    receipt = models.CharField(max_length=50, blank=True, null=True)
+    offer_id = models.CharField(max_length=50, blank=True, null=True)
+    status = models.CharField(max_length=50)  # created, attempted, paid, etc.
+    payment_id = models.CharField(
+        max_length=250, blank=True, null=True
+    )  # Razorpay payment ID
+    payment_status = models.CharField(
+        max_length=50, blank=True, null=True
+    )  # captured, failed, etc.
     attempts = models.PositiveSmallIntegerField(default=0)
-    notes = models.TextField(blank=True, null=True)
-    created_at = models.CharField(max_length=50)
+    notes = models.JSONField(default=dict, blank=True, null=True)
+    created_at = models.CharField(max_length=50, blank=True, null=True)
 
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        app_label = "payment_gateways"
+        ordering = ["-created"]
+        db_table = "payment_gateways_razorpayorder"
+
     def __str__(self):
-        return str(self.user.email)
+        return f"RazorpayOrder {self.rp_id} - {self.user.email if self.user else 'No User'}"
 
 
 class RazorpayPayout(models.Model):
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="razorpay_payout_user"
+        "authentication.User", on_delete=models.CASCADE, related_name="razorpay_payout_user"
     )
     razorpay_customer_id = models.CharField(max_length=50, blank=True)
     razorpay_order_id = models.CharField(max_length=50, blank=True)
@@ -99,6 +67,10 @@ class RazorpayPayout(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        app_label = "payment_gateways"
+        db_table = "payment_gateways_razorpaypayout"
+
     def __str__(self):
         return str(self.user.email)
 
@@ -110,6 +82,10 @@ class PaymentGateway(models.Model):
     active = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "payment_gateways"
+        db_table = "payment_gateways_paymentgateway"
 
     def __str__(self):
         return str(self.provider)

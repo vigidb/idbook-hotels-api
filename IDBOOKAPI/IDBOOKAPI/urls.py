@@ -59,7 +59,7 @@ urlpatterns = [
     re_path("api/v1/holiday-package/", include(holiday_package_router.urls)),
     re_path("api/v1/customer/", include(customer_router.urls)),
     re_path("api/v1/coupons/", include(coupons_router.urls)),
-    re_path("api/v1/booking/", include(booking_router.urls)),
+    re_path("api/v1/booking/", include("apps.booking.urls")),
     re_path("api/v1/hotels/", include(hotels_router.urls)),
     re_path("api/v1/vehcile-management/", include(vehicle_router.urls)),
     re_path("api/v1/log-management/", include(log_router.urls)),
