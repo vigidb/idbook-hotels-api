@@ -675,9 +675,9 @@ class WalletViewSet(
                         "amount": order_result.get("amount"),  # Amount in paise
                         "currency": order_result.get("currency"),
                         "merchant_transaction_id": merchant_transaction_id,
-                        "name": user.name or user.email,
+                        "name": getattr(user, "name", None) or user.email,
                         "email": user.email,
-                        "contact": user.phone_number or "",
+                        "contact": getattr(user, "mobile_number", "") or "",
                         "redirect_url": redirect_url,
                     }
                     
