@@ -26,6 +26,15 @@ FLIGHT_API_DEBUG = bool(env("FLIGHT_API_DEBUG", default=False)) or False
 ALLOWED_HOSTS = [env("ALLOWED_HOSTS")]
 ENVIRONMENT = env("ENVIRONMENT")
 
+# Hotelier Notification Settings
+# Disable email and SMS notifications to hoteliers in non-production environments
+# to avoid disturbing hoteliers during testing/development
+# Set HOTELIER_NOTIFICATIONS_ENABLED=True in .env to enable, defaults based on ENVIRONMENT
+HOTELIER_NOTIFICATIONS_ENABLED = env.bool(
+    "HOTELIER_NOTIFICATIONS_ENABLED",
+    default=(ENVIRONMENT == "production")
+)
+
 IMAGEKIT_PRIVATE_KEY = env("IMAGEKIT_PRIVATE_KEY")
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
 IMAGEKIT_ENDPOINT = env("IMAGEKIT_ENDPOINT")

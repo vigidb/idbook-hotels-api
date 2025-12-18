@@ -27,6 +27,14 @@ def send_hotel_sms_task(self, notification_type="", params=None):
 
     print(f"Inside {notification_type} SMS task")
 
+    # Skip hotelier SMS notifications in non-production environments
+    if not settings.HOTELIER_NOTIFICATIONS_ENABLED:
+        print(
+            f"Skipping hotelier SMS notification ({notification_type}) - "
+            f"HOTELIER_NOTIFICATIONS_ENABLED is disabled for environment: {settings.ENVIRONMENT}"
+        )
+        return None
+
     try:
 
         def get_property_from_id(property_id):
@@ -182,6 +190,14 @@ def send_hotel_email_task(self, notification_type="", params=None):
     if params is None:
         params = {}
     print(f"Inside {notification_type} Email task")
+
+    # Skip hotelier email notifications in non-production environments
+    if not settings.HOTELIER_NOTIFICATIONS_ENABLED:
+        print(
+            f"Skipping hotelier email notification ({notification_type}) - "
+            f"HOTELIER_NOTIFICATIONS_ENABLED is disabled for environment: {settings.ENVIRONMENT}"
+        )
+        return None
 
     try:
         if notification_type == "HOTEL_PROPERTY_ACTIVATION":
@@ -446,6 +462,14 @@ def create_service_agreement_task(
 
 @celery_idbook.task(bind=True)
 def send_hotel_receipt_email_task(self, booking_id):
+    # Skip hotelier receipt email in non-production environments
+    if not settings.HOTELIER_NOTIFICATIONS_ENABLED:
+        print(
+            f"Skipping hotelier receipt email for booking {booking_id} - "
+            f"HOTELIER_NOTIFICATIONS_ENABLED is disabled for environment: {settings.ENVIRONMENT}"
+        )
+        return None
+
     try:
         booking = Booking.objects.get(id=booking_id)
         commission = booking.commission_info
