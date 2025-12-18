@@ -18,6 +18,7 @@ from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPe
 from IDBOOKAPI.utils import paginate_queryset, get_unique_id_from_time
 
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
 from apps.customer.utils.db_utils import (
     update_wallet_transaction,
     update_wallet_recharge_details,
@@ -26,6 +27,7 @@ from apps.customer.utils.db_utils import (
     add_user_wallet_amount,
 )
 from apps.log_management.utils.db_utils import create_wallet_payment_log
+from django.conf import settings
 
 from .serializers import (
     CustomerSerializer,
@@ -458,7 +460,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
 
 class WalletViewSet(
-    viewsets.ModelViewSet, PhonePayMixin, StandardResponseMixin, LoggingMixin
+    viewsets.ModelViewSet, PhonePayMixin, RazorpayMixin, StandardResponseMixin, LoggingMixin
 ):
     queryset = Wallet.objects.all()
     serializer_class = WalletSerializer
@@ -618,9 +620,94 @@ class WalletViewSet(
                     )
                     return custom_response
 
+            elif payment_channel == "RAZORPAY":
+                # Razorpay payment flow
+                try:
+                    razorpay_mixin = RazorpayMixin()
+                    
+                    # Prepare notes for Razorpay order
+                    notes = {
+                        "user_id": str(user.id),
+                        "merchant_transaction_id": merchant_transaction_id,
+                        "transaction_type": "wallet_recharge",
+                    }
+                    if company_id:
+                        notes["company_id"] = str(company_id)
+                    
+                    # Create Razorpay order
+                    order_result = razorpay_mixin.create_razorpay_order(
+                        amount=float(amount),
+                        currency="INR",
+                        receipt=merchant_transaction_id,
+                        notes=notes,
+                    )
+                    
+                    if not order_result.get("success"):
+                        payment_log["response"] = {
+                            "error": order_result.get("error", "Failed to create Razorpay order")
+                        }
+                        custom_response = self.get_error_response(
+                            message=order_result.get("error", "Failed to create Razorpay order"),
+                            status="error",
+                            errors=[],
+                            error_code="RAZORPAY_ORDER_ERROR",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                        create_wallet_payment_log(payment_log)
+                        return custom_response
+                    
+                    # Store Razorpay order details in wallet transaction
+                    razorpay_order_id = order_result.get("order_id")
+                    
+                    # Update wallet transaction with Razorpay order ID
+                    from apps.customer.models import WalletTransaction
+                    wallet_txn = WalletTransaction.objects.filter(
+                        transaction_id=merchant_transaction_id
+                    ).first()
+                    if wallet_txn:
+                        wallet_txn.transaction_details = f"Wallet recharge of {float(amount)} via RAZORPAY. Order ID: {razorpay_order_id}"
+                        wallet_txn.payment_medium = "RAZORPAY"
+                        wallet_txn.save()
+                    
+                    response_data = {
+                        "order_id": razorpay_order_id,
+                        "razorpay_key": settings.RAZORPAY_KEY_ID,
+                        "amount": order_result.get("amount"),  # Amount in paise
+                        "currency": order_result.get("currency"),
+                        "merchant_transaction_id": merchant_transaction_id,
+                        "name": user.name or user.email,
+                        "email": user.email,
+                        "contact": user.phone_number or "",
+                        "redirect_url": redirect_url,
+                    }
+                    
+                    payment_log["response"] = response_data
+                    custom_response = self.get_response(
+                        status="success",
+                        count=1,
+                        data=response_data,
+                        message="Razorpay payment order created successfully",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    create_wallet_payment_log(payment_log)
+                    return custom_response
+                    
+                except Exception as e:
+                    print(traceback.format_exc())
+                    payment_log["response"] = {"message": str(e)}
+                    custom_response = self.get_error_response(
+                        message=f"Razorpay payment initiation failed: {str(e)}",
+                        status="error",
+                        errors=[],
+                        error_code="RAZORPAY_INITIATION_ERROR",
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                    create_wallet_payment_log(payment_log)
+                    return custom_response
+
             else:
                 custom_response = self.get_error_response(
-                    message="Invalid option",
+                    message="Invalid payment channel. Use PHONE PAY or RAZORPAY",
                     status="error",
                     errors=[],
                     error_code="VALIDATION_ERROR",
@@ -640,6 +727,316 @@ class WalletViewSet(
             create_wallet_payment_log(payment_log)
 
             return custom_response
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="razorpay/verify",
+        url_name="razorpay-wallet-verify",
+        permission_classes=[AllowAny],
+    )
+    def razorpay_wallet_verify(self, request):
+        """Verify Razorpay payment for wallet recharge"""
+        try:
+            payment_log = {}
+            
+            razorpay_order_id = request.data.get("razorpay_order_id")
+            razorpay_payment_id = request.data.get("razorpay_payment_id")
+            razorpay_signature = request.data.get("razorpay_signature")
+            
+            if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+                return self.get_error_response(
+                    message="Missing required fields: razorpay_order_id, razorpay_payment_id, razorpay_signature",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            payment_log["razorpay_order_id"] = razorpay_order_id
+            payment_log["razorpay_payment_id"] = razorpay_payment_id
+            
+            razorpay_mixin = RazorpayMixin()
+            
+            # Verify signature
+            is_valid = razorpay_mixin.verify_payment_signature(
+                razorpay_order_id, razorpay_payment_id, razorpay_signature
+            )
+            
+            if not is_valid:
+                payment_log["response"] = {"error": "Invalid signature"}
+                create_wallet_payment_log(payment_log)
+                return self.get_error_response(
+                    message="Payment signature verification failed",
+                    status="error",
+                    errors=[],
+                    error_code="SIGNATURE_INVALID",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Get payment details from Razorpay
+            payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+            if not payment_result.get("success"):
+                payment_log["response"] = {"error": payment_result.get("error")}
+                create_wallet_payment_log(payment_log)
+                return self.get_error_response(
+                    message=f"Failed to fetch payment details: {payment_result.get('error')}",
+                    status="error",
+                    errors=[],
+                    error_code="PAYMENT_FETCH_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            payment_data = payment_result.get("payment", {})
+            payment_status = payment_data.get("status")
+            amount = float(payment_data.get("amount", 0)) / 100  # Convert from paise
+            
+            # Get merchant_transaction_id from order notes
+            order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+            if not order_result.get("success"):
+                payment_log["response"] = {"error": "Order not found"}
+                create_wallet_payment_log(payment_log)
+                return self.get_error_response(
+                    message="Razorpay order not found",
+                    status="error",
+                    errors=[],
+                    error_code="ORDER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+            order_data = order_result.get("order", {})
+            notes = order_data.get("notes", {})
+            merchant_transaction_id = notes.get("merchant_transaction_id")
+            user_id = notes.get("user_id")
+            company_id = notes.get("company_id")
+            
+            if company_id:
+                try:
+                    company_id = int(company_id)
+                except (ValueError, TypeError):
+                    company_id = None
+            
+            if user_id:
+                try:
+                    user_id = int(user_id)
+                except (ValueError, TypeError):
+                    user_id = None
+            
+            payment_log["merchant_transaction_id"] = merchant_transaction_id
+            
+            if payment_status == "captured":
+                # Payment successful - update wallet
+                payment_details = {
+                    "transaction_id": razorpay_payment_id,
+                    "code": "PAYMENT_SUCCESS",
+                    "transaction_details": f"Razorpay payment successful. Payment ID: {razorpay_payment_id}",
+                    "payment_type": "PAYMENT GATEWAY",
+                    "payment_medium": "RAZORPAY",
+                    "amount": amount,
+                    "is_transaction_success": True,
+                    "status": "Completed",
+                }
+                
+                # Update wallet transaction
+                update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                
+                # Recharge the wallet
+                update_wallet_recharge_details(user_id, company_id, amount)
+                
+                payment_log["response"] = {"success": True, "amount": amount}
+                create_wallet_payment_log(payment_log)
+                
+                # Send SMS notification
+                from apps.booking.tasks import send_booking_sms_task
+                if not company_id and user_id:
+                    send_booking_sms_task.apply_async(
+                        kwargs={
+                            "notification_type": "WALLET_RECHARGE_SUCCESS",
+                            "params": {
+                                "user_id": user_id,
+                                "recharge_amount": float(amount),
+                            },
+                        }
+                    )
+                
+                return self.get_response(
+                    status="success",
+                    data={
+                        "payment_id": razorpay_payment_id,
+                        "order_id": razorpay_order_id,
+                        "amount": amount,
+                        "status": "completed",
+                    },
+                    message="Wallet recharged successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                # Payment failed
+                payment_details = {
+                    "transaction_id": razorpay_payment_id,
+                    "code": "PAYMENT_FAILED",
+                    "transaction_details": f"Razorpay payment failed. Status: {payment_status}",
+                    "payment_type": "PAYMENT GATEWAY",
+                    "payment_medium": "RAZORPAY",
+                    "amount": amount,
+                    "is_transaction_success": False,
+                    "status": "Failed",
+                }
+                
+                update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                
+                payment_log["response"] = {"success": False, "status": payment_status}
+                create_wallet_payment_log(payment_log)
+                
+                return self.get_error_response(
+                    message=f"Payment failed with status: {payment_status}",
+                    status="error",
+                    errors=[],
+                    error_code="PAYMENT_FAILED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                
+        except Exception as e:
+            print(traceback.format_exc())
+            payment_log["response"] = {"error": str(e)}
+            create_wallet_payment_log(payment_log)
+            return self.get_error_response(
+                message=f"Payment verification failed: {str(e)}",
+                status="error",
+                errors=[],
+                error_code="VERIFICATION_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="razorpay/webhook",
+        url_name="razorpay-wallet-webhook",
+        permission_classes=[],
+    )
+    def razorpay_wallet_webhook(self, request):
+        """Handle Razorpay webhook for wallet recharge"""
+        try:
+            payment_log = {}
+            
+            # Get raw body for signature verification
+            raw_body = request.body
+            signature = request.META.get("HTTP_X_RAZORPAY_SIGNATURE", "")
+            
+            razorpay_mixin = RazorpayMixin()
+            
+            # Verify webhook signature
+            if signature and not razorpay_mixin.verify_webhook_signature(raw_body, signature):
+                payment_log["response"] = {"error": "Invalid webhook signature"}
+                create_wallet_payment_log(payment_log)
+                return self.get_error_response(
+                    message="Invalid webhook signature",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_SIGNATURE",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            payload = request.data
+            event = payload.get("event")
+            
+            payment_log["event"] = event
+            
+            if event == "payment.captured":
+                payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+                razorpay_payment_id = payment_entity.get("id")
+                razorpay_order_id = payment_entity.get("order_id")
+                amount = float(payment_entity.get("amount", 0)) / 100
+                
+                payment_log["razorpay_payment_id"] = razorpay_payment_id
+                payment_log["razorpay_order_id"] = razorpay_order_id
+                
+                # Get order details
+                order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+                if order_result.get("success"):
+                    order_data = order_result.get("order", {})
+                    notes = order_data.get("notes", {})
+                    
+                    # Only process if it's a wallet recharge transaction
+                    if notes.get("transaction_type") == "wallet_recharge":
+                        merchant_transaction_id = notes.get("merchant_transaction_id")
+                        user_id = notes.get("user_id")
+                        company_id = notes.get("company_id")
+                        
+                        if company_id:
+                            try:
+                                company_id = int(company_id)
+                            except (ValueError, TypeError):
+                                company_id = None
+                        
+                        if user_id:
+                            try:
+                                user_id = int(user_id)
+                            except (ValueError, TypeError):
+                                user_id = None
+                        
+                        # Update wallet transaction
+                        payment_details = {
+                            "transaction_id": razorpay_payment_id,
+                            "code": "PAYMENT_SUCCESS",
+                            "transaction_details": f"Razorpay webhook payment successful. Payment ID: {razorpay_payment_id}",
+                            "payment_type": "PAYMENT GATEWAY",
+                            "payment_medium": "RAZORPAY",
+                            "amount": amount,
+                            "is_transaction_success": True,
+                            "status": "Completed",
+                        }
+                        
+                        update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        update_wallet_recharge_details(user_id, company_id, amount)
+                        
+                        payment_log["response"] = {"success": True}
+                        create_wallet_payment_log(payment_log)
+            
+            elif event == "payment.failed":
+                payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+                razorpay_payment_id = payment_entity.get("id")
+                razorpay_order_id = payment_entity.get("order_id")
+                
+                # Get order details and update transaction as failed
+                order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+                if order_result.get("success"):
+                    order_data = order_result.get("order", {})
+                    notes = order_data.get("notes", {})
+                    
+                    if notes.get("transaction_type") == "wallet_recharge":
+                        merchant_transaction_id = notes.get("merchant_transaction_id")
+                        
+                        payment_details = {
+                            "transaction_id": razorpay_payment_id,
+                            "code": "PAYMENT_FAILED",
+                            "transaction_details": "Razorpay webhook payment failed",
+                            "is_transaction_success": False,
+                            "status": "Failed",
+                        }
+                        
+                        update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                
+                payment_log["response"] = {"success": False, "event": event}
+                create_wallet_payment_log(payment_log)
+            
+            return self.get_response(
+                status="success",
+                data={"received": True},
+                message="Webhook processed",
+                status_code=status.HTTP_200_OK,
+            )
+            
+        except Exception as e:
+            print(traceback.format_exc())
+            return self.get_error_response(
+                message=f"Webhook processing failed: {str(e)}",
+                status="error",
+                errors=[],
+                error_code="WEBHOOK_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(
         detail=False,

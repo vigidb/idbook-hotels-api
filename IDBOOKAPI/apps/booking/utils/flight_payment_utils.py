@@ -2871,6 +2871,200 @@ def handle_reschedule_phonepe_payment(
         }
 
 
+def handle_reschedule_razorpay_payment(
+    booking: Booking,
+    flight_booking: FlightBooking,
+    user,
+    reschedule_request: dict,
+    reschedule_response: dict,
+    payment_amount: Decimal,
+    request=None,
+) -> Dict:
+    """Handle Razorpay payment for reschedule: create order -> return details -> verify in callback"""
+    try:
+        from apps.booking.utils.db_utils import (
+            create_booking_payment_details,
+        )
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+        from apps.payment_gateways.models import RazorpayOrder
+        from django.conf import settings
+
+        # Create payment detail record
+        append_id = f"RS{user.id}" if user else "RSGUEST"
+        payment_detail = create_booking_payment_details(booking.id, append_id)
+        payment_detail.amount = float(payment_amount)
+        payment_detail.transaction_for = "others"
+
+        # Save reschedule request data (support both single and multi-PNR)
+        transaction_details = {
+            "reschedule_type": "reschedule",
+            "reschedule_response": reschedule_response,
+            "payment_method": "RAZORPAY",
+        }
+
+        # If multi-PNR, save the full structure; otherwise save single request
+        if reschedule_request.get("multi_pnr"):
+            transaction_details["multi_pnr"] = True
+            transaction_details["reschedule_requests"] = reschedule_request.get(
+                "reschedule_requests", []
+            )
+        else:
+            transaction_details["reschedule_request"] = reschedule_request
+
+        payment_detail.transaction_details = transaction_details
+        payment_detail.save()
+
+        # Create Razorpay order
+        razorpay_mixin = RazorpayMixin()
+        notes = {
+            "booking_id": str(booking.id),
+            "merchant_transaction_id": payment_detail.merchant_transaction_id,
+            "transaction_type": "reschedule_payment",
+            "user_id": str(user.id) if user else "",
+        }
+
+        order_result = razorpay_mixin.create_razorpay_order(
+            amount=float(payment_amount),
+            currency="INR",
+            receipt=payment_detail.merchant_transaction_id,
+            notes=notes,
+        )
+
+        if not order_result.get("success"):
+            return {
+                "success": False,
+                "error": order_result.get("error", "Failed to create Razorpay order"),
+                "error_code": "RAZORPAY_ORDER_ERROR",
+            }
+
+        # Store Razorpay order in database
+        razorpay_order_data = order_result.get("order", {})
+        RazorpayOrder.objects.create(
+            user=user,
+            booking=booking,
+            rp_id=razorpay_order_data.get("id"),
+            entity=razorpay_order_data.get("entity", "order"),
+            amount=razorpay_order_data.get("amount", 0),
+            amount_due=razorpay_order_data.get("amount_due", 0),
+            currency=razorpay_order_data.get("currency", "INR"),
+            receipt=razorpay_order_data.get("receipt"),
+            status=razorpay_order_data.get("status", "created"),
+            notes=notes,
+        )
+
+        # Update payment detail with Razorpay order info
+        payment_detail.transaction_details["razorpay_order_id"] = order_result.get("order_id")
+        payment_detail.save()
+
+        return {
+            "success": True,
+            "payment_method": "RAZORPAY",
+            "order_id": order_result.get("order_id"),
+            "razorpay_key": settings.RAZORPAY_KEY_ID,
+            "amount": order_result.get("amount"),
+            "currency": order_result.get("currency"),
+            "transaction_id": payment_detail.merchant_transaction_id,
+            "message": "Razorpay order created for reschedule payment",
+        }
+    except Exception as e:
+        logger.error(f"Reschedule Razorpay payment initiation error: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to initiate Razorpay payment: {str(e)}",
+            "error_code": "RAZORPAY_INITIATION_ERROR",
+        }
+
+
+def handle_ssr_razorpay_payment(
+    booking: Booking,
+    flight_booking: FlightBooking,
+    user,
+    ancillary_request: dict,
+    payment_amount: Decimal,
+    request=None,
+) -> Dict:
+    """Handle Razorpay payment for SSR: create order -> return details -> verify in callback"""
+    try:
+        from apps.booking.utils.db_utils import (
+            create_booking_payment_details,
+        )
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+        from apps.payment_gateways.models import RazorpayOrder
+        from django.conf import settings
+
+        # Create payment detail record
+        append_id = f"SSR{user.id}" if user else "SSRGUEST"
+        payment_detail = create_booking_payment_details(booking.id, append_id)
+        payment_detail.amount = float(payment_amount)
+        payment_detail.transaction_for = "others"
+        payment_detail.transaction_details = {
+            "ssr_type": "ancillary_services",
+            "ancillary_request": ancillary_request,
+            "payment_method": "RAZORPAY",
+        }
+        payment_detail.save()
+
+        # Create Razorpay order
+        razorpay_mixin = RazorpayMixin()
+        notes = {
+            "booking_id": str(booking.id),
+            "merchant_transaction_id": payment_detail.merchant_transaction_id,
+            "transaction_type": "ssr_payment",
+            "user_id": str(user.id) if user else "",
+        }
+
+        order_result = razorpay_mixin.create_razorpay_order(
+            amount=float(payment_amount),
+            currency="INR",
+            receipt=payment_detail.merchant_transaction_id,
+            notes=notes,
+        )
+
+        if not order_result.get("success"):
+            return {
+                "success": False,
+                "error": order_result.get("error", "Failed to create Razorpay order"),
+                "error_code": "RAZORPAY_ORDER_ERROR",
+            }
+
+        # Store Razorpay order in database
+        razorpay_order_data = order_result.get("order", {})
+        RazorpayOrder.objects.create(
+            user=user,
+            booking=booking,
+            rp_id=razorpay_order_data.get("id"),
+            entity=razorpay_order_data.get("entity", "order"),
+            amount=razorpay_order_data.get("amount", 0),
+            amount_due=razorpay_order_data.get("amount_due", 0),
+            currency=razorpay_order_data.get("currency", "INR"),
+            receipt=razorpay_order_data.get("receipt"),
+            status=razorpay_order_data.get("status", "created"),
+            notes=notes,
+        )
+
+        # Update payment detail with Razorpay order info
+        payment_detail.transaction_details["razorpay_order_id"] = order_result.get("order_id")
+        payment_detail.save()
+
+        return {
+            "success": True,
+            "payment_method": "RAZORPAY",
+            "order_id": order_result.get("order_id"),
+            "razorpay_key": settings.RAZORPAY_KEY_ID,
+            "amount": order_result.get("amount"),
+            "currency": order_result.get("currency"),
+            "transaction_id": payment_detail.merchant_transaction_id,
+            "message": "Razorpay order created for SSR payment",
+        }
+    except Exception as e:
+        logger.error(f"SSR Razorpay payment initiation error: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to initiate Razorpay payment: {str(e)}",
+            "error_code": "RAZORPAY_INITIATION_ERROR",
+        }
+
+
 def process_ssr_payment(
     booking: Booking,
     user,

@@ -31,6 +31,7 @@ from ..utils.flight_booking_utils import (
 from apps.flights.services.pricing_service import flight_pricing_service
 from apps.flights.services.airiq_service import airiq_service, AirIQException
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
+from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
 from apps.booking.utils.db_utils import (
     create_booking_payment_details,
     update_booking_payment_details,
@@ -976,9 +977,9 @@ class EnhancedFlightBookingViewSet(
 
             # Payment required - determine payment channel
             payment_channel = (request.data.get("payment_channel") or "WALLET").upper()
-            if payment_channel not in ("WALLET", "PHONE PAY"):
+            if payment_channel not in ("WALLET", "PHONE PAY", "RAZORPAY"):
                 return self.get_error_response(
-                    message="Unsupported payment_channel. Use WALLET or PHONE PAY",
+                    message="Unsupported payment_channel. Use WALLET, PHONE PAY, or RAZORPAY",
                     status="error",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
@@ -1000,6 +1001,12 @@ class EnhancedFlightBookingViewSet(
             # PHONE PAY flow: save request data -> initiate payment -> handle in callback
             if payment_channel == "PHONE PAY":
                 return self._handle_ssr_phonepe_payment(
+                    booking, flight_booking, ancillary_request, payment_amount, request
+                )
+
+            # RAZORPAY flow: create order -> return details -> verify in callback
+            if payment_channel == "RAZORPAY":
+                return self._handle_ssr_razorpay_payment(
                     booking, flight_booking, ancillary_request, payment_amount, request
                 )
         except AirIQException as e:
@@ -1278,6 +1285,53 @@ class EnhancedFlightBookingViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    def _handle_ssr_razorpay_payment(
+        self, booking, flight_booking, ancillary_request, payment_amount, request
+    ):
+        """Handle Razorpay payment for SSR: create order -> return details -> verify in callback"""
+        try:
+            from apps.booking.utils.flight_payment_utils import (
+                handle_ssr_razorpay_payment,
+            )
+
+            user = request.user
+            result = handle_ssr_razorpay_payment(
+                booking=booking,
+                flight_booking=flight_booking,
+                user=user,
+                ancillary_request=ancillary_request,
+                payment_amount=payment_amount,
+                request=request,
+            )
+
+            if not result.get("success"):
+                return self.get_error_response(
+                    message=result.get("error", "Failed to create Razorpay order"),
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            return self.get_response(
+                data={
+                    "payment_method": "RAZORPAY",
+                    "order_id": result.get("order_id"),
+                    "razorpay_key": result.get("razorpay_key"),
+                    "amount": result.get("amount"),
+                    "currency": result.get("currency"),
+                    "transaction_id": result.get("transaction_id"),
+                },
+                message="Razorpay order created for ancillary payment",
+                status="success",
+                status_code=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            self.log_error(f"SSR Razorpay payment initiation error: {str(e)}")
+            return self.get_error_response(
+                message=f"Failed to initiate Razorpay payment: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     @action(
         detail=False,
         methods=["post"],
@@ -1370,6 +1424,579 @@ class EnhancedFlightBookingViewSet(
             self.log_error(f"Reschedule PhonePe callback error: {str(e)}")
             return self.get_error_response(
                 message=f"Callback processing failed: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="razorpay/verify",
+        permission_classes=[AllowAny],
+    )
+    def razorpay_verify(self, request):
+        """
+        Verify Razorpay payment for flight bookings (ticket issuance, reschedule, SSR)
+        
+        This endpoint verifies the payment signature, fetches payment details,
+        and processes the appropriate action based on transaction type.
+        """
+        try:
+            razorpay_order_id = request.data.get("razorpay_order_id")
+            razorpay_payment_id = request.data.get("razorpay_payment_id")
+            razorpay_signature = request.data.get("razorpay_signature")
+
+            if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+                return self.get_error_response(
+                    message="Missing required fields: razorpay_order_id, razorpay_payment_id, razorpay_signature",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            razorpay_mixin = RazorpayMixin()
+
+            # Verify signature
+            is_valid = razorpay_mixin.verify_payment_signature(
+                razorpay_order_id, razorpay_payment_id, razorpay_signature
+            )
+
+            if not is_valid:
+                return self.get_error_response(
+                    message="Payment signature verification failed",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get payment details from Razorpay
+            payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+            if not payment_result.get("success"):
+                return self.get_error_response(
+                    message=f"Failed to fetch payment details: {payment_result.get('error')}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_data = payment_result.get("payment", {})
+            payment_status = payment_data.get("status")
+
+            if payment_status != "captured":
+                return self.get_error_response(
+                    message=f"Payment not captured. Status: {payment_status}",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            amount = float(payment_data.get("amount", 0)) / 100  # Convert from paise
+
+            # Get order details to determine transaction type
+            order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+            if not order_result.get("success"):
+                return self.get_error_response(
+                    message="Razorpay order not found",
+                    status="error",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            order_data = order_result.get("order", {})
+            notes = order_data.get("notes", {})
+            transaction_type = notes.get("transaction_type", "")
+            booking_id = notes.get("booking_id")
+            merchant_transaction_id = notes.get("merchant_transaction_id")
+
+            if not booking_id:
+                return self.get_error_response(
+                    message="Booking ID not found in order",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get booking
+            try:
+                booking = Booking.objects.get(id=booking_id)
+            except Booking.DoesNotExist:
+                return self.get_error_response(
+                    message="Booking not found",
+                    status="error",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Update RazorpayOrder
+            from apps.payment_gateways.models import RazorpayOrder
+            try:
+                razorpay_order = RazorpayOrder.objects.get(rp_id=razorpay_order_id)
+                razorpay_order.payment_id = razorpay_payment_id
+                razorpay_order.payment_status = payment_status
+                razorpay_order.status = "paid"
+                razorpay_order.save()
+            except RazorpayOrder.DoesNotExist:
+                pass
+
+            # Update payment detail
+            from apps.booking.utils.db_utils import update_booking_payment_details
+            if merchant_transaction_id:
+                update_booking_payment_details(
+                    merchant_transaction_id,
+                    {
+                        "transaction_id": razorpay_payment_id,
+                        "code": "PAYMENT_SUCCESS",
+                        "message": "Razorpay payment successful",
+                        "is_transaction_success": True,
+                        "payment_type": "PAYMENT GATEWAY",
+                        "payment_medium": "RAZORPAY",
+                        "amount": amount,
+                        "transaction_details": {
+                            "razorpay_order_id": razorpay_order_id,
+                            "razorpay_payment_id": razorpay_payment_id,
+                            "razorpay_payment_status": payment_status,
+                        },
+                    },
+                )
+
+            # Process based on transaction type
+            if transaction_type == "ticket_issuance_payment":
+                return self._process_ticket_issuance_after_razorpay(
+                    booking, amount, razorpay_payment_id, razorpay_order_id
+                )
+            elif transaction_type == "reschedule_payment":
+                return self._process_reschedule_after_razorpay(
+                    booking, merchant_transaction_id, amount, razorpay_payment_id, razorpay_order_id
+                )
+            elif transaction_type == "ssr_payment":
+                return self._process_ssr_after_razorpay(
+                    booking, merchant_transaction_id, amount, razorpay_payment_id, razorpay_order_id
+                )
+            else:
+                # Default: just update booking payment made
+                booking.total_payment_made = (booking.total_payment_made or Decimal("0")) + Decimal(str(amount))
+                booking.save(update_fields=["total_payment_made"])
+                
+                return self.get_response(
+                    data={
+                        "booking_id": booking.id,
+                        "payment_id": razorpay_payment_id,
+                        "order_id": razorpay_order_id,
+                        "amount": amount,
+                        "status": "verified",
+                    },
+                    message="Payment verified successfully",
+                    status="success",
+                    status_code=status.HTTP_200_OK,
+                )
+
+        except Exception as e:
+            logger.error(f"Razorpay flight payment verification error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return self.get_error_response(
+                message=f"Payment verification failed: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _process_ticket_issuance_after_razorpay(self, booking, amount, payment_id, order_id):
+        """Process ticket issuance after successful Razorpay payment"""
+        try:
+            flight_booking = booking.flight_booking
+            if not flight_booking:
+                return self.get_error_response(
+                    message="Flight booking not found",
+                    status="error",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Update booking payment
+            booking.total_payment_made = (booking.total_payment_made or Decimal("0")) + Decimal(str(amount))
+            booking.save(update_fields=["total_payment_made"])
+
+            # Check if booking is HELD and needs to issue ticket
+            if flight_booking.status in ["HELD", "CONFIRMED"]:
+                # Issue ticket via AirIQ
+                try:
+                    ticket_response = airiq_service.issue_ticket(
+                        booking_track_id=flight_booking.airiq_track_id,
+                        airiq_pnr=flight_booking.airiq_pnr,
+                        airline_pnr=flight_booking.airline_pnr,
+                        booking_amount=float(booking.final_amount),
+                    )
+
+                    # Update flight booking status
+                    flight_booking.status = "TICKETED"
+                    if "TicketNumbers" in ticket_response:
+                        flight_booking.ticket_numbers = ticket_response["TicketNumbers"]
+                    flight_booking.save()
+
+                    # Update booking status
+                    if booking.status != "confirmed":
+                        booking.status = "confirmed"
+                        booking.save(update_fields=["status"])
+
+                    return self.get_response(
+                        data={
+                            "booking_id": booking.id,
+                            "payment_id": payment_id,
+                            "order_id": order_id,
+                            "amount": amount,
+                            "ticket_status": "issued",
+                            "ticket_response": ticket_response,
+                        },
+                        message="Payment verified and ticket issued successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                except AirIQException as e:
+                    logger.error(f"AirIQ ticket issuance failed: {str(e)}")
+                    return self.get_error_response(
+                        message=f"Payment successful but ticket issuance failed: {str(e)}",
+                        status="error",
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                    )
+            else:
+                return self.get_response(
+                    data={
+                        "booking_id": booking.id,
+                        "payment_id": payment_id,
+                        "order_id": order_id,
+                        "amount": amount,
+                        "status": "verified",
+                    },
+                    message="Payment verified successfully",
+                    status="success",
+                    status_code=status.HTTP_200_OK,
+                )
+        except Exception as e:
+            logger.error(f"Error processing ticket issuance after Razorpay: {str(e)}")
+            return self.get_error_response(
+                message=f"Error processing ticket issuance: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _process_reschedule_after_razorpay(self, booking, merchant_transaction_id, amount, payment_id, order_id):
+        """Process reschedule confirmation after successful Razorpay payment"""
+        try:
+            from apps.booking.models import BookingPaymentDetail
+            from apps.booking.utils.flight_booking_utils import (
+                process_reschedule_success,
+                process_multi_pnr_reschedule_confirm,
+            )
+
+            flight_booking = booking.flight_booking
+            if not flight_booking:
+                return self.get_error_response(
+                    message="Flight booking not found",
+                    status="error",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Get payment detail for reschedule data
+            payment_detail = BookingPaymentDetail.objects.filter(
+                merchant_transaction_id=merchant_transaction_id
+            ).first()
+
+            if not payment_detail or not payment_detail.transaction_details:
+                return self.get_error_response(
+                    message="Reschedule request data not found",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            transaction_details = payment_detail.transaction_details
+
+            # Update booking payment
+            booking.total_payment_made = (booking.total_payment_made or Decimal("0")) + Decimal(str(amount))
+            booking.save(update_fields=["total_payment_made"])
+
+            # Call AirIQ CONFIRM
+            try:
+                if transaction_details.get("multi_pnr"):
+                    reschedule_requests = transaction_details.get("reschedule_requests", [])
+                    confirm_result = process_multi_pnr_reschedule_confirm(
+                        flight_booking=flight_booking,
+                        reschedule_requests=reschedule_requests,
+                        airiq_service=airiq_service,
+                        flag="CONFIRM",
+                    )
+
+                    if not confirm_result.get("responses"):
+                        return self.get_error_response(
+                            message=f"Reschedule confirmation failed: {confirm_result.get('errors', [])}",
+                            status="error",
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                        )
+
+                    # Update flight booking status
+                    flight_booking.status = "RESCHEDULED"
+                    flight_booking.save(update_fields=["status"])
+
+                    return self.get_response(
+                        data={
+                            "booking_id": booking.id,
+                            "payment_id": payment_id,
+                            "order_id": order_id,
+                            "amount": amount,
+                            "reschedule_status": "confirmed",
+                            "reschedule_response": confirm_result,
+                        },
+                        message="Payment verified and reschedule confirmed successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                else:
+                    reschedule_request = transaction_details.get("reschedule_request", {})
+                    confirm_result = airiq_service.reschedule_flight(
+                        track_id=reschedule_request.get("track_id"),
+                        flight_details=reschedule_request.get("flight_details"),
+                        contact_no=reschedule_request.get("contact_no"),
+                        remarks=reschedule_request.get("remarks", ""),
+                        flag="CONFIRM",
+                    )
+
+                    # Update flight booking status
+                    flight_booking.status = "RESCHEDULED"
+                    flight_booking.save(update_fields=["status"])
+
+                    return self.get_response(
+                        data={
+                            "booking_id": booking.id,
+                            "payment_id": payment_id,
+                            "order_id": order_id,
+                            "amount": amount,
+                            "reschedule_status": "confirmed",
+                            "reschedule_response": confirm_result,
+                        },
+                        message="Payment verified and reschedule confirmed successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+            except AirIQException as e:
+                logger.error(f"AirIQ reschedule confirmation failed: {str(e)}")
+                # Payment was successful, but reschedule failed - may need refund
+                return self.get_error_response(
+                    message=f"Payment successful but reschedule confirmation failed: {str(e)}. Refund may be required.",
+                    status="error",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                )
+        except Exception as e:
+            logger.error(f"Error processing reschedule after Razorpay: {str(e)}")
+            return self.get_error_response(
+                message=f"Error processing reschedule: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _process_ssr_after_razorpay(self, booking, merchant_transaction_id, amount, payment_id, order_id):
+        """Process SSR addition after successful Razorpay payment"""
+        try:
+            from apps.booking.models import BookingPaymentDetail
+            from apps.booking.utils.flight_booking_utils import process_ssr_success
+
+            flight_booking = booking.flight_booking
+            if not flight_booking:
+                return self.get_error_response(
+                    message="Flight booking not found",
+                    status="error",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Get payment detail for SSR data
+            payment_detail = BookingPaymentDetail.objects.filter(
+                merchant_transaction_id=merchant_transaction_id
+            ).first()
+
+            if not payment_detail or not payment_detail.transaction_details:
+                return self.get_error_response(
+                    message="SSR request data not found",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            transaction_details = payment_detail.transaction_details
+            ancillary_request = transaction_details.get("ancillary_request", {})
+
+            # Update booking payment
+            booking.total_payment_made = (booking.total_payment_made or Decimal("0")) + Decimal(str(amount))
+            booking.final_amount = (booking.final_amount or Decimal("0")) + Decimal(str(amount))
+            booking.save(update_fields=["total_payment_made", "final_amount"])
+
+            # Call AirIQ AddSSR
+            try:
+                airiq_resp = airiq_service.add_ssr_services(
+                    airiq_pnr=ancillary_request.get("AirIqPNR") or flight_booking.airiq_pnr,
+                    airline_pnr=ancillary_request.get("AirlinePNR") or flight_booking.airline_pnr,
+                    track_id=ancillary_request.get("TracKID") or flight_booking.airiq_track_id,
+                    meals_ssr=ancillary_request.get("MealsSSR") or [],
+                    baggage_ssr=ancillary_request.get("BaggSSR") or [],
+                    seats_ssr=ancillary_request.get("SeatsSSR") or [],
+                    other_ssr=ancillary_request.get("OtherSSR") or [],
+                    payment_amount=float(amount),
+                    remarks=ancillary_request.get("Remarks") or "",
+                )
+
+                # Process success
+                result = process_ssr_success(
+                    booking,
+                    flight_booking,
+                    airiq_resp,
+                    ancillary_request.get("MealsSSR") or [],
+                    ancillary_request.get("BaggSSR") or [],
+                    ancillary_request.get("SeatsSSR") or [],
+                    ancillary_request.get("OtherSSR") or [],
+                    Decimal(str(amount)),
+                )
+
+                return self.get_response(
+                    data={
+                        "booking_id": booking.id,
+                        "payment_id": payment_id,
+                        "order_id": order_id,
+                        "amount": amount,
+                        "ssr_status": "added",
+                        "ssr_response": result,
+                    },
+                    message="Payment verified and SSR added successfully",
+                    status="success",
+                    status_code=status.HTTP_200_OK,
+                )
+            except AirIQException as e:
+                logger.error(f"AirIQ SSR addition failed: {str(e)}")
+                # Payment was successful, but SSR failed - may need refund
+                return self.get_error_response(
+                    message=f"Payment successful but SSR addition failed: {str(e)}. Refund may be required.",
+                    status="error",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                )
+        except Exception as e:
+            logger.error(f"Error processing SSR after Razorpay: {str(e)}")
+            return self.get_error_response(
+                message=f"Error processing SSR: {str(e)}",
+                status="error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="razorpay/webhook",
+        permission_classes=[],
+    )
+    def razorpay_webhook(self, request):
+        """
+        Handle Razorpay webhook for flight payments
+        
+        Events handled:
+        - payment.captured: Payment successful
+        - payment.failed: Payment failed
+        """
+        try:
+            # Get raw body for signature verification
+            raw_body = request.body
+            signature = request.META.get("HTTP_X_RAZORPAY_SIGNATURE", "")
+
+            razorpay_mixin = RazorpayMixin()
+
+            # Verify webhook signature
+            if signature and not razorpay_mixin.verify_webhook_signature(raw_body, signature):
+                return self.get_error_response(
+                    message="Invalid webhook signature",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payload = request.data
+            event = payload.get("event")
+
+            if event == "payment.captured":
+                payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+                razorpay_payment_id = payment_entity.get("id")
+                razorpay_order_id = payment_entity.get("order_id")
+                amount = float(payment_entity.get("amount", 0)) / 100
+
+                # Get order details
+                order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+                if order_result.get("success"):
+                    order_data = order_result.get("order", {})
+                    notes = order_data.get("notes", {})
+                    transaction_type = notes.get("transaction_type", "")
+                    booking_id = notes.get("booking_id")
+                    merchant_transaction_id = notes.get("merchant_transaction_id")
+
+                    # Update RazorpayOrder
+                    from apps.payment_gateways.models import RazorpayOrder
+                    try:
+                        razorpay_order = RazorpayOrder.objects.get(rp_id=razorpay_order_id)
+                        razorpay_order.payment_id = razorpay_payment_id
+                        razorpay_order.payment_status = "captured"
+                        razorpay_order.status = "paid"
+                        razorpay_order.save()
+                    except RazorpayOrder.DoesNotExist:
+                        pass
+
+                    # Update payment detail
+                    from apps.booking.utils.db_utils import update_booking_payment_details
+                    if merchant_transaction_id:
+                        update_booking_payment_details(
+                            merchant_transaction_id,
+                            {
+                                "transaction_id": razorpay_payment_id,
+                                "code": "PAYMENT_SUCCESS",
+                                "message": "Razorpay webhook payment successful",
+                                "is_transaction_success": True,
+                                "payment_type": "PAYMENT GATEWAY",
+                                "payment_medium": "RAZORPAY",
+                                "amount": amount,
+                            },
+                        )
+
+                    logger.info(f"Razorpay webhook processed for order {razorpay_order_id}, type: {transaction_type}")
+
+            elif event == "payment.failed":
+                payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+                razorpay_payment_id = payment_entity.get("id")
+                razorpay_order_id = payment_entity.get("order_id")
+
+                # Update RazorpayOrder
+                from apps.payment_gateways.models import RazorpayOrder
+                try:
+                    razorpay_order = RazorpayOrder.objects.get(rp_id=razorpay_order_id)
+                    razorpay_order.payment_id = razorpay_payment_id
+                    razorpay_order.payment_status = "failed"
+                    razorpay_order.status = "failed"
+                    razorpay_order.save()
+                except RazorpayOrder.DoesNotExist:
+                    pass
+
+                # Get order details to update payment detail
+                order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+                if order_result.get("success"):
+                    order_data = order_result.get("order", {})
+                    notes = order_data.get("notes", {})
+                    merchant_transaction_id = notes.get("merchant_transaction_id")
+
+                    from apps.booking.utils.db_utils import update_booking_payment_details
+                    if merchant_transaction_id:
+                        update_booking_payment_details(
+                            merchant_transaction_id,
+                            {
+                                "transaction_id": razorpay_payment_id,
+                                "code": "PAYMENT_FAILED",
+                                "message": "Razorpay payment failed",
+                                "is_transaction_success": False,
+                            },
+                        )
+
+                logger.warning(f"Razorpay payment failed for order {razorpay_order_id}")
+
+            return self.get_response(
+                data={"received": True},
+                message="Webhook processed",
+                status="success",
+                status_code=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Razorpay flight webhook error: {str(e)}")
+            return self.get_error_response(
+                message=f"Webhook processing failed: {str(e)}",
                 status="error",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
@@ -4085,13 +4712,104 @@ class EnhancedFlightBookingViewSet(
                                 status_code=status.HTTP_400_BAD_REQUEST,
                             )
 
+                    # Handle Razorpay payment
+                    elif payment_method == "RAZORPAY":
+                        print("Processing Razorpay payment for ticket issuance")
+                        from apps.booking.utils.db_utils import (
+                            create_booking_payment_details,
+                        )
+                        from IDBOOKAPI.utils import get_unique_id_from_time
+
+                        booking_user = booking.user
+                        if not booking_user:
+                            return self.get_error_response(
+                                message="Booking user not found",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+
+                        # Create payment detail
+                        append_id = f"TKTRP{booking_user.id}"
+                        payment_detail = create_booking_payment_details(
+                            booking.id, append_id
+                        )
+                        payment_detail.amount = float(balance_due)
+                        payment_detail.transaction_details = {
+                            "transaction_type": "ticket_issuance_payment",
+                            "booking_id": booking_id,
+                            "flight_booking_id": flight_booking.id,
+                        }
+                        payment_detail.save()
+
+                        # Create Razorpay order
+                        razorpay_mixin = RazorpayMixin()
+                        notes = {
+                            "booking_id": str(booking_id),
+                            "merchant_transaction_id": payment_detail.merchant_transaction_id,
+                            "transaction_type": "ticket_issuance_payment",
+                            "user_id": str(booking_user.id),
+                        }
+
+                        order_result = razorpay_mixin.create_razorpay_order(
+                            amount=float(balance_due),
+                            currency="INR",
+                            receipt=payment_detail.merchant_transaction_id,
+                            notes=notes,
+                        )
+
+                        if not order_result.get("success"):
+                            return self.get_error_response(
+                                message=f"Failed to create Razorpay order: {order_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+
+                        # Store Razorpay order in database
+                        from apps.payment_gateways.models import RazorpayOrder
+                        razorpay_order_data = order_result.get("order", {})
+                        RazorpayOrder.objects.create(
+                            user=booking_user,
+                            booking=booking,
+                            rp_id=razorpay_order_data.get("id"),
+                            entity=razorpay_order_data.get("entity", "order"),
+                            amount=razorpay_order_data.get("amount", 0),
+                            amount_due=razorpay_order_data.get("amount_due", 0),
+                            currency=razorpay_order_data.get("currency", "INR"),
+                            receipt=razorpay_order_data.get("receipt"),
+                            status=razorpay_order_data.get("status", "created"),
+                            notes=notes,
+                        )
+
+                        # Update payment detail with Razorpay order info
+                        payment_detail.transaction_details["razorpay_order_id"] = order_result.get("order_id")
+                        payment_detail.save()
+
+                        return self.get_response(
+                            data={
+                                "order_id": order_result.get("order_id"),
+                                "razorpay_key": settings.RAZORPAY_KEY_ID,
+                                "amount": order_result.get("amount"),
+                                "currency": order_result.get("currency"),
+                                "transaction_id": payment_detail.merchant_transaction_id,
+                                "payment_method": "RAZORPAY",
+                                "name": booking_user.name or booking_user.email,
+                                "email": booking_user.email,
+                                "contact": booking_user.phone_number or "",
+                                "redirect_url": redirect_url,
+                                "message": "Complete Razorpay payment to proceed with ticket issuance",
+                            },
+                            message="Razorpay order created. Complete payment to issue ticket.",
+                            status="payment_required",
+                            status_code=status.HTTP_200_OK,
+                        )
+
                     # Otherwise, return payment required error (no payment method provided or unsupported method)
                     else:
                         error_message = "Payment is required before ticket issuance"
                         if payment_method:
-                            error_message += f". Unsupported payment method: {payment_method}. Supported methods: WALLET, PHONEPE, PHONE_PAY"
+                            error_message += f". Unsupported payment method: {payment_method}. Supported methods: WALLET, PHONEPE, PHONE_PAY, RAZORPAY"
                         else:
-                            error_message += ". Please provide payment_method (WALLET, PHONEPE, or PHONE_PAY) in the request"
+                            error_message += ". Please provide payment_method (WALLET, PHONEPE, PHONE_PAY, or RAZORPAY) in the request"
 
                         return self.get_error_response(
                             message=error_message,
@@ -4114,6 +4832,7 @@ class EnhancedFlightBookingViewSet(
                                         "WALLET",
                                         "PHONEPE",
                                         "PHONE_PAY",
+                                        "RAZORPAY",
                                     ],
                                 }
                             ],
@@ -5853,14 +6572,14 @@ class EnhancedFlightBookingViewSet(
                 payment_channel = request.data.get("payment_channel")
                 if not payment_channel:
                     return self.get_error_response(
-                        message="payment_channel is required when Flag is CONFIRM. Use WALLET or PHONE PAY",
+                        message="payment_channel is required when Flag is CONFIRM. Use WALLET, PHONE PAY, or RAZORPAY",
                         status="error",
                         status_code=status.HTTP_400_BAD_REQUEST,
                     )
                 payment_channel = payment_channel.upper()
-                if payment_channel not in ("WALLET", "PHONE PAY"):
+                if payment_channel not in ("WALLET", "PHONE PAY", "RAZORPAY"):
                     return self.get_error_response(
-                        message="Unsupported payment_channel. Use WALLET or PHONE PAY",
+                        message="Unsupported payment_channel. Use WALLET, PHONE PAY, or RAZORPAY",
                         status="error",
                         status_code=status.HTTP_400_BAD_REQUEST,
                     )
@@ -6167,14 +6886,14 @@ class EnhancedFlightBookingViewSet(
                     payment_channel = request.data.get("payment_channel")
                     if not payment_channel:
                         return self.get_error_response(
-                            message="payment_channel is required when Flag is CONFIRM. Use WALLET or PHONE PAY",
+                            message="payment_channel is required when Flag is CONFIRM. Use WALLET, PHONE PAY, or RAZORPAY",
                             status="error",
                             status_code=status.HTTP_400_BAD_REQUEST,
                         )
                     payment_channel = payment_channel.upper()
-                    if payment_channel not in ("WALLET", "PHONE PAY"):
+                    if payment_channel not in ("WALLET", "PHONE PAY", "RAZORPAY"):
                         return self.get_error_response(
-                            message="Unsupported payment_channel. Use WALLET or PHONE PAY",
+                            message="Unsupported payment_channel. Use WALLET, PHONE PAY, or RAZORPAY",
                             status="error",
                             status_code=status.HTTP_400_BAD_REQUEST,
                         )
@@ -6194,67 +6913,105 @@ class EnhancedFlightBookingViewSet(
                         handle_reschedule_phonepe_payment,
                     )
 
-                if payment_channel == "WALLET":
-                    # Wallet payment flow:
-                    # 1. Deduct from wallet first
-                    # 2. If deduction successful, then call AirIQ CONFIRM
-                    # 3. If CONFIRM fails, refund wallet
-                    payment_result = handle_reschedule_wallet_payment(
-                        booking=booking,
-                        flight_booking=flight_booking,
-                        user=request.user,
-                        reschedule_request=reschedule_request,
-                        reschedule_response=check_fare_result,
-                        payment_amount=total_payment,
-                        request=request,
-                    )
-
-                    if not payment_result.get("success"):
-                        return self.get_error_response(
-                            message=f"Reschedule payment failed: {payment_result.get('error', 'Unknown error')}",
-                            status="error",
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            data=response_data,
+                    if payment_channel == "WALLET":
+                        # Wallet payment flow:
+                        # 1. Deduct from wallet first
+                        # 2. If deduction successful, then call AirIQ CONFIRM
+                        # 3. If CONFIRM fails, refund wallet
+                        payment_result = handle_reschedule_wallet_payment(
+                            booking=booking,
+                            flight_booking=flight_booking,
+                            user=request.user,
+                            reschedule_request=reschedule_request,
+                            reschedule_response=check_fare_result,
+                            payment_amount=total_payment,
+                            request=request,
                         )
 
-                    response_data["payment"] = {
-                        "success": True,
-                        "transaction_id": payment_result.get("transaction_id"),
-                        "payment_method": payment_result.get("payment_method"),
-                        "amount": float(total_payment),
-                    }
-                else:
-                    # PhonePe payment flow:
-                    # 1. Return payment URL to user
-                    # 2. User completes payment on PhonePe
-                    # 3. PhonePe callback receives payment success
-                    # 4. Callback then calls AirIQ CONFIRM
-                    # Note: CONFIRM is NOT called here, only in the callback after payment success
-                    payment_result = handle_reschedule_phonepe_payment(
-                        booking=booking,
-                        flight_booking=flight_booking,
-                        user=request.user,
-                        reschedule_request=reschedule_request,
-                        reschedule_response=check_fare_result,
-                        payment_amount=total_payment,
-                        request=request,
-                    )
+                        if not payment_result.get("success"):
+                            return self.get_error_response(
+                                message=f"Reschedule payment failed: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                data=response_data,
+                            )
 
-                    if not payment_result.get("success"):
-                        return self.get_error_response(
-                            message=f"Failed to initiate reschedule payment: {payment_result.get('error', 'Unknown error')}",
-                            status="error",
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            data=response_data,
+                        response_data["payment"] = {
+                            "success": True,
+                            "transaction_id": payment_result.get("transaction_id"),
+                            "payment_method": payment_result.get("payment_method"),
+                            "amount": float(total_payment),
+                        }
+                    elif payment_channel == "PHONE PAY":
+                        # PhonePe payment flow:
+                        # 1. Return payment URL to user
+                        # 2. User completes payment on PhonePe
+                        # 3. PhonePe callback receives payment success
+                        # 4. Callback then calls AirIQ CONFIRM
+                        # Note: CONFIRM is NOT called here, only in the callback after payment success
+                        payment_result = handle_reschedule_phonepe_payment(
+                            booking=booking,
+                            flight_booking=flight_booking,
+                            user=request.user,
+                            reschedule_request=reschedule_request,
+                            reschedule_response=check_fare_result,
+                            payment_amount=total_payment,
+                            request=request,
                         )
 
-                    response_data["payment"] = {
-                        "success": True,
-                        "payment_method": payment_result.get("payment_method"),
-                        "payment_url": payment_result.get("payment_url"),
-                        "transaction_id": payment_result.get("transaction_id"),
-                        "amount": float(total_payment),
-                    }
+                        if not payment_result.get("success"):
+                            return self.get_error_response(
+                                message=f"Failed to initiate reschedule payment: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                data=response_data,
+                            )
+
+                        response_data["payment"] = {
+                            "success": True,
+                            "payment_method": payment_result.get("payment_method"),
+                            "payment_url": payment_result.get("payment_url"),
+                            "transaction_id": payment_result.get("transaction_id"),
+                            "amount": float(total_payment),
+                        }
+                    elif payment_channel == "RAZORPAY":
+                        # Razorpay payment flow:
+                        # 1. Create Razorpay order
+                        # 2. Return order details to frontend
+                        # 3. Frontend completes payment using Razorpay Checkout
+                        # 4. Frontend calls verify endpoint
+                        # 5. Verify endpoint calls AirIQ CONFIRM after payment verification
+                        from apps.booking.utils.flight_payment_utils import (
+                            handle_reschedule_razorpay_payment,
+                        )
+
+                        payment_result = handle_reschedule_razorpay_payment(
+                            booking=booking,
+                            flight_booking=flight_booking,
+                            user=request.user,
+                            reschedule_request=reschedule_request,
+                            reschedule_response=check_fare_result,
+                            payment_amount=total_payment,
+                            request=request,
+                        )
+
+                        if not payment_result.get("success"):
+                            return self.get_error_response(
+                                message=f"Failed to initiate reschedule payment: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                data=response_data,
+                            )
+
+                        response_data["payment"] = {
+                            "success": True,
+                            "payment_method": "RAZORPAY",
+                            "order_id": payment_result.get("order_id"),
+                            "razorpay_key": payment_result.get("razorpay_key"),
+                            "amount": payment_result.get("amount"),
+                            "currency": payment_result.get("currency"),
+                            "transaction_id": payment_result.get("transaction_id"),
+                        }
                 # elif total_payment < 0:
                 #     # Refund case: new fare is less than old fare
                 #     # Confirm reschedule only for segments that passed fare check
@@ -6545,14 +7302,14 @@ class EnhancedFlightBookingViewSet(
                     payment_channel = request.data.get("payment_channel")
                     if not payment_channel:
                         return self.get_error_response(
-                            message="payment_channel is required when Flag is CONFIRM. Use WALLET or PHONE PAY",
+                            message="payment_channel is required when Flag is CONFIRM. Use WALLET, PHONE PAY, or RAZORPAY",
                             status="error",
                             status_code=status.HTTP_400_BAD_REQUEST,
                         )
                     payment_channel = payment_channel.upper()
-                    if payment_channel not in ("WALLET", "PHONE PAY"):
+                    if payment_channel not in ("WALLET", "PHONE PAY", "RAZORPAY"):
                         return self.get_error_response(
-                            message="Unsupported payment_channel. Use WALLET or PHONE PAY",
+                            message="Unsupported payment_channel. Use WALLET, PHONE PAY, or RAZORPAY",
                             status="error",
                             status_code=status.HTTP_400_BAD_REQUEST,
                         )
@@ -6601,7 +7358,7 @@ class EnhancedFlightBookingViewSet(
                             "payment_method": payment_result.get("payment_method"),
                             "amount": float(total_payment),
                         }
-                    else:
+                    elif payment_channel == "PHONE PAY":
                         # PhonePe payment flow:
                         # 1. Return payment URL to user
                         # 2. User completes payment on PhonePe
@@ -6632,6 +7389,39 @@ class EnhancedFlightBookingViewSet(
                             "payment_url": payment_result.get("payment_url"),
                             "transaction_id": payment_result.get("transaction_id"),
                             "amount": float(total_payment),
+                        }
+                    elif payment_channel == "RAZORPAY":
+                        # Razorpay payment flow
+                        from apps.booking.utils.flight_payment_utils import (
+                            handle_reschedule_razorpay_payment,
+                        )
+
+                        payment_result = handle_reschedule_razorpay_payment(
+                            booking=booking,
+                            flight_booking=flight_booking,
+                            user=request.user,
+                            reschedule_request=reschedule_request,
+                            reschedule_response=check_fare_resp,
+                            payment_amount=total_payment,
+                            request=request,
+                        )
+
+                        if not payment_result.get("success"):
+                            return self.get_error_response(
+                                message=f"Failed to initiate reschedule payment: {payment_result.get('error', 'Unknown error')}",
+                                status="error",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                data=response_data,
+                            )
+
+                        response_data["payment"] = {
+                            "success": True,
+                            "payment_method": "RAZORPAY",
+                            "order_id": payment_result.get("order_id"),
+                            "razorpay_key": payment_result.get("razorpay_key"),
+                            "amount": payment_result.get("amount"),
+                            "currency": payment_result.get("currency"),
+                            "transaction_id": payment_result.get("transaction_id"),
                         }
                 elif total_payment < 0:
                     # Refund case: new fare is less than old fare
