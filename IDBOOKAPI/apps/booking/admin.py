@@ -15,6 +15,10 @@ from .models import (
     Invoice,
     FlightPassenger,
     FlightAncillaryService,
+    VisaBooking,
+    EventBooking,
+    Query,
+    QueryCommunication,
 )
 
 # Register your models here.
@@ -43,12 +47,71 @@ class InvoiceAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "invoice_number",
+        "invoice_type",
         "invoice_date",
         "total_amount",
         "status",
+        "has_documents",
+        "source_query_link",
         "created_at",
     )
+    list_filter = ("invoice_type", "status", "created_at")
     search_fields = ("invoice_number",)
+    readonly_fields = ("id", "created_at", "updated_at")
+    
+    fieldsets = (
+        ("Basic Information", {
+            "fields": ("id", "invoice_number", "invoice_type", "invoice_date", "due_date", "status")
+        }),
+        ("Billing Details", {
+            "fields": ("billed_by", "billed_by_details", "billed_to", "billed_to_details")
+        }),
+        ("Amounts", {
+            "fields": ("total", "total_amount", "total_tax", "GST", "GST_type", "discount", "pro_member_discount")
+        }),
+        ("Documents", {
+            "fields": ("proforma_pdf", "invoice_pdf", "receipt_pdf", "credit_note_pdf", "voucher_pdf", "other_documents"),
+            "classes": ("collapse",),
+        }),
+        ("Items & Details", {
+            "fields": ("items", "supply_details", "payment_details", "additional_options", "notes"),
+            "classes": ("collapse",),
+        }),
+        ("Relationships", {
+            "fields": ("source_query",)
+        }),
+        ("Metadata", {
+            "fields": ("reference", "tags", "next_schedule_date", "created_by", "updated_by", "created_at", "updated_at"),
+            "classes": ("collapse",),
+        }),
+    )
+    
+    def source_query_link(self, obj):
+        if obj.source_query:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            url = reverse("admin:booking_query_change", args=[obj.source_query.id])
+            return format_html('<a href="{}">{}</a>', url, obj.source_query.query_reference)
+        return "-"
+    source_query_link.short_description = "Source Query"
+    
+    def has_documents(self, obj):
+        """Show document availability icons"""
+        docs = []
+        if obj.proforma_pdf:
+            docs.append("P")
+        if obj.invoice_pdf:
+            docs.append("I")
+        if obj.receipt_pdf:
+            docs.append("R")
+        if obj.credit_note_pdf:
+            docs.append("C")
+        if obj.voucher_pdf:
+            docs.append("V")
+        if obj.other_documents:
+            docs.append(f"+{len(obj.other_documents)}")
+        return " | ".join(docs) if docs else "-"
+    has_documents.short_description = "Docs"
 
 
 # Flight Booking Admin Configurations
@@ -384,3 +447,75 @@ admin.site.register(TaxRule)
 admin.site.register(BookingPaymentDetail, BookingPaymentAdmin)
 admin.site.register(Review)
 admin.site.register(BookingCommission)
+admin.site.register(VisaBooking)
+admin.site.register(EventBooking)
+
+
+class QueryCommunicationInline(admin.TabularInline):
+    model = QueryCommunication
+    extra = 0
+    fields = ("communication_type", "subject", "message", "user", "is_internal", "created")
+    readonly_fields = ("created",)
+    can_delete = True
+
+
+class QueryAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "query_reference",
+        "query_type",
+        "raised_by",
+        "company",
+        "booking_for",
+        "status",
+        "quote_amount",
+        "invoice_link",
+        "created",
+    )
+    list_filter = ("query_type", "status", "booking_for", "created")
+    search_fields = (
+        "query_reference",
+        "raised_by__email",
+        "company__company_name",
+        "query_data",
+    )
+    readonly_fields = ("id", "query_reference", "created", "updated")
+    inlines = [QueryCommunicationInline]
+    
+    fieldsets = (
+        ("Basic Information", {"fields": ("id", "query_reference", "query_type", "status")}),
+        ("User/Company", {"fields": ("raised_by", "company", "booking_for")}),
+        ("Referral", {"fields": ("referred_by", "referral_type")}),
+        ("Pricing & Invoice", {"fields": ("quote_amount", "invoice", "expires_at")}),
+        ("Data", {"fields": ("query_data", "itinerary_details", "admin_notes")}),
+        ("Relationships", {"fields": ("booking",)}),
+        ("Timestamps", {"fields": ("created", "updated", "active")}),
+    )
+    
+    def invoice_link(self, obj):
+        if obj.invoice:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            url = reverse("admin:booking_invoice_change", args=[obj.invoice.id])
+            return format_html('<a href="{}">{} ({})</a>', url, obj.invoice.invoice_number, obj.invoice.invoice_type)
+        return "-"
+    invoice_link.short_description = "Invoice"
+
+
+class QueryCommunicationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "query",
+        "communication_type",
+        "subject",
+        "user",
+        "is_internal",
+        "created",
+    )
+    list_filter = ("communication_type", "is_internal", "created")
+    search_fields = ("subject", "message", "query__query_reference")
+    readonly_fields = ("created",)
+
+
+admin.site.register(Query, QueryAdmin)
+admin.site.register(QueryCommunication, QueryCommunicationAdmin)

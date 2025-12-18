@@ -19,6 +19,10 @@ from .models import (
     Invoice,
     FlightPassenger,
     FlightAncillaryService,
+    VisaBooking,
+    EventBooking,
+    Query,
+    QueryCommunication,
 )
 from apps.customer.models import Customer
 from apps.hotels.utils.db_utils import get_property_gallery
@@ -77,7 +81,8 @@ class BookingPayoutSerializer(serializers.ModelSerializer):
         )
 
 
-class BookingSerializer(serializers.ModelSerializer):
+class BookingSerializerBase(serializers.ModelSerializer):
+    """Base BookingSerializer with just Meta - actual methods are in BookingSerializerMixin below"""
     commission_info = BookingCommissionSerializer(required=False, read_only=True)
     invoice_pdf_url = serializers.SerializerMethodField()
     receipt_pdf_url = serializers.SerializerMethodField()
@@ -86,13 +91,100 @@ class BookingSerializer(serializers.ModelSerializer):
         model = Booking
         fields = "__all__"
 
-    ##    def validate(self, attrs):
-    ##        raise serializers.ValidationError('Provide either mobile number or email')
-    ##        return attrs
 
-    ##    def to_internal_value(self, data):
-    ##        raise serializers.ValidationError({"key": []})
+class QueryCommunicationSerializer(serializers.ModelSerializer):
+    """Serializer for QueryCommunication model"""
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    
+    class Meta:
+        model = QueryCommunication
+        fields = "__all__"
+        read_only_fields = ("id", "created", "query", "user")
 
+
+class QuerySerializer(serializers.ModelSerializer):
+    """Unified serializer for all query types"""
+    communications = QueryCommunicationSerializer(many=True, read_only=True)
+    raised_by_name = serializers.CharField(source="raised_by.name", read_only=True)
+    raised_by_email = serializers.EmailField(source="raised_by.email", read_only=True)
+    referred_by_name = serializers.CharField(source="referred_by.name", read_only=True)
+    company_name = serializers.CharField(source="company.company_name", read_only=True)
+    booking_details = serializers.SerializerMethodField()
+    invoice_details = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Query
+        fields = "__all__"
+        read_only_fields = ("id", "query_reference", "created", "updated", "booking", "invoice")
+    
+    def get_booking_details(self, obj):
+        """Return booking details if query has been converted"""
+        if obj.booking:
+            return {
+                "id": obj.booking.id,
+                "reference_code": obj.booking.reference_code,
+                "confirmation_code": obj.booking.confirmation_code,
+                "status": obj.booking.status,
+                "final_amount": str(obj.booking.final_amount),
+                "invoice_id": obj.booking.invoice_id,
+            }
+        return None
+    
+    def get_invoice_details(self, obj):
+        """Return invoice details if invoice exists"""
+        if obj.invoice:
+            return {
+                "id": obj.invoice.id,
+                "invoice_number": obj.invoice.invoice_number,
+                "invoice_type": obj.invoice.invoice_type,
+                "invoice_date": str(obj.invoice.invoice_date) if obj.invoice.invoice_date else None,
+                "due_date": str(obj.invoice.due_date) if obj.invoice.due_date else None,
+                "total_amount": obj.invoice.total_amount,
+                "status": obj.invoice.status,
+                "documents": {
+                    "proforma_pdf": obj.invoice.proforma_pdf.url if obj.invoice.proforma_pdf else None,
+                    "invoice_pdf": obj.invoice.invoice_pdf.url if obj.invoice.invoice_pdf else None,
+                    "receipt_pdf": obj.invoice.receipt_pdf.url if obj.invoice.receipt_pdf else None,
+                    "credit_note_pdf": obj.invoice.credit_note_pdf.url if obj.invoice.credit_note_pdf else None,
+                    "voucher_pdf": obj.invoice.voucher_pdf.url if obj.invoice.voucher_pdf else None,
+                    "other_documents": obj.invoice.other_documents or [],
+                },
+            }
+        return None
+    
+    def validate(self, attrs):
+        """Validate query data"""
+        request = self.context.get("request")
+        user = request.user if request else None
+        
+        # If user is authenticated, set raised_by
+        if user and user.is_authenticated:
+            attrs["raised_by"] = user
+        
+        # Validate query_data is a dict
+        query_data = attrs.get("query_data", {})
+        if not isinstance(query_data, dict):
+            raise serializers.ValidationError("query_data must be a JSON object")
+        
+        return attrs
+
+    def create(self, validated_data):
+        """Create a Query object - override to avoid using BookingSerializer's create"""
+        query = Query.objects.create(**validated_data)
+        # Auto-generate query reference if not provided
+        if not query.query_reference:
+            query.query_reference = f"QRY-{query.id:06d}"
+            query.save(update_fields=["query_reference"])
+        return query
+
+
+# BookingSerializer methods (these were incorrectly nested in QuerySerializer above)
+# Keeping them here for backward compatibility - they belong to BookingSerializer
+
+class BookingSerializerMixin:
+    """Mixin containing BookingSerializer methods"""
+    
     def validation_error_response(self, error_data):
         error_response = {
             "status": "error",
@@ -171,6 +263,74 @@ class BookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(error_response)
 
         return vehicle_booking
+
+    def create_visa_booking(self, data):
+        """Create visa booking - similar to create_hotel_booking"""
+        destination_country = data.get("destination_country", "")
+        travel_date = data.get("travel_date", None)
+        visa_type = data.get("visa_type", "tourist")
+        passport_number = data.get("passport_number", "")
+        passport_expiry = data.get("passport_expiry", None)
+        travel_purpose = data.get("travel_purpose", "")
+        documents_uploaded = data.get("documents_uploaded", {})
+        special_requirements = data.get("special_requirements", "")
+        itinerary_details = data.get("itinerary_details", {})
+        admin_notes = data.get("admin_notes", "")
+        status = data.get("status", "pending")
+        
+        try:
+            visa_booking = VisaBooking.objects.create(
+                destination_country=destination_country,
+                travel_date=travel_date,
+                visa_type=visa_type,
+                passport_number=passport_number,
+                passport_expiry=passport_expiry,
+                travel_purpose=travel_purpose,
+                documents_uploaded=documents_uploaded,
+                special_requirements=special_requirements,
+                itinerary_details=itinerary_details,
+                admin_notes=admin_notes,
+                status=status,
+            )
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
+        return visa_booking
+
+    def create_event_booking(self, data):
+        """Create event booking - similar to create_hotel_booking"""
+        event_name = data.get("event_name", "")
+        event_type = data.get("event_type", "other")
+        event_date = data.get("event_date", None)
+        event_end_date = data.get("event_end_date", None)
+        location = data.get("location", "")
+        attendee_count = data.get("attendee_count", 1)
+        budget_range = data.get("budget_range", None)
+        special_requirements = data.get("special_requirements", "")
+        itinerary_details = data.get("itinerary_details", {})
+        admin_notes = data.get("admin_notes", "")
+        status = data.get("status", "pending")
+        
+        try:
+            event_booking = EventBooking.objects.create(
+                event_name=event_name,
+                event_type=event_type,
+                event_date=event_date,
+                event_end_date=event_end_date,
+                location=location,
+                attendee_count=attendee_count,
+                budget_range=budget_range,
+                special_requirements=special_requirements,
+                itinerary_details=itinerary_details,
+                admin_notes=admin_notes,
+                status=status,
+            )
+        except Exception as e:
+            print(e)
+            error_response = self.validation_error_response(e)
+            raise serializers.ValidationError(error_response)
+        return event_booking
 
     def get_invoice_pdf_url(self, obj):
         if not obj.invoice_id:
@@ -691,6 +851,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
         hotel_booking, holidaypack_booking = None, None
         vehicle_booking, flight_booking = None, None
+        visa_booking, event_booking = None, None
         company = None
 
         booking_type = validated_data.get("booking_type", "HOTEL")
@@ -715,6 +876,12 @@ class BookingSerializer(serializers.ModelSerializer):
         elif booking_type == "FLIGHT":
             flight_booking = self.create_flight_booking(request.data)
 
+        elif booking_type == "VISA":
+            visa_booking = self.create_visa_booking(request.data)
+
+        elif booking_type == "EVENT":
+            event_booking = self.create_event_booking(request.data)
+
         company_detail = Booking(
             user=user,
             booking_type=booking_type,
@@ -722,6 +889,8 @@ class BookingSerializer(serializers.ModelSerializer):
             holiday_package_booking=holidaypack_booking,
             vehicle_booking=vehicle_booking,
             flight_booking=flight_booking,
+            visa_booking=visa_booking,
+            event_booking=event_booking,
             adult_count=adult_count,
             child_count=child_count,
             infant_count=infant_count,
@@ -1281,6 +1450,12 @@ class BookingSerializer(serializers.ModelSerializer):
         return representation
 
 
+# Final BookingSerializer combining base and mixin
+class BookingSerializer(BookingSerializerMixin, BookingSerializerBase):
+    """Complete BookingSerializer with all methods"""
+    pass
+
+
 class HotelBookingSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -1708,3 +1883,21 @@ class FlightBookingDetailSerializer(serializers.ModelSerializer):
         )
 
         return representation
+
+
+class VisaBookingSerializer(serializers.ModelSerializer):
+    """Serializer for VisaBooking model"""
+    
+    class Meta:
+        model = VisaBooking
+        fields = "__all__"
+        read_only_fields = ("id", "created", "updated")
+
+
+class EventBookingSerializer(serializers.ModelSerializer):
+    """Serializer for EventBooking model"""
+    
+    class Meta:
+        model = EventBooking
+        fields = "__all__"
+        read_only_fields = ("id", "created", "updated")

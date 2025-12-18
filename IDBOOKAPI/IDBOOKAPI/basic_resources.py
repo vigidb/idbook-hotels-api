@@ -69,6 +69,8 @@ BOOKING_TYPE = (
     ("HOTEL", "HOTEL"),
     ("VEHICLE", "VEHICLE"),
     ("FLIGHT", "FLIGHT"),
+    ("VISA", "VISA"),
+    ("EVENT", "EVENT"),
 )
 
 VEHICLE_TYPE = (("CAR", "CAR"), ("TRAVELLER", "TRAVELLER"), ("BUS", "BUS"))
