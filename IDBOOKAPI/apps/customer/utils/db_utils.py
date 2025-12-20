@@ -242,25 +242,55 @@ def add_company_wallet_amount(company_id, amount):
 
 
 def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"=== update_wallet_transaction_detail CALLED ===")
+    logger.info(f"merchant_transaction_id: {merchant_transaction_id}")
+    logger.info(f"payment_details: {payment_details}")
+    
     user_id, company_id = None, None
 
     payment_objs = WalletTransaction.objects.filter(
         transaction_id=merchant_transaction_id
     )
+    
+    count = payment_objs.count()
+    logger.info(f"Found {count} wallet transaction(s) with transaction_id: {merchant_transaction_id}")
+    
+    if count == 0:
+        logger.error(f"NO TRANSACTION FOUND with transaction_id: {merchant_transaction_id}")
+        # Try to find by partial match or log recent transactions for debugging
+        recent_txns = WalletTransaction.objects.filter(
+            transaction_id__icontains=merchant_transaction_id[:10] if merchant_transaction_id else ""
+        ).order_by("-created")[:5]
+        logger.info(f"Recent similar transactions: {[(t.id, t.transaction_id, t.status) for t in recent_txns]}")
+        return user_id, company_id
 
     # Remove transaction_id from payment_details if present to avoid updating it
     update_data = {k: v for k, v in payment_details.items() if k != "transaction_id"}
-    payment_objs.update(**update_data)
+    logger.info(f"Updating transaction with data: {update_data}")
+    
+    updated_count = payment_objs.update(**update_data)
+    logger.info(f"Updated {updated_count} transaction(s)")
 
     payment_obj = payment_objs.first()
     if payment_obj:
+        # Refresh from DB to get updated values
+        payment_obj.refresh_from_db()
         if payment_obj.user:
             user_id = payment_obj.user.id
         # Get company_id from the transaction object
         company_id = payment_obj.company_id if payment_obj.company_id else None
-        print(
-            f"update_wallet_transaction_detail: user_id={user_id}, company_id={company_id}, merchant_txn_id={merchant_transaction_id}"
+        logger.info(
+            f"Transaction after update - id: {payment_obj.id}, status: {payment_obj.status}, "
+            f"is_success: {payment_obj.is_transaction_success}, code: {payment_obj.code}, "
+            f"user_id={user_id}, company_id={company_id}"
         )
+    else:
+        logger.error(f"Could not retrieve transaction after update for transaction_id: {merchant_transaction_id}")
+    
+    logger.info(f"=== update_wallet_transaction_detail COMPLETED ===")
     return user_id, company_id
 
 

@@ -2259,6 +2259,763 @@ def process_ssr_phonepe_callback(callback_data: dict) -> Dict:
         }
 
 
+def process_ticket_issuance_razorpay_callback(
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+) -> Dict:
+    """
+    Process Razorpay payment verification for ticket issuance payment
+    
+    This function follows the same pattern as process_ticket_issuance_phonepe_callback
+    
+    Args:
+        razorpay_order_id: Razorpay order ID
+        razorpay_payment_id: Razorpay payment ID
+        razorpay_signature: Payment signature for verification
+        
+    Returns:
+        Dict with processing result
+    """
+    print("=" * 80)
+    print("=== process_ticket_issuance_razorpay_callback CALLED ===")
+    print(f"Order ID: {razorpay_order_id}, Payment ID: {razorpay_payment_id}")
+    print("=" * 80)
+    
+    try:
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from django.utils import timezone
+        
+        logger.info("=== Ticket Issuance Razorpay Callback Started ===")
+        logger.info(f"Order ID: {razorpay_order_id}, Payment ID: {razorpay_payment_id}")
+        print("=== Ticket Issuance Razorpay Callback Started ===")
+        
+        razorpay_mixin = RazorpayMixin()
+        
+        # Verify signature
+        is_valid = razorpay_mixin.verify_payment_signature(
+            razorpay_order_id, razorpay_payment_id, razorpay_signature
+        )
+        
+        if not is_valid:
+            logger.error("Invalid Razorpay payment signature")
+            return {
+                "success": False,
+                "error": "Invalid payment signature",
+                "error_code": "INVALID_SIGNATURE",
+            }
+        
+        # Get payment details
+        payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+        if not payment_result.get("success"):
+            return {
+                "success": False,
+                "error": f"Failed to fetch payment details: {payment_result.get('error')}",
+                "error_code": "PAYMENT_FETCH_ERROR",
+            }
+        
+        payment_data = payment_result.get("payment", {})
+        payment_status = payment_data.get("status")
+        amount = Decimal(str((payment_data.get("amount", 0) or 0) / 100))
+        
+        if payment_status != "captured":
+            logger.warning(f"Payment not captured. Status: {payment_status}")
+            return {
+                "success": True,
+                "payment_success": False,
+                "message": f"Payment not captured. Status: {payment_status}",
+            }
+        
+        # Get order details to get merchant_transaction_id
+        order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+        if not order_result.get("success"):
+            return {
+                "success": False,
+                "error": "Razorpay order not found",
+                "error_code": "ORDER_NOT_FOUND",
+            }
+        
+        order_data = order_result.get("order", {})
+        notes = order_data.get("notes", {})
+        merchant_txn = notes.get("merchant_transaction_id", "")
+        
+        if not merchant_txn:
+            return {
+                "success": False,
+                "error": "Merchant transaction ID not found in order",
+                "error_code": "INVALID_ORDER",
+            }
+        
+        logger.info(f"Merchant Transaction ID: {merchant_txn}")
+        logger.info(f"Payment Status: {payment_status}, Amount: {amount}")
+        
+        # Update payment details (same as PhonePe)
+        update_booking_payment_details(
+            merchant_txn,
+            {
+                "code": "PAYMENT_SUCCESS",
+                "message": "Razorpay payment successful",
+                "transaction_id": razorpay_payment_id,
+                "amount": float(amount),
+                "is_transaction_success": True,
+                "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "RAZORPAY",
+                "transaction_details": {
+                    "razorpay_order_id": razorpay_order_id,
+                    "razorpay_payment_id": razorpay_payment_id,
+                    "razorpay_payment_status": payment_status,
+                },
+            },
+        )
+        
+        # Get booking from payment (same as PhonePe)
+        booking_id = get_booking_from_payment(merchant_txn)
+        logger.info(f"Booking ID from payment: {booking_id}")
+        print(f"Booking ID from payment: {booking_id}")
+        
+        # Refresh booking from database
+        booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+        booking.refresh_from_db()
+        flight_booking = booking.flight_booking
+        
+        if not flight_booking:
+            logger.error(f"Flight booking not found for booking {booking_id}")
+            return {
+                "success": False,
+                "error": "Flight booking not found",
+                "error_code": "BOOKING_NOT_FOUND",
+            }
+        
+        flight_booking.refresh_from_db()
+        
+        # Verify this is a ticket issuance payment (same as PhonePe)
+        payment_detail = BookingPaymentDetail.objects.filter(
+            merchant_transaction_id=merchant_txn
+        ).first()
+        if payment_detail and payment_detail.transaction_details:
+            transaction_type = payment_detail.transaction_details.get("transaction_type")
+            logger.info(f"Transaction type from payment detail: {transaction_type}")
+            if transaction_type != "ticket_issuance_payment":
+                logger.warning(f"Payment {merchant_txn} is not a ticket issuance payment")
+                return {
+                    "success": False,
+                    "error": f"This callback is not for ticket issuance payment. Transaction type: {transaction_type}",
+                    "error_code": "INVALID_TRANSACTION_TYPE",
+                }
+        
+        # Payment successful - proceed to ticket issuance (same logic as PhonePe)
+        logger.info(f"Payment successful for booking {booking_id}. Proceeding to ticket issuance...")
+        
+        # Update booking total payment made
+        booking.total_payment_made = (booking.total_payment_made or Decimal("0")) + amount
+        booking.save(update_fields=["total_payment_made"])
+        logger.info(f"Updated booking total_payment_made to {booking.total_payment_made}")
+        
+        # Proceed to ticket issuance (same logic as PhonePe callback)
+        try:
+            # Check if already ticketed
+            if flight_booking.status == "TICKETED":
+                logger.info(f"Booking {booking_id} is already ticketed")
+                return {
+                    "success": True,
+                    "payment_success": True,
+                    "ticket_issued": True,
+                    "message": "Payment successful. Ticket already issued.",
+                    "booking_id": booking_id,
+                }
+            
+            # Get PNRs and track IDs (same logic as PhonePe)
+            airiq_pnr = flight_booking.airiq_pnr
+            airline_pnr = flight_booking.airline_pnr
+            airiq_track_id = flight_booking.airiq_track_id
+            
+            # Fallback to arrays if single fields are empty
+            if not airiq_pnr:
+                airiq_pnrs_list = flight_booking.airiq_pnrs or []
+                if airiq_pnrs_list:
+                    airiq_pnr = airiq_pnrs_list[0] if isinstance(airiq_pnrs_list, list) else str(airiq_pnrs_list)
+            
+            if not airline_pnr:
+                airline_pnrs_list = flight_booking.airline_pnrs or []
+                if airline_pnrs_list:
+                    airline_pnr = airline_pnrs_list[0] if isinstance(airline_pnrs_list, list) else str(airline_pnrs_list)
+            
+            if not airiq_track_id:
+                airiq_track_ids_list = flight_booking.airiq_track_ids or []
+                if airiq_track_ids_list:
+                    airiq_track_id = airiq_track_ids_list[0] if isinstance(airiq_track_ids_list, list) else str(airiq_track_ids_list)
+            
+            # Check if we have all required PNR data
+            if not all([airiq_track_id, airiq_pnr, airline_pnr]):
+                logger.error(f"Missing PNR data for booking {booking_id}")
+                return {
+                    "success": False,
+                    "error": f"Missing required PNR or track ID for ticket issuance",
+                    "error_code": "MISSING_PNR_DATA",
+                }
+            
+            logger.info(f"Calling AirIQ issue_ticket API for booking {booking_id}")
+            
+            ticket_response = airiq_service.issue_ticket(
+                booking_track_id=airiq_track_id,
+                airiq_pnr=airiq_pnr,
+                airline_pnr=airline_pnr,
+                booking_amount=float(booking.final_amount),
+                payment_mode="T",
+            )
+            
+            logger.info(f"AirIQ issue_ticket API response received for booking {booking_id}")
+            
+            # Save ticket response using FlightPaymentProcessor (same as PhonePe)
+            processor = FlightPaymentProcessor(booking, booking.user, {})
+            processor.flight_booking = flight_booking
+            processor._update_flight_booking_from_airiq_response(ticket_response)
+            
+            # Update status to TICKETED
+            flight_booking.status = "TICKETED"
+            flight_booking.ticketed_at = timezone.now()
+            
+            # Persist ticket response
+            blob = flight_booking.airiq_response_data or {}
+            blob["ticket_response"] = ticket_response
+            flight_booking.airiq_response_data = blob
+            flight_booking.save()
+            
+            # Update main booking status
+            booking.status = "confirmed"
+            booking.save()
+            
+            logger.info(f"=== Ticket Issuance Razorpay Callback Completed Successfully for booking {booking_id} ===")
+            
+            return {
+                "success": True,
+                "payment_success": True,
+                "ticket_issued": True,
+                "ticket_response": ticket_response,
+                "booking_id": booking_id,
+                "message": "Payment successful and ticket issued",
+            }
+            
+        except AirIQException as e:
+            logger.error(f"AirIQ error during ticket issuance callback: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "error": f"Ticket issuance failed: {str(e)}",
+                "error_code": "TICKET_ISSUANCE_FAILED",
+                "payment_success": True,
+            }
+        except Exception as e:
+            logger.error(f"Error during ticket issuance callback: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "error_code": "TICKET_ISSUANCE_ERROR",
+                "payment_success": True,
+            }
+            
+    except Exception as e:
+        logger.error(f"Ticket issuance Razorpay callback error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            "success": False,
+            "error": f"Callback processing failed: {str(e)}",
+            "error_code": "CALLBACK_ERROR",
+        }
+
+
+def process_reschedule_razorpay_callback(
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+) -> Dict:
+    """
+    Process Razorpay payment verification for reschedule payment
+    
+    This function follows the same pattern as process_reschedule_phonepe_callback
+    
+    Args:
+        razorpay_order_id: Razorpay order ID
+        razorpay_payment_id: Razorpay payment ID
+        razorpay_signature: Payment signature for verification
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from .flight_booking_utils import process_reschedule_success
+        
+        razorpay_mixin = RazorpayMixin()
+        
+        # Verify signature
+        is_valid = razorpay_mixin.verify_payment_signature(
+            razorpay_order_id, razorpay_payment_id, razorpay_signature
+        )
+        
+        if not is_valid:
+            return {
+                "success": False,
+                "error": "Invalid payment signature",
+                "error_code": "INVALID_SIGNATURE",
+            }
+        
+        # Get payment details
+        payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+        if not payment_result.get("success"):
+            return {
+                "success": False,
+                "error": f"Failed to fetch payment details: {payment_result.get('error')}",
+                "error_code": "PAYMENT_FETCH_ERROR",
+            }
+        
+        payment_data = payment_result.get("payment", {})
+        payment_status = payment_data.get("status")
+        amount = Decimal(str((payment_data.get("amount", 0) or 0) / 100))
+        
+        is_success = payment_status == "captured"
+        
+        # Get order details
+        order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+        if not order_result.get("success"):
+            return {
+                "success": False,
+                "error": "Razorpay order not found",
+                "error_code": "ORDER_NOT_FOUND",
+            }
+        
+        order_data = order_result.get("order", {})
+        notes = order_data.get("notes", {})
+        merchant_txn = notes.get("merchant_transaction_id", "")
+        
+        if not merchant_txn:
+            return {
+                "success": False,
+                "error": "Merchant transaction ID not found",
+                "error_code": "INVALID_ORDER",
+            }
+        
+        # Update payment details (same as PhonePe)
+        update_booking_payment_details(
+            merchant_txn,
+            {
+                "code": "PAYMENT_SUCCESS" if is_success else "PAYMENT_FAILED",
+                "message": "Razorpay payment successful" if is_success else "Razorpay payment failed",
+                "transaction_id": razorpay_payment_id,
+                "amount": float(amount),
+                "is_transaction_success": is_success,
+                "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "RAZORPAY",
+            },
+        )
+        
+        booking_id = get_booking_from_payment(merchant_txn)
+        booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+        bpd = booking.booking_payment.filter(
+            merchant_transaction_id=merchant_txn
+        ).first()
+        
+        # Check if this is reschedule payment (same as PhonePe)
+        if bpd and bpd.transaction_details:
+            metadata = bpd.transaction_details
+            if metadata.get("reschedule_type") == "reschedule":
+                reschedule_req = metadata.get("reschedule_request") or {}
+                reschedule_resp = metadata.get("reschedule_response") or {}
+                
+                if is_success:
+                    # Payment successful - call AirIQ CONFIRM (same as PhonePe)
+                    try:
+                        flight_booking = booking.flight_booking
+                        
+                        # Check if multiple PNRs (same logic as PhonePe)
+                        if metadata.get("multi_pnr") and metadata.get("reschedule_requests"):
+                            from .flight_booking_utils import (
+                                process_multi_pnr_reschedule_confirm,
+                            )
+                            
+                            confirm_result = process_multi_pnr_reschedule_confirm(
+                                flight_booking=flight_booking,
+                                reschedule_requests=metadata["reschedule_requests"],
+                                airiq_service=airiq_service,
+                                flag="CONFIRM",
+                            )
+                            
+                            successful_confirmations = confirm_result.get("responses", [])
+                            failed_confirmations = confirm_result.get("errors", [])
+                            
+                            if not successful_confirmations:
+                                update_booking_payment_details(
+                                    merchant_txn,
+                                    {
+                                        "code": "RESCHEDULE_FAILED",
+                                        "message": f"Reschedule failed for all segments",
+                                        "is_transaction_success": False,
+                                        "transaction_details": {
+                                            **metadata,
+                                            "airiq_errors": failed_confirmations,
+                                            "refund_required": True,
+                                        },
+                                    },
+                                )
+                                return {
+                                    "success": False,
+                                    "error": "Reschedule failed after payment for all segments. Please contact support for refund.",
+                                    "error_code": "RESCHEDULE_FAILED",
+                                    "refund_required": True,
+                                }
+                            
+                            # Process success (same as PhonePe)
+                            from .flight_booking_utils import (
+                                process_reschedule_success,
+                                record_reschedule_failure,
+                            )
+                            
+                            all_new_pnrs = flight_booking.airiq_pnrs or []
+                            if not all_new_pnrs and flight_booking.airiq_pnr:
+                                all_new_pnrs = [flight_booking.airiq_pnr]
+                            
+                            successful_count = 0
+                            for resp_item in successful_confirmations:
+                                pnr_idx = resp_item.get("pnr_index")
+                                old_pnr = resp_item.get("old_airiq_pnr") or resp_item.get("airiq_pnr")
+                                airiq_resp = resp_item.get("response", {})
+                                new_pnr = airiq_resp.get("New_PNR", "")
+                                
+                                if new_pnr and pnr_idx is not None:
+                                    if pnr_idx < len(all_new_pnrs):
+                                        all_new_pnrs[pnr_idx] = new_pnr
+                                    
+                                    remarks = (
+                                        metadata.get("reschedule_requests", [{}])[0].get("remarks", "")
+                                        if metadata.get("reschedule_requests")
+                                        else ""
+                                    )
+                                    process_reschedule_success(
+                                        booking,
+                                        flight_booking,
+                                        airiq_resp,
+                                        remarks,
+                                        pnr_index=pnr_idx,
+                                        old_airiq_pnr=old_pnr,
+                                    )
+                                    successful_count += 1
+                            
+                            # Record failures
+                            for err_item in failed_confirmations:
+                                pnr_idx = err_item.get("pnr_index")
+                                old_pnr = err_item.get("airiq_pnr")
+                                error_msg = err_item.get("error", "Unknown error")
+                                if pnr_idx is not None and old_pnr:
+                                    record_reschedule_failure(
+                                        flight_booking,
+                                        old_pnr,
+                                        error_msg,
+                                        pnr_index=pnr_idx,
+                                    )
+                            
+                            # Update PNRs
+                            if all_new_pnrs:
+                                flight_booking.airiq_pnrs = all_new_pnrs
+                                flight_booking.save(update_fields=["airiq_pnrs"])
+                            
+                            # Mark for partial refund if some failed
+                            if failed_confirmations:
+                                update_booking_payment_details(
+                                    merchant_txn,
+                                    {
+                                        "code": "PARTIAL_RESCHEDULE_SUCCESS",
+                                        "message": f"Reschedule successful for {successful_count} of {len(successful_confirmations) + len(failed_confirmations)} segments",
+                                        "is_transaction_success": True,
+                                        "transaction_details": {
+                                            **metadata,
+                                            "successful_segments": successful_count,
+                                            "failed_segments": len(failed_confirmations),
+                                            "failed_details": failed_confirmations,
+                                            "partial_refund_required": True,
+                                        },
+                                    },
+                                )
+                            
+                            return {
+                                "success": True,
+                                "payment_success": True,
+                                "reschedule_processed": True,
+                                "successful_segments": successful_count,
+                                "failed_segments": len(failed_confirmations),
+                                "partial_success": len(failed_confirmations) > 0,
+                                "message": f"Reschedule successful for {successful_count} of {len(successful_confirmations) + len(failed_confirmations)} segments",
+                            }
+                        else:
+                            # Single PNR case (same as PhonePe)
+                            airiq_resp = airiq_service.reschedule_booking(
+                                airiq_pnr=reschedule_req.get("airiq_pnr"),
+                                track_id=reschedule_req.get("track_id"),
+                                flight_details=reschedule_req.get("flight_details"),
+                                contact_no=reschedule_req.get("contact_no"),
+                                remarks=reschedule_req.get("remarks", ""),
+                                flag="CONFIRM",
+                            )
+                            result = process_reschedule_success(
+                                booking,
+                                flight_booking,
+                                airiq_resp,
+                                reschedule_req.get("remarks", ""),
+                            )
+                            return {
+                                "success": True,
+                                "payment_success": True,
+                                "reschedule_processed": True,
+                                **result,
+                            }
+                    except AirIQException as e:
+                        # AirIQ failed - mark for refund (same as PhonePe)
+                        update_booking_payment_details(
+                            merchant_txn,
+                            {
+                                "code": "RESCHEDULE_FAILED",
+                                "message": f"Reschedule failed: {str(e)}",
+                                "is_transaction_success": False,
+                                "transaction_details": {
+                                    **metadata,
+                                    "airiq_error": str(e),
+                                    "refund_required": True,
+                                },
+                            },
+                        )
+                        return {
+                            "success": False,
+                            "error": f"Reschedule failed after payment: {str(e)}. Please contact support for refund.",
+                            "error_code": "RESCHEDULE_FAILED",
+                            "refund_required": True,
+                        }
+                    except Exception as e:
+                        update_booking_payment_details(
+                            merchant_txn,
+                            {
+                                "code": "RESCHEDULE_ERROR",
+                                "message": f"Unexpected error: {str(e)}",
+                                "is_transaction_success": False,
+                            },
+                        )
+                        return {
+                            "success": False,
+                            "error": f"Unexpected error processing reschedule: {str(e)}",
+                            "error_code": "RESCHEDULE_ERROR",
+                        }
+                else:
+                    # Payment failed
+                    return {
+                        "success": True,
+                        "payment_success": False,
+                        "message": "Payment failed",
+                    }
+        
+        return {
+            "success": True,
+            "payment_success": is_success,
+            "message": "Callback processed",
+        }
+    except Exception as e:
+        logger.error(f"Reschedule Razorpay callback error: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Callback processing failed: {str(e)}",
+            "error_code": "CALLBACK_ERROR",
+        }
+
+
+def process_ssr_razorpay_callback(
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+) -> Dict:
+    """
+    Process Razorpay payment verification for SSR payment
+    
+    This function follows the same pattern as process_ssr_phonepe_callback
+    
+    Args:
+        razorpay_order_id: Razorpay order ID
+        razorpay_payment_id: Razorpay payment ID
+        razorpay_signature: Payment signature for verification
+        
+    Returns:
+        Dict with processing result
+    """
+    try:
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+        from .flight_booking_utils import process_ssr_success
+        
+        razorpay_mixin = RazorpayMixin()
+        
+        # Verify signature
+        is_valid = razorpay_mixin.verify_payment_signature(
+            razorpay_order_id, razorpay_payment_id, razorpay_signature
+        )
+        
+        if not is_valid:
+            return {
+                "success": False,
+                "error": "Invalid payment signature",
+                "error_code": "INVALID_SIGNATURE",
+            }
+        
+        # Get payment details
+        payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
+        if not payment_result.get("success"):
+            return {
+                "success": False,
+                "error": f"Failed to fetch payment details: {payment_result.get('error')}",
+                "error_code": "PAYMENT_FETCH_ERROR",
+            }
+        
+        payment_data = payment_result.get("payment", {})
+        payment_status = payment_data.get("status")
+        amount = Decimal(str((payment_data.get("amount", 0) or 0) / 100))
+        
+        is_success = payment_status == "captured"
+        
+        # Get order details
+        order_result = razorpay_mixin.get_order_details(razorpay_order_id)
+        if not order_result.get("success"):
+            return {
+                "success": False,
+                "error": "Razorpay order not found",
+                "error_code": "ORDER_NOT_FOUND",
+            }
+        
+        order_data = order_result.get("order", {})
+        notes = order_data.get("notes", {})
+        merchant_txn = notes.get("merchant_transaction_id", "")
+        
+        if not merchant_txn:
+            return {
+                "success": False,
+                "error": "Merchant transaction ID not found",
+                "error_code": "INVALID_ORDER",
+            }
+        
+        # Update payment details (same as PhonePe)
+        update_booking_payment_details(
+            merchant_txn,
+            {
+                "code": "PAYMENT_SUCCESS" if is_success else "PAYMENT_FAILED",
+                "message": "Razorpay payment successful" if is_success else "Razorpay payment failed",
+                "transaction_id": razorpay_payment_id,
+                "amount": float(amount),
+                "is_transaction_success": is_success,
+                "payment_type": "PAYMENT GATEWAY",
+                "payment_medium": "RAZORPAY",
+            },
+        )
+        
+        booking_id = get_booking_from_payment(merchant_txn)
+        booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+        bpd = booking.booking_payment.filter(
+            merchant_transaction_id=merchant_txn
+        ).first()
+        
+        # Check if this is SSR payment (same as PhonePe)
+        if bpd and bpd.transaction_details:
+            metadata = bpd.transaction_details
+            if metadata.get("ssr_type") == "ancillary_services":
+                anc = metadata.get("ancillary_request") or {}
+                if is_success:
+                    # Payment successful - call AirIQ AddSSR (same as PhonePe)
+                    try:
+                        flight_booking = booking.flight_booking
+                        airiq_resp = airiq_service.add_ssr_services(
+                            airiq_pnr=anc.get("AirIqPNR") or flight_booking.airiq_pnr,
+                            airline_pnr=anc.get("AirlinePNR") or flight_booking.airline_pnr,
+                            track_id=anc.get("TracKID") or flight_booking.airiq_track_id,
+                            meals_ssr=anc.get("MealsSSR") or [],
+                            baggage_ssr=anc.get("BaggSSR") or [],
+                            seats_ssr=anc.get("SeatsSSR") or [],
+                            other_ssr=anc.get("OtherSSR") or [],
+                            payment_amount=float(amount),
+                            remarks=anc.get("Remarks") or "",
+                        )
+                        # Process success (same as PhonePe)
+                        result = process_ssr_success(
+                            booking,
+                            flight_booking,
+                            airiq_resp,
+                            anc.get("MealsSSR") or [],
+                            anc.get("BaggSSR") or [],
+                            anc.get("SeatsSSR") or [],
+                            anc.get("OtherSSR") or [],
+                            amount,
+                        )
+                        return {
+                            "success": True,
+                            "payment_success": True,
+                            "ssr_processed": True,
+                            **result,
+                        }
+                    except AirIQException as e:
+                        # AirIQ failed - mark for refund (same as PhonePe)
+                        update_booking_payment_details(
+                            merchant_txn,
+                            {
+                                "code": "SSR_FAILED",
+                                "message": f"SSR addition failed: {str(e)}",
+                                "is_transaction_success": False,
+                                "transaction_details": {
+                                    **metadata,
+                                    "airiq_error": str(e),
+                                    "refund_required": True,
+                                },
+                            },
+                        )
+                        return {
+                            "success": False,
+                            "error": f"SSR addition failed after payment: {str(e)}. Please contact support for refund.",
+                            "error_code": "SSR_FAILED",
+                            "refund_required": True,
+                        }
+                    except Exception as e:
+                        update_booking_payment_details(
+                            merchant_txn,
+                            {
+                                "code": "SSR_ERROR",
+                                "message": f"Unexpected error: {str(e)}",
+                                "is_transaction_success": False,
+                            },
+                        )
+                        return {
+                            "success": False,
+                            "error": f"Unexpected error processing SSR: {str(e)}",
+                            "error_code": "SSR_ERROR",
+                        }
+                else:
+                    # Payment failed
+                    return {
+                        "success": True,
+                        "payment_success": False,
+                        "message": "Payment failed",
+                    }
+        
+        return {
+            "success": True,
+            "payment_success": is_success,
+            "message": "Callback processed",
+        }
+    except Exception as e:
+        logger.error(f"SSR Razorpay callback error: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Callback processing failed: {str(e)}",
+            "error_code": "CALLBACK_ERROR",
+        }
+
+
 class FlightPaymentCallbackProcessor:
     """
     Handles payment gateway callbacks for flight bookings

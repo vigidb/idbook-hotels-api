@@ -535,6 +535,9 @@ class WalletViewSet(
                 except (ValueError, TypeError):
                     company_id = None
 
+            # Set payment_medium based on payment_channel
+            payment_medium = "PHONE PAY" if payment_channel == "PHONE PAY" else "RAZORPAY" if payment_channel == "RAZORPAY" else "PAYMENT GATEWAY"
+            
             wtransact = {
                 "user_id": user.id,
                 "transaction_id": merchant_transaction_id,
@@ -543,7 +546,7 @@ class WalletViewSet(
                 "transaction_for": "wallet_recharge",
                 "transaction_details": f"Wallet recharge of {float(amount)} via {payment_channel}",
                 "payment_type": "PAYMENT GATEWAY",
-                "payment_medium": "PHONE PAY",
+                "payment_medium": payment_medium,
                 "status": "Pending",
             }
 
@@ -738,13 +741,19 @@ class WalletViewSet(
     def razorpay_wallet_verify(self, request):
         """Verify Razorpay payment for wallet recharge"""
         try:
+            self.log_info("=== RAZORPAY WALLET VERIFY ENDPOINT CALLED ===")
+            self.log_info(f"Request data: {request.data}")
+            
             payment_log = {}
             
             razorpay_order_id = request.data.get("razorpay_order_id")
             razorpay_payment_id = request.data.get("razorpay_payment_id")
             razorpay_signature = request.data.get("razorpay_signature")
             
+            self.log_info(f"Received - order_id: {razorpay_order_id}, payment_id: {razorpay_payment_id}, signature: {razorpay_signature[:20] if razorpay_signature else None}...")
+            
             if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+                self.log_error("Missing required fields in Razorpay verify request")
                 return self.get_error_response(
                     message="Missing required fields: razorpay_order_id, razorpay_payment_id, razorpay_signature",
                     status="error",
@@ -759,11 +768,13 @@ class WalletViewSet(
             razorpay_mixin = RazorpayMixin()
             
             # Verify signature
+            self.log_info(f"Verifying payment signature for order_id: {razorpay_order_id}, payment_id: {razorpay_payment_id}")
             is_valid = razorpay_mixin.verify_payment_signature(
                 razorpay_order_id, razorpay_payment_id, razorpay_signature
             )
             
             if not is_valid:
+                self.log_error(f"Invalid signature for order_id: {razorpay_order_id}, payment_id: {razorpay_payment_id}")
                 payment_log["response"] = {"error": "Invalid signature"}
                 create_wallet_payment_log(payment_log)
                 return self.get_error_response(
@@ -774,9 +785,13 @@ class WalletViewSet(
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
             
+            self.log_info(f"Signature verified successfully for payment_id: {razorpay_payment_id}")
+            
             # Get payment details from Razorpay
+            self.log_info(f"Fetching payment details from Razorpay for payment_id: {razorpay_payment_id}")
             payment_result = razorpay_mixin.get_payment_details(razorpay_payment_id)
             if not payment_result.get("success"):
+                self.log_error(f"Failed to fetch payment details: {payment_result.get('error')}")
                 payment_log["response"] = {"error": payment_result.get("error")}
                 create_wallet_payment_log(payment_log)
                 return self.get_error_response(
@@ -791,9 +806,13 @@ class WalletViewSet(
             payment_status = payment_data.get("status")
             amount = float(payment_data.get("amount", 0)) / 100  # Convert from paise
             
+            self.log_info(f"Payment status from Razorpay: {payment_status}, Amount: {amount}")
+            
             # Get merchant_transaction_id from order notes
+            self.log_info(f"Fetching order details from Razorpay for order_id: {razorpay_order_id}")
             order_result = razorpay_mixin.get_order_details(razorpay_order_id)
             if not order_result.get("success"):
+                self.log_error(f"Order not found in Razorpay: {razorpay_order_id}")
                 payment_log["response"] = {"error": "Order not found"}
                 create_wallet_payment_log(payment_log)
                 return self.get_error_response(
@@ -810,6 +829,8 @@ class WalletViewSet(
             user_id = notes.get("user_id")
             company_id = notes.get("company_id")
             
+            self.log_info(f"Order notes - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}")
+            
             if company_id:
                 try:
                     company_id = int(company_id)
@@ -825,6 +846,8 @@ class WalletViewSet(
             payment_log["merchant_transaction_id"] = merchant_transaction_id
             
             if payment_status == "captured":
+                self.log_info(f"Payment is CAPTURED. Processing wallet update for transaction_id: {merchant_transaction_id}")
+                
                 # Payment successful - update wallet
                 payment_details = {
                     "transaction_id": razorpay_payment_id,
@@ -837,28 +860,131 @@ class WalletViewSet(
                     "status": "Completed",
                 }
                 
+                self.log_info(f"Updating wallet transaction with details: {payment_details}")
                 # Update wallet transaction
-                update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                update_result = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                self.log_info(f"Wallet transaction update result: {update_result}")
+                
+                # Verify the transaction was updated
+                from apps.customer.models import WalletTransaction
+                wallet_txn_check = WalletTransaction.objects.filter(
+                    transaction_id=merchant_transaction_id
+                ).first()
+                if wallet_txn_check:
+                    self.log_info(f"Transaction after update - status: {wallet_txn_check.status}, is_success: {wallet_txn_check.is_transaction_success}, code: {wallet_txn_check.code}")
+                else:
+                    self.log_warning(f"Transaction not found after update attempt: {merchant_transaction_id}")
+                
+                # Get user_id and company_id - try from notes first, then from WalletTransaction
+                if not user_id and not company_id:
+                    from apps.customer.models import WalletTransaction
+                    wallet_txn = WalletTransaction.objects.filter(
+                        transaction_id=merchant_transaction_id
+                    ).first()
+                    if wallet_txn:
+                        if wallet_txn.user:
+                            user_id = wallet_txn.user.id
+                        company_id = wallet_txn.company_id if wallet_txn.company_id else None
+                        self.log_info(f"Retrieved user_id and company_id from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
+                
+                self.log_info(f"Final user_id: {user_id}, company_id: {company_id}, amount: {amount}")
                 
                 # Recharge the wallet
-                update_wallet_recharge_details(user_id, company_id, amount)
-                
-                payment_log["response"] = {"success": True, "amount": amount}
-                create_wallet_payment_log(payment_log)
-                
-                # Send SMS notification
-                from apps.booking.tasks import send_booking_sms_task
-                if not company_id and user_id:
-                    send_booking_sms_task.apply_async(
-                        kwargs={
-                            "notification_type": "WALLET_RECHARGE_SUCCESS",
-                            "params": {
-                                "user_id": user_id,
-                                "recharge_amount": float(amount),
-                            },
-                        }
+                if user_id or company_id:
+                    self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, amount={amount}")
+                    wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount)
+                    self.log_info(f"Wallet recharge update result: {wallet_update_result}")
+                    
+                    # Verify wallet balance was updated
+                    from apps.customer.models import Wallet
+                    if user_id and not company_id:
+                        wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                        if wallet:
+                            self.log_info(f"Wallet balance after recharge: {wallet.balance}")
+                    elif company_id:
+                        wallet = Wallet.objects.filter(company_id=company_id).first()
+                        if wallet:
+                            self.log_info(f"Company wallet balance after recharge: {wallet.balance}")
+                    
+                    payment_log["response"] = {"success": True, "amount": amount}
+                    if user_id:
+                        payment_log["user_id"] = user_id
+                    if company_id:
+                        payment_log["company_id"] = company_id
+                    create_wallet_payment_log(payment_log)
+                    
+                    # Send SMS notification (same as PhonePe)
+                    from apps.booking.tasks import send_booking_sms_task
+                    from apps.customer.models import Wallet
+                    from apps.authentication.models import User
+                    
+                    if user_id and not company_id:
+                        wallet_balance = 0
+                        wallet = Wallet.objects.filter(
+                            user__id=user_id, company_id__isnull=True
+                        ).first()
+                        if wallet:
+                            wallet_balance = wallet.balance
+                            print("Razorpay verify - wallet_balance", wallet_balance)
+                        
+                        user = User.objects.get(id=user_id)
+                        if user and user.mobile_number:
+                            print(
+                                "Razorpay verify - recharge_amount, mobile_number, user_id ",
+                                amount,
+                                user.mobile_number,
+                                user_id,
+                            )
+                            send_booking_sms_task.apply_async(
+                                kwargs={
+                                    "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                    "params": {
+                                        "user_id": user_id,
+                                        "recharge_amount": float(amount),
+                                        "wallet_balance": wallet_balance,
+                                    },
+                                }
+                            )
+                    elif company_id and user_id:
+                        wallet_balance = 0
+                        wallet = Wallet.objects.filter(company_id=company_id).first()
+                        if wallet:
+                            wallet_balance = wallet.balance
+                            print("Razorpay verify - company_wallet_balance", wallet_balance)
+                        
+                        user = User.objects.get(id=user_id)
+                        if user and user.mobile_number:
+                            print(
+                                "Razorpay verify - company recharge_amount, mobile_number, user_id, company_id ",
+                                amount,
+                                user.mobile_number,
+                                user_id,
+                                company_id,
+                            )
+                            send_booking_sms_task.apply_async(
+                                kwargs={
+                                    "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                    "params": {
+                                        "user_id": user_id,
+                                        "recharge_amount": float(amount),
+                                        "wallet_balance": wallet_balance,
+                                        "company_id": company_id,
+                                    },
+                                }
+                            )
+                else:
+                    self.log_error(f"WARNING: No user_id or company_id found for transaction {merchant_transaction_id}")
+                    payment_log["response"] = {"error": "No user_id or company_id found"}
+                    create_wallet_payment_log(payment_log)
+                    return self.get_error_response(
+                        message="Unable to identify user or company for wallet recharge",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_400_BAD_REQUEST,
                     )
                 
+                self.log_info(f"=== RAZORPAY WALLET VERIFY SUCCESS - Payment ID: {razorpay_payment_id}, Order ID: {razorpay_order_id} ===")
                 return self.get_response(
                     status="success",
                     data={
@@ -872,6 +998,7 @@ class WalletViewSet(
                 )
             else:
                 # Payment failed
+                self.log_warning(f"Payment status is NOT captured: {payment_status}. Marking transaction as failed.")
                 payment_details = {
                     "transaction_id": razorpay_payment_id,
                     "code": "PAYMENT_FAILED",
@@ -883,6 +1010,7 @@ class WalletViewSet(
                     "status": "Failed",
                 }
                 
+                self.log_info(f"Updating wallet transaction as failed: {payment_details}")
                 update_wallet_transaction_detail(merchant_transaction_id, payment_details)
                 
                 payment_log["response"] = {"success": False, "status": payment_status}
@@ -897,7 +1025,8 @@ class WalletViewSet(
                 )
                 
         except Exception as e:
-            print(traceback.format_exc())
+            self.log_error(f"Exception in Razorpay wallet verify: {str(e)}")
+            self.log_error(traceback.format_exc())
             payment_log["response"] = {"error": str(e)}
             create_wallet_payment_log(payment_log)
             return self.get_error_response(
@@ -918,16 +1047,23 @@ class WalletViewSet(
     def razorpay_wallet_webhook(self, request):
         """Handle Razorpay webhook for wallet recharge"""
         try:
+            self.log_info("=== RAZORPAY WALLET WEBHOOK ENDPOINT CALLED ===")
+            self.log_info(f"Request headers: {dict(request.META)}")
+            self.log_info(f"Request body: {request.body}")
+            
             payment_log = {}
             
             # Get raw body for signature verification
             raw_body = request.body
             signature = request.META.get("HTTP_X_RAZORPAY_SIGNATURE", "")
             
+            self.log_info(f"Webhook signature received: {signature[:20] if signature else 'None'}...")
+            
             razorpay_mixin = RazorpayMixin()
             
             # Verify webhook signature
             if signature and not razorpay_mixin.verify_webhook_signature(raw_body, signature):
+                self.log_error("Invalid webhook signature")
                 payment_log["response"] = {"error": "Invalid webhook signature"}
                 create_wallet_payment_log(payment_log)
                 return self.get_error_response(
@@ -938,31 +1074,46 @@ class WalletViewSet(
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
             
+            self.log_info("Webhook signature verified successfully")
+            
             payload = request.data
             event = payload.get("event")
             
+            self.log_info(f"Webhook event: {event}")
             payment_log["event"] = event
             
             if event == "payment.captured":
+                self.log_info("Processing payment.captured event")
                 payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
                 razorpay_payment_id = payment_entity.get("id")
                 razorpay_order_id = payment_entity.get("order_id")
                 amount = float(payment_entity.get("amount", 0)) / 100
                 
+                self.log_info(f"Webhook payment details - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}, amount: {amount}")
+                
                 payment_log["razorpay_payment_id"] = razorpay_payment_id
                 payment_log["razorpay_order_id"] = razorpay_order_id
                 
                 # Get order details
+                self.log_info(f"Fetching order details for order_id: {razorpay_order_id}")
                 order_result = razorpay_mixin.get_order_details(razorpay_order_id)
                 if order_result.get("success"):
                     order_data = order_result.get("order", {})
                     notes = order_data.get("notes", {})
                     
+                    self.log_info(f"Order notes: {notes}")
+                    
                     # Only process if it's a wallet recharge transaction
-                    if notes.get("transaction_type") == "wallet_recharge":
+                    transaction_type = notes.get("transaction_type")
+                    self.log_info(f"Transaction type from notes: {transaction_type}")
+                    
+                    if transaction_type == "wallet_recharge":
+                        self.log_info("Transaction type is wallet_recharge, processing...")
                         merchant_transaction_id = notes.get("merchant_transaction_id")
                         user_id = notes.get("user_id")
                         company_id = notes.get("company_id")
+                        
+                        self.log_info(f"Webhook - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}")
                         
                         if company_id:
                             try:
@@ -988,16 +1139,113 @@ class WalletViewSet(
                             "status": "Completed",
                         }
                         
-                        update_wallet_transaction_detail(merchant_transaction_id, payment_details)
-                        update_wallet_recharge_details(user_id, company_id, amount)
+                        self.log_info(f"Webhook - Updating wallet transaction with details: {payment_details}")
+                        update_result = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        self.log_info(f"Webhook - Wallet transaction update result: {update_result}")
+                        
+                        # Verify the transaction was updated
+                        from apps.customer.models import WalletTransaction
+                        wallet_txn_check = WalletTransaction.objects.filter(
+                            transaction_id=merchant_transaction_id
+                        ).first()
+                        if wallet_txn_check:
+                            self.log_info(f"Webhook - Transaction after update - status: {wallet_txn_check.status}, is_success: {wallet_txn_check.is_transaction_success}, code: {wallet_txn_check.code}")
+                        else:
+                            self.log_warning(f"Webhook - Transaction not found after update attempt: {merchant_transaction_id}")
+                        
+                        # Get user_id and company_id - try from notes first, then from WalletTransaction
+                        if not user_id and not company_id:
+                            from apps.customer.models import WalletTransaction
+                            wallet_txn = WalletTransaction.objects.filter(
+                                transaction_id=merchant_transaction_id
+                            ).first()
+                            if wallet_txn:
+                                if wallet_txn.user:
+                                    user_id = wallet_txn.user.id
+                                company_id = wallet_txn.company_id if wallet_txn.company_id else None
+                                self.log_info(f"Webhook - Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
+                        
+                        self.log_info(f"Webhook - Final user_id: {user_id}, company_id: {company_id}, amount: {amount}")
+                        
+                        # Recharge the wallet
+                        if user_id or company_id:
+                            self.log_info(f"Webhook - Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, amount={amount}")
+                            wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount)
+                            self.log_info(f"Webhook - Wallet recharge update result: {wallet_update_result}")
+                            
+                            # Verify wallet balance was updated
+                            from apps.customer.models import Wallet
+                            if user_id and not company_id:
+                                wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                                if wallet:
+                                    self.log_info(f"Webhook - Wallet balance after recharge: {wallet.balance}")
+                            elif company_id:
+                                wallet = Wallet.objects.filter(company_id=company_id).first()
+                                if wallet:
+                                    self.log_info(f"Webhook - Company wallet balance after recharge: {wallet.balance}")
+                            
+                            # Send SMS notification (same as PhonePe)
+                            from apps.booking.tasks import send_booking_sms_task
+                            from apps.customer.models import Wallet
+                            from apps.authentication.models import User
+                            
+                            if user_id and not company_id:
+                                wallet_balance = 0
+                                wallet = Wallet.objects.filter(
+                                    user__id=user_id, company_id__isnull=True
+                                ).first()
+                                if wallet:
+                                    wallet_balance = wallet.balance
+                                
+                                user = User.objects.get(id=user_id)
+                                if user and user.mobile_number:
+                                    send_booking_sms_task.apply_async(
+                                        kwargs={
+                                            "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                            "params": {
+                                                "user_id": user_id,
+                                                "recharge_amount": float(amount),
+                                                "wallet_balance": wallet_balance,
+                                            },
+                                        }
+                                    )
+                            elif company_id and user_id:
+                                wallet_balance = 0
+                                wallet = Wallet.objects.filter(company_id=company_id).first()
+                                if wallet:
+                                    wallet_balance = wallet.balance
+                                
+                                user = User.objects.get(id=user_id)
+                                if user and user.mobile_number:
+                                    send_booking_sms_task.apply_async(
+                                        kwargs={
+                                            "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                            "params": {
+                                                "user_id": user_id,
+                                                "recharge_amount": float(amount),
+                                                "wallet_balance": wallet_balance,
+                                                "company_id": company_id,
+                                            },
+                                        }
+                                    )
+                        else:
+                            self.log_warning(f"Webhook - No user_id or company_id found for transaction {merchant_transaction_id}")
                         
                         payment_log["response"] = {"success": True}
                         create_wallet_payment_log(payment_log)
+                        self.log_info(f"=== RAZORPAY WEBHOOK SUCCESS - Payment ID: {razorpay_payment_id}, Order ID: {razorpay_order_id} ===")
+                    else:
+                        self.log_info(f"Webhook - Skipping transaction (not wallet_recharge). Transaction type: {transaction_type}")
+                else:
+                    self.log_error(f"Webhook - Failed to fetch order details for order_id: {razorpay_order_id}")
             
             elif event == "payment.failed":
+                self.log_warning("Processing payment.failed event")
                 payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
                 razorpay_payment_id = payment_entity.get("id")
                 razorpay_order_id = payment_entity.get("order_id")
+                
+                self.log_info(f"Webhook - Failed payment - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}")
                 
                 # Get order details and update transaction as failed
                 order_result = razorpay_mixin.get_order_details(razorpay_order_id)
@@ -1008,6 +1256,7 @@ class WalletViewSet(
                     if notes.get("transaction_type") == "wallet_recharge":
                         merchant_transaction_id = notes.get("merchant_transaction_id")
                         
+                        self.log_info(f"Webhook - Updating transaction as failed: {merchant_transaction_id}")
                         payment_details = {
                             "transaction_id": razorpay_payment_id,
                             "code": "PAYMENT_FAILED",
@@ -1020,6 +1269,8 @@ class WalletViewSet(
                 
                 payment_log["response"] = {"success": False, "event": event}
                 create_wallet_payment_log(payment_log)
+            else:
+                self.log_info(f"Webhook - Unhandled event type: {event}")
             
             return self.get_response(
                 status="success",
@@ -1029,7 +1280,8 @@ class WalletViewSet(
             )
             
         except Exception as e:
-            print(traceback.format_exc())
+            self.log_error(f"Exception in Razorpay webhook: {str(e)}")
+            self.log_error(traceback.format_exc())
             return self.get_error_response(
                 message=f"Webhook processing failed: {str(e)}",
                 status="error",
@@ -1080,6 +1332,7 @@ class WalletViewSet(
             merchant_transaction_id = sub_json_data.get("merchantTransactionId", "")
             payment_log["merchant_transaction_id"] = merchant_transaction_id
             transaction_id = sub_json_data.get("transactionId", "")
+            state = sub_json_data.get("state", "")
             print(json_data)
 
             payment_details = {
@@ -1091,7 +1344,10 @@ class WalletViewSet(
                 "amount": amount,
             }
 
-            if code == "PAYMENT_SUCCESS":
+            # Check both code and state for payment success (same as flight payment callbacks)
+            is_success = code == "PAYMENT_SUCCESS" and state == "COMPLETED"
+            
+            if is_success:
                 payment_details["is_transaction_success"] = True
                 payment_details["status"] = "Completed"
 
@@ -1099,9 +1355,26 @@ class WalletViewSet(
                 user_id, company_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details
                 )
+                
+                print(f"PhonePe callback - user_id: {user_id}, company_id: {company_id}, amount: {amount}")
 
                 # Recharge the wallet (company or user)
-                update_wallet_recharge_details(user_id, company_id, amount)
+                if user_id or company_id:
+                    update_wallet_recharge_details(user_id, company_id, amount)
+                else:
+                    print(f"WARNING: PhonePe callback - No user_id or company_id found for transaction {merchant_transaction_id}")
+                    # Try to get from WalletTransaction directly
+                    from apps.customer.models import WalletTransaction
+                    wallet_txn = WalletTransaction.objects.filter(
+                        transaction_id=merchant_transaction_id
+                    ).first()
+                    if wallet_txn:
+                        if wallet_txn.user:
+                            user_id = wallet_txn.user.id
+                        company_id = wallet_txn.company_id if wallet_txn.company_id else None
+                        print(f"Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
+                        if user_id or company_id:
+                            update_wallet_recharge_details(user_id, company_id, amount)
 
                 # Send SMS notification for user wallet recharge
                 if user_id and not company_id:

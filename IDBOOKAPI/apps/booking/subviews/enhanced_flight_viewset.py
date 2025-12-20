@@ -1552,18 +1552,104 @@ class EnhancedFlightBookingViewSet(
                     },
                 )
 
-            # Process based on transaction type
+            # Process based on transaction type using dedicated callback functions (same pattern as PhonePe)
+            from apps.booking.utils.flight_payment_utils import (
+                process_ticket_issuance_razorpay_callback,
+                process_reschedule_razorpay_callback,
+                process_ssr_razorpay_callback,
+            )
+            
             if transaction_type == "ticket_issuance_payment":
-                return self._process_ticket_issuance_after_razorpay(
-                    booking, amount, razorpay_payment_id, razorpay_order_id
+                result = process_ticket_issuance_razorpay_callback(
+                    razorpay_order_id, razorpay_payment_id, razorpay_signature
                 )
+                
+                if not result.get("success"):
+                    return self.get_error_response(
+                        message=result.get("error", "Callback processing failed"),
+                        status="error",
+                        status_code=(
+                            status.HTTP_400_BAD_REQUEST
+                            if result.get("error_code") == "INVALID_CALLBACK"
+                            else status.HTTP_502_BAD_GATEWAY
+                        ),
+                    )
+                
+                if result.get("ticket_issued"):
+                    return self.get_response(
+                        data=result,
+                        message="Ticket issued successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                
+                return self.get_response(
+                    data={"payment_success": result.get("payment_success", False)},
+                    message=result.get("message", "Callback processed"),
+                    status="success",
+                    status_code=status.HTTP_200_OK,
+                )
+                
             elif transaction_type == "reschedule_payment":
-                return self._process_reschedule_after_razorpay(
-                    booking, merchant_transaction_id, amount, razorpay_payment_id, razorpay_order_id
+                result = process_reschedule_razorpay_callback(
+                    razorpay_order_id, razorpay_payment_id, razorpay_signature
                 )
+                
+                if not result.get("success"):
+                    return self.get_error_response(
+                        message=result.get("error", "Callback processing failed"),
+                        status="error",
+                        status_code=(
+                            status.HTTP_400_BAD_REQUEST
+                            if result.get("error_code") == "INVALID_CALLBACK"
+                            else status.HTTP_502_BAD_GATEWAY
+                        ),
+                    )
+                
+                if result.get("reschedule_processed"):
+                    return self.get_response(
+                        data=result,
+                        message="Reschedule processed successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                
+                return self.get_response(
+                    data={"payment_success": result.get("payment_success", False)},
+                    message=result.get("message", "Callback processed"),
+                    status="success",
+                    status_code=status.HTTP_200_OK,
+                )
+                
             elif transaction_type == "ssr_payment":
-                return self._process_ssr_after_razorpay(
-                    booking, merchant_transaction_id, amount, razorpay_payment_id, razorpay_order_id
+                result = process_ssr_razorpay_callback(
+                    razorpay_order_id, razorpay_payment_id, razorpay_signature
+                )
+                
+                if not result.get("success"):
+                    return self.get_error_response(
+                        message=result.get("error", "Callback processing failed"),
+                        status="error",
+                        status_code=(
+                            status.HTTP_400_BAD_REQUEST
+                            if result.get("error_code") == "INVALID_CALLBACK"
+                            else status.HTTP_502_BAD_GATEWAY
+                        ),
+                    )
+                
+                if result.get("ssr_processed"):
+                    return self.get_response(
+                        data=result,
+                        message="Ancillary services added successfully",
+                        status="success",
+                        status_code=status.HTTP_200_OK,
+                    )
+                
+                return self.get_response(
+                    data={"payment_success": result.get("payment_success", False)},
+                    message=result.get("message", "Callback processed"),
+                    status="success",
+                    status_code=status.HTTP_200_OK,
                 )
             else:
                 # Default: just update booking payment made
