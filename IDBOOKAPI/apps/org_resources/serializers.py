@@ -75,7 +75,9 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
             brep_name = company.business_rep.name
             brep_email = company.business_rep.email
             brep_mobile_number = company.business_rep.mobile_number
+            brep_id = company.business_rep.id
             ret["business_rep"] = {
+                "id": brep_id,
                 "name": brep_name,
                 "email": brep_email,
                 "mobile_number": brep_mobile_number,
