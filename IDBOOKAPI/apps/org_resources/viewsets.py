@@ -69,6 +69,7 @@ from IDBOOKAPI.utils import (
     paginate_queryset,
     get_unique_id_from_time,
     get_date_from_string,
+    order_ops,
 )
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
@@ -635,26 +636,61 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        ##        offset = int(self.request.query_params.get('offset', 0))
-        ##        limit = int(self.request.query_params.get('limit', 10))
+        # Get query parameters
         search = request.query_params.get("search", "")
         approved = request.query_params.get("approved", None)
+        is_active = request.query_params.get("is_active", None)
+        state = request.query_params.get("state", None)
+        country = request.query_params.get("country", None)
+        district = request.query_params.get("district", None)
 
+        # Robust search across multiple fields
         if search:
-            search_q_filter = Q(company_name__icontains=search) | Q(
-                brand_name__icontains=search
+            search_q_filter = (
+                Q(company_name__icontains=search)
+                | Q(brand_name__icontains=search)
+                | Q(company_email__icontains=search)
+                | Q(company_phone__icontains=search)
+                | Q(domain_name__icontains=search)
+                | Q(gstin_no__icontains=search)
+                | Q(pan_no__icontains=search)
+                | Q(contact_person_name__icontains=search)
+                | Q(contact_number__icontains=search)
+                | Q(contact_email_address__icontains=search)
+                | Q(registered_address__icontains=search)
             )
             self.queryset = self.queryset.filter(search_q_filter)
 
+        # Filter by approved status
         if approved is not None:
             if approved.lower() == "true":
                 self.queryset = self.queryset.filter(approved=True)
             elif approved.lower() == "false":
                 self.queryset = self.queryset.filter(approved=False)
 
-        ##        count = self.queryset.count()
-        ##        self.queryset = self.queryset[offset:offset+limit]
+        # Filter by is_active status
+        if is_active is not None:
+            if is_active.lower() == "true":
+                self.queryset = self.queryset.filter(is_active=True)
+            elif is_active.lower() == "false":
+                self.queryset = self.queryset.filter(is_active=False)
 
+        # Filter by state
+        if state:
+            self.queryset = self.queryset.filter(state__icontains=state)
+
+        # Filter by country
+        if country:
+            self.queryset = self.queryset.filter(country__icontains=country)
+
+        # Filter by district
+        if district:
+            self.queryset = self.queryset.filter(district__icontains=district)
+
+        # Apply ordering/sorting
+        self.queryset = order_ops(request, self.queryset)
+
+        # Apply pagination
         count, self.queryset = paginate_queryset(self.request, self.queryset)
 
         # Perform the default listing logic

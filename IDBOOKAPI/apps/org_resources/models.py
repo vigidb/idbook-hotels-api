@@ -251,6 +251,11 @@ class CompanyDetail(models.Model):
     is_active = models.BooleanField(
         default=True, help_text="Whether the company is active."
     )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return str(self.company_name)
 
 
 class UploadedMedia(models.Model):
