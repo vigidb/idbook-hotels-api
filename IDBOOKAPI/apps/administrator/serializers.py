@@ -129,12 +129,23 @@ class UserAdminListSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             "id",
+            "custom_id",
             "email",
             "mobile_number",
             "name",
+            "first_name",
+            "last_name",
             "company_id",
+            "business_id",
             "category",
+            "default_group",
             "is_active",
+            "is_staff",
+            "email_verified",
+            "mobile_verified",
+            "first_booking",
+            "created",
+            "updated",
             "groups",
             "roles",
         )

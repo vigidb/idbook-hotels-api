@@ -258,6 +258,82 @@ class CompanyDetail(models.Model):
         return str(self.company_name)
 
 
+class AgentDetail(models.Model):
+    added_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="agent_list",
+        null=True,
+        blank=True,
+    )
+
+    agent_name = models.CharField(max_length=50)
+    agent_code = models.CharField(max_length=100, null=True, blank=True, unique=True)
+    agent_logo = models.FileField(upload_to="agent/logo/", blank=True, null=True)
+    agent_phone = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\+?1?\d{9,15}$", message="Enter a valid phone number"
+            )
+        ],
+    )
+    agent_email = models.EmailField(
+        validators=[EmailValidator],
+        null=True,
+        blank=True,
+        help_text="Email address of the agent.",
+    )
+    agent_website = models.URLField(null=True, blank=True)
+    gstin_no = models.CharField(max_length=100, null=True, blank=True)
+    pan_no = models.CharField(max_length=100, blank=True, null=True)
+    registered_address = models.TextField(blank=True, null=True)
+
+    contact_person_name = models.CharField(max_length=50, null=True, blank=True)
+    contact_number = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\+?1?\d{9,15}$", message="Enter a valid phone number"
+            )
+        ],
+    )
+    designation = models.CharField(max_length=50, null=True, blank=True)
+    contact_email_address = models.EmailField(
+        validators=[EmailValidator],
+        null=True,
+        blank=True,
+        help_text="Email address of the contact person.",
+    )
+
+    district = models.CharField(max_length=20, null=True, blank=True)
+    state = models.CharField(max_length=30, default="")
+    country = models.CharField(max_length=25, default="INDIA")
+    pin_code = models.PositiveIntegerField(null=True, blank=True)
+
+    location = models.CharField(
+        max_length=255, null=True, blank=True, help_text="Google map URL"
+    )
+    latitude = models.FloatField(default=0, help_text="Latitude")
+    longitude = models.FloatField(default=0, help_text="Longitude")
+    approved = models.BooleanField(default=False)
+    is_active = models.BooleanField(
+        default=True, help_text="Whether the agent is active."
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return str(self.agent_name)
+
+    class Meta:
+        verbose_name_plural = "Agent Details"
+
+
 class UploadedMedia(models.Model):
     user = models.ForeignKey(
         User,

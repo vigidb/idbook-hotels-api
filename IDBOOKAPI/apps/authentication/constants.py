@@ -19,6 +19,8 @@ class UserGroups:
     FRANCH_ADMIN = "FRANCH-ADMIN"
     HOTELIER_GRP = "HOTELIER-GRP"
     FRANCHISE_GRP = "FRANCHISE-GRP"
+    AGENT_GRP = "AGENT-GRP"
+    AGENT_ADMIN = "AGENT-ADMIN"
 
 
 # Corporate Groups (for wallet deduction logic)
@@ -47,4 +49,6 @@ ALL_GROUPS = (
     UserGroups.FRANCH_ADMIN,
     UserGroups.HOTELIER_GRP,
     UserGroups.FRANCHISE_GRP,
+    UserGroups.AGENT_GRP,
+    UserGroups.AGENT_ADMIN,
 )

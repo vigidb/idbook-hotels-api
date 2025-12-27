@@ -8,6 +8,7 @@ from django.contrib.auth.admin import GroupAdmin, UserAdmin
 # from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from .models import (
     CompanyDetail,
+    AgentDetail,
     AmenityCategory,
     Amenity,
     RoomType,
@@ -68,6 +69,102 @@ class CompanyDetailAdmin(admin.ModelAdmin):
 
 
 admin.site.register(CompanyDetail, CompanyDetailAdmin)
+
+
+class AgentDetailAdmin(admin.ModelAdmin):
+    list_display = (
+        "agent_name",
+        "agent_code",
+        "agent_email",
+        "agent_phone",
+        "contact_person_name",
+        "contact_email_address",
+        "contact_number",
+        "district",
+        "state",
+        "country",
+        "approved",
+        "is_active",
+        "added_user",
+        "created",
+        "updated",
+    )
+    search_fields = (
+        "agent_name",
+        "agent_code",
+        "agent_email",
+        "agent_phone",
+        "contact_person_name",
+        "contact_email_address",
+        "contact_number",
+        "gstin_no",
+        "pan_no",
+        "registered_address",
+    )
+    list_filter = (
+        "approved",
+        "is_active",
+        "state",
+        "country",
+        "district",
+        "created",
+        "updated",
+    )
+    readonly_fields = ("created", "updated")
+    fieldsets = (
+        ("Agent Information", {
+            "fields": (
+                "agent_name",
+                "agent_code",
+                "agent_logo",
+                "agent_email",
+                "agent_phone",
+                "agent_website",
+            )
+        }),
+        ("Business Details", {
+            "fields": (
+                "gstin_no",
+                "pan_no",
+                "registered_address",
+            )
+        }),
+        ("Contact Information", {
+            "fields": (
+                "contact_person_name",
+                "contact_number",
+                "designation",
+                "contact_email_address",
+            )
+        }),
+        ("Location", {
+            "fields": (
+                "district",
+                "state",
+                "country",
+                "pin_code",
+                "location",
+                "latitude",
+                "longitude",
+            )
+        }),
+        ("Status & Ownership", {
+            "fields": (
+                "approved",
+                "is_active",
+                "added_user",
+            )
+        }),
+        ("Timestamps", {
+            "fields": (
+                "created",
+                "updated",
+            )
+        }),
+    )
+
+
+admin.site.register(AgentDetail, AgentDetailAdmin)
 
 
 class AmenityCategoryAdmin(admin.ModelAdmin):

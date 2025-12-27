@@ -87,3 +87,59 @@ class AnonymousCanViewOnlyPermission(BasePermission):
                 return True
 
         return False
+
+
+class IsOwnerOrSuperAdmin(BasePermission):
+    """
+    Custom permission to only allow owners of an object or super admins to edit/delete it.
+    For list and retrieve, allows authenticated users.
+    """
+
+    def has_permission(self, request, view):
+        # Allow GET requests for authenticated users
+        if request.method == "GET":
+            return request.user.is_authenticated
+        
+        # For other methods (POST, PUT, PATCH, DELETE), require authentication
+        if not request.user.is_authenticated:
+            return False
+        
+        # Super admin can do everything
+        if request.user.is_superuser:
+            return True
+        
+        # For POST (create), allow authenticated users (ownership will be set during creation)
+        if request.method == "POST":
+            return True
+        
+        # For PUT, PATCH, DELETE, check object-level permissions
+        return True  # Will be checked in has_object_permission
+
+    def has_object_permission(self, request, view, obj):
+        # Super admin can do everything
+        if request.user.is_superuser:
+            return True
+        
+        # Read permissions are allowed for authenticated users
+        if request.method in ["GET", "HEAD", "OPTIONS"]:
+            return request.user.is_authenticated
+        
+        # Write permissions are only allowed to the owner of the object
+        # For AgentDetail, check both added_user and the user with contact_email_address
+        if hasattr(obj, "added_user"):
+            # Check if user is the added_user
+            if obj.added_user and obj.added_user == request.user:
+                return True
+            
+            # Also check if user's email matches contact_email_address (for agent accounts)
+            # This handles cases where added_user might not be set but user owns the account
+            if hasattr(obj, "contact_email_address") and obj.contact_email_address:
+                if request.user.email == obj.contact_email_address:
+                    # Ensure added_user is set for future checks
+                    if not obj.added_user:
+                        obj.added_user = request.user
+                        obj.save(update_fields=['added_user'])
+                    return True
+        
+        # If no ownership match, deny by default
+        return False

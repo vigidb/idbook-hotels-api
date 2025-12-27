@@ -14,7 +14,7 @@ from rest_framework.generics import (
 from django_filters.rest_framework import DjangoFilterBackend
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
-from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission
+from IDBOOKAPI.permissions import HasRoleModelPermission, AnonymousCanViewOnlyPermission, IsOwnerOrSuperAdmin
 from .serializers import (
     AmenityCategorySerializer,
     AmenitySerializer,
@@ -30,6 +30,7 @@ from .serializers import (
     CareerSerializer,
     FAQsSerializer,
     CompanyDetailSerializer,
+    AgentDetailSerializer,
     UploadedMediaSerializer,
     CountryDetailsSerializer,
     UserNotificationSerializer,
@@ -41,6 +42,7 @@ from .serializers import (
 )
 from .models import (
     CompanyDetail,
+    AgentDetail,
     AmenityCategory,
     Amenity,
     Enquiry,
@@ -509,8 +511,10 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                         "PAN_number": company_detail.pan_no,
                         "registered_address": company_detail.registered_address,
                         "pincode": company_detail.pin_code,
-                        "company_logo": company_detail.company_logo.url,
                     }
+                    # Only include company_logo if file exists
+                    if company_detail.company_logo:
+                        extra_context["company_logo"] = company_detail.company_logo.url
                     print("extra_context", extra_context)
                     send_signup_email_task.apply_async(
                         args=[
@@ -1017,6 +1021,479 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             )
 
         self.log_response(custom_response)
+        return custom_response
+
+
+class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = AgentDetail.objects.all()
+    serializer_class = AgentDetailSerializer
+    permission_classes = []
+    http_method_names = ["get", "post", "put", "patch", "delete"]
+
+    permission_classes_by_action = {
+        "create": [AllowAny],  # Allow anyone to create (signup)
+        "list": [IsAuthenticated],  # Authenticated users can list
+        "retrieve": [IsAuthenticated],  # Authenticated users can view
+        "update": [IsOwnerOrSuperAdmin],  # Only owner or super admin can update
+        "partial_update": [IsOwnerOrSuperAdmin],  # Only owner or super admin can update
+        "destroy": [IsOwnerOrSuperAdmin],  # Only owner or super admin can delete
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Initialize group and role - will be set in contact_verification if needed
+        self.grp = None
+        self.role = None
+
+    def get_permissions(self):
+        try:
+            return [
+                permission()
+                for permission in self.permission_classes_by_action[self.action]
+            ]
+        except KeyError:
+            return [permission() for permission in self.permission_classes]
+
+    def contact_verification(self):
+        error_list = []
+
+        agent_email = self.request.data.get("agent_email", "")
+        agent_phone = self.request.data.get("agent_phone", "")
+        contact_number = self.request.data.get("contact_number", "")
+        contact_email_address = self.request.data.get("contact_email_address", "")
+
+        # otp for agent email
+        otp_agt_email = self.request.data.get("otp_agt_email", None)
+        # otp for contact mobile
+        otp_cnt_mob = self.request.data.get("otp_cnt_mob", None)
+        otp_cnt_email = self.request.data.get("otp_cnt_email", None)
+
+        # Verify OTPs
+        if otp_agt_email and otp_cnt_mob and otp_cnt_email:
+            # agent email verify
+            if agent_email:
+                agtobj_emailotp = auth_db_utils.check_email_otp(
+                    agent_email, otp_agt_email, "VERIFY"
+                )
+                if not agtobj_emailotp:
+                    error_list.append(
+                        {
+                            "field": "agent_email",
+                            "error_code": "INVALID_OTP",
+                            "message": "Invalid Email OTP",
+                        }
+                    )
+
+            # contact number verify
+            if contact_number:
+                cntobj_mobotp = auth_db_utils.check_mobile_otp(
+                    contact_number, otp_cnt_mob, "SIGNUP"
+                )
+                if not cntobj_mobotp:
+                    error_list.append(
+                        {
+                            "field": "contact_number",
+                            "error_code": "INVALID_OTP",
+                            "message": "Invalid Mobile OTP",
+                        }
+                    )
+
+            # contact email verify
+            if contact_email_address:
+                cntobj_emailotp = auth_db_utils.check_email_otp(
+                    contact_email_address, otp_cnt_email, "SIGNUP"
+                )
+                if not cntobj_emailotp:
+                    error_list.append(
+                        {
+                            "field": "contact_email_address",
+                            "error_code": "INVALID_OTP",
+                            "message": "Invalid Email OTP",
+                        }
+                    )
+
+        if error_list:
+            return error_list
+
+        group_name = "AGENT-GRP"
+        self.grp, self.role = get_group_based_on_name(group_name)
+        if not self.grp or not self.role:
+            error_list.append(
+                {"field": "", "error_code": "INVALID_GRP", "message": "Invalid Group"}
+            )
+            return error_list
+
+        # check agent email exist
+        if agent_email:
+            is_exist = AgentDetail.objects.filter(agent_email=agent_email).exists()
+            if is_exist:
+                error_list.append(
+                    {
+                        "field": "agent_email",
+                        "error_code": "AGT_EMAIL_EXIST",
+                        "message": "Agent email already exist",
+                    }
+                )
+
+        # check contact email exist
+        if contact_email_address:
+            cntemail_grp_users = auth_db_utils.get_userid_list(
+                contact_email_address, group=self.grp
+            )
+            if cntemail_grp_users:
+                error_list.append(
+                    {
+                        "field": "contact_email_address",
+                        "error_code": "CNT_EMAIL_EXIST",
+                        "message": "Contact email already exist",
+                    }
+                )
+
+        # check contact number exist
+        if contact_number:
+            mobile_grp_users = auth_db_utils.get_userid_list(
+                contact_number, group=self.grp
+            )
+            if mobile_grp_users:
+                error_list.append(
+                    {
+                        "field": "contact_number",
+                        "error_code": "CNT_MOB_EXIST",
+                        "message": "Contact number already exist",
+                    }
+                )
+
+        return error_list
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        error_list = self.contact_verification()
+        if error_list:
+            response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            return response
+
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            agent_detail = serializer.save()
+
+            # create or update user based on contact email
+            user = User.objects.filter(
+                email=agent_detail.contact_email_address
+            ).first()
+            if not user:
+                # Create new user
+                user = User.objects.create(
+                    name=agent_detail.contact_person_name,
+                    email=agent_detail.contact_email_address,
+                    mobile_number=agent_detail.contact_number,
+                    default_group="AGENT-GRP",
+                    agent_id=agent_detail.id,
+                    email_verified=True,
+                    mobile_verified=True,
+                )
+                Customer.objects.create(user_id=user.id, active=True)
+            else:
+                # User exists - check if already has AGENT-GRP
+                if self.grp and user.groups.filter(id=self.grp.id).exists():
+                    error_list = [{"field": "contact_email_address", "message": "Email already exists for this group"}]
+                    response = self.get_error_response(
+                        message="Agent registration failed - Email already registered as agent",
+                        status="error",
+                        errors=error_list,
+                        error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                    self.log_response(response)
+                    return response
+                
+                # Update user fields if needed
+                if agent_detail.contact_person_name and not user.name:
+                    user.name = agent_detail.contact_person_name
+                if agent_detail.contact_number and not user.mobile_number:
+                    user.mobile_number = agent_detail.contact_number
+                user.default_group = "AGENT-GRP"
+                user.agent_id = agent_detail.id
+                user.email_verified = True
+                user.mobile_verified = True
+                user.save()
+                customer = Customer.objects.filter(user_id=user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=user.id, active=True)
+
+            if user:
+                # Set added_user to the created/updated user for ownership tracking
+                if not agent_detail.added_user:
+                    agent_detail.added_user = user
+                    agent_detail.save()
+                
+                # add group and roles (only if not already added)
+                if self.grp and not user.groups.filter(id=self.grp.id).exists():
+                    user.groups.add(self.grp)
+                if self.role and not user.roles.filter(id=self.role.id).exists():
+                    user.roles.add(self.role)
+                print("default_group", user.default_group)
+                if user.default_group == "AGENT-GRP":
+                    print("calling email")
+                    extra_context = {
+                        "agent_name": agent_detail.agent_name,
+                        "agent_code": agent_detail.agent_code,
+                        "agent_email": agent_detail.agent_email,
+                        "agent_website": agent_detail.agent_website,
+                        "GSTIN_number": agent_detail.gstin_no,
+                        "PAN_number": agent_detail.pan_no,
+                        "registered_address": agent_detail.registered_address,
+                        "pincode": agent_detail.pin_code,
+                    }
+                    # Only include agent_logo if file exists
+                    if agent_detail.agent_logo:
+                        extra_context["agent_logo"] = agent_detail.agent_logo.url
+                    print("extra_context", extra_context)
+                    send_signup_email_task.apply_async(
+                        args=[
+                            agent_detail.contact_person_name,
+                            [agent_detail.contact_email_address],
+                            user.default_group,
+                            extra_context,
+                        ]
+                    )
+
+                refresh = RefreshToken.for_user(user)
+
+                user_roles = [uroles for uroles in user.roles.values("id", "name")]
+                user_groups = [ugroups for ugroups in user.groups.values("id", "name")]
+
+                data = {
+                    "refreshToken": str(refresh),
+                    "groups": user_groups,
+                    "roles": user_roles,
+                    "accessToken": str(refresh.access_token),
+                    "expiresIn": 0,
+                    "agent": serializer.data,
+                }
+            else:
+                data = {
+                    "refreshToken": "",
+                    "accessToken": "",
+                    "expiresIn": 0,
+                    "agent": serializer.data,
+                }
+
+            custom_response = self.get_response(
+                status="success",
+                data=data,
+                message="AgentDetail Created",
+                status_code=status.HTTP_201_CREATED,
+            )
+        else:
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.log_response(custom_response)
+        return custom_response
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Get query parameters
+        search = request.query_params.get("search", "")
+        approved = request.query_params.get("approved", None)
+        is_active = request.query_params.get("is_active", None)
+        state = request.query_params.get("state", None)
+        country = request.query_params.get("country", None)
+        district = request.query_params.get("district", None)
+
+        # Robust search across multiple fields
+        if search:
+            search_q_filter = (
+                Q(agent_name__icontains=search)
+                | Q(agent_code__icontains=search)
+                | Q(agent_email__icontains=search)
+                | Q(agent_phone__icontains=search)
+                | Q(gstin_no__icontains=search)
+                | Q(pan_no__icontains=search)
+                | Q(contact_person_name__icontains=search)
+                | Q(contact_number__icontains=search)
+                | Q(contact_email_address__icontains=search)
+                | Q(registered_address__icontains=search)
+            )
+            self.queryset = self.queryset.filter(search_q_filter)
+
+        # Filter by approved status
+        if approved is not None:
+            if approved.lower() == "true":
+                self.queryset = self.queryset.filter(approved=True)
+            elif approved.lower() == "false":
+                self.queryset = self.queryset.filter(approved=False)
+
+        # Filter by is_active status
+        if is_active is not None:
+            if is_active.lower() == "true":
+                self.queryset = self.queryset.filter(is_active=True)
+            elif is_active.lower() == "false":
+                self.queryset = self.queryset.filter(is_active=False)
+
+        # Filter by state
+        if state:
+            self.queryset = self.queryset.filter(state__icontains=state)
+
+        # Filter by country
+        if country:
+            self.queryset = self.queryset.filter(country__icontains=country)
+
+        # Filter by district
+        if district:
+            self.queryset = self.queryset.filter(district__icontains=district)
+
+        # Apply ordering/sorting
+        from IDBOOKAPI.utils import order_ops
+        self.queryset = order_ops(request, self.queryset)
+
+        # Apply pagination
+        count, self.queryset = paginate_queryset(self.request, self.queryset)
+
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            # If the response status code is OK (200), it's a successful listing
+            custom_response = self.get_response(
+                data=response.data,  # Use the data from the default response
+                status="success",
+                message="Agent List Retrieved",
+                count=count,
+                status_code=status.HTTP_200_OK,  # 200 for successful listing
+            )
+        else:
+            # If the response status code is not OK, it's an error
+            custom_response = self.get_response(
+                data=None,
+                message="Error Occurred",
+                status_code=response.status_code,  # Use the status code from the default response
+                is_error=True,
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Get the object to be updated
+        instance = self.get_object()
+
+        # Check if agent_name is provided (mandatory field)
+        agent_name = request.data.get("agent_name", "")
+        if not agent_name or agent_name.strip() == "":
+            error_list = [
+                {
+                    "field": "agent_name",
+                    "error_code": "REQUIRED_FIELD",
+                    "message": "agent_name is required and cannot be empty",
+                }
+            ]
+            response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            return response
+
+        # Prevent contact_email_address from being updated
+        # This ensures the relationship between user and agent remains intact
+        if "contact_email_address" in request.data:
+            if request.data.get("contact_email_address") != instance.contact_email_address:
+                error_list = [
+                    {
+                        "field": "contact_email_address",
+                        "error_code": "IMMUTABLE_FIELD",
+                        "message": "Contact email address cannot be changed after agent account creation.",
+                    }
+                ]
+                response = self.get_error_response(
+                    message="Validation Error",
+                    status="error",
+                    errors=error_list,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return response
+
+        # Create an instance of your serializer with the request data and the object to be updated
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # If the serializer is valid, perform the default update logic
+            serializer.save()
+
+            # Create a custom response
+            custom_response = self.get_response(
+                data=serializer.data,  # Use the data from the serializer
+                message="AgentDetail Updated",
+                status_code=status.HTTP_200_OK,  # 200 for successful update
+            )
+        else:
+            # If the serializer is not valid, create a custom response with error details
+            error_list = self.custom_serializer_error(serializer.errors)
+            custom_response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
+        return custom_response
+
+    def partial_update(self, request, *args, **kwargs):
+        # For PATCH requests, use the same logic as update
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Get the object to be deleted
+        instance = self.get_object()
+
+        # Instead of hard delete, we can deactivate the agent
+        # Or perform actual deletion based on requirements
+        action = request.query_params.get("action", "deactivate")  # "deactivate" or "delete"
+
+        if action == "delete":
+            # Hard delete
+            instance.delete()
+            custom_response = self.get_response(
+                data=None,
+                message="AgentDetail Deleted Successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            # Soft delete - deactivate
+            instance.is_active = False
+            instance.save()
+            serializer = self.get_serializer(instance)
+            custom_response = self.get_response(
+                data=serializer.data,
+                message="AgentDetail Deactivated Successfully",
+                status_code=status.HTTP_200_OK,
+            )
+
+        self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
 

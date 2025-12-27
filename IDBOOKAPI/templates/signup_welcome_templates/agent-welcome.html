@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>Welcome to Idbook – Your Agent Growth Platform</title>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+        }
+        .header img {
+            max-width: 150px;
+            margin-bottom: 10px;
+        }
+        .header h1 {
+            color: #1d498d;
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .content {
+            padding: 20px;
+            background-color: #f8fafc;
+            border-radius: 10px;
+        }
+        .content h2 {
+            color: #3c65a4;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+        .feature-list li {
+            margin-bottom: 14px;
+            padding-left: 30px;
+            position: relative;
+        }
+        .feature-list li:before {
+            content: "✔";
+            position: absolute;
+            left: 0;
+            color: #3c65a4;
+            font-weight: bold;
+        }
+        .highlight-box {
+            background-color: #e8f0fe;
+            border-left: 4px solid #3c65a4;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 5px 5px 0;
+        }
+        .cta-button {
+            display: inline-block;
+            padding: 14px 26px;
+            background-color: #3c65a4;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 16px;
+            margin-top: 20px;
+            font-weight: 600;
+        }
+        .cta-button:hover {
+            background-color: #1d498d;
+        }
+        .footer {
+            padding-top: 20px;
+            font-size: 14px;
+        }
+        .legal-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #181818; color: #f5f5f5; }
+            .container { background-color: #2a2a2a; }
+            .content { background-color: #1f1f1f; }
+            .highlight-box { background-color: #263648; border-left-color: #4f8cd1; }
+            .cta-button { background-color: #4f8cd1; }
+            .legal-info { color: #aaa; }
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <img src="https://ik.imagekit.io/idbookhotels/idbook_hotels_logo.jpeg" alt="Idbook Hotels">
+        <h1>Welcome {{name}} 👋</h1>
+        <p><strong>You’re officially an Idbook Travel Agent Partner</strong></p>
+    </div>
+
+    <!-- Intro -->
+    <div class="content">
+        <h2>This is not just another OTA.</h2>
+        <p>
+            Idbook is built to help <strong>travel agents grow faster, earn more, and work smarter</strong>.
+            You now have access to a platform designed to replace fragmented systems with one powerful dashboard.
+        </p>
+
+        <!-- Agent Details -->
+        <div class="highlight-box">
+            <h3>🏢 Your Agent Profile</h3>
+            <p><strong>Agency Name:</strong> {{agent_name}}</p>
+            {% if agent_code %}<p><strong>Agent Code:</strong> {{agent_code}}</p>{% endif %}
+            {% if agent_email %}<p><strong>Registered Email:</strong> {{agent_email}}</p>{% endif %}
+        </div>
+
+        <!-- Value Proposition -->
+        <div class="highlight-box">
+            <h3>💼 Why Top Agents Choose Idbook</h3>
+            <ul class="feature-list">
+                <li>Higher margins with flexible markup control</li>
+                <li>Real-time rates & instant confirmations</li>
+                <li>Single dashboard for hotels, payments & reports</li>
+                <li>Built for repeat & corporate bookings</li>
+                <li>Dedicated agent success & priority support</li>
+            </ul>
+        </div>
+
+        <!-- What You Can Do -->
+        <h3>🚀 What You Can Start Doing Today</h3>
+        <ul class="feature-list">
+            <li>Book 4,000+ hotels at agent-exclusive rates</li>
+            <li>Track commissions & settlements transparently</li>
+            <li>Manage multiple clients without operational chaos</li>
+            <li>Serve corporate & group clients confidently</li>
+        </ul>
+
+        <!-- CTA -->
+        <p><strong>Your dashboard is live.</strong> Start booking & earning today.</p>
+        <a href="https://www.idbookhotels.com/agent/login?utm_source=email&utm_medium=welcome&utm_campaign=agent_onboarding"
+           class="cta-button">Go to Agent Dashboard</a>
+
+        <!-- Support -->
+        <div class="highlight-box">
+            <h3>🤝 You’re Not Alone</h3>
+            <p>
+                Our agent success team is here to help you grow—not just resolve tickets.
+            </p>
+            <p>
+                📧 <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a><br>
+                📞 +91 9218077408 / +91 8800150924
+            </p>
+        </div>
+
+        <p>
+            We look forward to building a long-term, profitable partnership with you.
+            <br><strong>Let’s grow together.</strong>
+        </p>
+    </div>
+
+    <!-- Legal -->
+    <div class="legal-info">
+        <p>
+            Idbook Hospitality Private Limited<br>
+            WeWork Vi-John Tower, Gurugram – 122016<br>
+            CIN: U74999HR2018PTC073257
+        </p>
+    </div>
+
+</div>
+</body>
+</html>

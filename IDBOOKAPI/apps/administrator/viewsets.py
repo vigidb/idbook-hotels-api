@@ -31,7 +31,9 @@ from apps.authentication.models import User, Role
 # from payment_gateways.models import *
 
 from apps.authentication.utils import db_utils
-from IDBOOKAPI.utils import paginate_queryset
+from IDBOOKAPI.utils import paginate_queryset, order_ops
+from django.db.models import Q
+from django.contrib.auth.models import Group
 
 from .models import available_permission_queryset
 from .serializers import (
@@ -149,36 +151,170 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
-        user = request.user
-        company_id = request.query_params.get("company_id", None)
-        ##        company_id = user.company_id
-        ##        category = request.GET.get('category', '')
-        ##        if category:
-        ##            if category == 'CL-CUST' and company_id:
-        ##                self.queryset = self.queryset.filter(category=category, company_id=company_id)
-        ##            else:
-        ##                self.queryset = self.queryset.filter(category=category)
-
-        role_name = request.query_params.get("role", "")
+        queryset = self.get_queryset()
+        
+        # ========== SEARCH FUNCTIONALITY (SOLID Search) ==========
+        # Single search parameter that searches across multiple fields
+        search = request.query_params.get("search", "").strip()
+        if search:
+            # Try to parse as integer for ID search
+            try:
+                search_id = int(search)
+                queryset = queryset.filter(
+                    Q(id=search_id) |
+                    Q(email__icontains=search) |
+                    Q(name__icontains=search) |
+                    Q(mobile_number__icontains=search) |
+                    Q(custom_id__icontains=search) |
+                    Q(first_name__icontains=search) |
+                    Q(last_name__icontains=search) |
+                    Q(referral__icontains=search) |
+                    Q(referred_code__icontains=search)
+                )
+            except ValueError:
+                # If not a number, search in text fields only
+                queryset = queryset.filter(
+                    Q(email__icontains=search) |
+                    Q(name__icontains=search) |
+                    Q(mobile_number__icontains=search) |
+                    Q(custom_id__icontains=search) |
+                    Q(first_name__icontains=search) |
+                    Q(last_name__icontains=search) |
+                    Q(referral__icontains=search) |
+                    Q(referred_code__icontains=search)
+                )
+        
+        # ========== INDIVIDUAL FIELD FILTERS (for backward compatibility) ==========
         name = request.query_params.get("name", "").strip()
-        email = request.query_params.get("email", "").strip()
-
         if name:
-            self.queryset = self.queryset.filter(name__icontains=name)
-
+            queryset = queryset.filter(name__icontains=name)
+        
+        email = request.query_params.get("email", "").strip()
         if email:
-            self.queryset = self.queryset.filter(email__icontains=email)
-
+            queryset = queryset.filter(email__icontains=email)
+        
+        mobile_number = request.query_params.get("mobile_number", "").strip()
+        if mobile_number:
+            queryset = queryset.filter(mobile_number__icontains=mobile_number)
+        
+        user_id = request.query_params.get("id", None)
+        if user_id:
+            try:
+                user_id = int(user_id)
+                queryset = queryset.filter(id=user_id)
+            except (ValueError, TypeError):
+                pass
+        
+        custom_id = request.query_params.get("custom_id", "").strip()
+        if custom_id:
+            queryset = queryset.filter(custom_id__icontains=custom_id)
+        
+        # ========== FILTER OPTIONS ==========
+        # Role filter
+        role_name = request.query_params.get("role", "").strip()
         if role_name:
             role = db_utils.get_role_by_name(role_name)
-            self.queryset = self.queryset.filter(roles__in=[role])
-
+            if role:
+                queryset = queryset.filter(roles__in=[role])
+        
+        # Group filter
+        group_name = request.query_params.get("group", "").strip()
+        if group_name:
+            group = db_utils.get_group_by_name(group_name)
+            if group:
+                queryset = queryset.filter(groups__in=[group])
+        
+        # Company filter
+        company_id = request.query_params.get("company_id", None)
         if company_id:
-            self.queryset = self.queryset.filter(company_id=company_id)
-
-        self.queryset = self.queryset.order_by("-created")
-        count, self.queryset = paginate_queryset(self.request, self.queryset)
-
+            try:
+                company_id = int(company_id)
+                queryset = queryset.filter(company_id=company_id)
+            except (ValueError, TypeError):
+                pass
+        
+        # Business filter
+        business_id = request.query_params.get("business_id", None)
+        if business_id:
+            try:
+                business_id = int(business_id)
+                queryset = queryset.filter(business_id=business_id)
+            except (ValueError, TypeError):
+                pass
+        
+        # Category filter
+        category = request.query_params.get("category", "").strip()
+        if category:
+            queryset = queryset.filter(category__icontains=category)
+        
+        # Default group filter
+        default_group = request.query_params.get("default_group", "").strip()
+        if default_group:
+            queryset = queryset.filter(default_group=default_group)
+        
+        # Boolean filters
+        is_active = request.query_params.get("is_active", None)
+        if is_active is not None:
+            is_active = is_active.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(is_active=is_active)
+        
+        is_staff = request.query_params.get("is_staff", None)
+        if is_staff is not None:
+            is_staff = is_staff.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(is_staff=is_staff)
+        
+        email_verified = request.query_params.get("email_verified", None)
+        if email_verified is not None:
+            email_verified = email_verified.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(email_verified=email_verified)
+        
+        mobile_verified = request.query_params.get("mobile_verified", None)
+        if mobile_verified is not None:
+            mobile_verified = mobile_verified.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(mobile_verified=mobile_verified)
+        
+        first_booking = request.query_params.get("first_booking", None)
+        if first_booking is not None:
+            first_booking = first_booking.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(first_booking=first_booking)
+        
+        # Date range filters
+        created_from = request.query_params.get("created_from", None)
+        if created_from:
+            try:
+                from datetime import datetime
+                created_from = datetime.strptime(created_from, "%Y-%m-%d")
+                queryset = queryset.filter(created__gte=created_from)
+            except (ValueError, TypeError):
+                pass
+        
+        created_to = request.query_params.get("created_to", None)
+        if created_to:
+            try:
+                from datetime import datetime
+                created_to = datetime.strptime(created_to, "%Y-%m-%d")
+                queryset = queryset.filter(created__lte=created_to)
+            except (ValueError, TypeError):
+                pass
+        
+        # ========== SORT/ORDERING ==========
+        ordering = request.query_params.get("ordering", None)
+        if ordering:
+            # Use the order_ops utility function
+            queryset = order_ops(request, queryset)
+        else:
+            # Default ordering by created date (newest first)
+            queryset = queryset.order_by("-created")
+        
+        # Remove duplicates that may occur from ManyToMany relationships
+        queryset = queryset.distinct()
+        
+        # ========== PAGINATION ==========
+        count, queryset = paginate_queryset(self.request, queryset)
+        
+        # Set queryset for serializer
+        self.queryset = queryset
+        
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
 

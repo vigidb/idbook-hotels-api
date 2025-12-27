@@ -21,11 +21,12 @@ def get_domain(email):
     return domain_name
 
 
-def send_otp_email(otp, to_emails, template=None):
-    subject = "Idbook Login or Sign Up Verification Code"
+def send_otp_email(otp, to_emails, template=None, subject=None):
+    if not subject:
+        subject = "Idbook Hotels - Verification Code"
 
-    message = "Please use the verification code below to sign in.\
-\n {OTP} \n If you didn’t request this, you can ignore this email.".format(
+    message = "Please use the verification code below to complete your request.\
+\n {OTP} \n If you didn't request this, you can ignore this email.".format(
         OTP=otp
     )
     from_email = settings.EMAIL_HOST_USER

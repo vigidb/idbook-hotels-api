@@ -52,6 +52,8 @@ def user_representation(user, refresh_token=None):
         "mobile_number": user.mobile_number if user.mobile_number else "",
         "email": user.email if user.email else "",
         "name": user.get_full_name(),
+        "email_verified": user.email_verified,
+        "mobile_verified": user.mobile_verified,
         "groups": user_groups,
         "roles": user_roles,
         "permissions": [],
@@ -185,11 +187,15 @@ def add_group_for_guest_user(user):
     return user
 
 
-def email_generate_otp_process(otp, to_email, otp_for):
+def email_generate_otp_process(otp, to_email, otp_for, group_name=None):
     # otp create
     db_utils.create_email_otp(otp, to_email, otp_for)
     # send_otp_email(otp, [to_email])
-    send_email_task.apply_async(args=[otp, [to_email]])
+    # Use kwargs for optional parameter to avoid argument position issues
+    if group_name:
+        send_email_task.apply_async(args=[otp, [to_email], otp_for], kwargs={"group_name": group_name})
+    else:
+        send_email_task.apply_async(args=[otp, [to_email], otp_for])
 
 
 def mobile_generate_otp_process(otp, mobile_number, otp_for):
@@ -243,6 +249,9 @@ def get_group_based_on_name(group_name):
     elif group_name == "BUSINESS-GRP":
         grp = db_utils.get_group_by_name("BUSINESS-GRP")
         role = db_utils.get_role_by_name("BUS-ADMIN")
+    elif group_name == "AGENT-GRP":
+        grp = db_utils.get_group_by_name("AGENT-GRP")
+        role = db_utils.get_role_by_name("AGENT-ADMIN")
 
     return grp, role
 

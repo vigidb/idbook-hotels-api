@@ -5,6 +5,7 @@ from apps.org_resources.viewsets import *
 router = routers.DefaultRouter()
 
 router.register(r"company-details", CompanyDetailViewSet, basename="company_details")
+router.register(r"agent-details", AgentDetailViewSet, basename="agent_details")
 router.register(r"upload-media", UploadedMediaViewSet, basename="upload_media")
 router.register(
     r"amenity-categories", AmenityCategoryViewSet, basename="amenity_category"

@@ -67,6 +67,8 @@ from apps.log_management.models import (
     WalletTransactionLog,
     BookingPaymentLog,
     BookingInvoiceLog,
+    UserSubscriptionLogs,
+    BookingRefundLog,
 )
 from django.db.models import Q
 
@@ -102,6 +104,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if email:
             email = email.lower().strip()
         mobile_number = request.data.get("mobile_number", None)
+        name = request.data.get("name", None)
         group_name = request.data.get("group_name", "B2C-GRP")
         otp = request.data.get("otp", None)
         otp_mobile = request.data.get("otp_mobile", None)
@@ -183,64 +186,25 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             )
             return response
 
-        # check whether existing group and email exist for the sign up type
+        # Check if user already exists and already has this group
         if user and group_name:
-            ##            grp_user = authentication_utils.check_email_exist_for_group(email, group_name)
-            email_grp_users = db_utils.get_userid_list(email, group=grp)
-            if email_grp_users:
-                is_role_exist = False
-                if group_name == "B2C-GRP":
-                    # check if B2C-CUST role exist for guest user
-                    # is_role_exist = usr.roles.filter(id=role.id).exists()
-                    is_role_exist = db_utils.is_role_exist(email_grp_users, role)
-                else:
-                    is_role_exist = True
-
-                if is_role_exist:
-                    error_list = [{"field": "email", "message": "Email already exists"}]
-                    response = self.get_error_response(
-                        message="Signup Failed",
-                        status="error",
-                        errors=error_list,
-                        error_code="VALIDATION_ERROR",
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                    )
-                    self.log_response(response)  # Log the response before returning
-                    return response
-
-        # check email exist for missing group name
-        if user and not group_name:
-            error_list = [{"field": "email", "message": "Email already exists."}]
-            response = self.get_error_response(
-                message="Signup Failed",
-                status="error",
-                errors=error_list,
-                error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-            self.log_response(response)  # Log the response before returning
-            return response
-
-        ##        grp, role = authentication_utils.get_group_based_on_name(group_name)
-
-        ##        if not grp or not role:
-        ##            response = self.get_error_response(
-        ##                message="Group or role doesn't exist", status="error", errors=[],
-        ##                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-        ##            return response
+            if user.groups.filter(id=grp.id).exists():
+                error_list = [{"field": "email", "message": "Email already exists for this group"}]
+                response = self.get_error_response(
+                    message="Signup Failed",
+                    status="error",
+                    errors=error_list,
+                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+                self.log_response(response)
+                return response
 
         if mobile_number:
             ##            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
             mobile_grp_users = db_utils.get_userid_list(mobile_number, group=grp)
             if mobile_grp_users:
-                is_role_exist = False
-                if group_name == "B2C-GRP":
-                    # check if B2C-CUST role exist for guest user
-                    is_role_exist = db_utils.is_role_exist(mobile_grp_users, role)
-                else:
-                    is_role_exist = True
-
-                if is_role_exist:
+                if any((not user) or u["id"] != user.id for u in mobile_grp_users):
                     response = self.get_error_response(
                         message="Mobile already exist",
                         status="error",
@@ -250,35 +214,77 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                     )
                     return response
 
+        # If user exists, update it directly (don't use serializer to avoid validation issues)
         if user:
-            serializer = self.get_serializer(user, data=request.data, partial=True)
-        else:
-            serializer = self.get_serializer(data=request.data)
-
-        # serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            if not user:
-                user = serializer.save()
-                customer_id = user.id
-                # save customer profile with user id
-                Customer.objects.create(user_id=customer_id, active=True)
-            else:
-                user = serializer.save()
-
-            ##            # set groups and roles
-            ##            grp = db_utils.get_group_by_name('B2C-GRP')
-            ##            role = db_utils.get_role_by_name('B2C-CUST')
-            ##
-            if grp:
+            # User exists - update fields and add group/role
+            if name and not user.name:
+                user.name = name
+            if mobile_number and not user.mobile_number:
+                user.mobile_number = mobile_number
+            
+            if grp and not user.groups.filter(id=grp.id).exists():
                 user.groups.add(grp)
-            if role:
+            if role and not user.roles.filter(id=role.id).exists():
                 user.roles.add(role)
             user.default_group = group_name
             user.email_verified = True
             user.mobile_verified = True
             user.save()
             authentication_utils.add_signup_bonus(user, group_name, role)
+        else:
+            # User doesn't exist - create new user using serializer
+            # Double-check email doesn't exist (race condition protection)
+            if email:
+                final_check = User.objects.filter(email=email).first()
+                if final_check:
+                    # User was created between checks - add group instead
+                    if grp and not final_check.groups.filter(id=grp.id).exists():
+                        final_check.groups.add(grp)
+                    if role and not final_check.roles.filter(id=role.id).exists():
+                        final_check.roles.add(role)
+                    final_check.default_group = group_name
+                    final_check.email_verified = True
+                    final_check.mobile_verified = True
+                    final_check.save()
+                    authentication_utils.add_signup_bonus(final_check, group_name, role)
+                    user = final_check
+                else:
+                    # Create new user
+                    serializer = self.get_serializer(data=request.data)
+                    if serializer.is_valid():
+                        user = serializer.save()
+                        customer_id = user.id
+                        # save customer profile with user id
+                        Customer.objects.create(user_id=customer_id, active=True)
+                        
+                        if grp and not user.groups.filter(id=grp.id).exists():
+                            user.groups.add(grp)
+                        if role and not user.roles.filter(id=role.id).exists():
+                            user.roles.add(role)
+                        user.default_group = group_name
+                        user.email_verified = True
+                        user.mobile_verified = True
+                        user.save()
+                        authentication_utils.add_signup_bonus(user, group_name, role)
+                    else:
+                        # Serializer validation failed
+                        error_list = []
+                        errors = serializer.errors
+                        for field_name, field_errors in serializer.errors.items():
+                            for ferror in field_errors:
+                                error_list.append({"field": field_name, "message": ferror})
+
+                        response = self.get_error_response(
+                            message="Signup Failed",
+                            status="error",
+                            errors=error_list,
+                            error_code="VALIDATION_ERROR",
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                        )
+                        self.log_response(response)
+                        return response
+
+        if user:
 
             ##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
@@ -719,6 +725,42 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
+            # Enforce mobile verification before issuing tokens
+            if not user.mobile_verified:
+                mobile = (
+                    user.mobile_number
+                    or request.data.get("mobile_number")
+                    or request.data.get("username")
+                )
+
+                if not mobile or not validate_mobile_number(mobile):
+                    response = self.get_error_response(
+                        message="Mobile verification required. Please add a valid mobile number.",
+                        status="error",
+                        errors=[],
+                        error_code="MOBILE_VERIFICATION_REQUIRED",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                    self.log_response(response)
+                    return response
+
+                otp = generate_otp(no_digits=4)
+                authentication_utils.mobile_generate_otp_process(
+                    otp, mobile, "LOGIN"
+                )
+
+                response = self.get_response(
+                    data={
+                        "redirect": True,
+                        "verification_required": "mobile",
+                        "mobile_number": mobile,
+                    },
+                    status="error",
+                    message="Mobile verification required. OTP sent.",
+                    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                )
+                self.log_response(response)
+                return response
             # Use custom token with active_group support
             from apps.authentication.tokens import CustomRefreshToken
 
@@ -831,6 +873,8 @@ class OtpBasedUserEntryAPIView(
     def otp_based_user_signup(self, request):
 
         email = request.data.get("email", "")
+        if email:
+            email = email.lower().strip()
         mobile_number = request.data.get("mobile_number", "")
         name = request.data.get("name", "")
         otp = request.data.get("otp", None)
@@ -894,17 +938,10 @@ class OtpBasedUserEntryAPIView(
             )
             return response
 
-        # check whether email already exist or not
-        check_existing_user = User.objects.filter(email=email).first()
-        if check_existing_user:
-            response = self.get_error_response(
-                message="Email already exist",
-                status="error",
-                errors=[],
-                error_code="EMAIL_EXIST",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE,
-            )
-            return response
+        # Normalize email and check whether email already exists (globally unique)
+        if email:
+            email = email.lower().strip()
+        check_existing_user = User.objects.filter(email=email).first() if email else None
 
         # group and roles
         grp, role = authentication_utils.get_group_based_on_name(group_name)
@@ -918,21 +955,101 @@ class OtpBasedUserEntryAPIView(
             )
             return response
 
-        # check whether mobile already exist or not
-        check_mobile_existing_user = User.objects.filter(
-            mobile_number=mobile_number, groups=grp
-        ).first()
-        if check_mobile_existing_user:
-            response = self.get_error_response(
-                message="Mobile already exist",
-                status="error",
-                errors=[],
-                error_code="MOBILE_EXIST",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+        # Check if user already exists and already has this group
+        if check_existing_user:
+            if check_existing_user.groups.filter(id=grp.id).exists():
+                response = self.get_error_response(
+                    message="Email already exists for this group",
+                    status="error",
+                    errors=[{"field": "email", "message": "Email already exists for this group"}],
+                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return response
+
+        # check whether mobile already exist or not (within the same group)
+        # First check if mobile exists globally (to prevent duplicates)
+        if mobile_number:
+            mobile_user_global = User.objects.filter(mobile_number=mobile_number).first()
+            if mobile_user_global:
+                # If mobile exists but it's a different user than the email user, that's an error
+                if check_existing_user and mobile_user_global.id != check_existing_user.id:
+                    response = self.get_error_response(
+                        message="Mobile number is already associated with a different account",
+                        status="error",
+                        errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                        error_code="MOBILE_EXISTS_DIFFERENT_USER",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
+                    return response
+                # If mobile exists and it's the same user, check group
+                if mobile_user_global.groups.filter(id=grp.id).exists():
+                    response = self.get_error_response(
+                        message="Mobile already exists for this group",
+                        status="error",
+                        errors=[{"field": "mobile_number", "message": "Mobile already exists for this group"}],
+                        error_code="MOBILE_EXIST",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
+                    return response
+
+        # If user exists, add group/role and return (DO NOT CREATE DUPLICATE)
+        if check_existing_user:
+            # User exists but doesn't have this group - add it
+            if grp and not check_existing_user.groups.filter(id=grp.id).exists():
+                check_existing_user.groups.add(grp)
+            if role and not check_existing_user.roles.filter(id=role.id).exists():
+                check_existing_user.roles.add(role)
+            
+            # Update user details if needed
+            if name and not check_existing_user.name:
+                check_existing_user.name = name
+            if mobile_number and not check_existing_user.mobile_number:
+                check_existing_user.mobile_number = mobile_number
+            
+            check_existing_user.default_group = group_name
+            check_existing_user.email_verified = True
+            check_existing_user.mobile_verified = True
+            check_existing_user.save()
+
+            data = authentication_utils.generate_refresh_token(
+                check_existing_user, active_group=group_name
+            )
+            response = self.get_response(
+                data=data,
+                status="success",
+                message="Signup successful - Group added to existing account",
+                status_code=status.HTTP_200_OK,
             )
             return response
 
-        # create user
+        # Only create new user if email doesn't exist globally
+        # Double-check to prevent race conditions
+        if email:
+            final_check = User.objects.filter(email=email).first()
+            if final_check:
+                # User was created between checks - add group instead
+                if grp and not final_check.groups.filter(id=grp.id).exists():
+                    final_check.groups.add(grp)
+                if role and not final_check.roles.filter(id=role.id).exists():
+                    final_check.roles.add(role)
+                final_check.default_group = group_name
+                final_check.email_verified = True
+                final_check.mobile_verified = True
+                final_check.save()
+                
+                data = authentication_utils.generate_refresh_token(
+                    final_check, active_group=group_name
+                )
+                response = self.get_response(
+                    data=data,
+                    status="success",
+                    message="Signup successful - Group added to existing account",
+                    status_code=status.HTTP_200_OK,
+                )
+                return response
+
+        # create new user only if email doesn't exist
         new_user = User.objects.create(
             name=name,
             email=email,
@@ -940,6 +1057,7 @@ class OtpBasedUserEntryAPIView(
             referred_code=referred_code,
             default_group=group_name,
             email_verified=True,
+            mobile_verified=True,
         )
         Customer.objects.create(user_id=new_user.id, active=True)
 
@@ -1120,19 +1238,22 @@ class OtpBasedUserEntryAPIView(
                     return response
             grp = None
             if group_name:
-                # group and roles
+                # group and roles - for OTP generation, we only need the group
+                # Role will be validated during actual signup
                 grp, role = authentication_utils.get_group_based_on_name(group_name)
-                if not grp or not role:
+                if not grp:
                     response = self.get_error_response(
-                        message="Group or role doesn't exist",
+                        message="Group doesn't exist",
                         status="error",
                         errors=[],
-                        error_code="GROUP_ROLE_NOT_EXIST",
+                        error_code="GROUP_NOT_EXIST",
                         status_code=status.HTTP_406_NOT_ACCEPTABLE,
                     )
                     return response
+                # Note: Role is optional for OTP generation, will be validated during signup
 
             user_objs = db_utils.get_userid_list(username, group=grp)
+            print("user_objs:", user_objs)
 
             # allow B2C-GRP sign up for guest user
             is_role_exist = False
@@ -1182,7 +1303,9 @@ class OtpBasedUserEntryAPIView(
             otp = generate_otp(no_digits=4)
 
             if medium_type == "email":
-                authentication_utils.email_generate_otp_process(otp, username, otp_for)
+                # Pass group_name for SIGNUP to personalize email
+                group_name_for_otp = group_name if otp_for == "SIGNUP" else None
+                authentication_utils.email_generate_otp_process(otp, username, otp_for, group_name_for_otp)
             elif medium_type == "mobile":
                 authentication_utils.mobile_generate_otp_process(otp, username, otp_for)
 
@@ -1646,24 +1769,83 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
     def delete_user(self, request, pk=None):
         try:
             user = self.get_object()
+            user_email = user.email
+            user_phone_number = user.mobile_number
+            user_id = user.id
 
             with transaction.atomic():
-
+                # ========== DELETE LOGS FIRST (they reference other models) ==========
+                # Delete booking-related logs
                 BookingInvoiceLog.objects.filter(booking__user=user).delete()
                 BookingPaymentLog.objects.filter(booking__user=user).delete()
-                Booking.objects.filter(user=user).delete()
-
-                # Delete Wallet-related data
-                Wallet.objects.filter(user=user).delete()
-                WalletTransaction.objects.filter(user=user).delete()
+                BookingRefundLog.objects.filter(booking__user=user).delete()
+                
+                # Delete user subscription logs (must be deleted before UserSubscription)
+                from apps.org_resources.models import UserSubscription
+                user_subscriptions = UserSubscription.objects.filter(user=user)
+                
+                # Delete logs that reference user subscriptions
+                UserSubscriptionLogs.objects.filter(user=user).delete()
+                for user_sub in user_subscriptions:
+                    UserSubscriptionLogs.objects.filter(user_sub=user_sub).delete()
+                
+                # Delete wallet transaction logs
                 WalletTransactionLog.objects.filter(user=user).delete()
-
+                
+                # ========== DELETE SUBSCRIPTIONS ==========
+                # Delete user subscriptions (after logs are deleted)
+                user_subscriptions.delete()
+                
+                # ========== DELETE BOOKINGS ==========
+                # Delete bookings (after logs are deleted)
+                Booking.objects.filter(user=user).delete()
+                
+                # ========== DELETE WALLET-RELATED DATA ==========
+                WalletTransaction.objects.filter(user=user).delete()
+                Wallet.objects.filter(user=user).delete()
+                
+                # ========== DELETE CUSTOMER PROFILE ==========
+                from apps.customer.models import Customer
+                Customer.objects.filter(user=user).delete()
+                # Also handle cases where user is the added_user
+                Customer.objects.filter(added_user=user).update(added_user=None)
+                
+                # ========== DELETE PROPERTY-RELATED DATA (if user manages/added properties) ==========
+                try:
+                    from apps.hotels.models import Property, PayAtHotelSpendLimit
+                    # Get properties managed by or added by this user
+                    properties_managed = Property.objects.filter(managed_by=user)
+                    properties_added = Property.objects.filter(added_by=user)
+                    all_properties = (properties_managed | properties_added).distinct()
+                    
+                    # Delete PayAtHotelSpendLimit records that reference these properties
+                    # This must be done BEFORE deleting properties due to DO_NOTHING constraint
+                    for property in all_properties:
+                        PayAtHotelSpendLimit.objects.filter(property=property).delete()
+                    
+                    # Properties will be automatically deleted due to CASCADE on managed_by/added_by
+                    # But we can also explicitly delete them if needed
+                    # all_properties.delete()  # Not needed due to CASCADE, but safe to keep
+                except Exception as prop_error:
+                    # If Property model doesn't exist or has different structure, continue
+                    print(f"Warning: Could not delete property-related data: {prop_error}")
+                
+                # ========== DELETE OTHER USER-RELATED DATA ==========
+                # Delete OTP records
+                UserOtp.objects.filter(
+                    Q(user_account=user_email) | Q(user_account=user_phone_number)
+                ).delete()
+                
+                # Clear ManyToMany relationships
+                user.groups.clear()
+                user.roles.clear()
+                user.user_permissions.clear()
+                
+                # ========== DELETE USER ==========
                 # Finally, delete the user
-                user_email = user.email
-                user_phone_number = user.mobile_number
                 user.delete()
                 print(
-                    f"Deleted user with ID: {user.id}, Email: {user_email}, Phone: {user_phone_number}"
+                    f"Deleted user with ID: {user_id}, Email: {user_email}, Phone: {user_phone_number}"
                 )
 
             return Response(
@@ -1676,6 +1858,10 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             )
 
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error deleting user: {str(e)}")
+            print(f"Traceback: {error_trace}")
             return Response(
                 {"detail": f"Error deleting user: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2379,6 +2565,8 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def google_based_authentication(self, request):
         gtoken = request.data.get("id_token", None)
         referred_code = request.data.get("referred_code", "")
+        group_name = request.data.get("group_name", "B2C-GRP")
+        mobile_number = request.data.get("mobile_number", "")
 
         if not gtoken:
             custom_response = self.get_error_response(
@@ -2412,9 +2600,92 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             return custom_response
 
         email = email.lower()
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp or not role:
+            custom_response = self.get_error_response(
+                message="Group or role doesn't exist",
+                status="error",
+                errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
+            return custom_response
+
+        # mobile uniqueness only within target group
+        if mobile_number:
+            mobile_group_user = User.objects.filter(
+                mobile_number=mobile_number, groups=grp
+            ).first()
+            if mobile_group_user:
+                custom_response = self.get_error_response(
+                    message="Mobile already exist",
+                    status="error",
+                    errors=[],
+                    error_code="MOBILE_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return custom_response
+
         check_existing_user = User.objects.filter(email=email).first()
         if check_existing_user:
-            data = authentication_utils.generate_refresh_token(check_existing_user)
+            # Check if user already has this group
+            if check_existing_user.groups.filter(id=grp.id).exists():
+                custom_response = self.get_error_response(
+                    message="Email already exists for this group",
+                    status="error",
+                    errors=[{"field": "email", "message": "Email already exists for this group"}],
+                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return custom_response
+            
+            # Attach group/role if missing
+            if grp and not check_existing_user.groups.filter(id=grp.id).exists():
+                check_existing_user.groups.add(grp)
+            if role and not check_existing_user.roles.filter(id=role.id).exists():
+                check_existing_user.roles.add(role)
+
+            check_existing_user.default_group = group_name
+            check_existing_user.email_verified = True
+            if (
+                mobile_number
+                and not check_existing_user.mobile_number
+                and validate_mobile_number(mobile_number)
+            ):
+                check_existing_user.mobile_number = mobile_number
+            check_existing_user.save()
+
+            if not check_existing_user.mobile_verified:
+                mobile = check_existing_user.mobile_number
+                if not mobile or not validate_mobile_number(mobile):
+                    custom_response = self.get_error_response(
+                        message="Mobile verification required. Please add a valid mobile number.",
+                        status="error",
+                        errors=[],
+                        error_code="MOBILE_VERIFICATION_REQUIRED",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                    return custom_response
+
+                otp = generate_otp(no_digits=4)
+                authentication_utils.mobile_generate_otp_process(
+                    otp, mobile, "LOGIN"
+                )
+                response = self.get_response(
+                    data={
+                        "redirect": True,
+                        "verification_required": "mobile",
+                        "mobile_number": mobile,
+                    },
+                    status="error",
+                    message="Mobile verification required. OTP sent.",
+                    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                )
+                return response
+
+            data = authentication_utils.generate_refresh_token(
+                check_existing_user, active_group=group_name
+            )
             response = self.get_response(
                 data=data,
                 status="success",
@@ -2427,24 +2698,50 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
         new_user = User.objects.create(
             name=name,
             email=email,
-            mobile_number="",
+            mobile_number=mobile_number,
             referred_code=referred_code,
-            default_group="B2C-GRP",
+            default_group=group_name,
+            email_verified=True,
+            mobile_verified=False,
         )
         Customer.objects.create(user_id=new_user.id, active=True)
-
-        # set groups and roles
-        grp = db_utils.get_group_by_name("B2C-GRP")
-        role = db_utils.get_role_by_name("B2C-CUST")
 
         if grp:
             new_user.groups.add(grp)
         if role:
             new_user.roles.add(role)
 
-        authentication_utils.add_signup_bonus(new_user, "B2C-GRP", role)
+        authentication_utils.add_signup_bonus(new_user, group_name, role)
 
-        data = authentication_utils.generate_refresh_token(new_user)
+        if not new_user.mobile_verified:
+            mobile = new_user.mobile_number
+            if not mobile or not validate_mobile_number(mobile):
+                custom_response = self.get_error_response(
+                    message="Mobile verification required. Please add a valid mobile number.",
+                    status="error",
+                    errors=[],
+                    error_code="MOBILE_VERIFICATION_REQUIRED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return custom_response
+
+            otp = generate_otp(no_digits=4)
+            authentication_utils.mobile_generate_otp_process(otp, mobile, "LOGIN")
+            response = self.get_response(
+                data={
+                    "redirect": True,
+                    "verification_required": "mobile",
+                    "mobile_number": mobile,
+                },
+                status="error",
+                message="Mobile verification required. OTP sent.",
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            )
+            return response
+
+        data = authentication_utils.generate_refresh_token(
+            new_user, active_group=group_name
+        )
 
         response = self.get_response(
             data=data,

@@ -5,6 +5,7 @@ from IDBOOKAPI.img_kit import upload_media_to_bucket
 from apps.authentication.models import User
 from .models import (
     CompanyDetail,
+    AgentDetail,
     AmenityCategory,
     Amenity,
     Enquiry,
@@ -83,6 +84,44 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
                 "mobile_number": brep_mobile_number,
             }
         return ret
+
+
+class AgentDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentDetail
+        exclude = ("added_user",)
+
+    def validate_contact_email_address(self, value):
+        """
+        Prevent updating contact_email_address if instance exists.
+        This ensures the relationship between user and agent remains intact.
+        """
+        if self.instance and self.instance.contact_email_address != value:
+            raise serializers.ValidationError(
+                "Contact email address cannot be changed after agent account creation."
+            )
+        return value
+
+    def create(self, validated_data):
+        try:
+            request = self.context.get("request")
+            agent_email = validated_data.get("agent_email", "")
+            agent_phone = validated_data.get("agent_phone", "")
+            print("agent email::", agent_email)
+            agent_detail = AgentDetail(**validated_data)
+
+            # Don't set added_user here - it will be set in the viewset
+            # based on the user with contact_email_address
+            try:
+                if request.user and request.user.is_authenticated:
+                    agent_detail.approved = True
+            except Exception as e:
+                print("Request user check failed for Agent Create", e)
+
+            agent_detail.save()
+            return agent_detail
+        except Exception as e:
+            raise serializers.ValidationError({"message": "Internal Server Error"})
 
 
 class UploadedMediaSerializer(serializers.ModelSerializer):
