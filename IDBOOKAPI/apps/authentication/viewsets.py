@@ -2628,23 +2628,81 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         check_existing_user = User.objects.filter(email=email).first()
         if check_existing_user:
-            # Check if user already has this group
-            if check_existing_user.groups.filter(id=grp.id).exists():
-                custom_response = self.get_error_response(
-                    message="Email already exists for this group",
-                    status="error",
-                    errors=[{"field": "email", "message": "Email already exists for this group"}],
-                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
-                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
-                )
-                return custom_response
+            # User exists - handle login or signup to new group
+            user_has_group = check_existing_user.groups.filter(id=grp.id).exists()
             
+            # If user already has this group, this is a LOGIN
+            if user_has_group:
+                # Update user details if needed
+                if name and not check_existing_user.name:
+                    check_existing_user.name = name
+                if (
+                    mobile_number
+                    and not check_existing_user.mobile_number
+                    and validate_mobile_number(mobile_number)
+                ):
+                    check_existing_user.mobile_number = mobile_number
+                
+                check_existing_user.email_verified = True
+                check_existing_user.default_group = group_name
+                check_existing_user.save()
+                
+                # Ensure Customer exists for login
+                customer = Customer.objects.filter(user_id=check_existing_user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=check_existing_user.id, active=True)
+                
+                # Check mobile verification
+                if not check_existing_user.mobile_verified:
+                    mobile = check_existing_user.mobile_number
+                    if not mobile or not validate_mobile_number(mobile):
+                        custom_response = self.get_error_response(
+                            message="Mobile verification required. Please add a valid mobile number.",
+                            status="error",
+                            errors=[],
+                            error_code="MOBILE_VERIFICATION_REQUIRED",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                        return custom_response
+
+                    otp = generate_otp(no_digits=4)
+                    authentication_utils.mobile_generate_otp_process(
+                        otp, mobile, "LOGIN"
+                    )
+                    response = self.get_response(
+                        data={
+                            "redirect": True,
+                            "verification_required": "mobile",
+                            "mobile_number": mobile,
+                        },
+                        status="error",
+                        message="Mobile verification required. OTP sent.",
+                        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                    )
+                    return response
+
+                # Login successful - generate tokens
+                data = authentication_utils.generate_refresh_token(
+                    check_existing_user, active_group=group_name
+                )
+                response = self.get_response(
+                    data=data,
+                    status="success",
+                    message="Login successful",
+                    status_code=status.HTTP_200_OK,
+                )
+                return response
+            
+            # User exists but doesn't have this group - this is SIGNUP to new group
             # Attach group/role if missing
             if grp and not check_existing_user.groups.filter(id=grp.id).exists():
                 check_existing_user.groups.add(grp)
             if role and not check_existing_user.roles.filter(id=role.id).exists():
                 check_existing_user.roles.add(role)
 
+            # Update user details if needed
+            if name and not check_existing_user.name:
+                check_existing_user.name = name
             check_existing_user.default_group = group_name
             check_existing_user.email_verified = True
             if (
@@ -2654,6 +2712,14 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             ):
                 check_existing_user.mobile_number = mobile_number
             check_existing_user.save()
+            
+            # Ensure Customer exists
+            customer = Customer.objects.filter(user_id=check_existing_user.id).first()
+            if not customer:
+                Customer.objects.create(user_id=check_existing_user.id, active=True)
+
+            # Add signup bonus for new group signup
+            authentication_utils.add_signup_bonus(check_existing_user, group_name, role)
 
             if not check_existing_user.mobile_verified:
                 mobile = check_existing_user.mobile_number
@@ -2689,7 +2755,7 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             response = self.get_response(
                 data=data,
                 status="success",
-                message="Login successful",
+                message="Signup successful - Group added to existing account",
                 status_code=status.HTTP_200_OK,
             )
             return response
