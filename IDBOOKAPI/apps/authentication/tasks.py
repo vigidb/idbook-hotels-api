@@ -95,7 +95,15 @@ def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
 def send_mobile_otp_task(self, otp, mobile_number, otp_for=""):
     try:
         print("otp::", otp, "mobile_number::", mobile_number)
-        template_code = "VERIFY" if otp_for == "VERIFY-GUEST" else otp_for
+        # Map otp_for to valid SMS template codes
+        if otp_for == "VERIFY-GUEST":
+            template_code = "VERIFY"
+        elif otp_for == "GOOGLE-SIGNUP":
+            template_code = "SIGNUP"
+        elif otp_for == "GOOGLE-LOGIN":
+            template_code = "LOGIN"
+        else:
+            template_code = otp_for
         obj = Fast2SmsMixin()
         response = obj.post_dlt_otpsms(mobile_number, otp, template_code)
         if response.status_code != 200:

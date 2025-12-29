@@ -2316,6 +2316,9 @@ class BookingViewSet(
                 else:
                     booking_objs.update(**booking_dict)
                     booking = booking_objs.first()
+                    # Refresh from database to ensure we have latest data
+                    if booking:
+                        booking.refresh_from_db()
 
                 bus_details = get_active_business()
 
@@ -2337,6 +2340,26 @@ class BookingViewSet(
 
                 ##                if commission_details:
                 ##                    add_or_update_booking_commission(booking.id, commission_details)
+
+                # Generate access token for all bookings (works for both authenticated and guest users)
+                # guest_token allows users to view booking without login
+                from apps.booking.utils.booking_utils import generate_guest_access_token
+
+                if not booking.guest_access_token:
+                    max_attempts = 10
+                    for attempt in range(max_attempts):
+                        # Generate token with user information if available (includes group info)
+                        # If no user, token will default to guest type
+                        guest_token = generate_guest_access_token(
+                            booking.id, user=booking.user if booking.user else None
+                        )
+                        # Check if token already exists (very unlikely but handle it)
+                        if not Booking.objects.filter(
+                            guest_access_token=guest_token
+                        ).exists():
+                            booking.guest_access_token = guest_token
+                            booking.save(update_fields=["guest_access_token"])
+                            break
 
                 if not booking_id:
                     BookingMetaInfo.objects.create(
@@ -2390,6 +2413,7 @@ class BookingViewSet(
                     "merchant_transaction_id": "",
                     "room_availability_details": room_availability_list,
                     "booking_status_message": booking_status_message,
+                    "guest_token": booking.guest_access_token,  # Include guest token for guest bookings
                 }
                 booking_dict.update(serializer.data)
 

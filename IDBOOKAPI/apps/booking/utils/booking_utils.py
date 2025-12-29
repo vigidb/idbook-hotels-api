@@ -342,11 +342,14 @@ def generate_context_confirmed_booking(booking):
     tax = booking.gst_amount
 
     invoice_id = booking.invoice_id
-    access = ""
-    if booking.user:
-        refresh, access = generate_refresh_access_token(booking.user)
-
-    booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?token={access}"
+    
+    # Build booking link with guest_token (works for both registered and guest users)
+    # guest_token is sufficient and doesn't expire, unlike JWT tokens
+    if booking.guest_access_token:
+        booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/?guest_token={booking.guest_access_token}"
+    else:
+        # Fallback: if no guest_token, use booking ID only (frontend may require login)
+        booking_link = f"{settings.FRONTEND_URL}/bookings/{booking.id}/"
 
     invoice_link = ""
     receipt_link = ""
