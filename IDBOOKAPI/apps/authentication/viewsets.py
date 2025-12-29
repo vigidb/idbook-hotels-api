@@ -1195,6 +1195,7 @@ class OtpBasedUserEntryAPIView(
             username = request.data.get("username", None)
             otp_for = request.data.get("otp_for", None)
             group_name = request.data.get("group_name", "")
+            user_id = request.data.get("user_id", None)  # For Google auth cases
             if username and "@" in username:
                 username = username.lower()
 
@@ -1236,6 +1237,39 @@ class OtpBasedUserEntryAPIView(
                         status_code=status.HTTP_406_NOT_ACCEPTABLE,
                     )
                     return response
+            
+            # Handle Google authentication cases - update user mobile if user_id provided
+            if user_id and is_mb_valid and otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                try:
+                    user = User.objects.get(id=user_id)
+                    # Check if mobile is already taken by another user in the same group
+                    if group_name:
+                        grp, role = authentication_utils.get_group_based_on_name(group_name)
+                        if grp:
+                            mobile_user = User.objects.filter(
+                                mobile_number=username, groups=grp
+                            ).exclude(id=user_id).first()
+                            if mobile_user:
+                                response = self.get_error_response(
+                                    message="Mobile number is already associated with another account",
+                                    status="error",
+                                    errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                                    error_code="MOBILE_EXISTS",
+                                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                                )
+                                return response
+                    # Update user's mobile number
+                    user.mobile_number = username
+                    user.save()
+                except User.DoesNotExist:
+                    response = self.get_error_response(
+                        message="User not found",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+                    return response
             grp = None
             if group_name:
                 # group and roles - for OTP generation, we only need the group
@@ -1252,38 +1286,43 @@ class OtpBasedUserEntryAPIView(
                     return response
                 # Note: Role is optional for OTP generation, will be validated during signup
 
-            user_objs = db_utils.get_userid_list(username, group=grp)
-            print("user_objs:", user_objs)
+            # For Google auth cases, skip duplicate checks since user already exists
+            if otp_for not in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                user_objs = db_utils.get_userid_list(username, group=grp)
+                print("user_objs:", user_objs)
 
-            # allow B2C-GRP sign up for guest user
-            is_role_exist = False
-            if group_name == "B2C-GRP":
-                # check if B2C-CUST role exist for guest user
-                is_role_exist = db_utils.is_role_exist(user_objs, role)
+                # allow B2C-GRP sign up for guest user
+                is_role_exist = False
+                if group_name == "B2C-GRP":
+                    # check if B2C-CUST role exist for guest user
+                    is_role_exist = db_utils.is_role_exist(user_objs, role)
+                else:
+                    if user_objs:
+                        is_role_exist = True
+
+                if otp_for == "LOGIN":
+                    if not user_objs:
+                        response = self.get_error_response(
+                            message="Invalid User Credentials!",
+                            status="error",
+                            errors=[],
+                            error_code="MISSING_USERNAME",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                        )
+                        return response
+                elif otp_for == "SIGNUP":
+                    if is_role_exist:
+                        response = self.get_error_response(
+                            message=f"User {medium_type} is already associated with the account!",
+                            status="error",
+                            errors=[],
+                            error_code="USERNAME_DUPLICATE",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                        )
+                        return response
             else:
-                if user_objs:
-                    is_role_exist = True
-
-            if otp_for == "LOGIN":
-                if not user_objs:
-                    response = self.get_error_response(
-                        message="Invalid User Credentials!",
-                        status="error",
-                        errors=[],
-                        error_code="MISSING_USERNAME",
-                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
-                    )
-                    return response
-            elif otp_for == "SIGNUP":
-                if is_role_exist:
-                    response = self.get_error_response(
-                        message=f"User {medium_type} is already associated with the account!",
-                        status="error",
-                        errors=[],
-                        error_code="USERNAME_DUPLICATE",
-                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
-                    )
-                    return response
+                # For Google auth, user_objs not needed
+                user_objs = []
 
             # Check if user has exceeded OTP generation limit
             can_generate, error_message = (
@@ -1310,6 +1349,8 @@ class OtpBasedUserEntryAPIView(
                 authentication_utils.mobile_generate_otp_process(otp, username, otp_for)
 
             data = {"user_list": user_objs}
+            if user_id and otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                data["user_id"] = user_id
             response = self.get_response(
                 data=data,
                 status="success",
@@ -1403,6 +1444,8 @@ class OtpBasedUserEntryAPIView(
             return response
 
         data = {}
+        
+        # Handle VERIFY-GUEST case
         if otp_for == "VERIFY-GUEST":
             grp, role = authentication_utils.get_group_based_on_name("B2C-GRP")
             if not grp:
@@ -1418,6 +1461,43 @@ class OtpBasedUserEntryAPIView(
             user_detail = db_utils.get_group_based_user_details(grp, username)
             if user_detail:
                 data = authentication_utils.generate_refresh_token(user_detail)
+        
+        # Handle GOOGLE-SIGNUP and GOOGLE-LOGIN cases
+        elif otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+            # Get user by mobile number or email
+            is_mobile = validate_mobile_number(username)
+            if is_mobile:
+                user = User.objects.filter(mobile_number=username).first()
+            else:
+                user = User.objects.filter(email=username).first()
+            
+            if not user:
+                response = self.get_error_response(
+                    message="User not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                return response
+            
+            # Mark mobile as verified
+            if is_mobile:
+                user.mobile_number = username
+                user.mobile_verified = True
+            user.email_verified = True
+            user.save()
+            
+            # Ensure Customer exists
+            customer = Customer.objects.filter(user_id=user.id).first()
+            if not customer:
+                Customer.objects.create(user_id=user.id, active=True)
+            
+            # Get group_name from request if provided, otherwise use user's default group
+            group_name = request.data.get("group_name", user.default_group or "B2C-GRP")
+            
+            # Generate tokens
+            data = authentication_utils.generate_refresh_token(user, active_group=group_name)
 
         db_utils.reset_otp_counter(username)
         response = self.get_response(
@@ -2656,28 +2736,39 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 if not check_existing_user.mobile_verified:
                     mobile = check_existing_user.mobile_number
                     if not mobile or not validate_mobile_number(mobile):
-                        custom_response = self.get_error_response(
-                            message="Mobile verification required. Please add a valid mobile number.",
+                        # Mobile number is missing - return clear response for frontend
+                        custom_response = self.get_response(
+                            data={
+                                "mobile_required": True,
+                                "user_id": check_existing_user.id,
+                                "user_email": check_existing_user.email,
+                                "has_mobile": False,
+                                "mobile_number": None,
+                            },
                             status="error",
-                            errors=[],
-                            error_code="MOBILE_VERIFICATION_REQUIRED",
-                            status_code=status.HTTP_400_BAD_REQUEST,
+                            message="Mobile number is required. Please add your mobile number to complete authentication.",
+                            status_code=status.HTTP_200_OK,
                         )
                         return custom_response
 
+                    # Mobile exists but not verified - send OTP
                     otp = generate_otp(no_digits=4)
                     authentication_utils.mobile_generate_otp_process(
                         otp, mobile, "LOGIN"
                     )
                     response = self.get_response(
                         data={
-                            "redirect": True,
-                            "verification_required": "mobile",
+                            "mobile_required": True,
+                            "mobile_verification_required": True,
+                            "user_id": check_existing_user.id,
+                            "user_email": check_existing_user.email,
+                            "has_mobile": True,
                             "mobile_number": mobile,
+                            "otp_sent": True,
                         },
                         status="error",
-                        message="Mobile verification required. OTP sent.",
-                        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                        message="Mobile verification required. OTP sent to your mobile number.",
+                        status_code=status.HTTP_200_OK,
                     )
                     return response
 
@@ -2724,28 +2815,39 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if not check_existing_user.mobile_verified:
                 mobile = check_existing_user.mobile_number
                 if not mobile or not validate_mobile_number(mobile):
-                    custom_response = self.get_error_response(
-                        message="Mobile verification required. Please add a valid mobile number.",
+                    # Mobile number is missing - return clear response for frontend
+                    custom_response = self.get_response(
+                        data={
+                            "mobile_required": True,
+                            "user_id": check_existing_user.id,
+                            "user_email": check_existing_user.email,
+                            "has_mobile": False,
+                            "mobile_number": None,
+                        },
                         status="error",
-                        errors=[],
-                        error_code="MOBILE_VERIFICATION_REQUIRED",
-                        status_code=status.HTTP_400_BAD_REQUEST,
+                        message="Mobile number is required. Please add your mobile number to complete signup.",
+                        status_code=status.HTTP_200_OK,
                     )
                     return custom_response
 
+                # Mobile exists but not verified - send OTP
                 otp = generate_otp(no_digits=4)
                 authentication_utils.mobile_generate_otp_process(
                     otp, mobile, "LOGIN"
                 )
                 response = self.get_response(
                     data={
-                        "redirect": True,
-                        "verification_required": "mobile",
+                        "mobile_required": True,
+                        "mobile_verification_required": True,
+                        "user_id": check_existing_user.id,
+                        "user_email": check_existing_user.email,
+                        "has_mobile": True,
                         "mobile_number": mobile,
+                        "otp_sent": True,
                     },
                     status="error",
-                    message="Mobile verification required. OTP sent.",
-                    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                    message="Mobile verification required. OTP sent to your mobile number.",
+                    status_code=status.HTTP_200_OK,
                 )
                 return response
 
@@ -2782,26 +2884,37 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
         if not new_user.mobile_verified:
             mobile = new_user.mobile_number
             if not mobile or not validate_mobile_number(mobile):
-                custom_response = self.get_error_response(
-                    message="Mobile verification required. Please add a valid mobile number.",
+                # Mobile number is missing - return clear response for frontend
+                custom_response = self.get_response(
+                    data={
+                        "mobile_required": True,
+                        "user_id": new_user.id,
+                        "user_email": new_user.email,
+                        "has_mobile": False,
+                        "mobile_number": None,
+                    },
                     status="error",
-                    errors=[],
-                    error_code="MOBILE_VERIFICATION_REQUIRED",
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Mobile number is required. Please add your mobile number to complete signup.",
+                    status_code=status.HTTP_200_OK,
                 )
                 return custom_response
 
+            # Mobile exists but not verified - send OTP
             otp = generate_otp(no_digits=4)
             authentication_utils.mobile_generate_otp_process(otp, mobile, "LOGIN")
             response = self.get_response(
                 data={
-                    "redirect": True,
-                    "verification_required": "mobile",
+                    "mobile_required": True,
+                    "mobile_verification_required": True,
+                    "user_id": new_user.id,
+                    "user_email": new_user.email,
+                    "has_mobile": True,
                     "mobile_number": mobile,
+                    "otp_sent": True,
                 },
                 status="error",
-                message="Mobile verification required. OTP sent.",
-                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                message="Mobile verification required. OTP sent to your mobile number.",
+                status_code=status.HTTP_200_OK,
             )
             return response
 
@@ -2816,6 +2929,7 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             status_code=status.HTTP_200_OK,
         )
         return response
+
 
 
 # class ForgotPasswordView(APIView):
