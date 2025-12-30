@@ -4753,7 +4753,10 @@ class BookingPaymentDetailViewSet(
                     }
 
                     booking_payment_log["response"] = response_data
-                    booking_payment_log["razorpay_order_id"] = order_result["order_id"]
+                    # Store razorpay_order_id in request JSON field (not as direct field)
+                    if "request" not in booking_payment_log:
+                        booking_payment_log["request"] = {}
+                    booking_payment_log["request"]["razorpay_order_id"] = order_result["order_id"]
 
                     custom_response = self.get_response(
                         status="success",

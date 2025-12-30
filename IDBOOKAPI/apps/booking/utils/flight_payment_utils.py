@@ -640,12 +640,19 @@ class FlightPaymentProcessor:
                 },
             )
 
-            # Create payment log
+            # Create payment log (only valid BookingPaymentLog fields)
             payment_log = {
-                "booking_id": self.booking.id,
+                "booking": self.booking,  # Use booking object, not booking_id
                 "merchant_transaction_id": payment_detail.merchant_transaction_id,
-                "razorpay_order_id": order_result["order_id"],
-                "amount": float(amount),
+                "request": {
+                    "razorpay_order_id": order_result["order_id"],
+                    "amount": float(amount),
+                    "payment_method": "RAZORPAY",
+                },
+                "response": {
+                    "status": "PAYMENT_INITIATED",
+                    "message": "Payment initiated via Razorpay",
+                },
             }
             create_booking_payment_log(payment_log)
 
@@ -1305,14 +1312,18 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
     Returns:
         bool: True if successful, False otherwise
     """
+    logger.info(f"=== handle_flight_payment_success CALLED ===")
+    logger.info(f"booking_id: {booking_id}, payment_details: {payment_details}")
 
     try:
         from ..models import Booking, BookingPaymentDetail
 
         # Get the booking
+        logger.info(f"Fetching booking {booking_id}...")
         booking = Booking.objects.select_related("flight_booking", "user").get(
             id=booking_id, booking_type="FLIGHT"
         )
+        logger.info(f"Booking found: {booking.id}, status: {booking.status}, flight_booking: {booking.flight_booking is not None}")
 
         if not booking.flight_booking:
             logger.error(f"Flight booking details not found for booking {booking_id}")
@@ -1353,11 +1364,14 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
             return True
 
         # For initial booking payments, confirm booking
+        logger.info(f"Creating FlightPaymentProcessor for booking {booking_id}...")
         processor = FlightPaymentProcessor(booking, booking.user, payment_details)
 
         # Confirm booking and auto-issue ticket
+        logger.info(f"Calling _confirm_flight_booking() for booking {booking_id}...")
         with transaction.atomic():
             confirmed = processor._confirm_flight_booking()
+            logger.info(f"_confirm_flight_booking() returned: {confirmed}")
             
             if not confirmed:
                 # AirIQ booking failed - need to refund payment
@@ -1495,17 +1509,21 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
                     return False
 
             # Send notifications only on confirmed booking
+            logger.info(f"Sending booking notifications for booking {booking_id}...")
             processor._send_booking_notifications()
+            logger.info(f"Booking notifications sent for booking {booking_id}")
 
         logger.info(
-            f"Successfully processed payment success for flight booking {booking_id}"
+            f"✓ Successfully processed payment success for flight booking {booking_id}"
         )
         return True
 
     except Exception as e:
         logger.error(
-            f"Error handling payment success for booking {booking_id}: {str(e)}"
+            f"✗ Error handling payment success for booking {booking_id}: {str(e)}"
         )
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 

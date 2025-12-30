@@ -1414,9 +1414,30 @@ class OtpBasedUserEntryAPIView(
         db_utils.increment_verify_attempts(username)
 
         # get the otp details
-        user_otp = UserOtp.objects.filter(
-            user_account=username, otp=otp, otp_for=otp_for
-        ).first()
+        # For Google auth cases, check both the original otp_for and VERIFY
+        # since the OTP was stored with GOOGLE-SIGNUP/GOOGLE-LOGIN but template uses VERIFY
+        if otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+            # First try with the original otp_for value (GOOGLE-SIGNUP or GOOGLE-LOGIN)
+            user_otp = UserOtp.objects.filter(
+                user_account=username, otp=otp, otp_for=otp_for
+            ).first()
+            # If not found, also try with VERIFY (in case user sends VERIFY in request)
+            if not user_otp:
+                user_otp = UserOtp.objects.filter(
+                    user_account=username, otp=otp, otp_for="VERIFY"
+                ).first()
+            # Last resort: check for any OTP with matching username and OTP value
+            # (only for Google auth to handle edge cases)
+            if not user_otp:
+                user_otp = UserOtp.objects.filter(
+                    user_account=username, otp=otp
+                ).order_by('-created').first()
+        else:
+            # For other cases, use the otp_for as provided
+            user_otp = UserOtp.objects.filter(
+                user_account=username, otp=otp, otp_for=otp_for
+            ).first()
+        
         if not user_otp:
             response = self.get_error_response(
                 message="Invalid Credentials",

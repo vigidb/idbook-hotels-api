@@ -14,7 +14,7 @@ import logging
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
-from apps.log_management.utils.db_utils import create_wallet_payment_log
+from apps.log_management.utils.db_utils import create_wallet_payment_log, create_booking_payment_log
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             # Get raw body for signature verification
             raw_body = request.body
             signature = request.META.get("HTTP_X_RAZORPAY_SIGNATURE", "")
+            # Store signature for use in handlers
+            self._current_signature = signature
             
             self.log_info(f"Webhook signature received: {signature[:20] if signature else 'None'}...")
             
@@ -158,8 +160,10 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                 razorpay_payment_id, razorpay_order_id, amount, notes, payment_log
             )
         elif transaction_type in ("flight_booking_payment", "ticket_issuance_payment", "reschedule_payment", "ssr_payment"):
+            # Get signature from request (stored earlier in post method)
+            signature = getattr(self, '_current_signature', '')
             return self._handle_flight_payment_webhook(
-                razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log
+                razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log, signature
             )
         elif booking_type == "HOTEL":
             return self._handle_hotel_booking_webhook(
@@ -401,7 +405,7 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             self.log_error(traceback.format_exc())
             raise
     
-    def _handle_flight_payment_webhook(self, razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log):
+    def _handle_flight_payment_webhook(self, razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log, signature=""):
         """Handle flight payment webhook (booking, ticket, reschedule, SSR)"""
         self.log_info(f"Routing to flight payment handler - transaction_type: {transaction_type}")
         
@@ -482,29 +486,80 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                         self.log_error(f"Error processing SSR: {str(e)}")
                         self.log_error(traceback.format_exc())
                 else:
-                    # Default flight booking payment
+                    # Default flight booking payment - same flow as PhonePe callback
+                    self.log_info(f"=== Processing flight booking payment for booking_id: {booking_id} ===")
                     from apps.booking.utils.flight_payment_utils import handle_flight_payment_success
+                    
+                    # Use merchant_transaction_id (not razorpay_payment_id) for transaction_id
+                    # This matches how PhonePe callback works - it uses merchantTransactionId
                     payment_details_dict = {
                         "amount": amount,
-                        "transaction_id": razorpay_payment_id,
+                        "transaction_id": merchant_transaction_id,  # Use merchant_transaction_id, not razorpay_payment_id
+                        "payment_channel": "RAZORPAY",  # Match PhonePe structure
                         "payment_method": "RAZORPAY",
                         "payment_medium": "RAZORPAY",
                         "razorpay_order_id": razorpay_order_id,
                         "razorpay_payment_id": razorpay_payment_id,
+                        "payment_data": {  # Match PhonePe structure
+                            "razorpay_order_id": razorpay_order_id,
+                            "razorpay_payment_id": razorpay_payment_id,
+                            "amount": amount,
+                            "merchant_transaction_id": merchant_transaction_id,
+                        },
                     }
-                    handle_flight_payment_success(booking_id, payment_details_dict)
+                    self.log_info(f"Calling handle_flight_payment_success with booking_id: {booking_id}")
+                    self.log_info(f"Payment details: amount={amount}, transaction_id={merchant_transaction_id}, razorpay_payment_id={razorpay_payment_id}")
+                    try:
+                        success = handle_flight_payment_success(booking_id, payment_details_dict)
+                        if success:
+                            self.log_info(f"✓ Flight booking {booking_id} confirmed and ticket issued automatically via Razorpay webhook")
+                        else:
+                            self.log_error(f"✗ handle_flight_payment_success returned False for booking {booking_id}")
+                    except Exception as callback_error:
+                        self.log_error(f"✗ Exception in handle_flight_payment_success for booking {booking_id}: {str(callback_error)}")
+                        self.log_error(traceback.format_exc())
             except Exception as e:
                 self.log_error(f"Error processing flight payment: {str(e)}")
                 self.log_error(traceback.format_exc())
         
-        payment_log["response"] = {"success": True, "transaction_type": transaction_type}
-        # Set merchant_transaction_id if available
-        if merchant_transaction_id:
-            payment_log["merchant_transaction_id"] = merchant_transaction_id
+        # Create booking payment log (not wallet log) for flight payments
+        booking_payment_log = {}
+        booking_payment_log["merchant_transaction_id"] = merchant_transaction_id or ""
+        booking_payment_log["x_verify"] = signature  # Store Razorpay signature in x_verify field
+        
+        # Store webhook data in request JSON field
+        booking_payment_log["request"] = {
+            "event": "payment.captured",
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_order_id": razorpay_order_id,
+            "amount": amount,
+            "transaction_type": transaction_type,
+            "notes": notes,
+        }
+        
+        # Store processing result in response JSON field
+        booking_payment_log["response"] = {
+            "success": True,
+            "transaction_type": transaction_type,
+            "message": "Flight payment webhook processed successfully",
+        }
+        
+        # Set booking object if available
+        booking_id = notes.get("booking_id")
+        if booking_id:
+            try:
+                from apps.booking.models import Booking
+                booking = Booking.objects.get(id=int(booking_id))
+                booking_payment_log["booking"] = booking
+            except Exception as e:
+                self.log_error(f"Failed to get booking for log: {str(e)}")
+        
         try:
-            create_wallet_payment_log(payment_log)
+            create_booking_payment_log(booking_payment_log)
         except Exception as log_error:
-            self.log_error(f"Failed to create payment log: {str(log_error)}")
+            self.log_error(f"Failed to create booking payment log: {str(log_error)}")
+            self.log_error(traceback.format_exc())
+        
         self.log_info(f"=== FLIGHT PAYMENT WEBHOOK SUCCESS - Type: {transaction_type}, Payment ID: {razorpay_payment_id} ===")
         
         return self.get_response(
