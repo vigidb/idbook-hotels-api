@@ -11,6 +11,7 @@ from django.utils.decorators import method_decorator
 import json
 import traceback
 import logging
+from decimal import Decimal
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
@@ -94,6 +95,8 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                 return self._handle_payment_captured(payload, razorpay_mixin, payment_log)
             elif event == "payment.failed":
                 return self._handle_payment_failed(payload, razorpay_mixin, payment_log)
+            elif event in ("refund.processed", "refund.created"):
+                return self._handle_refund_processed(payload, razorpay_mixin, payment_log)
             else:
                 self.log_info(f"Unhandled webhook event: {event}")
                 return self.get_response(
@@ -116,14 +119,19 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
     
     def _handle_payment_captured(self, payload, razorpay_mixin, payment_log):
         """Handle payment.captured event"""
+        print("=" * 80)
+        print("=== _handle_payment_captured CALLED ===")
         self.log_info("Processing payment.captured event")
+        logger.info("Processing payment.captured event")
         
         payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
         razorpay_payment_id = payment_entity.get("id")
         razorpay_order_id = payment_entity.get("order_id")
         amount = float(payment_entity.get("amount", 0)) / 100
         
+        print(f"Payment details - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}, amount: {amount}")
         self.log_info(f"Payment details - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}, amount: {amount}")
+        logger.info(f"Payment details - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}, amount: {amount}")
         
         # Store payment details in request JSON field (valid model fields)
         if not payment_log.get("request"):
@@ -155,11 +163,17 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
         self.log_info(f"Full order notes: {notes}")
         
         # Route to appropriate handler based on transaction_type
+        print(f"Transaction type: {transaction_type}, Booking type: {booking_type}")
+        logger.info(f"Transaction type: {transaction_type}, Booking type: {booking_type}")
+        
         if transaction_type == "wallet_recharge":
+            print("Routing to wallet recharge handler")
             return self._handle_wallet_recharge_webhook(
                 razorpay_payment_id, razorpay_order_id, amount, notes, payment_log
             )
         elif transaction_type in ("flight_booking_payment", "ticket_issuance_payment", "reschedule_payment", "ssr_payment"):
+            print(f"Routing to flight payment handler for transaction_type: {transaction_type}")
+            logger.info(f"Routing to flight payment handler for transaction_type: {transaction_type}")
             # Get signature from request (stored earlier in post method)
             signature = getattr(self, '_current_signature', '')
             return self._handle_flight_payment_webhook(
@@ -259,6 +273,175 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             status="success",
             data={"received": True},
             message="Payment failed event processed",
+            status_code=status.HTTP_200_OK,
+        )
+    
+    def _handle_refund_processed(self, payload, razorpay_mixin, payment_log):
+        """Handle refund.processed or refund.created event"""
+        print("=" * 80)
+        print("=== _handle_refund_processed CALLED ===")
+        self.log_info("Processing refund event")
+        logger.info("Processing refund event")
+        
+        refund_entity = payload.get("payload", {}).get("refund", {}).get("entity", {})
+        refund_id = refund_entity.get("id")
+        payment_id = refund_entity.get("payment_id")
+        refund_status = refund_entity.get("status")
+        refund_amount = float(refund_entity.get("amount", 0)) / 100  # Convert from paise
+        
+        print(f"Refund details - refund_id: {refund_id}, payment_id: {payment_id}, status: {refund_status}, amount: {refund_amount}")
+        self.log_info(f"Refund details - refund_id: {refund_id}, payment_id: {payment_id}, status: {refund_status}, amount: {refund_amount}")
+        
+        if refund_status != "processed":
+            self.log_info(f"Refund status is {refund_status}, not processed yet. Ignoring.")
+            return self.get_response(
+                status="success",
+                data={"received": True, "status": refund_status},
+                message="Refund event received but not processed yet",
+                status_code=status.HTTP_200_OK,
+            )
+        
+        # Get payment details to find the booking
+        try:
+            payment_result = razorpay_mixin.get_payment_details(payment_id)
+            if not payment_result.get("success"):
+                self.log_error(f"Failed to fetch payment details for payment_id: {payment_id}")
+                return self.get_error_response(
+                    message="Failed to fetch payment details",
+                    status="error",
+                    errors=[],
+                    error_code="PAYMENT_FETCH_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            payment_data = payment_result.get("payment", {})
+            order_id = payment_data.get("order_id")
+            
+            # Get order details to find booking
+            order_result = razorpay_mixin.get_order_details(order_id)
+            if not order_result.get("success"):
+                self.log_error(f"Failed to fetch order details for order_id: {order_id}")
+                return self.get_error_response(
+                    message="Failed to fetch order details",
+                    status="error",
+                    errors=[],
+                    error_code="ORDER_FETCH_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            order_data = order_result.get("order", {})
+            notes = order_data.get("notes", {})
+            booking_id = notes.get("booking_id")
+            merchant_transaction_id = notes.get("merchant_transaction_id")
+            
+            if not booking_id:
+                self.log_warning(f"No booking_id found in refund webhook for payment {payment_id}")
+                return self.get_response(
+                    status="success",
+                    data={"received": True},
+                    message="Refund processed but no booking found",
+                    status_code=status.HTTP_200_OK,
+                )
+            
+            booking_id = int(booking_id)
+            from apps.booking.models import Booking
+            
+            try:
+                booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+                
+                # Update booking status to refunded
+                booking.status = "refunded"
+                booking.total_payment_made = Decimal("0.0")
+                booking.save(update_fields=["status", "total_payment_made"])
+                
+                # Update flight booking status if exists
+                if booking.flight_booking:
+                    booking.flight_booking.status = "REFUNDED"
+                    booking.flight_booking.save(update_fields=["status"])
+                
+                # Update payment details
+                if merchant_transaction_id:
+                    from apps.booking.utils.db_utils import update_booking_payment_details
+                    update_booking_payment_details(
+                        merchant_transaction_id,
+                        {
+                            "code": "REFUND_PROCESSED",
+                            "message": f"Refund processed successfully. Refund ID: {refund_id}",
+                            "is_transaction_success": False,
+                            "transaction_details": {
+                                "refund_id": refund_id,
+                                "refund_status": "processed",
+                                "refund_amount": refund_amount,
+                                "payment_id": payment_id,
+                            },
+                        },
+                    )
+                
+                # Update RazorpayOrder if exists
+                from apps.payment_gateways.models import RazorpayOrder
+                try:
+                    razorpay_order = RazorpayOrder.objects.get(rp_id=order_id)
+                    razorpay_order.status = "refunded"
+                    razorpay_order.save(update_fields=["status"])
+                except RazorpayOrder.DoesNotExist:
+                    pass
+                
+                print(f"✓ Booking {booking_id} status updated to refunded")
+                self.log_info(f"Booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
+                logger.info(f"Booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
+                
+            except Booking.DoesNotExist:
+                self.log_error(f"Booking {booking_id} not found for refund processing")
+                return self.get_error_response(
+                    message="Booking not found",
+                    status="error",
+                    errors=[],
+                    error_code="BOOKING_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+        except Exception as e:
+            self.log_error(f"Error processing refund webhook: {str(e)}")
+            self.log_error(traceback.format_exc())
+            return self.get_error_response(
+                message=f"Refund processing failed: {str(e)}",
+                status="error",
+                errors=[],
+                error_code="REFUND_PROCESSING_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        
+        # Create payment log
+        booking_payment_log = {}
+        booking_payment_log["merchant_transaction_id"] = merchant_transaction_id or ""
+        booking_payment_log["x_verify"] = getattr(self, '_current_signature', '')
+        booking_payment_log["request"] = {
+            "event": payload.get("event"),
+            "refund_id": refund_id,
+            "payment_id": payment_id,
+            "refund_amount": refund_amount,
+            "refund_status": refund_status,
+        }
+        booking_payment_log["response"] = {
+            "success": True,
+            "message": "Refund processed successfully",
+        }
+        
+        if booking_id:
+            try:
+                booking_payment_log["booking"] = booking
+            except:
+                pass
+        
+        try:
+            create_booking_payment_log(booking_payment_log)
+        except Exception as log_error:
+            self.log_error(f"Failed to create payment log: {str(log_error)}")
+        
+        return self.get_response(
+            status="success",
+            data={"received": True, "refund_id": refund_id, "booking_id": booking_id},
+            message="Refund processed successfully",
             status_code=status.HTTP_200_OK,
         )
     
@@ -407,7 +590,9 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
     
     def _handle_flight_payment_webhook(self, razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log, signature=""):
         """Handle flight payment webhook (booking, ticket, reschedule, SSR)"""
+        print(f"=== _handle_flight_payment_webhook CALLED - transaction_type: {transaction_type} ===")
         self.log_info(f"Routing to flight payment handler - transaction_type: {transaction_type}")
+        logger.info(f"Routing to flight payment handler - transaction_type: {transaction_type}")
         
         # Import flight webhook handler
         from apps.booking.subviews.enhanced_flight_viewset import EnhancedFlightBookingViewSet
@@ -487,7 +672,9 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                         self.log_error(traceback.format_exc())
                 else:
                     # Default flight booking payment - same flow as PhonePe callback
+                    print(f"=== Processing flight booking payment for booking_id: {booking_id} ===")
                     self.log_info(f"=== Processing flight booking payment for booking_id: {booking_id} ===")
+                    logger.info(f"=== Processing flight booking payment for booking_id: {booking_id} ===")
                     from apps.booking.utils.flight_payment_utils import handle_flight_payment_success
                     
                     # Use merchant_transaction_id (not razorpay_payment_id) for transaction_id

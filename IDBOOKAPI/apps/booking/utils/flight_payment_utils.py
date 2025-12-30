@@ -1415,13 +1415,13 @@ def handle_flight_payment_success(booking_id: int, payment_details: dict) -> boo
                                 f"Razorpay refund successful for booking {booking_id}. Refund ID: {refund_result.get('refund_id')}"
                             )
                             
-                            # Revert booking/flight statuses
-                            booking.status = "pending"
+                            # Update booking/flight statuses to refunded
+                            booking.status = "refunded"
                             booking.total_payment_made = Decimal("0.0")
                             booking.save(update_fields=["status", "total_payment_made"])
                             
                             if booking.flight_booking:
-                                booking.flight_booking.status = "PENDING_PAYMENT"
+                                booking.flight_booking.status = "REFUNDED"
                                 booking.flight_booking.save(update_fields=["status"])
                             
                             # Update payment record to reflect refund

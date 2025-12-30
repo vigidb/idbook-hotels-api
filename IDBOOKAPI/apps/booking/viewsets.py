@@ -4669,6 +4669,10 @@ class BookingPaymentDetailViewSet(
                         "merchant_transaction_id": merchant_transaction_id,
                     }
 
+                    # Add transaction_type for flight bookings
+                    if booking.booking_type == "FLIGHT":
+                        notes["transaction_type"] = "flight_booking_payment"
+                    
                     if booking.booking_type == "HOTEL" and booking.hotel_booking:
                         notes.update(
                             {
