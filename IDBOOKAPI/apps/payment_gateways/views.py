@@ -12,6 +12,7 @@ import json
 import traceback
 import logging
 from decimal import Decimal
+from django.utils import timezone
 
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
@@ -180,6 +181,8 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                 razorpay_payment_id, razorpay_order_id, amount, notes, transaction_type, payment_log, signature
             )
         elif booking_type == "HOTEL":
+            print(f"Routing to hotel booking handler for booking_type: {booking_type}")
+            logger.info(f"Routing to hotel booking handler for booking_type: {booking_type}")
             return self._handle_hotel_booking_webhook(
                 razorpay_payment_id, razorpay_order_id, amount, notes, payment_log
             )
@@ -347,17 +350,34 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             from apps.booking.models import Booking
             
             try:
-                booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+                booking = Booking.objects.select_related("flight_booking", "hotel_booking").get(id=booking_id)
                 
-                # Update booking status to refunded
-                booking.status = "refunded"
-                booking.total_payment_made = Decimal("0.0")
-                booking.save(update_fields=["status", "total_payment_made"])
-                
-                # Update flight booking status if exists
-                if booking.flight_booking:
-                    booking.flight_booking.status = "REFUNDED"
-                    booking.flight_booking.save(update_fields=["status"])
+                # Handle based on booking type
+                if booking.booking_type == "FLIGHT":
+                    # Update booking status to refunded
+                    booking.status = "refunded"
+                    booking.total_payment_made = Decimal("0.0")
+                    booking.save(update_fields=["status", "total_payment_made"])
+                    
+                    # Update flight booking status if exists
+                    if booking.flight_booking:
+                        booking.flight_booking.status = "REFUNDED"
+                        booking.flight_booking.save(update_fields=["status"])
+                elif booking.booking_type == "HOTEL":
+                    # For hotel bookings, update cancellation_details instead of status
+                    # Status should remain "canceled" (not "refunded")
+                    if booking.hotel_booking and booking.hotel_booking.cancellation_details:
+                        cancellation_details = booking.hotel_booking.cancellation_details
+                        cancellation_details["refund_status"] = "refund_completed"
+                        cancellation_details["refund_id"] = refund_id
+                        cancellation_details["refund_amount"] = refund_amount
+                        cancellation_details["refund_processed_at"] = timezone.now().isoformat()
+                        booking.hotel_booking.cancellation_details = cancellation_details
+                        booking.hotel_booking.save(update_fields=["cancellation_details"])
+                    
+                    # Update booking total_payment_made
+                    booking.total_payment_made = Decimal("0.0")
+                    booking.save(update_fields=["total_payment_made"])
                 
                 # Update payment details
                 if merchant_transaction_id:
@@ -386,9 +406,34 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                 except RazorpayOrder.DoesNotExist:
                     pass
                 
-                print(f"✓ Booking {booking_id} status updated to refunded")
-                self.log_info(f"Booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
-                logger.info(f"Booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
+                # For hotel bookings, also update BookingRefundLog if exists
+                if booking.booking_type == "HOTEL":
+                    from apps.log_management.models import BookingRefundLog
+                    try:
+                        # Try to find refund log by merchant_refund_id from cancellation_details
+                        if booking.hotel_booking and booking.hotel_booking.cancellation_details:
+                            merchant_refund_id = booking.hotel_booking.cancellation_details.get("merchant_refund_id")
+                            if merchant_refund_id:
+                                refund_log_entry = BookingRefundLog.objects.filter(
+                                    merchant_refund_id=merchant_refund_id
+                                ).first()
+                                if refund_log_entry:
+                                    refund_log_entry.status = "completed"
+                                    refund_log_entry.transaction_id = refund_id
+                                    refund_log_entry.response_code = "SUCCESS"
+                                    refund_log_entry.response_message = "Refund processed successfully"
+                                    refund_log_entry.save()
+                    except Exception as e:
+                        self.log_warning(f"Failed to update BookingRefundLog: {str(e)}")
+                
+                if booking.booking_type == "FLIGHT":
+                    print(f"✓ Flight booking {booking_id} status updated to refunded")
+                    self.log_info(f"Flight booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
+                    logger.info(f"Flight booking {booking_id} status updated to refunded. Refund ID: {refund_id}")
+                elif booking.booking_type == "HOTEL":
+                    print(f"✓ Hotel booking {booking_id} refund processed successfully")
+                    self.log_info(f"Hotel booking {booking_id} refund processed. Refund ID: {refund_id}")
+                    logger.info(f"Hotel booking {booking_id} refund processed. Refund ID: {refund_id}")
                 
             except Booking.DoesNotExist:
                 self.log_error(f"Booking {booking_id} not found for refund processing")
@@ -757,8 +802,32 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
         )
     
     def _handle_hotel_booking_webhook(self, razorpay_payment_id, razorpay_order_id, amount, notes, payment_log):
-        """Handle hotel booking webhook"""
+        """Handle hotel booking webhook - same flow as PhonePe callback"""
+        print("=" * 80)
+        print("=== _handle_hotel_booking_webhook CALLED ===")
+        print(f"Notes: {notes}")
         self.log_info("Routing to hotel booking handler")
+        logger.info("Routing to hotel booking handler")
+        
+        # Get booking_id and merchant_transaction_id from notes
+        booking_id = notes.get("booking_id")
+        merchant_transaction_id = notes.get("merchant_transaction_id")
+        
+        print(f"booking_id from notes: {booking_id}, merchant_transaction_id: {merchant_transaction_id}")
+        
+        if not booking_id:
+            self.log_error("No booking_id found in hotel booking webhook notes")
+            print("ERROR: No booking_id found in notes")
+            return self.get_error_response(
+                message="Booking ID not found in webhook",
+                status="error",
+                errors=[],
+                error_code="BOOKING_ID_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        booking_id = int(booking_id)
+        print(f"Processing hotel booking {booking_id}")
         
         # Update RazorpayOrder
         from apps.payment_gateways.models import RazorpayOrder
@@ -768,50 +837,194 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             razorpay_order.payment_status = "captured"
             razorpay_order.status = "paid"
             razorpay_order.save()
-            
-            booking = razorpay_order.booking
-            if booking and booking.status != "confirmed":
-                # Update booking payment detail
-                payment_details = booking.booking_payment.filter(
-                    transaction_details__razorpay_order_id=razorpay_order_id
-                ).first()
-                
-                if payment_details:
-                    from apps.booking.utils.db_utils import update_booking_payment_details
-                    update_booking_payment_details(
-                        payment_details.merchant_transaction_id,
-                        {
-                            "transaction_id": razorpay_payment_id,
-                            "code": "PAYMENT_SUCCESS",
-                            "message": "Payment captured via Razorpay webhook",
-                            "is_transaction_success": True,
-                        }
-                    )
-                
-                # Confirm booking
-                from apps.booking.viewsets import BookingViewSet
-                booking_viewset = BookingViewSet()
-                booking_viewset.set_booking_as_confirmed(booking.id, amount)
         except RazorpayOrder.DoesNotExist:
             self.log_warning(f"RazorpayOrder not found: {razorpay_order_id}")
-        except Exception as e:
-            self.log_error(f"Error processing hotel booking webhook: {str(e)}")
+        
+        # Get booking
+        from apps.booking.models import Booking
+        try:
+            booking = Booking.objects.select_related("hotel_booking", "meta_info").get(id=booking_id, booking_type="HOTEL")
+            print(f"Booking found: {booking.id}, current status: {booking.status}")
+            self.log_info(f"Booking found: {booking.id}, current status: {booking.status}")
+        except Booking.DoesNotExist:
+            self.log_error(f"Hotel booking {booking_id} not found")
+            print(f"ERROR: Hotel booking {booking_id} not found")
+            return self.get_error_response(
+                message="Booking not found",
+                status="error",
+                errors=[],
+                error_code="BOOKING_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        
+        # Update booking payment detail
+        if merchant_transaction_id:
+            from apps.booking.utils.db_utils import update_booking_payment_details
+            print(f"Updating payment details for merchant_transaction_id: {merchant_transaction_id}")
+            update_booking_payment_details(
+                merchant_transaction_id,
+                {
+                    "transaction_id": razorpay_payment_id,
+                    "code": "PAYMENT_SUCCESS",
+                    "message": "Payment captured via Razorpay webhook",
+                    "is_transaction_success": True,
+                    "payment_type": "PAYMENT GATEWAY",
+                    "payment_medium": "RAZORPAY",
+                    "amount": amount,
+                }
+            )
+            print("Payment details updated")
+        
+        # Confirm booking if not already confirmed - same as PhonePe callback
+        print(f"Checking booking status: {booking.status}, needs confirmation: {booking.status != 'confirmed'}")
+        if booking.status != "confirmed":
+            print(f"Confirming hotel booking {booking_id}...")
+            try:
+                # Extract confirmation logic directly (avoid instantiating BookingViewSet)
+                from apps.booking.utils.booking_utils import (
+                    generate_booking_confirmation_code,
+                    commission_calculation,
+                    process_subscription_cashback,
+                )
+                from apps.booking.utils.db_utils import (
+                    check_booking_confirmation_code,
+                    add_or_update_booking_commission,
+                )
+                from apps.hotels.utils.hotel_utils import process_property_confirmed_booking_total
+                from apps.booking.tasks import create_invoice_task
+                from apps.hotels.tasks import send_hotel_receipt_email_task
+                from datetime import datetime
+                
+                # Generate confirmation code
+                booking_type = booking.booking_type
+                print(f"Generating confirmation code for booking {booking_id}...")
+                while True:
+                    confirmation_code = generate_booking_confirmation_code(booking.id, booking_type)
+                    is_exist = check_booking_confirmation_code(confirmation_code)
+                    if not is_exist:
+                        break
+                
+                print(f"Confirmation code generated: {confirmation_code}")
+                
+                # Update booking
+                booking.confirmation_code = confirmation_code
+                booking.total_payment_made = amount
+                booking.status = "confirmed"
+                booking.save()
+                print(f"Booking status updated to confirmed")
+                
+                # Update meta_info
+                if booking.meta_info:
+                    booking.meta_info.booking_confirmed_date = datetime.now()
+                    booking.meta_info.save()
+                    print(f"Meta info updated")
+                
+                # Save booking commission details (only for hotel bookings)
+                if booking.booking_type == "HOTEL" and booking.hotel_booking:
+                    property_id = booking.hotel_booking.confirmed_property_id
+                    if property_id:
+                        print(f"Calculating commission for property {property_id}...")
+                        commission_details = commission_calculation(
+                            property_id,
+                            booking.subtotal,
+                            booking.total_discount,
+                            booking.final_amount,
+                            booking.gst_amount,
+                        )
+                        if commission_details:
+                            add_or_update_booking_commission(booking.id, commission_details)
+                            print(f"Commission details saved")
+                        
+                        # Update property confirmed booking count
+                        process_property_confirmed_booking_total(property_id)
+                        print(f"Property confirmed booking count updated")
+                
+                # Create invoice task
+                create_invoice_task.apply_async(args=[booking.id])
+                print(f"Invoice task scheduled")
+                
+                # Send receipt email
+                send_hotel_receipt_email_task.apply_async(args=[booking.id])
+                print(f"Receipt email task scheduled")
+                
+                # Process cashback
+                try:
+                    cashback_applied = process_subscription_cashback(booking.user, booking.id)
+                    if cashback_applied:
+                        print(f"Cashback applied for booking {booking_id}")
+                except Exception as cashback_error:
+                    print(f"Cashback processing failed (non-critical): {str(cashback_error)}")
+                
+                print(f"✓ Hotel booking {booking_id} confirmed successfully")
+                self.log_info(f"Hotel booking {booking_id} confirmed successfully")
+            except Exception as confirm_error:
+                print(f"✗ Error confirming booking: {str(confirm_error)}")
+                print(traceback.format_exc())
+                self.log_error(f"Error confirming hotel booking {booking_id}: {str(confirm_error)}")
+                self.log_error(traceback.format_exc())
+                # Re-raise to see the error in webhook response
+                raise
+            
+            # Send SMS notifications - same as PhonePe callback
+            from apps.booking.tasks import send_booking_sms_task
+            from apps.hotels.tasks import send_hotel_sms_task
+            
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    "notification_type": "HOTEL_BOOKING_CONFIRMATION",
+                    "params": {"booking_id": booking_id},
+                }
+            )
+            send_hotel_sms_task.apply_async(
+                kwargs={
+                    "notification_type": "HOTELIER_BOOKING_NOTIFICATION",
+                    "params": {"booking_id": booking_id},
+                }
+            )
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    "notification_type": "PAYMENT_PROCEED_INFO",
+                    "params": {
+                        "booking_id": booking_id,
+                        "amount": float(amount),
+                        "payment_purpose": "Hotel Booking",
+                        "transaction_id": razorpay_payment_id,
+                    },
+                }
+            )
+            print(f"✓ Hotel booking {booking_id} confirmed and SMS notifications scheduled")
+            self.log_info(f"Hotel booking {booking_id} confirmed and SMS notifications scheduled")
+        
+        # Create booking payment log (not wallet log)
+        booking_payment_log = {}
+        booking_payment_log["merchant_transaction_id"] = merchant_transaction_id or ""
+        booking_payment_log["x_verify"] = getattr(self, '_current_signature', '')
+        booking_payment_log["request"] = {
+            "event": "payment.captured",
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_order_id": razorpay_order_id,
+            "amount": amount,
+            "booking_type": "HOTEL",
+            "notes": notes,
+        }
+        booking_payment_log["response"] = {
+            "success": True,
+            "booking_type": "HOTEL",
+            "message": "Hotel booking webhook processed successfully",
+        }
+        booking_payment_log["booking"] = booking
+        
+        try:
+            create_booking_payment_log(booking_payment_log)
+        except Exception as log_error:
+            self.log_error(f"Failed to create booking payment log: {str(log_error)}")
             self.log_error(traceback.format_exc())
         
-        payment_log["response"] = {"success": True, "booking_type": "HOTEL"}
-        # Set merchant_transaction_id if available from notes
-        merchant_transaction_id = notes.get("merchant_transaction_id", "")
-        if merchant_transaction_id:
-            payment_log["merchant_transaction_id"] = merchant_transaction_id
-        try:
-            create_wallet_payment_log(payment_log)
-        except Exception as log_error:
-            self.log_error(f"Failed to create payment log: {str(log_error)}")
-        self.log_info(f"=== HOTEL BOOKING WEBHOOK SUCCESS - Payment ID: {razorpay_payment_id} ===")
+        self.log_info(f"=== HOTEL BOOKING WEBHOOK SUCCESS - Payment ID: {razorpay_payment_id}, Booking ID: {booking_id} ===")
         
         return self.get_response(
             status="success",
-            data={"received": True, "booking_type": "HOTEL"},
+            data={"received": True, "booking_type": "HOTEL", "booking_id": booking_id},
             message="Hotel booking webhook processed",
             status_code=status.HTTP_200_OK,
         )

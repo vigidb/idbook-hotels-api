@@ -1096,6 +1096,119 @@ class BookingViewSet(
                     error_code="REFUND_FAILED",
                     status_code=status.HTTP_206_PARTIAL_CONTENT,
                 )
+        elif (
+            payment_details
+            and payment_details.payment_type == "PAYMENT GATEWAY"
+            and payment_details.payment_medium == "RAZORPAY"
+        ):
+            # Handle Razorpay refund for hotel bookings
+            print(f"Processing Razorpay refund for hotel booking {instance.id}")
+            from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+            from apps.booking.utils.db_utils import create_booking_refund_details
+            
+            razorpay_mixin = RazorpayMixin()
+            
+            # Get payment_id from transaction_details or transaction_id
+            payment_id = payment_details.transaction_id
+            if not payment_id and payment_details.transaction_details:
+                payment_id = payment_details.transaction_details.get("razorpay_payment_id")
+            
+            if not payment_id:
+                return self.get_error_response(
+                    message="Razorpay payment ID not found",
+                    status="error",
+                    errors=[],
+                    error_code="PAYMENT_ID_MISSING",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Create refund log entry
+            append_id = "RF{}".format(instance.user.id)
+            refund_log_obj = create_booking_refund_details(
+                instance.id, payment_details.merchant_transaction_id, append_id
+            )
+            merchant_refund_id = refund_log_obj.merchant_refund_id
+            
+            refund_log["merchant_refund_id"] = merchant_refund_id
+            refund_log["original_transaction_id"] = payment_details.merchant_transaction_id
+            refund_log["refund_amount"] = refund_amount
+            
+            # Prepare refund notes
+            refund_notes = {
+                "reason": "Hotel booking cancellation",
+                "booking_id": str(instance.id),
+                "booking_type": "HOTEL",
+                "merchant_refund_id": merchant_refund_id,
+            }
+            
+            # Process refund via Razorpay
+            refund_result = razorpay_mixin.refund_payment(
+                payment_id=payment_id,
+                amount=float(refund_amount),
+                notes=refund_notes,
+                speed="normal"
+            )
+            
+            refund_log["request"] = {
+                "payment_id": payment_id,
+                "refund_amount": float(refund_amount),
+                "notes": refund_notes,
+            }
+            refund_log["response"] = refund_result
+            
+            if refund_result.get("success"):
+                refund_id = refund_result.get("refund_id")
+                refund_log["transaction_id"] = refund_id
+                refund_log["status"] = "pending"  # Razorpay refunds are async, webhook will update to completed
+                refund_status = "refund_in_progress"
+                
+                # Update cancellation details
+                cancellation_details["refund_status"] = refund_status
+                cancellation_details["refund_id"] = refund_id
+                cancellation_details["merchant_refund_id"] = merchant_refund_id
+                instance.hotel_booking.cancellation_details = cancellation_details
+                instance.hotel_booking.save()
+                
+                # Create refund log
+                create_booking_refund_log(refund_log)
+                
+                # Send notifications
+                self.send_cancel_task(instance, refund_amount)
+                self.send_refund_task(instance, refund_amount)
+                send_hotel_sms_task.apply_async(
+                    kwargs={
+                        "notification_type": "HOTELER_BOOKING_CANCEL_NOTIFICATION",
+                        "params": {"booking_id": instance.id},
+                    }
+                )
+                
+                return self.get_response(
+                    status="success",
+                    message=f"Booking Cancelled Successfully, {refund_status}",
+                    data={
+                        "refund_merchant_transaction_id": merchant_refund_id,
+                        "refund_id": refund_id,
+                        "booking_merchant_transaction_id": payment_details.merchant_transaction_id,
+                        "cancellation_details": cancellation_details,
+                    },
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                refund_log["status"] = "failed"
+                refund_log["error_message"] = refund_result.get("error", "Refund failed")
+                create_booking_refund_log(refund_log)
+                
+                cancellation_details["refund_status"] = "refund_failed"
+                instance.hotel_booking.cancellation_details = cancellation_details
+                instance.hotel_booking.save()
+                
+                return self.get_error_response(
+                    message="Booking Cancelled, but Refund Failed",
+                    status="error",
+                    errors=[{"detail": refund_result.get("error", "Unknown error")}],
+                    error_code="REFUND_FAILED",
+                    status_code=status.HTTP_206_PARTIAL_CONTENT,
+                )
         else:
             merchant_id = settings.MERCHANT_ID
             callback_url = (
