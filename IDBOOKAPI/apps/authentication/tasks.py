@@ -94,33 +94,47 @@ def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
 @celery_idbook.task(bind=True)
 def send_mobile_otp_task(self, otp, mobile_number, otp_for=""):
     try:
-        print("otp::", otp, "mobile_number::", mobile_number)
+        print(f"[SMS Task] Starting OTP SMS send - otp: {otp}, mobile_number: {mobile_number}, otp_for: {otp_for}")
         # Map otp_for to valid SMS template codes
         if otp_for == "VERIFY-GUEST":
             template_code = "VERIFY"
         elif otp_for == "GOOGLE-SIGNUP":
-            template_code = "SIGNUP"
+            template_code = "VERIFY" 
         elif otp_for == "GOOGLE-LOGIN":
-            template_code = "LOGIN"
+            template_code = "VERIFY"
         else:
             template_code = otp_for
+        
+        print(f"[SMS Task] Mapped otp_for '{otp_for}' to template_code '{template_code}'")
+        
         obj = Fast2SmsMixin()
         response = obj.post_dlt_otpsms(mobile_number, otp, template_code)
+        
+        print(f"[SMS Task] SMS API response status: {response.status_code}")
+        
         if response.status_code != 200:
-            SmsOtpLog.objects.create(
-                mobile_number=mobile_number, response=response.json()
-            )
-            SmsNotificationLog.objects.create(
-                mobile_number=mobile_number,
-                sms_for=(
-                    template_code
-                    if template_code in dict(SMS_TYPES_CHOICES)
-                    else "other"
-                ),
-                response=response.json(),
-            )
+            print(f"[SMS Task] SMS failed with status {response.status_code}. Response: {response.json() if hasattr(response, 'json') else response}")
+            try:
+                SmsOtpLog.objects.create(
+                    mobile_number=mobile_number, response=response.json() if hasattr(response, 'json') else {"error": "Invalid response"}
+                )
+                SmsNotificationLog.objects.create(
+                    mobile_number=mobile_number,
+                    sms_for=(
+                        template_code
+                        if template_code in dict(SMS_TYPES_CHOICES)
+                        else "other"
+                    ),
+                    response=response.json() if hasattr(response, 'json') else {"error": "Invalid response"},
+                )
+            except Exception as log_error:
+                print(f"[SMS Task] Error logging SMS failure: {log_error}")
+        else:
+            print(f"[SMS Task] SMS sent successfully to {mobile_number}")
     except Exception as e:
-        print(e)
+        print(f"[SMS Task] Exception occurred: {e}")
+        import traceback
+        print(traceback.format_exc())
 
 
 @celery_idbook.task(bind=True)

@@ -1238,7 +1238,8 @@ class OtpBasedUserEntryAPIView(
                     )
                     return response
             
-            # Handle Google authentication cases - update user mobile if user_id provided
+            # Handle Google authentication cases - validate mobile uniqueness if user_id provided
+            # Note: We don't save the mobile number here, only validate it will be unique
             if user_id and is_mb_valid and otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
                 try:
                     user = User.objects.get(id=user_id)
@@ -1258,9 +1259,6 @@ class OtpBasedUserEntryAPIView(
                                     status_code=status.HTTP_406_NOT_ACCEPTABLE,
                                 )
                                 return response
-                    # Update user's mobile number
-                    user.mobile_number = username
-                    user.save()
                 except User.DoesNotExist:
                     response = self.get_error_response(
                         message="User not found",
@@ -1464,14 +1462,21 @@ class OtpBasedUserEntryAPIView(
         
         # Handle GOOGLE-SIGNUP and GOOGLE-LOGIN cases
         elif otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
-            # Get user by mobile number or email
-            is_mobile = validate_mobile_number(username)
-            if is_mobile:
-                user = User.objects.filter(mobile_number=username).first()
-            else:
-                user = User.objects.filter(email=username).first()
+            # Get user_id from request (required for Google auth cases)
+            user_id = request.data.get("user_id")
+            if not user_id:
+                response = self.get_error_response(
+                    message="User ID is required for Google authentication",
+                    status="error",
+                    errors=[],
+                    error_code="USER_ID_REQUIRED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return response
             
-            if not user:
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
                 response = self.get_error_response(
                     message="User not found",
                     status="error",
@@ -1481,10 +1486,34 @@ class OtpBasedUserEntryAPIView(
                 )
                 return response
             
-            # Mark mobile as verified
+            # Check if username is a mobile number
+            is_mobile = validate_mobile_number(username)
+            
+            # Save mobile number only after successful OTP verification
             if is_mobile:
+                # Check if mobile is already taken by another user in the same group
+                group_name = request.data.get("group_name", user.default_group or "B2C-GRP")
+                if group_name:
+                    grp, role = authentication_utils.get_group_based_on_name(group_name)
+                    if grp:
+                        mobile_user = User.objects.filter(
+                            mobile_number=username, groups=grp
+                        ).exclude(id=user_id).first()
+                        if mobile_user:
+                            response = self.get_error_response(
+                                message="Mobile number is already associated with another account",
+                                status="error",
+                                errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                                error_code="MOBILE_EXISTS",
+                                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                            )
+                            return response
+                
+                # Save mobile number after verification
                 user.mobile_number = username
                 user.mobile_verified = True
+            
+            # Mark email as verified
             user.email_verified = True
             user.save()
             

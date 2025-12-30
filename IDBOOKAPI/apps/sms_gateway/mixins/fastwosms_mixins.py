@@ -16,6 +16,22 @@ class Fast2SmsMixin:
         api_key = settings.FAST2SMS_APIKEY
         dlt_sender_id = settings.FAST_DLT_SENDER_ID
         message_id = get_message_template_by_code(template_code)
+        
+        # Check if message_id is valid
+        if not message_id:
+            print(f"Error: Message template with code '{template_code}' not found. SMS not sent.")
+            # Log the error
+            SmsOtpLog.objects.create(
+                mobile_number=number, 
+                response={"error": f"Template code '{template_code}' not found"}
+            )
+            # Return a mock response with error status
+            from requests import Response
+            error_response = Response()
+            error_response.status_code = 400
+            error_response._content = b'{"message": "Template code not found"}'
+            return error_response
+        
         # message_id = settings.FAST_MESSAGE_ID
         payload = f"sender_id={dlt_sender_id}&message={message_id}&variables_values=User|{otp}&route=dlt&numbers={number}"
         headers = {
@@ -26,19 +42,26 @@ class Fast2SmsMixin:
 
         response = requests.request("POST", self.sms_url, data=payload, headers=headers)
         print("status code::", response.status_code)
+        print("template_code::", template_code, "message_id::", message_id)
 
         print(response.json())
         return response
 
 
 def get_message_template_by_code(template_code):
-
+    if not template_code:
+        print("Error: template_code is None or empty")
+        return None
+    
     try:
         template = MessageTemplate.objects.get(template_code=template_code)
         return template.message_id
     except MessageTemplate.DoesNotExist:
-        print(f"Message template with code {template_code} not found")
-        return None, None
+        print(f"Error: Message template with code '{template_code}' not found in database")
+        return None
+    except Exception as e:
+        print(f"Error getting message template: {e}")
+        return None
 
 
 def send_template_sms(mobile_number, template_code, variables_values):
