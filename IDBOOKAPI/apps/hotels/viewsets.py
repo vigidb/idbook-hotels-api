@@ -2045,27 +2045,13 @@ class RoomViewSet(
         self.log_request(request)  # Log the incoming request
         property_id = request.data.get("property", None)
         room_price = request.data.get("room_price", {})
-        # Validate if property exists and check slot price requirements
+        slot_price_enabled = request.data.get("is_slot_price_enabled", False)
+        
+        # Validate if property exists
+        property_instance = None
         if property_id:
             try:
                 property_instance = Property.objects.get(id=property_id)
-                is_valid_slots, error_details = hotel_utils.validate_slot_prices(
-                    property_instance,
-                    room_price,
-                    context_info={
-                        "property_id": property_id,
-                        "property_name": property_instance.name,
-                    },
-                )
-                if not is_valid_slots:
-                    return self.get_error_response(
-                        message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this property has slot pricing enabled.",
-                        status="error",
-                        errors=[error_details],
-                        error_code="MISSING_SLOT_PRICES",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-
             except Property.DoesNotExist:
                 custom_response = self.get_error_response(
                     message="Property not found.",
@@ -2080,6 +2066,27 @@ class RoomViewSet(
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 return custom_response
+        
+        # Validate slot prices only if this room has slot pricing enabled
+        if slot_price_enabled and property_instance:
+            is_valid_slots, error_details = hotel_utils.validate_slot_prices(
+                property_instance,
+                room_price,
+                context_info={
+                    "property_id": property_id,
+                    "property_name": property_instance.name,
+                },
+                room_instance=None,  # Room doesn't exist yet
+                is_slot_enabled=True,  # Explicitly pass True since we checked slot_price_enabled
+            )
+            if not is_valid_slots:
+                return self.get_error_response(
+                    message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this room has slot pricing enabled.",
+                    status="error",
+                    errors=[error_details],
+                    error_code="MISSING_SLOT_PRICES",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
 
         # Create an instance of your serializer with the request data
         # serializer = self.get_serializer(data=request.data)
@@ -2101,12 +2108,13 @@ class RoomViewSet(
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
 
-            # update the starting price of the property
-            if room_price and property_id:
+            # Update the starting price and slot pricing status of the property
+            # This ensures property-level is_slot_price_enabled is synced when any room has it enabled
+            if property_id:
                 starting_price_details = (
                     hotel_db_utils.get_slot_based_starting_room_price(property_id)
                 )
-                # hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                # Check if any room in the property has slot pricing enabled
                 is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(
                     property_id
                 )
@@ -2190,8 +2198,12 @@ class RoomViewSet(
         # Get the object to be updated
         instance = self.get_object()
 
-        # Check if property has slot pricing enabled and validate accordingly
-        if instance.property.is_slot_price_enabled:
+        # Determine if slot pricing is enabled for this room
+        # Check if it's being set in the request, otherwise use current value
+        room_slot_enabled = slot_price_enabled if slot_price_enabled is not None else instance.is_slot_price_enabled
+
+        # Validate slot prices only if this specific room has slot pricing enabled
+        if room_slot_enabled:
             price_data_to_validate = room_price or instance.room_price or {}
             is_valid_slots, error_details = hotel_utils.validate_slot_prices(
                 instance.property,
@@ -2203,10 +2215,12 @@ class RoomViewSet(
                     "property_id": instance.property.id,
                     "property_name": instance.property.name,
                 },
+                room_instance=instance,  # Pass room instance to check room-level flag
+                is_slot_enabled=room_slot_enabled,  # Explicitly pass the value we determined
             )
             if not is_valid_slots:
                 return self.get_error_response(
-                    message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this property has slot pricing enabled.",
+                    message="Please provide valid slot prices for 4hrs, 8hrs and 12hrs as this room has slot pricing enabled.",
                     status="error",
                     errors=[error_details],
                     error_code="MISSING_SLOT_PRICES",
@@ -2235,13 +2249,14 @@ class RoomViewSet(
             # response = super().update(request, *args, **kwargs)
             response = self.perform_update(serializer)
 
-            # update the starting price of the property
+            # Update the starting price and slot pricing status of the property
+            # This ensures property-level is_slot_price_enabled is synced when any room has it enabled
             property_id = instance.property_id
             if room_price or slot_price_enabled is not None:
                 starting_price_details = (
                     hotel_db_utils.get_slot_based_starting_room_price(property_id)
                 )
-                # hotel_db_utils.update_property_with_starting_price(property_id, starting_price_details)
+                # Check if any room in the property has slot pricing enabled
                 is_slot_price_enabled = hotel_db_utils.check_slot_price_enabled(
                     property_id
                 )

@@ -477,8 +477,23 @@ def send_receipt_email_with_attachment(
         raise
 
 
-def validate_slot_prices(property_instance, room_price, context_info={}):
-    if not property_instance or not property_instance.is_slot_price_enabled:
+def validate_slot_prices(property_instance, room_price, context_info={}, room_instance=None, is_slot_enabled=None):
+    """
+    Validate slot prices based on room-level is_slot_price_enabled flag.
+    Priority: is_slot_enabled parameter > room_instance flag > property-level flag
+    """
+    # Use explicit parameter if provided (useful for create operations)
+    if is_slot_enabled is None:
+        # Check room-level flag if room instance is provided
+        if room_instance is not None:
+            is_slot_enabled = room_instance.is_slot_price_enabled
+        # Fall back to property-level flag for backward compatibility
+        elif property_instance and property_instance.is_slot_price_enabled:
+            is_slot_enabled = True
+        else:
+            is_slot_enabled = False
+    
+    if not is_slot_enabled:
         return True, None
 
     missing_slots = []
@@ -494,10 +509,11 @@ def validate_slot_prices(property_instance, room_price, context_info={}):
         missing_slots.append("12hrs")
 
     if missing_slots:
+        error_message = f'Slot prices are required for {", ".join(missing_slots)} as this room has slot pricing enabled.'
         error_details = {
             **context_info,
             "missing_slot_prices": missing_slots,
-            "message": f'Slot prices are required for {", ".join(missing_slots)} as this property has slot pricing enabled.',
+            "message": error_message,
         }
         return False, error_details
 
