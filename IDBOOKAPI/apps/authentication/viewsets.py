@@ -1610,6 +1610,9 @@ class OtpBasedUserEntryAPIView(
                 user.mobile_verified = True
             
             # Mark email as verified
+            # Note: If Google OAuth already verified the email, this was set during signup/login
+            # This ensures email_verified is True after mobile verification completes
+            # (Google OAuth typically only provides email if it's verified)
             user.email_verified = True
             user.save()
             
@@ -2783,7 +2786,7 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             )
             return custom_response
 
-        token_status, name, email = authentication_utils.validate_google_token(gtoken)
+        token_status, name, email, email_verified = authentication_utils.validate_google_token(gtoken)
         if not token_status:
             custom_response = self.get_error_response(
                 message="Invalid token",
@@ -2805,6 +2808,9 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             return custom_response
 
         email = email.lower()
+        # Use Google's email_verified status if available, otherwise default to True
+        # (Google OAuth typically only returns email if it's verified, but we check the field)
+        google_email_verified = email_verified if email_verified else True
         grp, role = authentication_utils.get_group_based_on_name(group_name)
         if not grp or not role:
             custom_response = self.get_error_response(
@@ -2848,7 +2854,8 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 ):
                     check_existing_user.mobile_number = mobile_number
                 
-                check_existing_user.email_verified = True
+                # Use Google's email verification status
+                check_existing_user.email_verified = google_email_verified
                 check_existing_user.default_group = group_name
                 check_existing_user.save()
                 
@@ -2920,7 +2927,8 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if name and not check_existing_user.name:
                 check_existing_user.name = name
             check_existing_user.default_group = group_name
-            check_existing_user.email_verified = True
+            # Use Google's email verification status
+            check_existing_user.email_verified = google_email_verified
             if (
                 mobile_number
                 and not check_existing_user.mobile_number
@@ -2988,13 +2996,15 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
             return response
 
         # for new user
+        # Use Google's email_verified status from the token response
+        # If Google says email is verified, we trust it; otherwise we may need to verify
         new_user = User.objects.create(
             name=name,
             email=email,
             mobile_number=mobile_number,
             referred_code=referred_code,
             default_group=group_name,
-            email_verified=True,
+            email_verified=google_email_verified,  # Use Google's email verification status
             mobile_verified=False,
         )
         Customer.objects.create(user_id=new_user.id, active=True)

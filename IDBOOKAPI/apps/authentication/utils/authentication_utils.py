@@ -217,7 +217,17 @@ def mobile_generate_otp_process(otp, mobile_number, otp_for):
 
 
 def validate_google_token(id_token):
-    name, email = "", ""
+    """
+    Validates Google OAuth ID token and extracts user information.
+    
+    Returns:
+        tuple: (is_valid, name, email, email_verified)
+            - is_valid: bool indicating if token is valid
+            - name: User's name from Google
+            - email: User's email from Google
+            - email_verified: bool indicating if Google has verified the email
+    """
+    name, email, email_verified = "", "", False
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
 
     headers = {"Content-Type": "application/json"}
@@ -226,9 +236,15 @@ def validate_google_token(id_token):
         data = response.json()
         name = data.get("name", "")
         email = data.get("email", "")
-        return True, name, email
+        # Google returns email_verified as a string "true"/"false" or boolean
+        email_verified_str = data.get("email_verified", "false")
+        if isinstance(email_verified_str, bool):
+            email_verified = email_verified_str
+        else:
+            email_verified = email_verified_str.lower() == "true"
+        return True, name, email, email_verified
     else:
-        return False, name, email
+        return False, name, email, False
 
 
 def get_group_based_on_name(group_name):
