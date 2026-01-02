@@ -66,6 +66,21 @@ class ValidationMixins:
 
         self.checkin_datetime = get_date_from_string(self.confirmed_checkin_time)
         self.checkout_datetime = get_date_from_string(self.confirmed_checkout_time)
+        
+        # Validate that datetime parsing was successful
+        if not self.checkin_datetime or self.checkin_datetime is False:
+            error_info = {
+                "message": f"Invalid check-in time format: {self.confirmed_checkin_time}. Expected format: YYYY-MM-DDTHH:MM±HH:MM",
+                "error_code": "DATE_ERROR",
+            }
+            return False, error_info
+        
+        if not self.checkout_datetime or self.checkout_datetime is False:
+            error_info = {
+                "message": f"Invalid check-out time format: {self.confirmed_checkout_time}. Expected format: YYYY-MM-DDTHH:MM±HH:MM",
+                "error_code": "DATE_ERROR",
+            }
+            return False, error_info
 
         self.tax_rules_dict = get_booking_based_tax_rule("HOTEL")
         if not self.tax_rules_dict:

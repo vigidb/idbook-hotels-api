@@ -11,6 +11,7 @@ from apps.hotels.utils.db_utils import (
     get_property_availability,
     update_property_confirmed_booking,
     get_calendar_unavailable_property,
+    get_dynamic_pricing_with_date_list,
 )
 from datetime import datetime
 from django.template.loader import render_to_string
@@ -255,29 +256,137 @@ def check_room_availability_for_blocking(
     return room_rejected_list
 
 
+def get_on_hold_room_counts(start_date, end_date, property_id):
+    """Get count of rooms on hold (in booking process) for each room"""
+    from apps.booking.models import Booking
+    from apps.booking.utils.db_utils import get_booked_room
+    from datetime import datetime
+    from django.utils import timezone
+    
+    on_hold_rooms = {}
+    
+    # Get on_hold bookings that haven't expired
+    on_hold_end_time = timezone.now()
+    
+    # Check if property has slot pricing enabled
+    from apps.hotels.utils.db_utils import check_slot_price_enabled
+    is_slot_price_enabled = check_slot_price_enabled(property_id)
+    
+    # Get on_hold bookings for this property and date range
+    if is_slot_price_enabled:
+        on_hold_bookings = Booking.objects.filter(
+            status="on_hold",
+            hotel_booking__confirmed_property_id=property_id,
+            hotel_booking__confirmed_checkin_time__lt=end_date,
+            hotel_booking__confirmed_checkout_time__gt=start_date,
+            on_hold_end_time__gte=on_hold_end_time,
+        )
+    else:
+        on_hold_bookings = Booking.objects.filter(
+            status="on_hold",
+            hotel_booking__confirmed_property_id=property_id,
+            hotel_booking__confirmed_checkin_time__date__lt=end_date.date() if hasattr(end_date, 'date') else end_date,
+            hotel_booking__confirmed_checkout_time__date__gt=start_date.date() if hasattr(start_date, 'date') else start_date,
+            on_hold_end_time__gte=on_hold_end_time,
+        )
+    
+    # Count rooms on hold per room_id
+    for booking in on_hold_bookings:
+        hotel_booking = booking.hotel_booking
+        if hotel_booking and hotel_booking.confirmed_room_details:
+            # confirmed_room_details is a list of room dicts
+            if isinstance(hotel_booking.confirmed_room_details, list):
+                for room_detail in hotel_booking.confirmed_room_details:
+                    room_id = room_detail.get("room_id")
+                    no_of_rooms = room_detail.get("no_of_rooms", 0)
+                    if room_id:
+                        on_hold_rooms[room_id] = on_hold_rooms.get(room_id, 0) + no_of_rooms
+    
+    return on_hold_rooms
+
+
 def get_available_room(start_date, end_date, property_id):
     """Get available room based on date range
-    considering existing booking and blocked rooms"""
+    considering existing booking and blocked rooms
+    Includes pricing: dynamic pricing if available for date range, otherwise default pricing
+    Also includes on_hold room counts (rooms in booking process)
+    
+    Note: 
+    - no_booked_room only counts valid bookings: "confirmed" and "completed" statuses
+    - Excludes: "canceled", "no_show", "pending", "on_hold"
+    - on_hold rooms are shown separately in no_of_on_hold_rooms."""
+    from IDBOOKAPI.utils import get_dates_from_range
+    from apps.booking.utils.db_utils import get_confirmed_hotel_booking, get_booked_hotel_booking
+    
     room_list = []
 
-    # get booked hotel list
-    hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    # Get confirmed booking IDs (for no_booked_room count)
+    confirmed_booking_ids = get_confirmed_hotel_booking(start_date, end_date, property_id)
+    
+    # Get all booking IDs including on_hold (for current_available_room calculation)
+    all_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    
     # get blocked property details
     blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
 
-    # room_raw_obj = get_room_availability(start_date, end_date, property_id, list(hotel_booking_ids))
-
-    room_raw_obj = get_property_availability(
-        [property_id], hotel_booking_ids, blocked_ids
+    # Get availability with confirmed bookings only (for no_booked_room)
+    room_raw_obj_confirmed = get_property_availability(
+        [property_id], confirmed_booking_ids, blocked_ids
     )
-    for room_detail in room_raw_obj:
+    
+    # Get availability with all bookings (for current_available_room)
+    room_raw_obj_all = get_property_availability(
+        [property_id], all_booking_ids, blocked_ids
+    )
+    
+    # Create a dict for quick lookup of all booking data
+    all_rooms_dict = {room.id: room for room in room_raw_obj_all}
+    
+    # Get on_hold room counts separately (for display purposes)
+    on_hold_room_counts = get_on_hold_room_counts(start_date, end_date, property_id)
+    
+    # Get date list for dynamic pricing check (exclude checkout date)
+    date_list = get_dates_from_range(start_date, end_date)
+    if len(date_list) >= 2:
+        date_list.pop()  # Remove checkout date
+    
+    for room_detail in room_raw_obj_confirmed:
+        room_id = room_detail.id
+        
+        # Get room object for default pricing
+        room_obj = get_room_by_id(room_id)
+        default_pricing = room_obj.room_price if room_obj else {}
+        
+        # Check for dynamic pricing for the date range
+        dynamic_pricing_dict = get_dynamic_pricing_with_date_list(room_id, date_list)
+        
+        # Determine pricing: use dynamic if available, otherwise default
+        # For socket response, we'll return both default and dynamic pricing info
+        # Frontend can decide which to use based on date
+        pricing_info = {
+            "default_pricing": default_pricing,
+            "has_dynamic_pricing": bool(dynamic_pricing_dict),
+            "dynamic_pricing": dynamic_pricing_dict if dynamic_pricing_dict else None,
+            "is_slot_price_enabled": room_obj.is_slot_price_enabled if room_obj else False,
+        }
+        
+        # Get on_hold room count for this room
+        no_of_on_hold_rooms = on_hold_room_counts.get(room_id, 0)
+        
+        # Get current_available_room from all bookings (includes on_hold)
+        all_room_detail = all_rooms_dict.get(room_id, room_detail)
+        
+        # no_booked_room should only count confirmed bookings
+        # current_available_room should account for both confirmed and on_hold
         room_dict = {
-            "id": room_detail.id,
+            "id": room_id,
             "type": room_detail.room_type,
             "no_available_rooms": room_detail.no_available_rooms,
-            "no_booked_room": room_detail.no_booked_room,
+            "no_booked_room": room_detail.no_booked_room,  # Only confirmed bookings
+            "no_of_on_hold_rooms": no_of_on_hold_rooms,  # Separate count for on_hold
             "no_of_blocked_rooms": room_detail.no_of_blocked_rooms,
-            "current_available_room": room_detail.current_available_room,
+            "current_available_room": all_room_detail.current_available_room,  # Accounts for confirmed + on_hold
+            "pricing": pricing_info,
         }
         room_list.append(room_dict)
     return room_list

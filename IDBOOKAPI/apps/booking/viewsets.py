@@ -1801,8 +1801,9 @@ class BookingViewSet(
                 booking_dict["coupon_code"] = ""
 
             # provide the available room list for the property
+            # Use datetime objects, not string dates
             room_availability_list = get_available_room(
-                confirmed_checkin_time, confirmed_checkout_time, property_id
+                self.checkin_datetime, self.checkout_datetime, property_id
             )
 
             booking_dict["room_availability_details"] = room_availability_list
@@ -2386,6 +2387,11 @@ class BookingViewSet(
                     "pro_member_discount_value": pro_member_discount_value,
                     "total_discount": total_discount,
                 }
+                
+                # Set status if provided
+                if booking_status:
+                    booking_dict["status"] = booking_status
+                
                 if coupon:
                     booking_dict["coupon_code"] = coupon_code
                     # booking.coupon_code = coupon_code
@@ -2417,6 +2423,32 @@ class BookingViewSet(
                 if company_id:
                     booking_dict["company_id"] = company_id
                     # booking.company_id = company_id
+
+                # Set on_hold_end_time if creating a new booking with on_hold status
+                if not booking_id and booking_status == "on_hold":
+                    # Check room availability before setting on_hold
+                    room_confirmed_dict = total_room_count(self.confirmed_room_details)
+                    booked_rooms = check_room_booked_details(
+                        confirmed_checkin_time,
+                        confirmed_checkout_time,
+                        property_id,
+                        is_slot_price_enabled=True,
+                        booking_id=None,  # New booking, no ID yet
+                    )
+                    room_rejected_list = check_room_count(
+                        booked_rooms, room_confirmed_dict
+                    )
+                    
+                    if not room_rejected_list:
+                        on_hold_end_time = datetime.now(timezone("UTC")) + timedelta(
+                            minutes=5
+                        )
+                        booking_dict["on_hold_end_time"] = on_hold_end_time
+                        print(f"[Pre-Confirm] Setting on_hold_end_time for new booking: {on_hold_end_time}")
+                    else:
+                        # Rooms not available, can't set on_hold
+                        print(f"[Pre-Confirm] Rooms not available for on_hold, rejected: {room_rejected_list}")
+                        booking_status_message = "Failed to set on_hold status - rooms not available"
 
                 if not booking_id:
                     booking = Booking(**booking_dict)
@@ -2518,8 +2550,9 @@ class BookingViewSet(
                 serializer = PreConfirmHotelBookingSerializer(booking)
 
                 # provide the available room list for the property
+                # Use datetime objects, not string dates
                 room_availability_list = get_available_room(
-                    confirmed_checkin_time, confirmed_checkout_time, property_id
+                    self.checkin_datetime, self.checkout_datetime, property_id
                 )
 
                 booking_dict = {

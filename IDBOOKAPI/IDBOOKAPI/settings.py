@@ -41,7 +41,7 @@ IMAGEKIT_ENDPOINT = env("IMAGEKIT_ENDPOINT")
 # Application definition
 
 INSTALLED_APPS = [
-    ##    'daphne',
+    "daphne",  # Must be first for ASGI/WebSocket support
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "apps.log_management",
     "apps.analytics",
     "apps.payment_gateways",
+    "apps.socket_com",  # WebSocket support for real-time updates
 ]
 
 MIDDLEWARE = [
@@ -183,15 +184,44 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CORS_ORIGIN_ALLOW_ALL = True
-# CORS_ALLOW_ALL_ORIGINS = True
+# CORS Configuration
+# For development: Allow all origins
+CORS_ALLOW_ALL_ORIGINS = True  # Modern way (replaces CORS_ORIGIN_ALLOW_ALL)
+
+# Allow credentials (cookies, authorization headers)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow all methods
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
+# Allow all headers
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+# For production, use specific origins instead:
+# CORS_ALLOW_ALL_ORIGINS = False
 # CORS_ALLOWED_ORIGINS = [
-#     "http://127.0.0.1:3000",
-#     "https://sub.example.com",
 #     "http://localhost:3000",
-#     "http://127.0.0.1:9000",
-#     "http://139.59.15.128",
-#     "http://127.0.0.1:9000",
+#     "http://localhost:3001",
+#     "http://127.0.0.1:3000",
+#     "http://127.0.0.1:3001",
+#     # Add your production frontend URLs here
 # ]
 
 AUTHENTICATION_BACKENDS = [

@@ -673,55 +673,20 @@ class PropertyViewSet(
                 )
                 return custom_response
 
-        # Check if is_slot_price_enabled is being set to True
-        if instance.is_slot_price_enabled:
-            print("is_slot_price_enabled", instance.is_slot_price_enabled)
-            # Get all rooms for this property
-            rooms = Room.objects.filter(property=instance, active=True)
-            rooms_without_slot_prices = []
-            print("rooms", rooms)
-            for room in rooms:
-                room_price = room.room_price or {}
-
-                # Check if slot prices are missing or zero/null
-                price_4hrs = room_price.get("price_4hrs")
-                price_8hrs = room_price.get("price_8hrs")
-                price_12hrs = room_price.get("price_12hrs")
-
-                # Consider None, 0, '0', or empty string as missing prices
-                missing_slots = []
-                if not price_4hrs or float(price_4hrs or 0) <= 0:
-                    missing_slots.append("4hrs")
-                if not price_8hrs or float(price_8hrs or 0) <= 0:
-                    missing_slots.append("8hrs")
-                if not price_12hrs or float(price_12hrs or 0) <= 0:
-                    missing_slots.append("12hrs")
-
-                if missing_slots:
-                    rooms_without_slot_prices.append(
-                        {
-                            "room_id": room.id,
-                            "room_name": room.name,
-                            "room_type": room.room_type,
-                            "missing_slot_prices": missing_slots,
-                        }
-                    )
-
-            # If there are rooms without slot prices, return validation error
-            if rooms_without_slot_prices:
-                error_message = "Please update the slot prices for 4hrs, 8hrs and 12hrs for all rooms before enabling slot pricing."
-                custom_response = self.get_error_response(
-                    message=error_message,
-                    status="error",
-                    errors=rooms_without_slot_prices,
-                    error_code="MISSING_SLOT_PRICES",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
-                return custom_response
+        # Slot pricing is now room-level only. Property-level is_slot_price_enabled 
+        # is auto-synced based on room-level flags, so we don't validate slot prices 
+        # at property level. Validation only happens when updating individual rooms.
+        # Create a mutable copy of request data to safely modify if needed
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        
+        # Remove is_slot_price_enabled from data since it's auto-synced from rooms
+        # This prevents manual updates to property-level slot pricing
+        if "is_slot_price_enabled" in data:
+            data.pop("is_slot_price_enabled")
 
         self.slug = ""
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(instance, data=data, partial=True)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic

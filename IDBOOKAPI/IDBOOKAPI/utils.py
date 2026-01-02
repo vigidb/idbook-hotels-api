@@ -246,11 +246,40 @@ def validate_date(date: str, date_format="%Y-%m-%dT%H:%M%z"):
 
 def get_date_from_string(date: str, date_format="%Y-%m-%dT%H:%M%z"):
     try:
+        # Handle timezone format with colon (+05:30) vs without colon (+0530)
+        # strptime expects +0530 format, but ISO strings often have +05:30
+        if isinstance(date, str) and ('+' in date or date.endswith('Z')):
+            # Replace timezone colon format (+05:30) with no-colon format (+0530)
+            import re
+            # Pattern: +HH:MM or -HH:MM at the end
+            date_processed = re.sub(r'([+-])(\d{2}):(\d{2})$', r'\1\2\3', date)
+            # Also handle Z (UTC) format
+            if date_processed.endswith('Z'):
+                date_processed = date_processed[:-1] + '+0000'
+            try:
+                conv_date = datetime.datetime.strptime(date_processed, date_format)
+                return conv_date
+            except ValueError:
+                # Try with different format if first attempt fails
+                # Try ISO format parsing (Python 3.7+)
+                try:
+                    from datetime import datetime as dt
+                    # Replace Z with +00:00 for fromisoformat
+                    if date.endswith('Z'):
+                        date_iso = date[:-1] + '+00:00'
+                    else:
+                        date_iso = date
+                    conv_date = dt.fromisoformat(date_iso)
+                    return conv_date
+                except (ValueError, AttributeError):
+                    pass
+        
+        # Fallback to original format
         conv_date = datetime.datetime.strptime(date, date_format)
         return conv_date
     except Exception as e:
-        print(e)
-        return False
+        print(f"Error parsing date '{date}' with format '{date_format}': {e}")
+        return None
 
 
 def get_timediff_in_minutes(start_datetime, end_datetime):
@@ -276,10 +305,13 @@ def get_datetime_split_with_slot(start_datetime, end_datetime):
     time_diff = end_datetime - start_datetime
     date_list = get_dates_from_range(start_datetime.date(), end_datetime.date())
 
-    if time_diff.seconds == 0:
+    # Use total_seconds() instead of seconds to handle multi-day durations correctly
+    total_seconds = time_diff.total_seconds()
+    
+    if total_seconds == 0:
         date_list.pop()
     else:
-        time_diff_in_hours = time_diff.seconds / 3600
+        time_diff_in_hours = total_seconds / 3600
         print("time diff in hours ----", time_diff_in_hours)
         slot_date = str(date_list[-1])
         if time_diff_in_hours <= 4:

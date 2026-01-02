@@ -156,6 +156,10 @@ def check_room_booked_details(
 
 
 def get_booked_hotel_booking(check_in, check_out, property_id):
+    """
+    Get hotel booking IDs for confirmed and on_hold bookings.
+    Used for availability calculation (includes both confirmed and on_hold).
+    """
     on_hold_end_time = datetime.now(timezone("UTC"))
 
     # filter based on check in and check out
@@ -193,6 +197,44 @@ def get_booked_hotel_booking(check_in, check_out, property_id):
     else:
         hotel_booking_ids = booked_hotel.values_list("hotel_booking__id", flat=True)
         property_ids = booked_hotel.values_list(
+            "hotel_booking__confirmed_property_id", flat=True
+        ).distinct()
+        return list(hotel_booking_ids), list(property_ids)
+
+
+def get_confirmed_hotel_booking(check_in, check_out, property_id):
+    """
+    Get hotel booking IDs for valid bookings that should count as "booked".
+    
+    Valid statuses for no_booked_room:
+    - "confirmed" - Active confirmed bookings
+    - "completed" - Completed bookings (room was used)
+    
+    Excluded statuses:
+    - "canceled" - Canceled bookings (room not used)
+    - "no_show" - No show bookings (room not used)
+    - "pending" - Pending bookings (not confirmed yet)
+    - "on_hold" - On hold bookings (shown separately)
+    """
+    # filter based on check in and check out
+    valid_bookings = Booking.objects.filter(
+        status__in=["confirmed", "completed"],  # Only count confirmed and completed
+        hotel_booking__confirmed_checkin_time__lt=check_out,
+        hotel_booking__confirmed_checkout_time__gt=check_in,
+    ).exclude(hotel_booking__confirmed_property_id__isnull=True)
+
+    # filter based on property id
+    if property_id:
+        valid_bookings = valid_bookings.filter(
+            hotel_booking__confirmed_property_id=property_id
+        )
+
+    if property_id:
+        hotel_booking_ids = valid_bookings.values_list("hotel_booking__id", flat=True)
+        return list(hotel_booking_ids)
+    else:
+        hotel_booking_ids = valid_bookings.values_list("hotel_booking__id", flat=True)
+        property_ids = valid_bookings.values_list(
             "hotel_booking__confirmed_property_id", flat=True
         ).distinct()
         return list(hotel_booking_ids), list(property_ids)
