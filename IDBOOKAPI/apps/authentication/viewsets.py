@@ -725,38 +725,67 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
-            # Enforce mobile verification before issuing tokens
-            if not user.mobile_verified:
-                mobile = (
-                    user.mobile_number
-                    or request.data.get("mobile_number")
-                    or request.data.get("username")
-                )
-
-                if not mobile or not validate_mobile_number(mobile):
-                    response = self.get_error_response(
-                        message="Mobile verification required. Please add a valid mobile number.",
-                        status="error",
-                        errors=[],
-                        error_code="MOBILE_VERIFICATION_REQUIRED",
-                        status_code=status.HTTP_400_BAD_REQUEST,
+            # Check if email or mobile verification is required
+            needs_email_verification = not user.email_verified and user.email
+            needs_mobile_verification = not user.mobile_verified
+            
+            if needs_email_verification or needs_mobile_verification:
+                verification_data = {
+                    "redirect": True,
+                    "verification_required": [],
+                }
+                
+                # Handle email verification - generate separate OTP
+                if needs_email_verification:
+                    email = user.email
+                    if email and email_validation(email):
+                        email_otp = generate_otp(no_digits=4)
+                        authentication_utils.email_generate_otp_process(
+                            email_otp, email, "LOGIN", group_name=request.data.get("group_name")
+                        )
+                        verification_data["verification_required"].append("email")
+                        verification_data["email"] = email
+                
+                # Handle mobile verification - generate separate OTP
+                if needs_mobile_verification:
+                    mobile = (
+                        user.mobile_number
+                        or request.data.get("mobile_number")
+                        or request.data.get("username")
                     )
-                    self.log_response(response)
-                    return response
 
-                otp = generate_otp(no_digits=4)
-                authentication_utils.mobile_generate_otp_process(
-                    otp, mobile, "LOGIN"
-                )
+                    if not mobile or not validate_mobile_number(mobile):
+                        # If mobile is required but not provided, return error
+                        if not user.mobile_number:
+                            response = self.get_error_response(
+                                message="Mobile verification required. Please add a valid mobile number.",
+                                status="error",
+                                errors=[],
+                                error_code="MOBILE_VERIFICATION_REQUIRED",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+                            self.log_response(response)
+                            return response
+                    else:
+                        mobile_otp = generate_otp(no_digits=4)
+                        authentication_utils.mobile_generate_otp_process(
+                            mobile_otp, mobile, "LOGIN"
+                        )
+                        verification_data["verification_required"].append("mobile")
+                        verification_data["mobile_number"] = mobile
+
+                # Build appropriate message
+                if needs_email_verification and needs_mobile_verification:
+                    message = "Email and mobile verification required. OTPs sent to both."
+                elif needs_email_verification:
+                    message = "Email verification required. OTP sent."
+                else:
+                    message = "Mobile verification required. OTP sent."
 
                 response = self.get_response(
-                    data={
-                        "redirect": True,
-                        "verification_required": "mobile",
-                        "mobile_number": mobile,
-                    },
+                    data=verification_data,
                     status="error",
-                    message="Mobile verification required. OTP sent.",
+                    message=message,
                     status_code=status.HTTP_307_TEMPORARY_REDIRECT,
                 )
                 self.log_response(response)
@@ -1480,6 +1509,52 @@ class OtpBasedUserEntryAPIView(
             user_detail = db_utils.get_group_based_user_details(grp, username)
             if user_detail:
                 data = authentication_utils.generate_refresh_token(user_detail)
+        
+        # Handle LOGIN case - update verification status
+        elif otp_for == "LOGIN":
+            group_name = request.data.get("group_name", "B2C-GRP")
+            grp, role = authentication_utils.get_group_based_on_name(group_name)
+            if not grp:
+                response = self.get_error_response(
+                    message="Group doesn't exist",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_NOT_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return response
+
+            user_detail = db_utils.get_group_based_user_details(grp, username)
+            if not user_detail:
+                response = self.get_error_response(
+                    message="User not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                return response
+            
+            # Check if username is email or mobile and update verification status accordingly
+            is_mobile = validate_mobile_number(username)
+            is_email = email_validation(username)
+            
+            if is_mobile:
+                # Verify mobile
+                user_detail.mobile_verified = True
+                if not user_detail.mobile_number:
+                    user_detail.mobile_number = username
+            elif is_email:
+                # Verify email
+                user_detail.email_verified = True
+                if not user_detail.email:
+                    user_detail.email = username.lower()
+            
+            user_detail.save()
+            
+            # Generate tokens
+            active_group = request.data.get("active_group", None) or group_name
+            data = authentication_utils.generate_refresh_token(user_detail, active_group=active_group)
         
         # Handle GOOGLE-SIGNUP and GOOGLE-LOGIN cases
         elif otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
