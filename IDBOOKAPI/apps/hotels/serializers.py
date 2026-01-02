@@ -291,6 +291,7 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "description",
             "room_type",
             "room_view",
             "no_available_rooms",
@@ -303,6 +304,7 @@ class PropertyRoomSerializer(serializers.ModelSerializer):
             "is_smoking_allowed",
             "extra_bed_type",
             "is_extra_bed_available",
+            "amenity_details",
         )
 
     def to_representation(self, instance):
