@@ -540,7 +540,7 @@ class FlightBookingRetriever:
                 }
 
             # Check user access (if user is provided)
-            if user and booking.user != user and not user.is_staff:
+            if user and booking.user != user and not user.is_superuser:
                 return {
                     "success": False,
                     "error": "Access denied",

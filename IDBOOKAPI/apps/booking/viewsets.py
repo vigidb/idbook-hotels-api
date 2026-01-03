@@ -243,8 +243,16 @@ class BookingViewSet(
                     exclude_dict["invoice_id__isnull"] = param_value
 
         # Apply permission-based filtering based on user's active group
+        # Super users can see all bookings (no filter)
+        if user.is_superuser:
+            # No filtering - super users can see all bookings
+            # Allow query params to filter if provided
+            if "company_id" in param_dict:
+                filter_dict["company_id"] = param_dict["company_id"]
+            if "user_id" in param_dict:
+                filter_dict["user"] = param_dict["user_id"]
         # Normal users (B2C-GRP, B2C-GUEST): can only see their own bookings
-        if default_group in B2C_GROUPS:
+        elif default_group in B2C_GROUPS:
             filter_dict["user"] = user.id
             filter_dict["company__isnull"] = (
                 True  # Only personal bookings, no company bookings

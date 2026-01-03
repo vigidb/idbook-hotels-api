@@ -106,7 +106,7 @@ class EnhancedFlightBookingViewSet(
         ):
             if (
                 booking.user and booking.user_id != self.request.user.id
-            ) and not self.request.user.is_staff:
+            ) and not self.request.user.is_superuser:
                 raise ValueError("Booking not found")
         if not booking.flight_booking:
             raise ValueError("Flight booking details not found")
@@ -3979,7 +3979,7 @@ class EnhancedFlightBookingViewSet(
                 booking_type="FLIGHT",
             )
 
-            if request.user.is_authenticated and booking.user != request.user:
+            if request.user.is_authenticated and booking.user != request.user and not request.user.is_superuser:
                 return self.get_error_response(
                     message="Booking not found",
                     status="error",

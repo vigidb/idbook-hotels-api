@@ -182,3 +182,8 @@ python manage.py runserver 0.0.0.0:8000
 ```
 ngrok http 8000
 ```
+
+#### Websocket server
+```
+daphne -b 0.0.0.0 -p 8000 IDBOOKAPI.asgi:application
+```

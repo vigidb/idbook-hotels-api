@@ -62,6 +62,9 @@ class BookingRetrievePermission(permissions.BasePermission):
 
         # For authenticated users, check if they own the booking
         if request.user and request.user.is_authenticated:
+            # Super users can see all bookings
+            if request.user.is_superuser:
+                return True
             return obj.user == request.user
 
         return False
