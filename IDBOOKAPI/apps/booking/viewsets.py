@@ -251,12 +251,29 @@ class BookingViewSet(
                 filter_dict["company_id"] = param_dict["company_id"]
             if "user_id" in param_dict:
                 filter_dict["user"] = param_dict["user_id"]
-        # Normal users (B2C-GRP, B2C-GUEST): can only see their own bookings
+        # Normal users (B2C-GRP, B2C-GUEST): can see their own bookings
+        # and hotel bookings for properties they manage or created
         elif default_group in B2C_GROUPS:
-            filter_dict["user"] = user.id
-            filter_dict["company__isnull"] = (
-                True  # Only personal bookings, no company bookings
-            )
+            # Use Q object to allow: own bookings OR hotel bookings for managed/created properties
+            from apps.hotels.models import Property
+            # Get properties managed or created by this user
+            managed_properties = Property.objects.filter(
+                Q(managed_by=user) | Q(added_by=user)
+            ).values_list('id', flat=True)
+            
+            # Create Q filter: own bookings OR hotel bookings for managed properties
+            user_booking_filter = Q(user=user.id, company__isnull=True)
+            if managed_properties:
+                hotel_booking_filter = Q(
+                    booking_type="HOTEL",
+                    hotel_booking__confirmed_property_id__in=managed_properties,
+                    company__isnull=True
+                )
+                # Combine filters with OR
+                user_booking_filter = user_booking_filter | hotel_booking_filter
+            
+            # Apply the Q filter separately since it's an OR condition
+            self.queryset = self.queryset.filter(user_booking_filter)
 
         # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see their company's bookings
         elif default_group in CORPORATE_GROUPS:
@@ -285,11 +302,23 @@ class BookingViewSet(
                 filter_dict["user"] = param_dict["user_id"]
 
         # filter and exclude
-        if exclude_dict:
-            print("exclude dict::", exclude_dict)
-            self.queryset = self.queryset.filter(**filter_dict).exclude(**exclude_dict)
+        # Note: For B2C users, queryset is already filtered above with Q objects
+        if default_group not in B2C_GROUPS:
+            if exclude_dict:
+                print("exclude dict::", exclude_dict)
+                self.queryset = self.queryset.filter(**filter_dict).exclude(**exclude_dict)
+            else:
+                self.queryset = self.queryset.filter(**filter_dict)
         else:
-            self.queryset = self.queryset.filter(**filter_dict)
+            # For B2C users, apply exclude_dict if present
+            if exclude_dict:
+                print("exclude dict::", exclude_dict)
+                self.queryset = self.queryset.exclude(**exclude_dict)
+            # Also apply other filter_dict items that don't conflict
+            other_filters = {k: v for k, v in filter_dict.items() 
+                           if k not in ['user', 'company__isnull']}
+            if other_filters:
+                self.queryset = self.queryset.filter(**other_filters)
 
         # filter to get booked property based on date
         property_booked_date = self.request.query_params.get(

@@ -372,6 +372,35 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
+            # Get the request user from context
+            request = self.context.get("request", None)
+            user = request.user if request and hasattr(request, "user") else None
+            
+            # Check if user has permission to see sensitive fields
+            # Show fields if: user is superuser OR user is the property manager OR user is the property creator
+            can_see_sensitive_fields = False
+            if user and user.is_authenticated:
+                if (user.is_superuser or 
+                    instance.managed_by == user or 
+                    instance.added_by == user):
+                    can_see_sensitive_fields = True
+            
+            # List of sensitive fields that should be hidden from general users
+            sensitive_fields = [
+                "added_by",           # Property creator
+                "managed_by",          # Property manager
+                "service_agreement_pdf",  # Service agreement PDF
+                "verify_token",       # Verification token
+                "is_svc_agreement_verified",  # Agreement verification status
+                "verified_at",        # Verification timestamp
+                "verified_ip",        # Verification IP address
+            ]
+            
+            # Remove sensitive fields if user doesn't have permission
+            if not can_see_sensitive_fields:
+                for field in sensitive_fields:
+                    representation.pop(field, None)
+            
             # property gallery
             ##            room_details = self.fetch_rooms(instance.id)
             ##            representation['property_room'] = room_details

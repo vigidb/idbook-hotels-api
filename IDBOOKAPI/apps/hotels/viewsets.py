@@ -927,8 +927,8 @@ class PropertyViewSet(
         )
         instance = instance.first()
 
-        user_id = request.user.id
-        context = {"date_list": date_list, "user_id": user_id}
+        user_id = request.user.id if request.user.is_authenticated else None
+        context = {"date_list": date_list, "user_id": user_id, "request": request}
         response = PropertyRetrieveSerializer(instance, context=context)
 
         property_id = instance.id
@@ -1573,6 +1573,152 @@ class PropertyViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
             return custom_response
+
+    @action(
+        detail=True,
+        methods=["PATCH", "PUT"],
+        url_path="update-created-by",
+        url_name="update-property-created-by",
+        permission_classes=[IsAuthenticated],
+    )
+    def update_created_by(self, request, pk=None):
+        """
+        Update the property's 'added_by' (created by) and/or 'managed_by' (manager) fields.
+        Only superusers or staff can perform this action.
+        
+        Request body can include:
+        - created_by_user_id: User ID to set as added_by (who created the property)
+        - managed_by_user_id: User ID to set as managed_by (who manages the property)
+        - Both fields can be updated independently or together
+        """
+        self.log_request(request)
+        
+        # Check if user is superuser or staff
+        if not (request.user.is_superuser or request.user.is_staff):
+            return self.get_error_response(
+                message="Permission denied. Only superusers or staff can update property creator/manager.",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        try:
+            # Get the property instance
+            property_obj = self.get_object()
+            
+            # Get user IDs from request data
+            created_by_user_id = request.data.get("created_by_user_id")  # For added_by field
+            managed_by_user_id = request.data.get("managed_by_user_id")  # For managed_by field
+            
+            # At least one field must be provided
+            if not created_by_user_id and not managed_by_user_id:
+                return self.get_error_response(
+                    message="At least one of 'created_by_user_id' or 'managed_by_user_id' is required",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Track old values for response
+            old_added_by = property_obj.added_by
+            old_managed_by = property_obj.managed_by
+            
+            # Update added_by (created_by) if provided
+            if created_by_user_id is not None:
+                try:
+                    new_created_by_user = User.objects.get(id=created_by_user_id)
+                    property_obj.added_by = new_created_by_user
+                except User.DoesNotExist:
+                    return self.get_error_response(
+                        message=f"User with id {created_by_user_id} not found for created_by",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+            
+            # Update managed_by if provided
+            if managed_by_user_id is not None:
+                try:
+                    new_managed_by_user = User.objects.get(id=managed_by_user_id)
+                    property_obj.managed_by = new_managed_by_user
+                except User.DoesNotExist:
+                    return self.get_error_response(
+                        message=f"User with id {managed_by_user_id} not found for managed_by",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+            
+            # Save the property
+            property_obj.save()
+            
+            # Prepare response data
+            response_data = {
+                "property_id": property_obj.id,
+                "property_name": property_obj.name,
+                "old_created_by": {
+                    "id": old_added_by.id if old_added_by else None,
+                    "name": old_added_by.name if old_added_by else None,
+                    "email": old_added_by.email if old_added_by else None,
+                } if old_added_by else None,
+                "new_created_by": {
+                    "id": property_obj.added_by.id if property_obj.added_by else None,
+                    "name": property_obj.added_by.name if property_obj.added_by else None,
+                    "email": property_obj.added_by.email if property_obj.added_by else None,
+                } if property_obj.added_by else None,
+                "old_managed_by": {
+                    "id": old_managed_by.id if old_managed_by else None,
+                    "name": old_managed_by.name if old_managed_by else None,
+                    "email": old_managed_by.email if old_managed_by else None,
+                } if old_managed_by else None,
+                "new_managed_by": {
+                    "id": property_obj.managed_by.id if property_obj.managed_by else None,
+                    "name": property_obj.managed_by.name if property_obj.managed_by else None,
+                    "email": property_obj.managed_by.email if property_obj.managed_by else None,
+                } if property_obj.managed_by else None,
+            }
+            
+            # Build success message
+            messages = []
+            if created_by_user_id is not None:
+                messages.append("created by field updated")
+            if managed_by_user_id is not None:
+                messages.append("manager field updated")
+            message = "Property " + " and ".join(messages) + " successfully. User access granted."
+            
+            custom_response = self.get_response(
+                data=response_data,
+                count=1,
+                status="success",
+                message=message,
+                status_code=status.HTTP_200_OK,
+            )
+            
+            self.log_response(custom_response)
+            return custom_response
+            
+        except Property.DoesNotExist:
+            return self.get_error_response(
+                message="Property not found",
+                status="error",
+                errors=[],
+                error_code="PROPERTY_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(
         detail=False,

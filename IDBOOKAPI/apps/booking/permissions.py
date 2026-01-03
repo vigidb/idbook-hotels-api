@@ -65,6 +65,20 @@ class BookingRetrievePermission(permissions.BasePermission):
             # Super users can see all bookings
             if request.user.is_superuser:
                 return True
-            return obj.user == request.user
+            
+            # Check if user owns the booking
+            if obj.user == request.user:
+                return True
+            
+            # For hotel bookings, check if user manages or created the property
+            if obj.booking_type == "HOTEL" and obj.hotel_booking:
+                property_obj = obj.hotel_booking.confirmed_property
+                if property_obj:
+                    # Check if user is the property manager or creator
+                    if (property_obj.managed_by == request.user or 
+                        property_obj.added_by == request.user):
+                        return True
+            
+            return False
 
         return False
