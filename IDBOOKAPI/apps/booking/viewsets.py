@@ -257,9 +257,14 @@ class BookingViewSet(
             # Use Q object to allow: own bookings OR hotel bookings for managed/created properties
             from apps.hotels.models import Property
             # Get properties managed or created by this user
-            managed_properties = Property.objects.filter(
+            managed_properties_qs = Property.objects.filter(
                 Q(managed_by=user) | Q(added_by=user)
-            ).values_list('id', flat=True)
+            )
+            managed_properties = list(managed_properties_qs.values_list('id', flat=True))
+            
+            # Check if confirmed_property filter is provided
+            requested_property_id = param_dict.get("confirmed_property")
+            requested_user_id = param_dict.get("user_id")
             
             # Create Q filter: own bookings OR hotel bookings for managed properties
             user_booking_filter = Q(user=user.id, company__isnull=True)
@@ -314,11 +319,48 @@ class BookingViewSet(
             if exclude_dict:
                 print("exclude dict::", exclude_dict)
                 self.queryset = self.queryset.exclude(**exclude_dict)
-            # Also apply other filter_dict items that don't conflict
-            other_filters = {k: v for k, v in filter_dict.items() 
-                           if k not in ['user', 'company__isnull']}
+            
+            # Check if user is filtering by a property they manage/created
+            requested_property_id = param_dict.get("confirmed_property")
+            requested_user_id = param_dict.get("user_id")
+            is_managing_requested_property = False
+            
+            if requested_property_id:
+                try:
+                    requested_property_id = int(requested_property_id)
+                    # managed_properties is already a list from above
+                    is_managing_requested_property = requested_property_id in managed_properties
+                except (ValueError, TypeError):
+                    pass
+            
+            # Apply filter_dict items, but handle user_id and confirmed_property specially
+            # If user manages the requested property, they should see ALL bookings for that property
+            other_filters = {}
+            for k, v in filter_dict.items():
+                if k not in ['user', 'company__isnull']:
+                    # If user manages the property and this is the confirmed_property filter,
+                    # we still apply it to narrow down to that property
+                    # The Q filter already ensures user has permission
+                    other_filters[k] = v
+            
             if other_filters:
                 self.queryset = self.queryset.filter(**other_filters)
+            
+            # Handle user_id filter separately for B2C users
+            # If user manages the property, show all bookings regardless of user_id
+            # Otherwise, apply user_id filter if provided
+            if "user_id" in param_dict:
+                try:
+                    requested_user_id = int(requested_user_id)
+                    # If user manages the requested property, don't apply user_id filter
+                    # They should see all bookings for that property
+                    if not is_managing_requested_property:
+                        # Only apply user_id filter if not managing the property
+                        if requested_user_id != user.id:
+                            self.queryset = self.queryset.filter(user=requested_user_id)
+                        # If requesting own bookings, it's already covered by Q filter
+                except (ValueError, TypeError):
+                    pass
 
         # filter to get booked property based on date
         property_booked_date = self.request.query_params.get(
