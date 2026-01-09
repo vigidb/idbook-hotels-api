@@ -2001,6 +2001,222 @@ class PropertyViewSet(
             status_code=status.HTTP_200_OK,
         )
 
+    @action(
+        detail=True,
+        methods=["GET", "PATCH", "PUT"],
+        url_path="business-rep",
+        url_name="business-rep",
+        permission_classes=[IsAuthenticated],
+    )
+    def business_rep(self, request, pk=None):
+        """Get or update business representative (account manager) for a property"""
+        self.log_request(request)
+        
+        # Handle GET request
+        if request.method == "GET":
+            try:
+                property_obj = self.get_object()
+                if property_obj.business_rep:
+                    business_rep_data = {
+                        "id": property_obj.business_rep.id,
+                        "name": property_obj.business_rep.name,
+                        "email": property_obj.business_rep.email,
+                        "mobile_number": property_obj.business_rep.mobile_number,
+                    }
+                    response = self.get_response(
+                        data=business_rep_data,
+                        message="Business representative retrieved successfully",
+                        status_code=status.HTTP_200_OK,
+                    )
+                else:
+                    response = self.get_response(
+                        data=None,
+                        message="No business representative assigned to this property",
+                        status_code=status.HTTP_200_OK,
+                    )
+            except Exception as e:
+                response = self.get_error_response(
+                    message=str(e),
+                    status="error",
+                    errors=[],
+                    error_code="INTERNAL_SERVER_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            self.log_response(response)
+            return response
+        
+        # Handle PATCH/PUT request
+        try:
+            property_obj = self.get_object()
+            business_rep_id = request.data.get("business_rep_id")
+            
+            if business_rep_id is None:
+                return self.get_error_response(
+                    message="business_rep_id is required",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # If business_rep_id is empty string or 0, remove business rep
+            if business_rep_id == "" or business_rep_id == 0:
+                old_business_rep = property_obj.business_rep
+                property_obj.business_rep = None
+                property_obj.save()
+                
+                response_data = {
+                    "property_id": property_obj.id,
+                    "property_name": property_obj.name,
+                    "old_business_rep": {
+                        "id": old_business_rep.id,
+                        "name": old_business_rep.name,
+                        "email": old_business_rep.email,
+                    } if old_business_rep else None,
+                    "new_business_rep": None,
+                }
+                
+                response = self.get_response(
+                    data=response_data,
+                    message="Business representative removed successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                # Validate user exists
+                try:
+                    business_rep = User.objects.get(id=business_rep_id)
+                except User.DoesNotExist:
+                    return self.get_error_response(
+                        message=f"User with id {business_rep_id} not found",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+                
+                old_business_rep = property_obj.business_rep
+                property_obj.business_rep = business_rep
+                property_obj.save()
+                
+                response_data = {
+                    "property_id": property_obj.id,
+                    "property_name": property_obj.name,
+                    "old_business_rep": {
+                        "id": old_business_rep.id,
+                        "name": old_business_rep.name,
+                        "email": old_business_rep.email,
+                    } if old_business_rep else None,
+                    "new_business_rep": {
+                        "id": business_rep.id,
+                        "name": business_rep.name,
+                        "email": business_rep.email,
+                        "mobile_number": business_rep.mobile_number,
+                    },
+                }
+                
+                response = self.get_response(
+                    data=response_data,
+                    message="Business representative updated successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+        except Exception as e:
+            response = self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        self.log_response(response)
+        return response
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="bulk-assign-business-rep",
+        url_name="bulk-assign-property-business-rep",
+        permission_classes=[IsAuthenticated],
+    )
+    def bulk_assign_business_rep(self, request):
+        """Bulk assign one business representative to multiple properties"""
+        self.log_request(request)
+        try:
+            business_rep_id = request.data.get("business_rep_id")
+            property_ids = request.data.get("property_ids", [])
+            
+            if not business_rep_id:
+                return self.get_error_response(
+                    message="business_rep_id is required",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            if not property_ids or not isinstance(property_ids, list):
+                return self.get_error_response(
+                    message="property_ids must be a non-empty list",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Validate business rep exists
+            try:
+                business_rep = User.objects.get(id=business_rep_id)
+            except User.DoesNotExist:
+                return self.get_error_response(
+                    message=f"User with id {business_rep_id} not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+            # Get properties
+            properties = Property.objects.filter(id__in=property_ids)
+            found_ids = set(properties.values_list("id", flat=True))
+            not_found_ids = set(property_ids) - found_ids
+            
+            if not_found_ids:
+                return self.get_error_response(
+                    message=f"Properties with IDs {list(not_found_ids)} not found",
+                    status="error",
+                    errors=[],
+                    error_code="PROPERTIES_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+            # Update business reps
+            updated_count = properties.update(business_rep=business_rep)
+            
+            response_data = {
+                "business_rep": {
+                    "id": business_rep.id,
+                    "name": business_rep.name,
+                    "email": business_rep.email,
+                },
+                "updated_properties": updated_count,
+                "property_ids": list(found_ids),
+            }
+            
+            response = self.get_response(
+                data=response_data,
+                message=f"Business representative assigned to {updated_count} property(ies) successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            response = self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        self.log_response(response)
+        return response
+
 
 class GalleryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Gallery.objects.all()

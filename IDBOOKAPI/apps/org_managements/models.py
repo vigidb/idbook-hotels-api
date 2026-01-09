@@ -28,6 +28,18 @@ class BusinessDetail(models.Model):
 
     class Meta:
         ordering = ("created",)
+        verbose_name = "Business"
+        verbose_name_plural = "Businesses"
+
+    @property
+    def is_active(self):
+        """Alias for active field for consistency with permission system"""
+        return self.active
+
+    @is_active.setter
+    def is_active(self, value):
+        """Setter for is_active property"""
+        self.active = value
 
     def __str__(self):
         return str(self.business_name)

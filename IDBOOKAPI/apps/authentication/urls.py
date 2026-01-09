@@ -21,6 +21,8 @@ urlpatterns = [
     # path('auth/signup', UserCreateAPIView.as_view(), name='signup'),
     path("auth/login", LoginAPIView.as_view(), name="login"),
     path("auth/logout", LogoutAPIView.as_view(), name="logout"),
+    path("auth/permissions/check", PermissionCheckAPIView.as_view(), name="permission-check"),
+    path("auth/user/permissions", UserPermissionsAPIView.as_view(), name="user-permissions"),
     path(
         "auth/forgot-password/", ForgotPasswordAPIView.as_view(), name="forgot-password"
     ),

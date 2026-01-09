@@ -47,6 +47,46 @@ def user_representation(user, refresh_token=None):
         last_paid_date = user_subscription.last_paid_date
         next_payment_date = user_subscription.next_payment_date
 
+    # Get permissions and scopes from token if available
+    permissions = []
+    scopes = {"regions": [], "association_ids": []}
+    business_id_from_token = None
+    
+    if refresh_token:
+        # Extract permissions and scopes from token
+        if hasattr(refresh_token, "access_token"):
+            access_token = refresh_token.access_token
+            if hasattr(access_token, "get"):
+                permissions = access_token.get("permissions", [])
+                scopes = access_token.get("scopes", {"regions": [], "association_ids": []})
+                business_id_from_token = access_token.get("business_id")
+    
+    # Fallback: get permissions from user if not in token
+    if not permissions and user.business_id:
+        from apps.authentication.utils.permission_utils import get_user_permissions
+        from apps.org_managements.models import BusinessDetail
+        try:
+            business = BusinessDetail.objects.get(id=user.business_id)
+            permissions = get_user_permissions(user, business)
+            # Get scopes from user roles
+            from apps.authentication.models import UserRole
+            user_roles = UserRole.objects.filter(
+                user=user, business=business, is_active=True
+            )
+            regions = set()
+            association_ids = set()
+            for ur in user_roles:
+                if ur.region:
+                    regions.add(ur.region)
+                if ur.association_id:
+                    association_ids.add(str(ur.association_id))
+            scopes = {
+                "regions": sorted(list(regions)),
+                "association_ids": sorted(list(association_ids)),
+            }
+        except BusinessDetail.DoesNotExist:
+            pass
+
     user_data = {
         "id": user.id,
         "mobile_number": user.mobile_number if user.mobile_number else "",
@@ -56,10 +96,10 @@ def user_representation(user, refresh_token=None):
         "mobile_verified": user.mobile_verified,
         "groups": user_groups,
         "roles": user_roles,
-        "permissions": [],
+        "permissions": permissions,
         "category": user.category,
         "profile_picture": profile_picture,
-        "business_id": user.business_id if user.business_id else "",
+        "business_id": business_id_from_token or (user.business_id if user.business_id else ""),
         "company_id": user.company_id if user.company_id else "",
         "default_group": user.default_group,
         "subscription_name": subscription_name,
@@ -70,6 +110,7 @@ def user_representation(user, refresh_token=None):
         "last_paid_date": last_paid_date,
         "next_payment_date": next_payment_date,
         "is_active": user.is_active,
+        "scopes": scopes,
     }
 
     if refresh_token:

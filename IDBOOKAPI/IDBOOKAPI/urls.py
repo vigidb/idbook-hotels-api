@@ -13,7 +13,6 @@ from rest_framework_simplejwt.views import (
 
 from IDBOOKAPI.img_kit import ImagekitioService
 from apps.authentication.viewsets import homepage
-from apps.administrator.urls import router as administrator_router
 from apps.org_resources.urls import router as org_resources_router
 from apps.org_managements.urls import router as org_managements_router
 from apps.holiday_package.urls import router as holiday_package_router
@@ -46,14 +45,13 @@ urlpatterns = [
     re_path("admin/", admin.site.urls),
     # authentication
     re_path("api/v1/", include("apps.authentication.urls")),
-    # administrator
+    # administrator (includes router URLs)
     re_path("api/v1/administrator/", include("apps.administrator.urls")),
     # holiday_package
     re_path("api/v1/holiday-package/", include("apps.holiday_package.urls")),
     # org_resources
     re_path("api/v1/org-resources/", include("apps.org_resources.urls")),
-    # include routers
-    re_path("api/v1/administrator/", include(administrator_router.urls)),
+    # include routers (administrator router is now included in apps.administrator.urls)
     re_path("api/v1/org-resources/", include(org_resources_router.urls)),
     re_path("api/v1/org-managements/", include(org_managements_router.urls)),
     re_path("api/v1/holiday-package/", include(holiday_package_router.urls)),

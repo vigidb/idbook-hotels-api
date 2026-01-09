@@ -3,6 +3,7 @@ from django.contrib.auth.models import (
     BaseUserManager,
     PermissionsMixin,
     Permission,
+    Group,
 )
 from django.db import models
 from rest_framework.authtoken.models import Token
@@ -55,21 +56,62 @@ class UserOtp(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
 
+# NOTE: GroupMetadata and PermissionMetadata removed - using Django's built-in fields directly
+# Groups: Use group.name directly (already contains codes like "BUSINESS-GRP")
+# Permissions: Use utility function get_permission_code() to convert Django format to custom format
+
 class Role(models.Model):
-    name = models.CharField(max_length=50, unique=True, help_text="Name of the role.")
+    name = models.CharField(max_length=50, help_text="Name of the role.")
     short_code = models.CharField(
         max_length=3,
         default="",
-        unique=True,
         db_index=True,
         help_text="Short code representing the role.",
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Detailed description of what this role does and its responsibilities."
     )
     permissions = models.ManyToManyField(
         Permission, help_text="Select permissions associated with this role."
     )
+    business = models.ForeignKey(
+        "org_managements.BusinessDetail",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="roles",
+        help_text="Business this role belongs to. Null for system roles."
+    )
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="roles",
+        help_text="Django Group this role belongs to (e.g., BUSINESS-GRP, CORPORATE-GRP)."
+    )
+    is_system_role = models.BooleanField(
+        default=False,
+        help_text="Whether this is a system role (BUS-ADMIN, CORP-ADMIN, etc.)."
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [["name", "business", "is_system_role"]]
+        ordering = ("name",)
+        indexes = [
+            models.Index(fields=["business", "is_system_role"]),
+            models.Index(fields=["group", "is_system_role"]),
+            models.Index(fields=["name", "is_system_role"]),
+        ]
 
     def __str__(self):
-        return f"{self.name}_{self.short_code}"
+        if self.business:
+            return f"{self.name}_{self.short_code} ({self.business.business_name})"
+        return f"{self.name}_{self.short_code} (System)"
 
 
 class UserManager(BaseUserManager):
@@ -208,6 +250,78 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_customer(self):
         return False
+
+
+class UserRole(models.Model):
+    """User-Role-Business assignment with region/association scoping"""
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="user_roles",
+        help_text="User this role is assigned to."
+    )
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.CASCADE,
+        related_name="user_roles",
+        help_text="Role assigned to the user."
+    )
+    business = models.ForeignKey(
+        "org_managements.BusinessDetail",
+        on_delete=models.CASCADE,
+        related_name="user_roles",
+        help_text="Business this role assignment belongs to."
+    )
+    region = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Region code for region-based access (e.g., TN, KA)."
+    )
+    association_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Association ID for association-based access (company_id, hotel_id, or agent_id)."
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this role assignment is active."
+    )
+    assigned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_roles",
+        help_text="User who assigned this role."
+    )
+    assigned_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this role was assigned."
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [["user", "role", "business", "association_id"]]
+        ordering = ("-assigned_at",)
+        indexes = [
+            models.Index(fields=["user", "business", "is_active"]),
+            models.Index(fields=["user", "association_id", "is_active"]),
+            models.Index(fields=["business", "is_active"]),
+        ]
+        verbose_name = "User Role Assignment"
+        verbose_name_plural = "User Role Assignments"
+
+    def __str__(self):
+        scope = ""
+        if self.region:
+            scope = f" [Region: {self.region}]"
+        if self.association_id:
+            scope += f" [Association: {self.association_id}]"
+        return f"{self.user.email or self.user.mobile_number} - {self.role.name}{scope}"
 
 
 ##def post_save_user_create_receiver(sender, instance, created, *args, **kwargs):

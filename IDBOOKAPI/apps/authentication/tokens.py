@@ -10,13 +10,18 @@ from apps.authentication.utils.group_utils import (
     get_user_default_group,
     validate_user_group_membership,
 )
+from apps.authentication.utils.permission_utils import (
+    get_user_permissions,
+    get_user_roles_for_business,
+)
+from apps.org_managements.models import BusinessDetail
 
 logger = logging.getLogger(__name__)
 
 
 class CustomAccessToken(AccessToken):
     """
-    Custom access token that includes active_group claim.
+    Custom access token that includes active_group, business_id, permissions, and scopes.
     Note: company_id is NOT stored in token to avoid stale data.
     Always fetch from database when needed.
     """
@@ -78,6 +83,47 @@ class CustomRefreshToken(RefreshToken):
             token.access_token["active_group"] = active_group
             logger.info(
                 f"Generated token for user {user.id} with active_group: {active_group}"
+            )
+
+        # Add business_id, permissions, and scopes to token
+        business = None
+        if user.business_id:
+            try:
+                business = BusinessDetail.objects.get(id=user.business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+
+        if business:
+            token["business_id"] = business.id
+            token.access_token["business_id"] = business.id
+
+            # Get user permissions for this business
+            permissions = get_user_permissions(user, business)
+            token["permissions"] = permissions
+            token.access_token["permissions"] = permissions
+
+            # Get scopes (regions and association_ids) from user roles
+            user_roles = get_user_roles_for_business(user, business)
+            regions = set()
+            association_ids = set()
+
+            for user_role in user_roles:
+                if user_role.region:
+                    regions.add(user_role.region)
+                if user_role.association_id:
+                    association_ids.add(str(user_role.association_id))
+
+            scopes = {
+                "regions": sorted(list(regions)) if regions else [],
+                "association_ids": sorted(list(association_ids)) if association_ids else [],
+            }
+
+            token["scopes"] = scopes
+            token.access_token["scopes"] = scopes
+
+            logger.info(
+                f"Added business_id={business.id}, permissions={len(permissions)}, "
+                f"scopes={scopes} to token for user {user.id}"
             )
 
         # NOTE: company_id is NOT stored in token to avoid stale data

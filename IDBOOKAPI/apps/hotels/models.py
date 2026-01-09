@@ -171,6 +171,14 @@ class Property(models.Model):
         related_name="property_manager",
         help_text="Select a user as the property manager.",
     )
+    business_rep = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="property_business_rep",
+        help_text="Business representative (account manager) assigned to this property.",
+    )
     added_by = models.ForeignKey(
         User,
         on_delete=models.CASCADE,

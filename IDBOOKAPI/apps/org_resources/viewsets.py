@@ -1023,6 +1023,222 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         self.log_response(custom_response)
         return custom_response
 
+    @action(
+        detail=True,
+        methods=["GET", "PATCH", "PUT"],
+        url_path="business-rep",
+        url_name="business-rep",
+        permission_classes=[IsAuthenticated],
+    )
+    def business_rep(self, request, pk=None):
+        """Get or update business representative (account manager) for a company"""
+        self.log_request(request)
+        
+        # Handle GET request
+        if request.method == "GET":
+            try:
+                company = self.get_object()
+                if company.business_rep:
+                    business_rep_data = {
+                        "id": company.business_rep.id,
+                        "name": company.business_rep.name,
+                        "email": company.business_rep.email,
+                        "mobile_number": company.business_rep.mobile_number,
+                    }
+                    response = self.get_response(
+                        data=business_rep_data,
+                        message="Business representative retrieved successfully",
+                        status_code=status.HTTP_200_OK,
+                    )
+                else:
+                    response = self.get_response(
+                        data=None,
+                        message="No business representative assigned to this company",
+                        status_code=status.HTTP_200_OK,
+                    )
+            except Exception as e:
+                response = self.get_error_response(
+                    message=str(e),
+                    status="error",
+                    errors=[],
+                    error_code="INTERNAL_SERVER_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            self.log_response(response)
+            return response
+        
+        # Handle PATCH/PUT request
+        try:
+            company = self.get_object()
+            business_rep_id = request.data.get("business_rep_id")
+            
+            if business_rep_id is None:
+                return self.get_error_response(
+                    message="business_rep_id is required",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # If business_rep_id is empty string or 0, remove business rep
+            if business_rep_id == "" or business_rep_id == 0:
+                old_business_rep = company.business_rep
+                company.business_rep = None
+                company.save()
+                
+                response_data = {
+                    "company_id": company.id,
+                    "company_name": company.company_name,
+                    "old_business_rep": {
+                        "id": old_business_rep.id,
+                        "name": old_business_rep.name,
+                        "email": old_business_rep.email,
+                    } if old_business_rep else None,
+                    "new_business_rep": None,
+                }
+                
+                response = self.get_response(
+                    data=response_data,
+                    message="Business representative removed successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                # Validate user exists
+                try:
+                    business_rep = User.objects.get(id=business_rep_id)
+                except User.DoesNotExist:
+                    return self.get_error_response(
+                        message=f"User with id {business_rep_id} not found",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+                
+                old_business_rep = company.business_rep
+                company.business_rep = business_rep
+                company.save()
+                
+                response_data = {
+                    "company_id": company.id,
+                    "company_name": company.company_name,
+                    "old_business_rep": {
+                        "id": old_business_rep.id,
+                        "name": old_business_rep.name,
+                        "email": old_business_rep.email,
+                    } if old_business_rep else None,
+                    "new_business_rep": {
+                        "id": business_rep.id,
+                        "name": business_rep.name,
+                        "email": business_rep.email,
+                        "mobile_number": business_rep.mobile_number,
+                    },
+                }
+                
+                response = self.get_response(
+                    data=response_data,
+                    message="Business representative updated successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+        except Exception as e:
+            response = self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        self.log_response(response)
+        return response
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="bulk-assign-business-rep",
+        url_name="bulk-assign-business-rep",
+        permission_classes=[IsAuthenticated],
+    )
+    def bulk_assign_business_rep(self, request):
+        """Bulk assign one business representative to multiple companies"""
+        self.log_request(request)
+        try:
+            business_rep_id = request.data.get("business_rep_id")
+            company_ids = request.data.get("company_ids", [])
+            
+            if not business_rep_id:
+                return self.get_error_response(
+                    message="business_rep_id is required",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            if not company_ids or not isinstance(company_ids, list):
+                return self.get_error_response(
+                    message="company_ids must be a non-empty list",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Validate business rep exists
+            try:
+                business_rep = User.objects.get(id=business_rep_id)
+            except User.DoesNotExist:
+                return self.get_error_response(
+                    message=f"User with id {business_rep_id} not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+            # Get companies
+            companies = CompanyDetail.objects.filter(id__in=company_ids)
+            found_ids = set(companies.values_list("id", flat=True))
+            not_found_ids = set(company_ids) - found_ids
+            
+            if not_found_ids:
+                return self.get_error_response(
+                    message=f"Companies with IDs {list(not_found_ids)} not found",
+                    status="error",
+                    errors=[],
+                    error_code="COMPANIES_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            
+            # Update business reps
+            updated_count = companies.update(business_rep=business_rep)
+            
+            response_data = {
+                "business_rep": {
+                    "id": business_rep.id,
+                    "name": business_rep.name,
+                    "email": business_rep.email,
+                },
+                "updated_companies": updated_count,
+                "company_ids": list(found_ids),
+            }
+            
+            response = self.get_response(
+                data=response_data,
+                message=f"Business representative assigned to {updated_count} company(ies) successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            response = self.get_error_response(
+                message=str(e),
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        self.log_response(response)
+        return response
+
 
 class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = AgentDetail.objects.all()

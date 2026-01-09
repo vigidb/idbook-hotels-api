@@ -3106,3 +3106,111 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
 #                     RETURN_RESPONSE['MESSAGE']: 'Password reset email sent.',
 #                     RETURN_RESPONSE['RESULT']:  {"email": email}
 #                 })
+
+
+class PermissionCheckAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    """API endpoint to check if user has a specific permission"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        self.log_request(request)
+        permission_code = request.query_params.get("permission")
+        business_id = request.query_params.get("business_id")
+        
+        if not permission_code:
+            response = self.get_response(
+                data=None,
+                message="permission parameter is required",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                is_error=True,
+            )
+            self.log_response(response)
+            return response
+        
+        business = None
+        if business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        
+        from apps.authentication.utils.permission_utils import has_permission
+        has_perm = has_permission(request.user, permission_code, business)
+        
+        response = self.get_response(
+            data={"has_permission": has_perm, "permission": permission_code},
+            message="Permission check completed",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+
+
+class UserPermissionsAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    """API endpoint to get all permissions for a user in a business"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        self.log_request(request)
+        business_id = request.query_params.get("business_id")
+        
+        business = None
+        if business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        elif request.user.business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=request.user.business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        
+        from apps.authentication.utils.permission_utils import (
+            get_user_permissions,
+            get_user_roles_for_business,
+        )
+        
+        permissions = get_user_permissions(request.user, business)
+        user_roles = get_user_roles_for_business(request.user, business)
+        
+        roles_data = [
+            {
+                "id": ur.role.id,
+                "name": ur.role.name,
+                "short_code": ur.role.short_code,
+                "region": ur.region,
+                "association_id": ur.association_id,
+            }
+            for ur in user_roles
+        ]
+        
+        # Get scopes
+        regions = set()
+        association_ids = set()
+        for ur in user_roles:
+            if ur.region:
+                regions.add(ur.region)
+            if ur.association_id:
+                association_ids.add(str(ur.association_id))
+        
+        scopes = {
+            "regions": sorted(list(regions)),
+            "association_ids": sorted(list(association_ids)),
+        }
+        
+        response = self.get_response(
+            data={
+                "permissions": permissions,
+                "roles": roles_data,
+                "scopes": scopes,
+                "business_id": business.id if business else None,
+            },
+            message="User permissions retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response

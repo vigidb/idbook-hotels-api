@@ -389,6 +389,7 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
             sensitive_fields = [
                 "added_by",           # Property creator
                 "managed_by",          # Property manager
+                "business_rep",       # Business representative (account manager)
                 "service_agreement_pdf",  # Service agreement PDF
                 "verify_token",       # Verification token
                 "is_svc_agreement_verified",  # Agreement verification status
@@ -400,6 +401,17 @@ class PropertyRetrieveSerializer(serializers.ModelSerializer):
             if not can_see_sensitive_fields:
                 for field in sensitive_fields:
                     representation.pop(field, None)
+            
+            # Format business_rep if it exists
+            if instance.business_rep:
+                representation["business_rep"] = {
+                    "id": instance.business_rep.id,
+                    "name": instance.business_rep.name,
+                    "email": instance.business_rep.email,
+                    "mobile_number": instance.business_rep.mobile_number,
+                }
+            else:
+                representation["business_rep"] = None
             
             # property gallery
             ##            room_details = self.fetch_rooms(instance.id)
