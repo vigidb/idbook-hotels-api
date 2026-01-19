@@ -25,6 +25,7 @@ from apps.customer.utils.db_utils import (
     update_wallet_transaction_detail,
     add_company_wallet_amount,
     add_user_wallet_amount,
+    add_agent_wallet_amount,
 )
 from apps.log_management.utils.db_utils import create_wallet_payment_log
 from django.conf import settings
@@ -1658,6 +1659,7 @@ class WalletViewSet(
         """
         API for wallet recharge through bank transfer
         User uploads payment proof image along with transaction details
+        Supports user, company, and agent wallets
         """
         user = request.user
         serializer = WalletRechargeSerializer(data=request.data)
@@ -1675,10 +1677,36 @@ class WalletViewSet(
             validated_data = serializer.validated_data
             amount = validated_data["amount"]
             company_id = validated_data.get("company_id")
+            agent_id = validated_data.get("agent_id")
             payment_type = validated_data["payment_type"]
             payment_medium = validated_data["payment_medium"]
             media = validated_data["media"]
             transaction_id = validated_data["transaction_id"]
+
+            # Auto-detect agent if user is an agent and no agent_id/company_id specified
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user
+            user_agent = get_agent_for_user(user)
+            
+            # Convert agent_id to int if it's provided as string
+            if agent_id:
+                try:
+                    agent_id = int(agent_id)
+                except (ValueError, TypeError):
+                    agent_id = None
+            elif user_agent and not company_id:
+                # Auto-detect agent wallet if user is an agent
+                agent_id = user_agent.id
+            
+            # Validate agent access
+            if agent_id:
+                if not (user.is_superuser or (user_agent and user_agent.id == agent_id)):
+                    return self.get_error_response(
+                        message="You don't have permission to recharge this agent wallet",
+                        status="error",
+                        errors=[],
+                        error_code="PERMISSION_DENIED",
+                        status_code=status.HTTP_403_FORBIDDEN,
+                    )
 
             # Create wallet transaction entry
             wtransact_data = {
@@ -1698,6 +1726,8 @@ class WalletViewSet(
 
             if company_id:
                 wtransact_data["company_id"] = company_id
+            if agent_id:
+                wtransact_data["agent_id"] = agent_id
 
             # Create wallet transaction
             wallet_transaction = WalletTransaction.objects.create(**wtransact_data)
@@ -1707,6 +1737,7 @@ class WalletViewSet(
                 "amount": str(float(amount)),
                 "user_id": user.id,
                 "company_id": company_id,
+                "agent_id": agent_id,
                 "transaction_type": "Credit",
                 "transaction_for": "Wallet_Recharge",
                 "transaction_details": f"Wallet recharge of {float(amount)} with transaction id {transaction_id}",
@@ -1817,11 +1848,15 @@ class WalletViewSet(
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Credit the wallet amount
+            # Credit the wallet amount - prioritize in order: company > agent > user wallet
             success = False
             if wallet_transaction.company_id:
                 success = add_company_wallet_amount(
                     wallet_transaction.company_id, approve_amount
+                )
+            elif wallet_transaction.agent_id:
+                success = add_agent_wallet_amount(
+                    wallet_transaction.agent_id, approve_amount
                 )
             elif wallet_transaction.user_id:
                 success = add_user_wallet_amount(
@@ -1855,6 +1890,7 @@ class WalletViewSet(
                 "amount": str(float(approve_amount)),
                 "user_id": wallet_transaction.user_id,
                 "company_id": wallet_transaction.company_id,
+                "agent_id": wallet_transaction.agent_id if wallet_transaction.agent else None,
                 "transaction_type": wallet_transaction.transaction_type,
                 "transaction_for": wallet_transaction.transaction_for,
                 "transaction_details": wallet_transaction.transaction_details,
@@ -1939,8 +1975,8 @@ class WalletViewSet(
                 WalletTransaction.objects.filter(
                     status="Pending", transaction_for="wallet_recharge"
                 )
-                .select_related("user", "company")
-                .order_by("-created")
+                .select_related("user", "company", "agent")
+                .prefetch_related("user__customer_profile")
             )
 
             # Apply filters
@@ -1952,9 +1988,82 @@ class WalletViewSet(
             if company_id:
                 queryset = queryset.filter(company_id=company_id)
 
+            agent_id = validated_data.get("agent_id")
+            if agent_id:
+                queryset = queryset.filter(agent_id=agent_id)
+
             transaction_id = validated_data.get("transaction_id")
             if transaction_id:
                 queryset = queryset.filter(transaction_id__icontains=transaction_id)
+
+            payment_type = validated_data.get("payment_type")
+            if payment_type:
+                queryset = queryset.filter(payment_type__iexact=payment_type)
+
+            payment_medium = validated_data.get("payment_medium")
+            if payment_medium:
+                queryset = queryset.filter(payment_medium__iexact=payment_medium)
+
+            # Date range filter
+            start_date = validated_data.get("start_date")
+            end_date = validated_data.get("end_date")
+            if start_date:
+                # If it's a date, convert to datetime for comparison
+                from django.utils import timezone
+                from datetime import datetime
+                if hasattr(start_date, 'date') and not isinstance(start_date, datetime):
+                    start_datetime = timezone.make_aware(
+                        datetime.combine(start_date, datetime.min.time())
+                    )
+                else:
+                    start_datetime = start_date
+                queryset = queryset.filter(created__date__gte=start_date)
+            if end_date:
+                # If it's a date, convert to datetime for comparison (end of day)
+                from django.utils import timezone
+                from datetime import datetime
+                if hasattr(end_date, 'date') and not isinstance(end_date, datetime):
+                    end_datetime = timezone.make_aware(
+                        datetime.combine(end_date, datetime.max.time())
+                    )
+                else:
+                    end_datetime = end_date
+                queryset = queryset.filter(created__date__lte=end_date)
+
+            # Search filter - search by user name, email, mobile, or transaction_id
+            search = validated_data.get("search")
+            if search:
+                search_query = Q(
+                    Q(transaction_id__icontains=search) |
+                    Q(user__name__icontains=search) |
+                    Q(user__email__icontains=search) |
+                    Q(user__mobile_number__icontains=search) |
+                    Q(user__first_name__icontains=search) |
+                    Q(user__last_name__icontains=search)
+                )
+                # Also search by agent name if agent exists
+                if search:
+                    search_query |= Q(agent__agent_name__icontains=search)
+                queryset = queryset.filter(search_query)
+
+            # Apply ordering
+            ordering = validated_data.get("ordering")
+            if ordering:
+                # Validate ordering fields to prevent SQL injection
+                allowed_fields = [
+                    "created", "-created", "updated", "-updated",
+                    "amount", "-amount", "transaction_id", "-transaction_id",
+                    "payment_type", "-payment_type", "payment_medium", "-payment_medium"
+                ]
+                ordering_list = [o.strip() for o in ordering.split(",") if o.strip() in allowed_fields]
+                if ordering_list:
+                    queryset = queryset.order_by(*ordering_list)
+                else:
+                    # Default ordering if invalid
+                    queryset = queryset.order_by("-created")
+            else:
+                # Default ordering
+                queryset = queryset.order_by("-created")
 
             # Get total count before pagination
             total_count = queryset.count()

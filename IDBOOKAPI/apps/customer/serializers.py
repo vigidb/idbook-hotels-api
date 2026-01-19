@@ -168,6 +168,7 @@ class QueryFilterWalletTransactionSerializer(serializers.ModelSerializer):
 class WalletRechargeSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=20, decimal_places=6, required=True)
     company_id = serializers.IntegerField(required=False, allow_null=True)
+    agent_id = serializers.IntegerField(required=False, allow_null=True)
     payment_type = serializers.CharField(max_length=50, required=True)
     payment_medium = serializers.CharField(max_length=50, required=True)
     media = serializers.FileField(required=True)
@@ -197,6 +198,7 @@ class ApproveRechargeSerializer(serializers.Serializer):
 class QueryFilterPendingRechargeSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=False, allow_null=True)
     company_id = serializers.IntegerField(required=False, allow_null=True)
+    agent_id = serializers.IntegerField(required=False, allow_null=True)
     offset = serializers.IntegerField(required=False, default=0, min_value=0)
     limit = serializers.IntegerField(
         required=False, default=10, min_value=1, max_value=100
@@ -204,13 +206,18 @@ class QueryFilterPendingRechargeSerializer(serializers.Serializer):
     transaction_id = serializers.CharField(required=False, allow_blank=True)
     payment_type = serializers.CharField(required=False, allow_blank=True)
     payment_medium = serializers.CharField(required=False, allow_blank=True)
-    start_date = serializers.DateTimeField(required=False, allow_null=True)
-    end_date = serializers.DateTimeField(required=False, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True, help_text="Filter by start date (YYYY-MM-DD)")
+    end_date = serializers.DateField(required=False, allow_null=True, help_text="Filter by end date (YYYY-MM-DD)")
+    search = serializers.CharField(required=False, allow_blank=True, help_text="Search by user name, email, mobile, transaction_id")
+    ordering = serializers.CharField(required=False, allow_blank=True, help_text="Order by field (e.g., '-created', 'amount', '-amount')")
 
 
 class PendingRechargeSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     company_name = serializers.SerializerMethodField()
+    agent_name = serializers.SerializerMethodField()
+    user_email = serializers.SerializerMethodField()
+    user_mobile = serializers.SerializerMethodField()
 
     class Meta:
         model = WalletTransaction
@@ -218,8 +225,12 @@ class PendingRechargeSerializer(serializers.ModelSerializer):
             "id",
             "user",
             "company",
+            "agent",
             "user_name",
             "company_name",
+            "agent_name",
+            "user_email",
+            "user_mobile",
             "code",
             "amount",
             "transaction_type",
@@ -239,11 +250,26 @@ class PendingRechargeSerializer(serializers.ModelSerializer):
             return f"{obj.user.name}".strip() or obj.user.name
         return None
 
+    def get_user_email(self, obj):
+        if obj.user:
+            return obj.user.email
+        return None
+
+    def get_user_mobile(self, obj):
+        if obj.user:
+            return obj.user.mobile_number
+        return None
+
     def get_company_name(self, obj):
         if obj.company:
             return (
                 obj.company.company_name
                 if hasattr(obj.company, "company_name")
-                else str(obj.company)
+                else None
             )
+        return None
+
+    def get_agent_name(self, obj):
+        if obj.agent:
+            return obj.agent.agent_name
         return None
