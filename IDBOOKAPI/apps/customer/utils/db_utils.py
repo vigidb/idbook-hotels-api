@@ -241,6 +241,104 @@ def add_company_wallet_amount(company_id, amount):
     return True
 
 
+def add_agent_wallet_amount(agent_id, amount):
+    """
+    Add amount to agent wallet. Creates wallet if it doesn't exist.
+    
+    Args:
+        agent_id: ID of the AgentDetail
+        amount: Decimal amount to add
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if not agent_id:
+            print("add_agent_wallet_amount: agent_id is None or empty")
+            return False
+
+        # Ensure agent_id is an integer
+        try:
+            agent_id = int(agent_id)
+        except (ValueError, TypeError):
+            print(
+                f"add_agent_wallet_amount: Invalid agent_id type: {type(agent_id)}, value: {agent_id}"
+            )
+            return False
+
+        from apps.org_resources.models import AgentDetail
+        wallet = Wallet.objects.filter(agent_id=agent_id).first()
+        if wallet:
+            wallet.balance = wallet.balance + amount
+            wallet.save()
+            print(
+                f"add_agent_wallet_amount: Updated agent wallet {agent_id}, new balance: {wallet.balance}"
+            )
+        else:
+            Wallet.objects.create(agent_id=agent_id, balance=amount)
+            print(
+                f"add_agent_wallet_amount: Created new agent wallet {agent_id} with balance: {amount}"
+            )
+    except Exception as e:
+        print(f"Wallet Balance add error for agent {agent_id}::", e)
+        import traceback
+        print(traceback.format_exc())
+        return False
+    return True
+
+
+def deduct_agent_wallet_balance(agent_id, deduct_amount):
+    """
+    Deduct amount from agent wallet.
+    
+    Args:
+        agent_id: ID of the AgentDetail
+        deduct_amount: Decimal amount to deduct
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if not agent_id:
+            return False
+
+        wallet = Wallet.objects.filter(agent_id=agent_id).first()
+        if wallet:
+            if wallet.balance >= deduct_amount:
+                wallet.balance = wallet.balance - deduct_amount
+                wallet.save()
+                return True
+            else:
+                print(f"Insufficient wallet balance for agent {agent_id}")
+                return False
+        else:
+            print(f"Wallet not found for agent {agent_id}")
+            return False
+    except Exception as e:
+        print(f"Wallet Balance deduct error for agent {agent_id}::", e)
+        return False
+
+
+def get_agent_wallet_balance(agent_id):
+    """
+    Get agent wallet balance.
+    
+    Args:
+        agent_id: ID of the AgentDetail
+        
+    Returns:
+        Decimal: Wallet balance or 0 if wallet doesn't exist
+    """
+    try:
+        wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
+        if wallet:
+            return wallet.balance
+        return 0
+    except Exception as e:
+        print(f"Error getting agent wallet balance: {e}")
+        return 0
+
+
 def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
     import logging
     logger = logging.getLogger(__name__)
@@ -249,7 +347,7 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
     logger.info(f"merchant_transaction_id: {merchant_transaction_id}")
     logger.info(f"payment_details: {payment_details}")
     
-    user_id, company_id = None, None
+    user_id, company_id, agent_id = None, None, None
 
     payment_objs = WalletTransaction.objects.filter(
         transaction_id=merchant_transaction_id
@@ -265,7 +363,7 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
             transaction_id__icontains=merchant_transaction_id[:10] if merchant_transaction_id else ""
         ).order_by("-created")[:5]
         logger.info(f"Recent similar transactions: {[(t.id, t.transaction_id, t.status) for t in recent_txns]}")
-        return user_id, company_id
+        return user_id, company_id, agent_id
 
     # Remove transaction_id from payment_details if present to avoid updating it
     update_data = {k: v for k, v in payment_details.items() if k != "transaction_id"}
@@ -282,40 +380,47 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
             user_id = payment_obj.user.id
         # Get company_id from the transaction object
         company_id = payment_obj.company_id if payment_obj.company_id else None
+        # Get agent_id from the transaction object
+        agent_id = payment_obj.agent.id if payment_obj.agent else None
         logger.info(
             f"Transaction after update - id: {payment_obj.id}, status: {payment_obj.status}, "
             f"is_success: {payment_obj.is_transaction_success}, code: {payment_obj.code}, "
-            f"user_id={user_id}, company_id={company_id}"
+            f"user_id={user_id}, company_id={company_id}, agent_id={agent_id}"
         )
     else:
         logger.error(f"Could not retrieve transaction after update for transaction_id: {merchant_transaction_id}")
     
     logger.info(f"=== update_wallet_transaction_detail COMPLETED ===")
-    return user_id, company_id
+    return user_id, company_id, agent_id
 
 
-def update_wallet_recharge_details(user_id, company_id, amount):
+def update_wallet_recharge_details(user_id, company_id, amount, agent_id=None):
     amount = Decimal(str(amount))
 
     print(
-        f"update_wallet_recharge_details: user_id={user_id}, company_id={company_id}, amount={amount}"
+        f"update_wallet_recharge_details: user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}"
     )
 
-    # add wallet amount - prioritize company wallet if company_id exists
+    # add wallet amount - prioritize in order: company > agent > user wallet
     if company_id:
         print(f"Adding {amount} to company wallet {company_id}")
         success = add_company_wallet_amount(company_id, amount)
         if not success:
             print(f"Failed to add amount to company wallet {company_id}")
+    elif agent_id:
+        print(f"Adding {amount} to agent wallet {agent_id}")
+        success = add_agent_wallet_amount(agent_id, amount)
+        if not success:
+            print(f"Failed to add amount to agent wallet {agent_id}")
     elif user_id:
         print(f"Adding {amount} to user wallet {user_id}")
         success = add_user_wallet_amount(user_id, amount)
         if not success:
             print(f"Failed to add amount to user wallet {user_id}")
     else:
-        print("Warning: Neither company_id nor user_id provided for wallet recharge")
+        print("Warning: Neither company_id, agent_id nor user_id provided for wallet recharge")
 
-    return user_id, company_id
+    return user_id, company_id, agent_id
 
 
 def get_referral_bonus(referred_users: list, user_id):

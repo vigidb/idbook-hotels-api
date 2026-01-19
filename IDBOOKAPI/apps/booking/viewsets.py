@@ -305,6 +305,22 @@ class BookingViewSet(
                 filter_dict["company_id"] = param_dict["company_id"]
             if "user_id" in param_dict:
                 filter_dict["user"] = param_dict["user_id"]
+        
+        # Check if user is an agent and apply agent filtering
+        agent = self.get_agent_for_user(user)
+        if agent and not user.is_superuser:
+            # Agent can see bookings they created or bookings for customers linked to them
+            from django.db.models import Q
+            agent_booking_filter = Q(agent=agent) | Q(user__customer_profile__agents=agent)
+            # Apply agent filter to queryset
+            if default_group in B2C_GROUPS:
+                # For B2C users who are agents, combine with existing filter
+                self.queryset = self.queryset.filter(agent_booking_filter)
+            else:
+                # For other groups, apply agent filter
+                if not filter_dict.get("agent"):
+                    # Only apply if agent filter not already set
+                    self.queryset = self.queryset.filter(agent_booking_filter)
 
         # filter and exclude
         # Note: For B2C users, queryset is already filtered above with Q objects
@@ -437,6 +453,11 @@ class BookingViewSet(
     ##        responses={201: AppliedCouponSerializer(many=True)})
 
     # @swagger_auto_schema(query_serializer=BookingSerializer, request_body= BookingSerializer, manual_parameters=[test_param])
+    def get_agent_for_user(self, user):
+        """Get AgentDetail for user if user is an agent"""
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user as get_agent
+        return get_agent(user)
+
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -449,6 +470,45 @@ class BookingViewSet(
             if response.data:
                 booking_id = response.data.get("id")
                 print("Booking Id", booking_id)
+                
+                # Handle agent linking and markup
+                try:
+                    booking = Booking.objects.filter(id=booking_id).first()
+                    if booking:
+                        # Detect if user is an agent
+                        agent_detail = self.get_agent_for_user(request.user)
+                        
+                        if agent_detail:
+                            # Agent is creating booking
+                            from apps.booking.utils.agent_linking_utils import link_customer_to_agent_on_booking
+                            from apps.booking.utils.markup_utils import AgentMarkupCalculator
+                            
+                            booking.agent = agent_detail
+                            booking.booking_source = 'AGENT'
+                            
+                            # Apply agent markup
+                            from decimal import Decimal
+                            base_amount = Decimal(str(booking.final_amount or booking.subtotal or 0))
+                            markup_calc = AgentMarkupCalculator.get_agent_markup(
+                                agent_detail.id, base_amount
+                            )
+                            if markup_calc['markup_percent'] is not None:
+                                booking.agent_markup_percent = Decimal(str(markup_calc['markup_percent']))
+                            booking.agent_markup_amount = markup_calc['markup_amount']
+                            booking.final_price_with_markup = markup_calc['final_price']
+                            
+                            # Auto-link customer to agent
+                            link_customer_to_agent_on_booking(booking, agent_detail)
+                            
+                            booking.save()
+                        else:
+                            # Direct booking - maintain last agent relationship
+                            from apps.booking.utils.agent_linking_utils import handle_direct_booking_customer_link
+                            handle_direct_booking_customer_link(booking)
+                except Exception as e:
+                    # Log error but don't fail booking creation
+                    print(f"Error processing agent linking/markup: {str(e)}")
+                
                 booking_type = "search-booking"
                 send_booking_email_task.apply_async(args=[booking_id, booking_type])
 

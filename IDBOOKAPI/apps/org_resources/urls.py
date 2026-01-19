@@ -43,6 +43,12 @@ router.register(
 router.register(
     r"basic-rules-config", BasicRulesConfigViewSet, basename="basic_rules_config"
 )
+router.register(
+    r"agent-markup-config", AgentMarkupConfigViewSet, basename="agent_markup_config"
+)
+router.register(
+    r"agent-dashboard", AgentDashboardViewSet, basename="agent_dashboard"
+)
 
 
 urlpatterns = [

@@ -6,6 +6,7 @@ from apps.authentication.models import User
 from .models import (
     CompanyDetail,
     AgentDetail,
+    AgentMarkupConfig,
     AmenityCategory,
     Amenity,
     Enquiry,
@@ -348,6 +349,33 @@ class BasicRulesConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = BasicRulesConfig
         fields = "__all__"
+
+
+class AgentMarkupConfigSerializer(serializers.ModelSerializer):
+    agent_name = serializers.CharField(source='agent.agent_name', read_only=True)
+    agent_code = serializers.CharField(source='agent.agent_code', read_only=True)
+    
+    class Meta:
+        model = AgentMarkupConfig
+        fields = "__all__"
+        read_only_fields = ('created', 'updated')
+    
+    def create(self, validated_data):
+        """Create markup config for agent"""
+        request = self.context.get("request")
+        agent = validated_data.get('agent')
+        
+        # Check if config already exists
+        config, created = AgentMarkupConfig.objects.get_or_create(
+            agent=agent,
+            defaults=validated_data
+        )
+        if not created:
+            # Update existing config
+            for key, value in validated_data.items():
+                setattr(config, key, value)
+            config.save()
+        return config
 
     def validate(self, data):
         """

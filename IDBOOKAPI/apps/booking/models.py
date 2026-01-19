@@ -372,6 +372,24 @@ class Booking(models.Model):
         verbose_name="booking_user",
     )
     company = models.ForeignKey(CompanyDetail, on_delete=models.DO_NOTHING, null=True)
+    agent = models.ForeignKey(
+        'org_resources.AgentDetail',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='agent_bookings',
+        help_text="Agent who created this booking (null if direct booking)"
+    )
+    booking_source = models.CharField(
+        max_length=20,
+        choices=[
+            ('AGENT', 'Booked by Agent'),
+            ('DIRECT', 'Booked by Customer Directly'),
+            ('AGENT_PORTAL', 'Booked via Agent Portal')
+        ],
+        default='DIRECT',
+        help_text="Source of the booking"
+    )
     reference_code = models.CharField(max_length=500, null=True, blank=True)
     confirmation_code = models.CharField(max_length=500, null=True, blank=True)
     invoice_id = models.CharField(max_length=500, null=True, blank=True)
@@ -480,6 +498,20 @@ class Booking(models.Model):
     )
     total_payment_made = models.DecimalField(
         max_digits=20, decimal_places=6, default=0.0, help_text="Total Payment made"
+    )
+    
+    # Agent markup fields
+    agent_markup_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        help_text="Agent markup percentage applied to this booking"
+    )
+    agent_markup_amount = models.DecimalField(
+        max_digits=20, decimal_places=6, null=True, blank=True,
+        help_text="Agent markup amount applied to this booking"
+    )
+    final_price_with_markup = models.DecimalField(
+        max_digits=20, decimal_places=6, null=True, blank=True,
+        help_text="Final price including agent markup"
     )
 
     status = models.CharField(

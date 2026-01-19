@@ -2,7 +2,7 @@ from django.db import models
 from apps.booking.models import Booking
 
 from apps.authentication.models import User
-from apps.org_resources.models import CompanyDetail, UserSubscription
+from apps.org_resources.models import CompanyDetail, UserSubscription, AgentDetail
 from IDBOOKAPI.basic_resources import SMS_TYPES_CHOICES
 
 # Create your models here.
@@ -122,13 +122,23 @@ class WalletTransactionLog(models.Model):
         User,
         on_delete=models.DO_NOTHING,
         null=True,
+        blank=True,
         related_name="wallet_transaction_logs",
     )
     company = models.ForeignKey(
         CompanyDetail,
         on_delete=models.DO_NOTHING,
         null=True,
+        blank=True,
         related_name="wallet_company_transaction_logs",
+    )
+    agent = models.ForeignKey(
+        AgentDetail,
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="wallet_agent_transaction_logs",
+        help_text="Agent associated with this wallet transaction",
     )
 
     merchant_transaction_id = models.CharField(max_length=150, blank=True, default="")

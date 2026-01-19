@@ -479,11 +479,36 @@ class WalletViewSet(
         instance = None
 
         company_id = self.request.query_params.get("company_id", "")
-        if company_id:
+        agent_id = self.request.query_params.get("agent_id", "")
+        
+        # Auto-detect agent if user is an agent and no agent_id specified
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        user_agent = get_agent_for_user(request.user)
+        
+        if agent_id:
+            # Check if user is an agent and matches the requested agent_id
+            if user_agent and user_agent.id == int(agent_id):
+                instance = self.queryset.filter(agent_id=agent_id).first()
+            elif request.user.is_superuser:
+                # Admin can access any agent wallet
+                instance = self.queryset.filter(agent_id=agent_id).first()
+            else:
+                return self.get_error_response(
+                    message="You don't have permission to access this agent wallet",
+                    status="error",
+                    errors=[],
+                    error_code="PERMISSION_DENIED",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+        elif user_agent and not company_id:
+            # User is an agent and no specific agent_id/company_id - use their agent wallet
+            instance = self.queryset.filter(agent=user_agent, active=True).first()
+        elif company_id:
             instance = self.queryset.filter(company_id=company_id).first()
         else:
+            # Default to user's personal wallet
             instance = self.queryset.filter(
-                user_id=user_id, company_id__isnull=True
+                user_id=user_id, company_id__isnull=True, agent_id__isnull=True
             ).first()
 
         if instance:
@@ -492,7 +517,7 @@ class WalletViewSet(
         custom_response = self.get_response(
             status="success",
             data=data,  # Use the data from the default response
-            message="Customer Wallet Balance",
+            message="Wallet Balance",
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
         )
         return custom_response
@@ -505,6 +530,8 @@ class WalletViewSet(
         amount = request.data.get("amount", None)
         # Check for both 'company' and 'company_id' for consistency
         company_id = request.data.get("company") or request.data.get("company_id")
+        # Check for agent_id
+        agent_id = request.data.get("agent") or request.data.get("agent_id")
 
         payment_log = {}
 
@@ -528,12 +555,37 @@ class WalletViewSet(
             ##                         "payment_type":"PAYMENT GATEWAY",
             ##                         "payment_medium":"PHONE PAY"}
 
+            # Auto-detect agent if user is an agent and no agent_id/company_id specified
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user
+            user_agent = get_agent_for_user(user)
+            
             # Convert company_id to int if it's provided as string
             if company_id:
                 try:
                     company_id = int(company_id)
                 except (ValueError, TypeError):
                     company_id = None
+            
+            # Convert agent_id to int if it's provided as string
+            if agent_id:
+                try:
+                    agent_id = int(agent_id)
+                except (ValueError, TypeError):
+                    agent_id = None
+            elif user_agent and not company_id:
+                # Auto-detect agent wallet if user is an agent
+                agent_id = user_agent.id
+            
+            # Validate agent access
+            if agent_id:
+                if not (user.is_superuser or (user_agent and user_agent.id == agent_id)):
+                    return self.get_error_response(
+                        message="You don't have permission to recharge this agent wallet",
+                        status="error",
+                        errors=[],
+                        error_code="PERMISSION_DENIED",
+                        status_code=status.HTTP_403_FORBIDDEN,
+                    )
 
             # Set payment_medium based on payment_channel
             payment_medium = "PHONE PAY" if payment_channel == "PHONE PAY" else "RAZORPAY" if payment_channel == "RAZORPAY" else "PAYMENT GATEWAY"
@@ -555,6 +607,9 @@ class WalletViewSet(
             if company_id:
                 wtransact["company_id"] = company_id
                 payment_log["company_id"] = company_id
+            if agent_id:
+                wtransact["agent_id"] = agent_id
+                payment_log["agent_id"] = agent_id
 
             # wallet transaction entry
             update_wallet_transaction(wtransact)
@@ -636,6 +691,8 @@ class WalletViewSet(
                     }
                     if company_id:
                         notes["company_id"] = str(company_id)
+                    if agent_id:
+                        notes["agent_id"] = str(agent_id)
                     
                     # Create Razorpay order
                     order_result = razorpay_mixin.create_razorpay_order(
@@ -862,8 +919,8 @@ class WalletViewSet(
                 
                 self.log_info(f"Updating wallet transaction with details: {payment_details}")
                 # Update wallet transaction
-                update_result = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
-                self.log_info(f"Wallet transaction update result: {update_result}")
+                user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                self.log_info(f"Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
                 
                 # Verify the transaction was updated
                 from apps.customer.models import WalletTransaction
@@ -875,8 +932,8 @@ class WalletViewSet(
                 else:
                     self.log_warning(f"Transaction not found after update attempt: {merchant_transaction_id}")
                 
-                # Get user_id and company_id - try from notes first, then from WalletTransaction
-                if not user_id and not company_id:
+                # Get user_id, company_id, and agent_id - try from notes first, then from WalletTransaction
+                if not user_id and not company_id and not agent_id:
                     from apps.customer.models import WalletTransaction
                     wallet_txn = WalletTransaction.objects.filter(
                         transaction_id=merchant_transaction_id
@@ -885,14 +942,15 @@ class WalletViewSet(
                         if wallet_txn.user:
                             user_id = wallet_txn.user.id
                         company_id = wallet_txn.company_id if wallet_txn.company_id else None
-                        self.log_info(f"Retrieved user_id and company_id from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
+                        agent_id = wallet_txn.agent.id if wallet_txn.agent else None
+                        self.log_info(f"Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
                 
-                self.log_info(f"Final user_id: {user_id}, company_id: {company_id}, amount: {amount}")
+                self.log_info(f"Final user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
                 
                 # Recharge the wallet
-                if user_id or company_id:
-                    self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, amount={amount}")
-                    wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount)
+                if user_id or company_id or agent_id:
+                    self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
+                    wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                     self.log_info(f"Wallet recharge update result: {wallet_update_result}")
                     
                     # Verify wallet balance was updated
@@ -1011,7 +1069,13 @@ class WalletViewSet(
                 }
                 
                 self.log_info(f"Updating wallet transaction as failed: {payment_details}")
-                update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                if user_id:
+                    payment_log["user_id"] = user_id
+                if company_id:
+                    payment_log["company_id"] = company_id
+                if agent_id:
+                    payment_log["agent_id"] = agent_id
                 
                 payment_log["response"] = {"success": False, "status": payment_status}
                 create_wallet_payment_log(payment_log)
@@ -1140,8 +1204,8 @@ class WalletViewSet(
                         }
                         
                         self.log_info(f"Webhook - Updating wallet transaction with details: {payment_details}")
-                        update_result = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
-                        self.log_info(f"Webhook - Wallet transaction update result: {update_result}")
+                        user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        self.log_info(f"Webhook - Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
                         
                         # Verify the transaction was updated
                         from apps.customer.models import WalletTransaction
@@ -1153,8 +1217,8 @@ class WalletViewSet(
                         else:
                             self.log_warning(f"Webhook - Transaction not found after update attempt: {merchant_transaction_id}")
                         
-                        # Get user_id and company_id - try from notes first, then from WalletTransaction
-                        if not user_id and not company_id:
+                        # Get user_id, company_id, and agent_id - try from notes first, then from WalletTransaction
+                        if not user_id and not company_id and not agent_id:
                             from apps.customer.models import WalletTransaction
                             wallet_txn = WalletTransaction.objects.filter(
                                 transaction_id=merchant_transaction_id
@@ -1163,14 +1227,15 @@ class WalletViewSet(
                                 if wallet_txn.user:
                                     user_id = wallet_txn.user.id
                                 company_id = wallet_txn.company_id if wallet_txn.company_id else None
-                                self.log_info(f"Webhook - Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
+                                agent_id = wallet_txn.agent.id if wallet_txn.agent else None
+                                self.log_info(f"Webhook - Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
                         
-                        self.log_info(f"Webhook - Final user_id: {user_id}, company_id: {company_id}, amount: {amount}")
+                        self.log_info(f"Webhook - Final user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
                         
                         # Recharge the wallet
-                        if user_id or company_id:
-                            self.log_info(f"Webhook - Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, amount={amount}")
-                            wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount)
+                        if user_id or company_id or agent_id:
+                            self.log_info(f"Webhook - Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
+                            wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                             self.log_info(f"Webhook - Wallet recharge update result: {wallet_update_result}")
                             
                             # Verify wallet balance was updated
@@ -1265,7 +1330,13 @@ class WalletViewSet(
                             "status": "Failed",
                         }
                         
-                        update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        if user_id:
+                            payment_log["user_id"] = user_id
+                        if company_id:
+                            payment_log["company_id"] = company_id
+                        if agent_id:
+                            payment_log["agent_id"] = agent_id
                 
                 payment_log["response"] = {"success": False, "event": event}
                 create_wallet_payment_log(payment_log)
@@ -1352,17 +1423,17 @@ class WalletViewSet(
                 payment_details["status"] = "Completed"
 
                 # update wallet transaction and wallet
-                user_id, company_id = update_wallet_transaction_detail(
+                user_id, company_id, agent_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details
                 )
                 
-                print(f"PhonePe callback - user_id: {user_id}, company_id: {company_id}, amount: {amount}")
+                print(f"PhonePe callback - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
 
-                # Recharge the wallet (company or user)
-                if user_id or company_id:
-                    update_wallet_recharge_details(user_id, company_id, amount)
+                # Recharge the wallet (company, agent, or user)
+                if user_id or company_id or agent_id:
+                    update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                 else:
-                    print(f"WARNING: PhonePe callback - No user_id or company_id found for transaction {merchant_transaction_id}")
+                    print(f"WARNING: PhonePe callback - No user_id, company_id, or agent_id found for transaction {merchant_transaction_id}")
                     # Try to get from WalletTransaction directly
                     from apps.customer.models import WalletTransaction
                     wallet_txn = WalletTransaction.objects.filter(
@@ -1372,9 +1443,10 @@ class WalletViewSet(
                         if wallet_txn.user:
                             user_id = wallet_txn.user.id
                         company_id = wallet_txn.company_id if wallet_txn.company_id else None
-                        print(f"Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
-                        if user_id or company_id:
-                            update_wallet_recharge_details(user_id, company_id, amount)
+                        agent_id = wallet_txn.agent.id if wallet_txn.agent else None
+                        print(f"Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
+                        if user_id or company_id or agent_id:
+                            update_wallet_recharge_details(user_id, company_id, amount, agent_id)
 
                 # Send SMS notification for user wallet recharge
                 if user_id and not company_id:
@@ -1440,13 +1512,15 @@ class WalletViewSet(
             else:
                 payment_details["is_transaction_success"] = False
                 payment_details["status"] = "Failed"
-                user_id, company_id = update_wallet_transaction_detail(
+                user_id, company_id, agent_id = update_wallet_transaction_detail(
                     merchant_transaction_id, payment_details
                 )
                 if user_id:
                     payment_log["user_id"] = user_id
                 if company_id:
                     payment_log["company_id"] = company_id
+                if agent_id:
+                    payment_log["agent_id"] = agent_id
                 if code == "PAYMENT_ERROR" and user_id:
                     send_booking_sms_task.apply_async(
                         kwargs={
@@ -1953,3 +2027,264 @@ class WalletTransactionViewSet(
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
         )
         return custom_response
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="agent/search",
+        url_name="search-customers-for-agent",
+        permission_classes=[IsAuthenticated],
+    )
+    def search_customers_for_agent(self, request):
+        """Search existing customers to link to agent"""
+        self.log_request(request)
+        
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        from apps.org_resources.models import AgentDetail
+        
+        agent = get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Search parameters
+        email = request.query_params.get("email")
+        phone = request.query_params.get("phone")
+        name = request.query_params.get("name")
+        
+        if not (email or phone or name):
+            return self.get_error_response(
+                message="At least one search parameter (email, phone, or name) is required",
+                status="error",
+                errors=[],
+                error_code="MISSING_SEARCH_PARAM",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Build search query
+        from django.db.models import Q
+        search_query = Q()
+        
+        if email:
+            search_query |= Q(user__email__icontains=email)
+        if phone:
+            search_query |= Q(user__mobile_number__icontains=phone)
+        if name:
+            search_query |= Q(user__name__icontains=name) | Q(user__first_name__icontains=name)
+        
+        # Get customers not yet linked to this agent
+        customers = Customer.objects.filter(search_query).exclude(agents=agent)
+        
+        # Limit results
+        limit = int(request.query_params.get("limit", 20))
+        customers = customers[:limit]
+        
+        # Serialize results
+        serializer = CustomerSerializer(customers, many=True)
+        
+        response = self.get_response(
+            data=serializer.data,
+            message="Customers found",
+            count=len(serializer.data),
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="link-agent",
+        url_name="link-agent",
+        permission_classes=[IsAuthenticated],
+    )
+    def link_agent(self, request, pk=None):
+        """Explicitly link customer to agent"""
+        self.log_request(request)
+        
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        from apps.org_resources.models import AgentDetail
+        
+        customer = self.get_object()
+        agent = get_agent_for_user(request.user)
+        
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Check if agent_id is provided in request (for admin linking)
+        agent_id = request.data.get("agent_id")
+        if agent_id and request.user.is_superuser:
+            try:
+                agent = AgentDetail.objects.get(id=agent_id)
+            except AgentDetail.DoesNotExist:
+                return self.get_error_response(
+                    message="Agent not found",
+                    status="error",
+                    errors=[],
+                    error_code="AGENT_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+        
+        # Add agent to customer's agents (ManyToMany)
+        customer.agents.add(agent)
+        
+        # Optionally set as primary agent
+        set_primary = request.data.get("set_as_primary", False)
+        if set_primary or not customer.primary_agent:
+            customer.primary_agent = agent
+            customer.save()
+        else:
+            customer.save()
+        
+        serializer = CustomerSerializer(customer)
+        
+        response = self.get_response(
+            data=serializer.data,
+            message="Customer linked to agent successfully",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="unlink-agent",
+        url_name="unlink-agent",
+        permission_classes=[IsAuthenticated],
+    )
+    def unlink_agent(self, request, pk=None):
+        """Remove agent from customer"""
+        self.log_request(request)
+        
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        from apps.org_resources.models import AgentDetail
+        
+        customer = self.get_object()
+        agent = get_agent_for_user(request.user)
+        
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Check if agent_id is provided in request (for admin unlinking)
+        agent_id = request.data.get("agent_id")
+        if agent_id and request.user.is_superuser:
+            try:
+                agent = AgentDetail.objects.get(id=agent_id)
+            except AgentDetail.DoesNotExist:
+                return self.get_error_response(
+                    message="Agent not found",
+                    status="error",
+                    errors=[],
+                    error_code="AGENT_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+        
+        # Check if customer is linked to this agent
+        if agent not in customer.agents.all():
+            return self.get_error_response(
+                message="Customer is not linked to this agent",
+                status="error",
+                errors=[],
+                error_code="NOT_LINKED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Remove from ManyToMany
+        customer.agents.remove(agent)
+        
+        # If was primary_agent, set to another agent or null
+        if customer.primary_agent == agent:
+            other_agents = customer.agents.all()
+            if other_agents.exists():
+                customer.primary_agent = other_agents.first()
+            else:
+                customer.primary_agent = None
+            customer.save()
+        else:
+            customer.save()
+        
+        serializer = CustomerSerializer(customer)
+        
+        response = self.get_response(
+            data=serializer.data,
+            message="Customer unlinked from agent successfully",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="agent/(?P<agent_id>[^/.]+)/customers",
+        url_name="agent-customers",
+        permission_classes=[IsAuthenticated],
+    )
+    def agent_customers(self, request, agent_id=None):
+        """List all customers linked to an agent"""
+        self.log_request(request)
+        
+        from apps.org_resources.models import AgentDetail
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        
+        # Verify user is the agent or admin
+        user_agent = get_agent_for_user(request.user)
+        
+        try:
+            agent = AgentDetail.objects.get(id=agent_id)
+        except AgentDetail.DoesNotExist:
+            return self.get_error_response(
+                message="Agent not found",
+                status="error",
+                errors=[],
+                error_code="AGENT_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        
+        # Check permission
+        if not (request.user.is_superuser or (user_agent and user_agent.id == agent.id)):
+            return self.get_error_response(
+                message="You don't have permission to view this agent's customers",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Get customers linked to agent
+        customers = Customer.objects.filter(agents=agent).select_related('user')
+        
+        # Pagination
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 20))
+        count = customers.count()
+        customers = customers[offset:offset + limit]
+        
+        serializer = CustomerSerializer(customers, many=True)
+        
+        response = self.get_response(
+            data=serializer.data,
+            message="Customers retrieved successfully",
+            count=count,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response

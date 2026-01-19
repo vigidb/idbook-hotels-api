@@ -82,3 +82,43 @@ class BookingRetrievePermission(permissions.BasePermission):
             return False
 
         return False
+
+
+class IsAgentBookingOwner(permissions.BasePermission):
+    """
+    Custom permission that allows agents to access their own bookings.
+    Agents can view/edit bookings they created or bookings for customers linked to them.
+    """
+    
+    def has_permission(self, request, view):
+        # Allow authenticated users
+        if request.user and request.user.is_authenticated:
+            return True
+        return False
+    
+    def has_object_permission(self, request, view, obj):
+        # Super users can see all bookings
+        if request.user.is_superuser:
+            return True
+        
+        # Check if user owns the booking
+        if obj.user == request.user:
+            return True
+        
+        # Check if user is an agent and has access to this booking
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        agent = get_agent_for_user(request.user)
+        
+        if agent:
+            # Agent can access bookings they created
+            if obj.agent == agent:
+                return True
+            
+            # Agent can access bookings for customers linked to them
+            if obj.user:
+                from apps.customer.models import Customer
+                customer = Customer.objects.filter(user=obj.user).first()
+                if customer and agent in customer.agents.all():
+                    return True
+        
+        return False

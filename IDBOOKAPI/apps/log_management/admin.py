@@ -21,7 +21,7 @@ class BookingInvoiceLogAdmin(admin.ModelAdmin):
 
 
 class WalletTransactionLogAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "company", "created", "updated")
+    list_display = ("id", "user", "company", "agent", "created", "updated")
 
 
 class BookingRefundLogAdmin(admin.ModelAdmin):

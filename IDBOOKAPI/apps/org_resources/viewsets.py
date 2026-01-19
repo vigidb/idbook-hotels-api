@@ -31,6 +31,7 @@ from .serializers import (
     FAQsSerializer,
     CompanyDetailSerializer,
     AgentDetailSerializer,
+    AgentMarkupConfigSerializer,
     UploadedMediaSerializer,
     CountryDetailsSerializer,
     UserNotificationSerializer,
@@ -43,6 +44,7 @@ from .serializers import (
 from .models import (
     CompanyDetail,
     AgentDetail,
+    AgentMarkupConfig,
     AmenityCategory,
     Amenity,
     Enquiry,
@@ -5016,3 +5018,427 @@ class BasicRulesConfigViewSet(
 
         self.log_response(custom_response)
         return custom_response
+
+
+class AgentMarkupConfigViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    """ViewSet for managing agent markup configurations"""
+    from .serializers import AgentMarkupConfigSerializer
+    serializer_class = AgentMarkupConfigSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "put", "patch"]
+    
+    def get_queryset(self):
+        """Return markup configs for the authenticated agent or all if admin"""
+        user = self.request.user
+        if user.is_superuser:
+            from .models import AgentMarkupConfig
+            return AgentMarkupConfig.objects.all()
+        
+        # Get agent for user
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        from .models import AgentMarkupConfig
+        agent = get_agent_for_user(user)
+        if agent:
+            return AgentMarkupConfig.objects.filter(agent=agent)
+        return AgentMarkupConfig.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        """Create or update markup config for agent"""
+        self.log_request(request)
+        
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        agent = get_agent_for_user(request.user)
+        
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Set agent in request data if not provided
+        data = request.data.copy()
+        if 'agent' not in data:
+            data['agent'] = agent.id
+        
+        serializer = self.get_serializer(data=data)
+        if serializer.is_valid():
+            instance = serializer.save()
+            response = self.get_response(
+                data=self.get_serializer(instance).data,
+                message="Markup configuration saved successfully",
+                status_code=status.HTTP_201_CREATED,
+            )
+        else:
+            response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        self.log_response(response)
+        return response
+    
+    def list(self, request, *args, **kwargs):
+        """List markup configurations"""
+        self.log_request(request)
+        
+        count = self.get_queryset().count()
+        
+        # Perform the default listing logic
+        response = super().list(request, *args, **kwargs)
+        
+        if response.status_code == status.HTTP_200_OK:
+            custom_response = self.get_response(
+                data=response.data,
+                count=count,
+                message="Retrieved successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            custom_response = self.get_error_response(
+                message="Error Occurred",
+                status="error",
+                errors=[],
+                error_code="ERROR",
+                status_code=response.status_code,
+            )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a single markup configuration"""
+        self.log_request(request)
+        
+        # Perform the default retrieval logic
+        response = super().retrieve(request, *args, **kwargs)
+        
+        if response.status_code == status.HTTP_200_OK:
+            custom_response = self.get_response(
+                data=response.data,
+                message="Retrieved successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            custom_response = self.get_error_response(
+                message="Error Occurred",
+                status="error",
+                errors=[],
+                error_code="ERROR",
+                status_code=response.status_code,
+            )
+        
+        self.log_response(custom_response)
+        return custom_response
+    
+    def update(self, request, *args, **kwargs):
+        """Update markup configuration"""
+        self.log_request(request)
+        
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        agent = get_agent_for_user(request.user)
+        
+        # If not admin, ensure agent can only update their own config
+        if not request.user.is_superuser:
+            if not agent:
+                return self.get_error_response(
+                    message="User is not associated with an agent",
+                    status="error",
+                    errors=[],
+                    error_code="NOT_AN_AGENT",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            
+            instance = self.get_object()
+            if instance.agent != agent:
+                return self.get_error_response(
+                    message="You can only update your own markup configuration",
+                    status="error",
+                    errors=[],
+                    error_code="PERMISSION_DENIED",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=kwargs.get('partial', False))
+        if serializer.is_valid():
+            instance = serializer.save()
+            response = self.get_response(
+                data=self.get_serializer(instance).data,
+                message="Markup configuration updated successfully",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            response = self.get_error_response(
+                message="Validation Error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        self.log_response(response)
+        return response
+
+
+class AgentDashboardViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin):
+    """ViewSet for agent dashboard analytics and management"""
+    permission_classes = [IsAuthenticated]
+    
+    def get_agent_for_user(self, user):
+        """Get AgentDetail for user if user is an agent"""
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user as get_agent
+        return get_agent(user)
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="dashboard",
+        url_name="dashboard",
+        permission_classes=[IsAuthenticated],
+    )
+    def dashboard(self, request):
+        """Main dashboard overview for agent"""
+        self.log_request(request)
+        
+        agent = self.get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        # Get date range from query params
+        from datetime import datetime, timedelta
+        days = int(request.query_params.get("days", 30))
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        date_range = (start_date, end_date)
+        
+        # Get analytics
+        from apps.org_resources.utils.agent_analytics import (
+            get_agent_booking_stats,
+            get_agent_revenue,
+            get_agent_commission_summary,
+            get_agent_customer_count,
+            get_agent_customer_stats,
+        )
+        
+        booking_stats = get_agent_booking_stats(agent.id, date_range)
+        revenue_stats = get_agent_revenue(agent.id, date_range)
+        commission_stats = get_agent_commission_summary(agent.id, date_range)
+        customer_count = get_agent_customer_count(agent.id)
+        customer_stats = get_agent_customer_stats(agent.id)
+        
+        dashboard_data = {
+            "agent": {
+                "id": agent.id,
+                "agent_name": agent.agent_name,
+                "agent_code": agent.agent_code,
+            },
+            "booking_stats": booking_stats,
+            "revenue_stats": revenue_stats,
+            "commission_stats": commission_stats,
+            "customer_count": customer_count,
+            "customer_stats": customer_stats,
+            "date_range": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+        }
+        
+        response = self.get_response(
+            data=dashboard_data,
+            message="Dashboard data retrieved successfully",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="bookings",
+        url_name="bookings",
+        permission_classes=[IsAuthenticated],
+    )
+    def bookings(self, request):
+        """List agent bookings with filters"""
+        self.log_request(request)
+        
+        agent = self.get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        from apps.booking.models import Booking
+        from django.db.models import Q
+        
+        # Get bookings where agent created or customer is linked to agent
+        bookings_query = Booking.objects.filter(
+            Q(agent=agent) | Q(user__customer_profile__agents=agent)
+        ).select_related('user', 'hotel_booking', 'flight_booking')
+        
+        # Apply filters
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            bookings_query = bookings_query.filter(status=status_filter)
+        
+        booking_source = request.query_params.get("booking_source")
+        if booking_source:
+            bookings_query = bookings_query.filter(booking_source=booking_source)
+        
+        # Date range filter
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+        if start_date and end_date:
+            bookings_query = bookings_query.filter(
+                created__date__gte=start_date,
+                created__date__lte=end_date,
+            )
+        
+        # Pagination
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 20))
+        count = bookings_query.count()
+        bookings = bookings_query.order_by('-created')[offset:offset + limit]
+        
+        # Serialize bookings
+        from apps.booking.serializers import BookingSerializer
+        serializer = BookingSerializer(bookings, many=True)
+        
+        response = self.get_response(
+            data=serializer.data,
+            message="Bookings retrieved successfully",
+            count=count,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="customers",
+        url_name="customers",
+        permission_classes=[IsAuthenticated],
+    )
+    def customers(self, request):
+        """List agent's customers with stats"""
+        self.log_request(request)
+        
+        agent = self.get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        from apps.customer.models import Customer
+        from apps.booking.models import Booking
+        from django.db.models import Count, Sum, Max
+        
+        customers = Customer.objects.filter(agents=agent).select_related('user')
+        
+        # Get stats for each customer
+        customers_data = []
+        for customer in customers:
+            # Get customer bookings
+            customer_bookings = Booking.objects.filter(
+                Q(agent=agent, user=customer.user) | 
+                Q(user=customer.user, booking_source='DIRECT')
+            )
+            
+            booking_stats = customer_bookings.aggregate(
+                total_bookings=Count('id'),
+                total_revenue=Sum('final_amount'),
+                last_booking_date=Max('created'),
+            )
+            
+            is_primary = customer.primary_agent == agent
+            
+            customers_data.append({
+                "id": customer.id,
+                "user": {
+                    "id": customer.user.id,
+                    "email": customer.user.email,
+                    "name": customer.user.name,
+                    "mobile_number": customer.user.mobile_number,
+                },
+                "is_primary_agent": is_primary,
+                "total_bookings": booking_stats['total_bookings'] or 0,
+                "total_revenue": float(booking_stats['total_revenue'] or 0),
+                "last_booking_date": booking_stats['last_booking_date'].isoformat() if booking_stats['last_booking_date'] else None,
+            })
+        
+        # Pagination
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 20))
+        count = len(customers_data)
+        customers_data = customers_data[offset:offset + limit]
+        
+        response = self.get_response(
+            data=customers_data,
+            message="Customers retrieved successfully",
+            count=count,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="commissions",
+        url_name="commissions",
+        permission_classes=[IsAuthenticated],
+    )
+    def commissions(self, request):
+        """Get commission tracking and settlements"""
+        self.log_request(request)
+        
+        agent = self.get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        
+        from apps.org_resources.utils.agent_analytics import get_agent_commission_summary
+        
+        # Get date range
+        from datetime import datetime, timedelta
+        days = int(request.query_params.get("days", 30))
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        date_range = (start_date, end_date)
+        
+        commission_stats = get_agent_commission_summary(agent.id, date_range)
+        
+        response = self.get_response(
+            data=commission_stats,
+            message="Commission data retrieved successfully",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+    

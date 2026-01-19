@@ -334,6 +334,53 @@ class AgentDetail(models.Model):
         verbose_name_plural = "Agent Details"
 
 
+class AgentMarkupConfig(models.Model):
+    """Configuration for agent markup settings"""
+    MARKUP_TYPE_CHOICES = [
+        ('PERCENT', 'Percentage'),
+        ('FIXED', 'Fixed Amount'),
+    ]
+    
+    agent = models.OneToOneField(
+        AgentDetail,
+        on_delete=models.CASCADE,
+        related_name='markup_config',
+        help_text="Agent this markup configuration belongs to"
+    )
+    default_markup_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        help_text="Default markup percentage (0-100)"
+    )
+    default_markup_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        default=0.00,
+        null=True,
+        blank=True,
+        help_text="Default fixed markup amount (if markup_type is FIXED)"
+    )
+    markup_type = models.CharField(
+        max_length=20,
+        choices=MARKUP_TYPE_CHOICES,
+        default='PERCENT',
+        help_text="Type of markup: percentage or fixed amount"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this markup configuration is active"
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Markup Config for {self.agent.agent_name}"
+
+    class Meta:
+        verbose_name_plural = "Agent Markup Configurations"
+
+
 class UploadedMedia(models.Model):
     user = models.ForeignKey(
         User,

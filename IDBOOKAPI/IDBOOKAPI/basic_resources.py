@@ -329,7 +329,6 @@ TRANSACTION_FOR = (
     ("booking_confirmed", "booking_confirmed"),
     ("booking_refund", "booking_refund"),
     ("referral_booking", "referral_booking"),
-    ("booking_refund", "booking_refund"),
     ("booking_cashback", "booking_cashback"),
     ("signup_reward", "signup_reward"),
     ("pro_member_bonus", "pro_member_bonus"),

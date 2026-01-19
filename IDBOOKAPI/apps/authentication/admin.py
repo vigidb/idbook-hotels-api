@@ -46,6 +46,7 @@ class ScopeFilter(admin.SimpleListFilter):
 class UserRoleInline(admin.TabularInline):
     """Inline admin for UserRole assignments within User admin"""
     model = UserRole
+    fk_name = "user"  # Specify which ForeignKey to use (since UserRole has both 'user' and 'assigned_by')
     extra = 0
     fields = ("role", "business", "scope_summary_inline", "is_active", "assigned_at")
     readonly_fields = ("assigned_at", "scope_summary_inline")

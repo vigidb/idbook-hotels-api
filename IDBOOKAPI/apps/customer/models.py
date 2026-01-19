@@ -120,6 +120,23 @@ class Customer(models.Model):
     )
     state = models.CharField(max_length=50, blank=True, default="")
     country = models.CharField(max_length=50, blank=True, default="")
+    
+    # Agent relationships
+    agents = models.ManyToManyField(
+        'org_resources.AgentDetail',
+        related_name='customers',
+        blank=True,
+        help_text="Agents linked to this customer (can have multiple)"
+    )
+    primary_agent = models.ForeignKey(
+        'org_resources.AgentDetail',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='primary_customers',
+        help_text="Primary agent for this customer (most recent or manually set)"
+    )
+    
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -138,6 +155,14 @@ class Wallet(models.Model):
         null=True,
         related_name="wallet_company",
         blank=True,
+    )
+    agent = models.ForeignKey(
+        'org_resources.AgentDetail',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="wallet_agent",
+        help_text="Agent this wallet belongs to"
     )
     balance = models.DecimalField(
         max_digits=20, decimal_places=6, default=0, blank=True
@@ -164,6 +189,14 @@ class WalletTransaction(models.Model):
         on_delete=models.DO_NOTHING,
         null=True,
         related_name="wallet_company_transaction",
+    )
+    agent = models.ForeignKey(
+        'org_resources.AgentDetail',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="wallet_agent_transaction",
+        help_text="Agent this transaction belongs to"
     )
     code = models.CharField(max_length=50, blank=True, default="")
     amount = models.DecimalField(max_digits=20, decimal_places=6, default=0)

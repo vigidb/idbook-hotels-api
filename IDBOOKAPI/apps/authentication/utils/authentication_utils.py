@@ -110,6 +110,7 @@ def user_representation(user, refresh_token=None):
         "last_paid_date": last_paid_date,
         "next_payment_date": next_payment_date,
         "is_active": user.is_active,
+        "is_superuser": user.is_superuser,
         "scopes": scopes,
     }
 

@@ -92,7 +92,7 @@ app.conf.beat_schedule = {
     },
     "airiq-token-status-check": {
         "task": "apps.flights.tasks.check_airiq_token_status_task",
-        "schedule": crontab(minute="*/60"),  # Every hour
+        "schedule": crontab(minute=0),  # Every hour at minute 0
         "options": {"queue": "airiq-token-queue"},
     },
 }
