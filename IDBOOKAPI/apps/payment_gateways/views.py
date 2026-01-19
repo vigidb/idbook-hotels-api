@@ -529,8 +529,9 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             merchant_transaction_id = notes.get("merchant_transaction_id")
             user_id = notes.get("user_id")
             company_id = notes.get("company_id")
+            agent_id = notes.get("agent_id")
             
-            self.log_info(f"Wallet recharge - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}")
+            self.log_info(f"Wallet recharge - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
             
             if company_id:
                 try:
@@ -543,6 +544,12 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                     user_id = int(user_id)
                 except (ValueError, TypeError):
                     user_id = None
+            
+            if agent_id:
+                try:
+                    agent_id = int(agent_id)
+                except (ValueError, TypeError):
+                    agent_id = None
             
             # Update wallet transaction
             from apps.customer.utils.db_utils import update_wallet_transaction_detail, update_wallet_recharge_details
@@ -558,10 +565,38 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             }
             
             self.log_info(f"Updating wallet transaction: {payment_details}")
-            update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+            # Store agent_id from notes before calling update_wallet_transaction_detail
+            agent_id_from_notes = agent_id
+            user_id_from_db, company_id_from_db, agent_id_from_db = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+            self.log_info(f"Wallet transaction update result - user_id: {user_id_from_db}, company_id: {company_id_from_db}, agent_id: {agent_id_from_db}")
             
-            # Get user_id and company_id from WalletTransaction if not in notes
-            if not user_id and not company_id:
+            # Prioritize agent_id: first from notes, then from database transaction
+            if agent_id_from_notes:
+                agent_id = agent_id_from_notes
+                self.log_info(f"Using agent_id from notes: {agent_id}")
+            elif agent_id_from_db:
+                agent_id = agent_id_from_db
+                self.log_info(f"Using agent_id from transaction: {agent_id}")
+            else:
+                # If agent_id is not in notes and not in transaction, try to get from WalletTransaction
+                from apps.customer.models import WalletTransaction
+                wallet_txn = WalletTransaction.objects.filter(
+                    transaction_id=merchant_transaction_id
+                ).first()
+                if wallet_txn and wallet_txn.agent:
+                    agent_id = wallet_txn.agent.id
+                    self.log_info(f"Retrieved agent_id from WalletTransaction: {agent_id}")
+                else:
+                    agent_id = None
+            
+            # Use user_id and company_id from database if not in notes
+            if not user_id:
+                user_id = user_id_from_db
+            if not company_id:
+                company_id = company_id_from_db
+            
+            # If still not found, get from WalletTransaction
+            if not user_id and not company_id and not agent_id:
                 from apps.customer.models import WalletTransaction
                 wallet_txn = WalletTransaction.objects.filter(
                     transaction_id=merchant_transaction_id
@@ -570,18 +605,43 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                     if wallet_txn.user:
                         user_id = wallet_txn.user.id
                     company_id = wallet_txn.company_id if wallet_txn.company_id else None
+                    if not agent_id and wallet_txn.agent:
+                        agent_id = wallet_txn.agent.id
+            
+            self.log_info(f"Final values - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
             
             # Recharge wallet
-            if user_id or company_id:
-                update_wallet_recharge_details(user_id, company_id, amount)
+            if user_id or company_id or agent_id:
+                self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
+                update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                 
                 # Send SMS notification
                 from apps.booking.tasks import send_booking_sms_task
                 from apps.customer.models import Wallet
                 from apps.authentication.models import User
+                from apps.org_resources.models import AgentDetail
                 
-                if user_id and not company_id:
-                    wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                if agent_id:
+                    wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
+                    wallet_balance = wallet.balance if wallet else 0
+                    agent = AgentDetail.objects.filter(id=agent_id).first()
+                    if agent and agent.contact_mobile_number:
+                        # Get the user associated with the agent for SMS
+                        agent_user = agent.added_user
+                        if agent_user and agent_user.mobile_number:
+                            self.log_info(f"Sending SMS for agent wallet recharge - agent_id: {agent_id}, amount: {amount}")
+                            send_booking_sms_task.apply_async(
+                                kwargs={
+                                    "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                    "params": {
+                                        "user_id": agent_user.id,
+                                        "recharge_amount": float(amount),
+                                        "wallet_balance": wallet_balance,
+                                    },
+                                }
+                            )
+                elif user_id and not company_id:
+                    wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True, agent_id__isnull=True).first()
                     wallet_balance = wallet.balance if wallet else 0
                     user = User.objects.get(id=user_id)
                     if user and user.mobile_number:

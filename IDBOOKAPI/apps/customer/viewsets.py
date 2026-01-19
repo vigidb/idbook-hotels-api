@@ -488,10 +488,10 @@ class WalletViewSet(
         if agent_id:
             # Check if user is an agent and matches the requested agent_id
             if user_agent and user_agent.id == int(agent_id):
-                instance = self.queryset.filter(agent_id=agent_id).first()
+                instance = self.queryset.filter(agent_id=agent_id, active=True).first()
             elif request.user.is_superuser:
                 # Admin can access any agent wallet
-                instance = self.queryset.filter(agent_id=agent_id).first()
+                instance = self.queryset.filter(agent_id=agent_id, active=True).first()
             else:
                 return self.get_error_response(
                     message="You don't have permission to access this agent wallet",
@@ -502,7 +502,7 @@ class WalletViewSet(
                 )
         elif user_agent and not company_id:
             # User is an agent and no specific agent_id/company_id - use their agent wallet
-            instance = self.queryset.filter(agent=user_agent, active=True).first()
+            instance = self.queryset.filter(agent_id=user_agent.id, active=True).first()
         elif company_id:
             instance = self.queryset.filter(company_id=company_id).first()
         else:
@@ -885,8 +885,9 @@ class WalletViewSet(
             merchant_transaction_id = notes.get("merchant_transaction_id")
             user_id = notes.get("user_id")
             company_id = notes.get("company_id")
+            agent_id = notes.get("agent_id")
             
-            self.log_info(f"Order notes - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}")
+            self.log_info(f"Order notes - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
             
             if company_id:
                 try:
@@ -899,6 +900,12 @@ class WalletViewSet(
                     user_id = int(user_id)
                 except (ValueError, TypeError):
                     user_id = None
+            
+            if agent_id:
+                try:
+                    agent_id = int(agent_id)
+                except (ValueError, TypeError):
+                    agent_id = None
             
             payment_log["merchant_transaction_id"] = merchant_transaction_id
             
@@ -955,10 +962,14 @@ class WalletViewSet(
                     
                     # Verify wallet balance was updated
                     from apps.customer.models import Wallet
-                    if user_id and not company_id:
-                        wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                    if agent_id:
+                        wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
                         if wallet:
-                            self.log_info(f"Wallet balance after recharge: {wallet.balance}")
+                            self.log_info(f"Agent wallet balance after recharge: {wallet.balance}")
+                    elif user_id and not company_id:
+                        wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True, agent_id__isnull=True).first()
+                        if wallet:
+                            self.log_info(f"User wallet balance after recharge: {wallet.balance}")
                     elif company_id:
                         wallet = Wallet.objects.filter(company_id=company_id).first()
                         if wallet:
@@ -969,17 +980,43 @@ class WalletViewSet(
                         payment_log["user_id"] = user_id
                     if company_id:
                         payment_log["company_id"] = company_id
+                    if agent_id:
+                        payment_log["agent_id"] = agent_id
                     create_wallet_payment_log(payment_log)
                     
                     # Send SMS notification (same as PhonePe)
                     from apps.booking.tasks import send_booking_sms_task
                     from apps.customer.models import Wallet
                     from apps.authentication.models import User
+                    from apps.org_resources.models import AgentDetail
                     
-                    if user_id and not company_id:
+                    if agent_id:
+                        wallet_balance = 0
+                        wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
+                        if wallet:
+                            wallet_balance = wallet.balance
+                            self.log_info(f"Razorpay verify - agent wallet_balance: {wallet_balance}")
+                        
+                        agent = AgentDetail.objects.filter(id=agent_id).first()
+                        if agent and agent.contact_mobile_number:
+                            # Get the user associated with the agent for SMS
+                            agent_user = agent.added_user
+                            if agent_user and agent_user.mobile_number:
+                                self.log_info(f"Razorpay verify - agent recharge_amount: {amount}, mobile_number: {agent_user.mobile_number}, agent_id: {agent_id}")
+                                send_booking_sms_task.apply_async(
+                                    kwargs={
+                                        "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                        "params": {
+                                            "user_id": agent_user.id,
+                                            "recharge_amount": float(amount),
+                                            "wallet_balance": wallet_balance,
+                                        },
+                                    }
+                                )
+                    elif user_id and not company_id:
                         wallet_balance = 0
                         wallet = Wallet.objects.filter(
-                            user__id=user_id, company_id__isnull=True
+                            user__id=user_id, company_id__isnull=True, agent_id__isnull=True
                         ).first()
                         if wallet:
                             wallet_balance = wallet.balance
@@ -1031,11 +1068,11 @@ class WalletViewSet(
                                 }
                             )
                 else:
-                    self.log_error(f"WARNING: No user_id or company_id found for transaction {merchant_transaction_id}")
-                    payment_log["response"] = {"error": "No user_id or company_id found"}
+                    self.log_error(f"WARNING: No user_id, company_id, or agent_id found for transaction {merchant_transaction_id}")
+                    payment_log["response"] = {"error": "No user_id, company_id, or agent_id found"}
                     create_wallet_payment_log(payment_log)
                     return self.get_error_response(
-                        message="Unable to identify user or company for wallet recharge",
+                        message="Unable to identify user, company, or agent for wallet recharge",
                         status="error",
                         errors=[],
                         error_code="USER_NOT_FOUND",
@@ -1176,8 +1213,9 @@ class WalletViewSet(
                         merchant_transaction_id = notes.get("merchant_transaction_id")
                         user_id = notes.get("user_id")
                         company_id = notes.get("company_id")
+                        agent_id = notes.get("agent_id")
                         
-                        self.log_info(f"Webhook - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}")
+                        self.log_info(f"Webhook - merchant_transaction_id: {merchant_transaction_id}, user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
                         
                         if company_id:
                             try:
@@ -1190,6 +1228,12 @@ class WalletViewSet(
                                 user_id = int(user_id)
                             except (ValueError, TypeError):
                                 user_id = None
+                        
+                        if agent_id:
+                            try:
+                                agent_id = int(agent_id)
+                            except (ValueError, TypeError):
+                                agent_id = None
                         
                         # Update wallet transaction
                         payment_details = {
@@ -1204,8 +1248,29 @@ class WalletViewSet(
                         }
                         
                         self.log_info(f"Webhook - Updating wallet transaction with details: {payment_details}")
-                        user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
-                        self.log_info(f"Webhook - Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
+                        # Store agent_id from notes before calling update_wallet_transaction_detail
+                        agent_id_from_notes = agent_id
+                        user_id, company_id, agent_id_from_db = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        self.log_info(f"Webhook - Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id_from_db}")
+                        
+                        # Prioritize agent_id: first from notes, then from database transaction, then from WalletTransaction object
+                        if agent_id_from_notes:
+                            agent_id = agent_id_from_notes
+                            self.log_info(f"Webhook - Using agent_id from notes: {agent_id}")
+                        elif agent_id_from_db:
+                            agent_id = agent_id_from_db
+                            self.log_info(f"Webhook - Using agent_id from transaction: {agent_id}")
+                        else:
+                            # If agent_id is not in notes and not in transaction, try to get from WalletTransaction
+                            from apps.customer.models import WalletTransaction
+                            wallet_txn = WalletTransaction.objects.filter(
+                                transaction_id=merchant_transaction_id
+                            ).first()
+                            if wallet_txn and wallet_txn.agent:
+                                agent_id = wallet_txn.agent.id
+                                self.log_info(f"Webhook - Retrieved agent_id from WalletTransaction: {agent_id}")
+                            else:
+                                agent_id = None
                         
                         # Verify the transaction was updated
                         from apps.customer.models import WalletTransaction
@@ -1217,18 +1282,18 @@ class WalletViewSet(
                         else:
                             self.log_warning(f"Webhook - Transaction not found after update attempt: {merchant_transaction_id}")
                         
-                        # Get user_id, company_id, and agent_id - try from notes first, then from WalletTransaction
-                        if not user_id and not company_id and not agent_id:
+                        # Get user_id and company_id if not already set - try from WalletTransaction
+                        if not user_id or not company_id:
                             from apps.customer.models import WalletTransaction
                             wallet_txn = WalletTransaction.objects.filter(
                                 transaction_id=merchant_transaction_id
                             ).first()
                             if wallet_txn:
-                                if wallet_txn.user:
+                                if not user_id and wallet_txn.user:
                                     user_id = wallet_txn.user.id
-                                company_id = wallet_txn.company_id if wallet_txn.company_id else None
-                                agent_id = wallet_txn.agent.id if wallet_txn.agent else None
-                                self.log_info(f"Webhook - Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
+                                if not company_id:
+                                    company_id = wallet_txn.company_id if wallet_txn.company_id else None
+                                self.log_info(f"Webhook - Retrieved from WalletTransaction - user_id: {user_id}, company_id: {company_id}")
                         
                         self.log_info(f"Webhook - Final user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
                         
@@ -1240,10 +1305,14 @@ class WalletViewSet(
                             
                             # Verify wallet balance was updated
                             from apps.customer.models import Wallet
-                            if user_id and not company_id:
-                                wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True).first()
+                            if agent_id:
+                                wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
                                 if wallet:
-                                    self.log_info(f"Webhook - Wallet balance after recharge: {wallet.balance}")
+                                    self.log_info(f"Webhook - Agent wallet balance after recharge: {wallet.balance}")
+                            elif user_id and not company_id:
+                                wallet = Wallet.objects.filter(user__id=user_id, company_id__isnull=True, agent_id__isnull=True).first()
+                                if wallet:
+                                    self.log_info(f"Webhook - User wallet balance after recharge: {wallet.balance}")
                             elif company_id:
                                 wallet = Wallet.objects.filter(company_id=company_id).first()
                                 if wallet:
@@ -1253,11 +1322,33 @@ class WalletViewSet(
                             from apps.booking.tasks import send_booking_sms_task
                             from apps.customer.models import Wallet
                             from apps.authentication.models import User
+                            from apps.org_resources.models import AgentDetail
                             
-                            if user_id and not company_id:
+                            if agent_id:
+                                wallet_balance = 0
+                                wallet = Wallet.objects.filter(agent_id=agent_id, active=True).first()
+                                if wallet:
+                                    wallet_balance = wallet.balance
+                                
+                                agent = AgentDetail.objects.filter(id=agent_id).first()
+                                if agent and agent.contact_mobile_number:
+                                    # Get the user associated with the agent for SMS
+                                    agent_user = agent.added_user
+                                    if agent_user and agent_user.mobile_number:
+                                        send_booking_sms_task.apply_async(
+                                            kwargs={
+                                                "notification_type": "WALLET_RECHARGE_CONFIRMATION",
+                                                "params": {
+                                                    "user_id": agent_user.id,
+                                                    "recharge_amount": float(amount),
+                                                    "wallet_balance": wallet_balance,
+                                                },
+                                            }
+                                        )
+                            elif user_id and not company_id:
                                 wallet_balance = 0
                                 wallet = Wallet.objects.filter(
-                                    user__id=user_id, company_id__isnull=True
+                                    user__id=user_id, company_id__isnull=True, agent_id__isnull=True
                                 ).first()
                                 if wallet:
                                     wallet_balance = wallet.balance
@@ -1944,6 +2035,26 @@ class WalletTransactionViewSet(
                 True  # Only user wallet, not company wallet
             )
 
+        # Agent users (AGENT-ADMIN): can see their own agent wallet transactions
+        elif default_group == UserGroups.AGENT_ADMIN:
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user
+            agent = get_agent_for_user(user)
+            if agent:
+                # If agent_id is provided in query params, verify it matches the user's agent
+                agent_id_param = param_dict.get("agent_id", "")
+                if agent_id_param:
+                    if int(agent_id_param) == agent.id:
+                        filter_dict["agent_id"] = agent.id
+                    else:
+                        # Agent trying to access another agent's transactions - deny
+                        filter_dict["agent_id"] = -1  # Return empty queryset
+                else:
+                    # Auto-filter to agent's transactions
+                    filter_dict["agent_id"] = agent.id
+            else:
+                # User is AGENT-ADMIN but not linked to an AgentDetail, return empty queryset
+                filter_dict["agent_id"] = -1
+
         # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see company wallet transactions
         elif default_group in CORPORATE_GROUPS:
             # All corporate users can see company wallet transactions for their company
@@ -1961,6 +2072,8 @@ class WalletTransactionViewSet(
                 filter_dict["company_id"] = param_dict["company_id"]
             if "user_id" in param_dict:
                 filter_dict["user_id"] = param_dict["user_id"]
+            if "agent_id" in param_dict:
+                filter_dict["agent_id"] = param_dict["agent_id"]
 
         # Hotelier/Franchise admins: can see all transactions
         elif default_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
@@ -1969,16 +2082,31 @@ class WalletTransactionViewSet(
                 filter_dict["company_id"] = param_dict["company_id"]
             if "user_id" in param_dict:
                 filter_dict["user_id"] = param_dict["user_id"]
+            if "agent_id" in param_dict:
+                filter_dict["agent_id"] = param_dict["agent_id"]
 
         # For other groups or if no group matches, default to user's own transactions
         else:
             # If company_id is explicitly provided in query params, use it
             company_id = param_dict.get("company_id", "")
+            agent_id = param_dict.get("agent_id", "")
             if company_id:
                 filter_dict["company_id"] = company_id
+            elif agent_id:
+                # Check if user has permission to view this agent's transactions
+                from apps.booking.utils.agent_linking_utils import get_agent_for_user
+                user_agent = get_agent_for_user(user)
+                if user_agent and user_agent.id == int(agent_id):
+                    filter_dict["agent_id"] = agent_id
+                elif user.is_superuser:
+                    filter_dict["agent_id"] = agent_id
+                else:
+                    filter_dict["agent_id"] = -1  # Deny access
             else:
                 # Default to user's own transactions
                 filter_dict["user_id"] = user.id
+                filter_dict["company_id__isnull"] = True
+                filter_dict["agent_id__isnull"] = True
 
         self.queryset = self.queryset.filter(**filter_dict)
 
