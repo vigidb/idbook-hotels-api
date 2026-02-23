@@ -934,83 +934,100 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         try:
             instance = self.get_object()
             company_id = instance.id
+            # Soft delete by default; hard delete only when action=delete
+            action_param = (request.query_params.get("action") or "").strip().lower()
 
-            # Find the user associated with this company (contact person)
-            user = User.objects.filter(email=instance.contact_email_address).first()
+            if action_param == "delete":
+                # Hard delete: remove from DB (may fail if referenced by bookings etc.)
+                # Find the user associated with this company (contact person)
+                user = User.objects.filter(email=instance.contact_email_address).first()
 
-            if user:
-                # Get user's current groups and roles
-                user_groups = user.groups.all()
-                user_roles = user.roles.all()
+                if user:
+                    # Get user's current groups and roles
+                    user_groups = user.groups.all()
+                    user_roles = user.roles.all()
 
-                # Check if user has only CORPORATE-GRP group and CORP-ADMIN role
-                corporate_group = user_groups.filter(name="CORPORATE-GRP").first()
-                corp_admin_role = user_roles.filter(name="CORP-ADMIN").first()
+                    # Check if user has only CORPORATE-GRP group and CORP-ADMIN role
+                    corporate_group = user_groups.filter(name="CORPORATE-GRP").first()
+                    corp_admin_role = user_roles.filter(name="CORP-ADMIN").first()
 
-                has_only_corporate_access = (
-                    user_groups.count() == 1
-                    and corporate_group
-                    and user_roles.count() == 1
-                    and corp_admin_role
-                )
-
-                if has_only_corporate_access:
-                    # Delete customer details only when deleting user completely
-                    customer = Customer.objects.filter(user_id=user.id).first()
-                    if customer:
-                        customer.delete()
-                        print(f"Deleted customer for user: {user.email}")
-                if has_only_corporate_access:
-                    # Delete customer details only when deleting user completely
-                    customer = Customer.objects.filter(user_id=user.id).first()
-                    if customer:
-                        customer.delete()
-                        print(f"Deleted customer for user: {user.email}")
-
-                    # User has only corporate access - delete the user completely
-                    user_email = user.email
-                    user.delete()
-                    print(f"Deleted user completely: {user_email}")
-                else:
-                    # User has other groups/roles - remove only corporate access
-                    # DO NOT delete customer data when user has other groups/roles
-                    if corporate_group:
-                        user.groups.remove(corporate_group)
-                        print(f"Removed CORPORATE-GRP from user: {user.email}")
-
-                    if corp_admin_role:
-                        user.roles.remove(corp_admin_role)
-                        print(f"Removed CORP-ADMIN role from user: {user.email}")
-
-                    # Clear company_id if it matches the company being deleted
-                    if user.company_id == company_id:
-                        user.company_id = None
-
-                    # Update default_group if it was CORPORATE-GRP
-                    if user.default_group == "CORPORATE-GRP":
-                        # Set to the first available group or empty string
-                        remaining_groups = user.groups.all()
-                        if remaining_groups.exists():
-                            user.default_group = remaining_groups.first().name
-                        else:
-                            user.default_group = ""
-
-                    user.save()
-                    print(
-                        f"Updated user access for: {user.email} (Customer data preserved)"
+                    has_only_corporate_access = (
+                        user_groups.count() == 1
+                        and corporate_group
+                        and user_roles.count() == 1
+                        and corp_admin_role
                     )
 
-            # Delete the company details completely
-            company_name = instance.company_name
-            instance.delete()
-            print(f"Deleted company: {company_name}")
+                    if has_only_corporate_access:
+                        # Delete customer details only when deleting user completely
+                        customer = Customer.objects.filter(user_id=user.id).first()
+                        if customer:
+                            customer.delete()
+                            print(f"Deleted customer for user: {user.email}")
 
-            custom_response = self.get_response(
-                status="success",
-                data=None,
-                message="Company and associated data deleted successfully",
-                status_code=status.HTTP_200_OK,
-            )
+                        # User has only corporate access - delete the user completely
+                        user_email = user.email
+                        user.delete()
+                        print(f"Deleted user completely: {user_email}")
+                    else:
+                        # User has other groups/roles - remove only corporate access
+                        if corporate_group:
+                            user.groups.remove(corporate_group)
+                            print(f"Removed CORPORATE-GRP from user: {user.email}")
+
+                        if corp_admin_role:
+                            user.roles.remove(corp_admin_role)
+                            print(f"Removed CORP-ADMIN role from user: {user.email}")
+
+                        # Clear company_id if it matches the company being deleted
+                        if user.company_id == company_id:
+                            user.company_id = None
+
+                        # Update default_group if it was CORPORATE-GRP
+                        if user.default_group == "CORPORATE-GRP":
+                            remaining_groups = user.groups.all()
+                            if remaining_groups.exists():
+                                user.default_group = remaining_groups.first().name
+                            else:
+                                user.default_group = ""
+
+                        user.save()
+                        print(
+                            f"Updated user access for: {user.email} (Customer data preserved)"
+                        )
+
+                # Clear foreign key references so company can be deleted
+                from apps.booking.models import Booking
+                from apps.customer.models import Wallet, WalletTransaction
+                from apps.log_management.models import WalletTransactionLog
+
+                Booking.objects.filter(company_id=company_id).update(company=None)
+                Wallet.objects.filter(company_id=company_id).update(company=None)
+                WalletTransaction.objects.filter(company_id=company_id).update(company=None)
+                WalletTransactionLog.objects.filter(company_id=company_id).update(company=None)
+                # Clear User.company_id so no user points at a deleted company
+                User.objects.filter(company_id=company_id).update(company_id=None)
+
+                company_name = instance.company_name
+                instance.delete()
+                print(f"Deleted company: {company_name}")
+
+                custom_response = self.get_response(
+                    status="success",
+                    data=None,
+                    message="Company and associated data deleted successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+            else:
+                # Soft delete (default): deactivate the company
+                instance.is_active = False
+                instance.save()
+                custom_response = self.get_response(
+                    status="success",
+                    data=None,
+                    message="Company deactivated successfully",
+                    status_code=status.HTTP_200_OK,
+                )
 
         except Exception as e:
             print(f"Error during company deletion: {str(e)}")
