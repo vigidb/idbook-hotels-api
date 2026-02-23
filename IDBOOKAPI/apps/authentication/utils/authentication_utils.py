@@ -448,29 +448,37 @@ def check_pwd_reset_attempt_limit(user_account):
 
 def check_verify_attempt_limit(user_account):
     try:
-        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        # In development, skip rate limit to avoid blocking verify-otp
+        if getattr(settings, "DEBUG", False):
+            return True, None
+
+        lookup = db_utils._user_account_lookup(user_account)
+        user_otp = UserOtp.objects.filter(**lookup).first()
 
         # If no OTP record exists, don't allow verification (should generate OTP first)
         if not user_otp:
             return False, "Please generate OTP first"
 
-        # Check if user has exceeded the maximum verification attempts (5)
-        if user_otp.verify_tries >= 5:
-            # Check if 30 minutes have passed since last verification attempt
+        max_attempts = getattr(settings, "OTP_VERIFY_MAX_ATTEMPTS", 5)
+        cooldown_minutes = getattr(settings, "OTP_VERIFY_COOLDOWN_MINUTES", 30)
+
+        # Check if user has exceeded the maximum verification attempts
+        if user_otp.verify_tries >= max_attempts:
+            # Check if cooldown period has passed since last verification attempt
             if user_otp.last_verify_attempt_time:
                 ist = pytz.timezone("Asia/Kolkata")
                 now = datetime.now(ist)
                 time_difference = now - user_otp.last_verify_attempt_time
                 minutes_passed = time_difference.total_seconds() / 60
 
-                if minutes_passed < 30:
-                    remaining_minutes = int(30 - minutes_passed)
+                if minutes_passed < cooldown_minutes:
+                    remaining_minutes = int(cooldown_minutes - minutes_passed)
                     return (
                         False,
                         f"Maximum verification attempts exceeded. Please try again after {remaining_minutes} minutes.",
                     )
                 else:
-                    # If 30 minutes have passed, reset the verification counter to 0
+                    # If cooldown has passed, reset the verification counter to 0
                     user_otp.verify_tries = 0
                     user_otp.save()
 

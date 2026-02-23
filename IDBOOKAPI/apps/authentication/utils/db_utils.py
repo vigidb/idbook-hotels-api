@@ -7,6 +7,13 @@ from apps.customer.models import Customer
 from django.utils import timezone
 
 
+def _user_account_lookup(user_account):
+    """Return filter kwargs for UserOtp lookup: case-insensitive for email, exact for phone."""
+    if "@" in str(user_account):
+        return {"user_account__iexact": user_account}
+    return {"user_account": user_account}
+
+
 def get_group_by_name(name):
     # CORPORATE-GRP
     group = Group.objects.filter(name=name).first()
@@ -147,8 +154,9 @@ def get_user_otp_details(email, mobile_number, otp):
 
 
 def check_email_otp(email, otp, otp_for):
+    lookup = _user_account_lookup(email)
     user_otp = UserOtp.objects.filter(
-        user_account=email, otp=otp, otp_for=otp_for
+        **lookup, otp=otp, otp_for=otp_for
     ).first()
     return user_otp
 
@@ -207,7 +215,8 @@ def increment_pwd_reset_attempts(user_account):
 def increment_verify_attempts(user_account):
     """Increment the OTP verification attempt counter"""
     try:
-        user_otp = UserOtp.objects.filter(user_account=user_account).first()
+        lookup = _user_account_lookup(user_account)
+        user_otp = UserOtp.objects.filter(**lookup).first()
         if user_otp:
             user_otp.verify_tries += 1
             user_otp.last_verify_attempt_time = timezone.now()

@@ -1442,29 +1442,32 @@ class OtpBasedUserEntryAPIView(
         # Increment verification attempts before processing
         db_utils.increment_verify_attempts(username)
 
+        # Lookup: case-insensitive for email so "Vighnesha@..." matches "vighnesha@..."
+        account_lookup = db_utils._user_account_lookup(username)
+
         # get the otp details
         # For Google auth cases, check both the original otp_for and VERIFY
         # since the OTP was stored with GOOGLE-SIGNUP/GOOGLE-LOGIN but template uses VERIFY
         if otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
             # First try with the original otp_for value (GOOGLE-SIGNUP or GOOGLE-LOGIN)
             user_otp = UserOtp.objects.filter(
-                user_account=username, otp=otp, otp_for=otp_for
+                **account_lookup, otp=otp, otp_for=otp_for
             ).first()
             # If not found, also try with VERIFY (in case user sends VERIFY in request)
             if not user_otp:
                 user_otp = UserOtp.objects.filter(
-                    user_account=username, otp=otp, otp_for="VERIFY"
+                    **account_lookup, otp=otp, otp_for="VERIFY"
                 ).first()
             # Last resort: check for any OTP with matching username and OTP value
             # (only for Google auth to handle edge cases)
             if not user_otp:
                 user_otp = UserOtp.objects.filter(
-                    user_account=username, otp=otp
+                    **account_lookup, otp=otp
                 ).order_by('-created').first()
         else:
             # For other cases, use the otp_for as provided
             user_otp = UserOtp.objects.filter(
-                user_account=username, otp=otp, otp_for=otp_for
+                **account_lookup, otp=otp, otp_for=otp_for
             ).first()
         
         if not user_otp:
@@ -2021,23 +2024,41 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 # ========== DELETE PROPERTY-RELATED DATA (if user manages/added properties) ==========
                 try:
                     from apps.hotels.models import Property, PayAtHotelSpendLimit
+                    from apps.booking.models import HotelBooking
                     # Get properties managed by or added by this user
                     properties_managed = Property.objects.filter(managed_by=user)
                     properties_added = Property.objects.filter(added_by=user)
                     all_properties = (properties_managed | properties_added).distinct()
-                    
+
+                    # Clear HotelBooking.confirmed_property so Property can be CASCADE-deleted when user is deleted
+                    if all_properties.exists():
+                        property_ids = list(all_properties.values_list("id", flat=True))
+                        HotelBooking.objects.filter(confirmed_property_id__in=property_ids).update(
+                            confirmed_property=None
+                        )
+
                     # Delete PayAtHotelSpendLimit records that reference these properties
                     # This must be done BEFORE deleting properties due to DO_NOTHING constraint
                     for property in all_properties:
                         PayAtHotelSpendLimit.objects.filter(property=property).delete()
-                    
+
                     # Properties will be automatically deleted due to CASCADE on managed_by/added_by
-                    # But we can also explicitly delete them if needed
-                    # all_properties.delete()  # Not needed due to CASCADE, but safe to keep
                 except Exception as prop_error:
                     # If Property model doesn't exist or has different structure, continue
                     print(f"Warning: Could not delete property-related data: {prop_error}")
-                
+
+                # ========== CLEAR AGENT REFERENCES (AgentDetail CASCADE-deleted when user is deleted) ==========
+                try:
+                    from apps.org_resources.models import AgentDetail
+                    agents_for_user = AgentDetail.objects.filter(added_user=user)
+                    if agents_for_user.exists():
+                        agent_ids = list(agents_for_user.values_list("id", flat=True))
+                        Wallet.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                        WalletTransaction.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                        WalletTransactionLog.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                except Exception as agent_error:
+                    print(f"Warning: Could not clear agent references: {agent_error}")
+
                 # ========== DELETE OTHER USER-RELATED DATA ==========
                 # Delete OTP records
                 UserOtp.objects.filter(
