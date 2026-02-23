@@ -1746,6 +1746,66 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        # Perform the default retrieval logic
+        response = super().retrieve(request, *args, **kwargs)
+
+        if response.status_code == status.HTTP_200_OK:
+            custom_response = self.get_response(
+                data=response.data,
+                message="Agent profile retrieved",
+                status="success",
+                status_code=status.HTTP_200_OK,
+            )
+        else:
+            custom_response = self.get_response(
+                data=None,
+                message="Error Occurred",
+                status_code=response.status_code,
+                is_error=True,
+            )
+
+        self.log_response(custom_response)
+        return custom_response
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="me",
+        url_name="me",
+        permission_classes=[IsAuthenticated],
+    )
+    def me(self, request):
+        """
+        Get the agent profile for the currently logged-in user.
+        Use this when the client does not know the agent id.
+        """
+        self.log_request(request)
+
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+
+        agent = get_agent_for_user(request.user)
+        if not agent:
+            return self.get_error_response(
+                message="User is not associated with an agent",
+                status="error",
+                errors=[],
+                error_code="NOT_AN_AGENT",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = AgentDetailSerializer(agent)
+        response = self.get_response(
+            data=serializer.data,
+            message="Agent profile retrieved successfully",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+
 
 class UploadedMediaViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = UploadedMedia.objects.all()
