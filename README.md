@@ -187,3 +187,11 @@ ngrok http 8000
 ```
 daphne -b 0.0.0.0 -p 8000 IDBOOKAPI.asgi:application
 ```
+
+#### Razorpay Payment From Backend
+http://127.0.0.1:8000/api/v1/booking/razorpay-payment/
+
+##### Test Credentials
+https://razorpay.com/docs/payments/payments/test-card-details/#to-use-the-test-card-details
+
+https://razorpay.com/docs/payments/payments/test-upi-details/

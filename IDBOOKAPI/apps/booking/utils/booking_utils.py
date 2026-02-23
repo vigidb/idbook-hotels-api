@@ -794,14 +794,35 @@ def set_firstbooking_reward(referred_code, booked_user_id=None):
             update_wallet_transaction(wtransact_dict)
 
 
+def get_booking_payable_amount(booking):
+    """
+    Return the amount the customer should pay for this booking.
+
+    When pay_with_commission is True and the booking has agent markup (final_price_with_markup),
+    returns that amount; otherwise returns the net final_amount. Use this for payment
+    initiation, wallet deduction, and balance checks.
+    """
+    if not booking:
+        return Decimal("0")
+    pay_with = getattr(booking, "pay_with_commission", False)
+    with_markup = getattr(booking, "final_price_with_markup", None)
+    if pay_with and with_markup is not None and with_markup > 0:
+        return Decimal(str(with_markup))
+    return Decimal(str(booking.final_amount or 0))
+
+
 def deduct_booking_amount(booking, company_id=None, request=None):
     """
-    Deduct booking amount from appropriate wallet based on user's active group.
+    Deduct booking amount from appropriate wallet based on user's active group or booking agent.
 
     Business Rules:
     - Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): Must use company wallet (company_id required)
+    - Agent bookings: Use agent wallet (if booking has agent)
     - B2C users (B2C-GRP, B2C-GUEST): Use personal wallet
     - Other users: Use personal wallet
+
+    Uses get_booking_payable_amount(booking) so that pay_with_commission is respected
+    (net vs amount including agent markup).
 
     Args:
         booking: Booking instance
@@ -811,7 +832,7 @@ def deduct_booking_amount(booking, company_id=None, request=None):
     Returns:
         bool: True if deduction successful, False otherwise
     """
-    deduct_amount = booking.final_amount  # - float(booking.total_payment_made)
+    deduct_amount = get_booking_payable_amount(booking)
 
     if not booking.user:
         # Guest booking without user - should not happen for wallet payment
@@ -827,6 +848,7 @@ def deduct_booking_amount(booking, company_id=None, request=None):
     # Check if user is a corporate user based on active_group
     is_corporate = is_corporate_user(active_group)
 
+    # Priority: Company wallet > Agent wallet > Personal wallet
     # For corporate users, company_id is required
     if is_corporate:
         # Use provided company_id or get from user
@@ -855,6 +877,26 @@ def deduct_booking_amount(booking, company_id=None, request=None):
             }
             update_wallet_transaction(wtransact_dict)
 
+        return status
+    elif booking.agent:
+        # Agent booking - deduct from agent wallet
+        from apps.customer.utils.db_utils import deduct_agent_wallet_balance
+        
+        agent_id = booking.agent.id
+        status = deduct_agent_wallet_balance(agent_id, deduct_amount)
+        
+        if status:
+            transaction_details = f"Amount debited for {booking.booking_type} \
+    booking ({booking.confirmation_code})"
+            wtransact_dict = {
+                "user": booking.user,
+                "amount": deduct_amount,
+                "transaction_type": "Debit",
+                "transaction_details": transaction_details,
+                "agent_id": agent_id,
+            }
+            update_wallet_transaction(wtransact_dict)
+        
         return status
     else:
         # B2C or other users - deduct from personal wallet
@@ -904,13 +946,22 @@ def get_tax_rate(amount, tax_rules_dict):
 
 
 def check_wallet_balance_for_booking(booking, user, company_id=None):
+    """
+    Check wallet balance for booking. Uses same wallet as deduct_booking_amount:
+    agent wallet when booking.agent is set, company when company_id, else user's personal.
+    """
     try:
+        from apps.customer.utils.db_utils import get_agent_wallet_balance
+
         if company_id:
             balance = get_company_wallet_balance(company_id)
+        elif booking.agent:
+            balance = get_agent_wallet_balance(booking.agent.id)
         else:
             balance = get_wallet_balance(user.id)
 
-        if balance < booking.final_amount:
+        payable = get_booking_payable_amount(booking)
+        if balance < payable:
 
             # send wallet balance notification
             send_by = None

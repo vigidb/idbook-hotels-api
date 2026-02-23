@@ -27,6 +27,7 @@ from apps.booking.utils.booking_utils import (
     deduct_booking_amount,
     generate_booking_confirmation_code,
     refund_wallet_payment,
+    get_booking_payable_amount,
 )
 from apps.booking.tasks import (
     send_flight_booking_task,
@@ -74,10 +75,12 @@ class FlightPaymentProcessor:
                 if request_amount <= 0:
                     errors.append("Amount must be greater than zero")
                 # For reschedule/SSR, amount may not match booking total
-                if not allow_confirmed and request_amount != self.booking.final_amount:
-                    errors.append(
-                        f"Amount mismatch. Expected: {self.booking.final_amount}, Got: {request_amount}"
-                    )
+                if not allow_confirmed:
+                    expected = get_booking_payable_amount(self.booking)
+                    if request_amount != expected:
+                        errors.append(
+                            f"Amount mismatch. Expected: {expected}, Got: {request_amount}"
+                        )
             except (ValueError, TypeError):
                 errors.append("Invalid amount format")
 

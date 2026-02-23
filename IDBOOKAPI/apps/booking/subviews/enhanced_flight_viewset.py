@@ -277,9 +277,9 @@ class EnhancedFlightBookingViewSet(
                 auth_manager.validate_user_eligibility()
             )
 
-            # Resolve booking_user
+            # Resolve booking_user: agent stays as booking.user so wallet deduction uses agent.
+            # Different contact is linked as agent's customer (AGENT-CUST) for CRM only, after booking.
             if request.user and request.user.is_authenticated:
-                # Authenticated user path
                 booking_user = request.user
             else:
                 # Unauthenticated → treat as guest flow by default
@@ -476,12 +476,96 @@ class EnhancedFlightBookingViewSet(
                     flight_booking.fare_rules = fare_rules_resp
                 flight_booking.save()
 
+            # Agent markup: compute and persist when user is an agent (for payment flow and response)
+            agent_detail = getattr(booking, "agent", None)
+            if not agent_detail and booking_user and booking_user.is_authenticated:
+                from apps.booking.utils.agent_linking_utils import (
+                    get_agent_for_user,
+                    link_customer_to_agent_on_booking,
+                )
+                agent_detail = get_agent_for_user(booking_user)
+                if agent_detail:
+                    booking.agent = agent_detail
+                    link_customer_to_agent_on_booking(booking, agent_detail)
+            if agent_detail:
+                from apps.booking.utils.markup_utils import AgentMarkupCalculator
+                base_amount = Decimal(str(booking.final_amount or 0))
+                markup_calc = AgentMarkupCalculator.get_agent_markup(
+                    agent_detail.id, base_amount
+                )
+                booking.agent_markup_percent = (
+                    Decimal(str(markup_calc["markup_percent"]))
+                    if markup_calc.get("markup_percent") is not None
+                    else None
+                )
+                booking.agent_markup_amount = markup_calc.get(
+                    "markup_amount", Decimal("0.00")
+                )
+                booking.final_price_with_markup = Decimal(
+                    str(markup_calc.get("final_price", base_amount))
+                )
+                booking.agent = agent_detail  # ensure link is set (may have been set above)
+                booking.save(
+                    update_fields=[
+                        "agent_markup_percent",
+                        "agent_markup_amount",
+                        "final_price_with_markup",
+                        "agent_id",
+                    ]
+                )
+            # Link different contact as agent's customer (AGENT-CUST) for CRM only; booking.user stays agent
+            if agent_detail:
+                from apps.booking.utils.agent_linking_utils import (
+                    ensure_agent_contact_linked_as_customer,
+                )
+                address = request.data.get("AddressDetails") or {}
+                contact_email = address.get("EmailID") or ""
+                contact_phone = address.get("ContactNumber") or ""
+                pax_list = request.data.get("PaxDetailsInfo") or []
+                contact_name = ""
+                if pax_list:
+                    first_pax = pax_list[0]
+                    contact_name = (
+                        (first_pax.get("FirstName") or first_pax.get("first_name") or "")
+                        + " "
+                        + (first_pax.get("LastName") or first_pax.get("last_name") or "")
+                    ).strip()
+                ensure_agent_contact_linked_as_customer(
+                    agent_detail, contact_email, contact_phone, contact_name
+                )
+
+            from apps.booking.utils.booking_utils import get_booking_payable_amount
+            payable_amount = float(get_booking_payable_amount(booking))
+
+            # Build agent_pricing for response when user is an agent
+            agent_pricing = None
+            if agent_detail:
+                pay_with_commission = getattr(
+                    booking, "pay_with_commission", False
+                )
+                agent_pricing = {
+                    "agent_markup_percent": (
+                        float(booking.agent_markup_percent)
+                        if getattr(booking, "agent_markup_percent", None)
+                        is not None
+                        else None
+                    ),
+                    "agent_markup_amount": float(
+                        getattr(booking, "agent_markup_amount", 0) or 0
+                    ),
+                    "final_price_with_markup": float(
+                        getattr(booking, "final_price_with_markup", 0) or 0
+                    ),
+                    "pay_with_commission": pay_with_commission,
+                    "payable_amount": payable_amount,
+                }
+
             # Prepare response data
             response_data = {
                 "booking_id": booking.id,
                 "booking_reference": flight_booking.booking_reference,
                 "status": flight_booking.status,
-                "total_amount": float(booking.final_amount),
+                "total_amount": payable_amount,
                 "payment_expires_at": payment_expires_at.isoformat(),
                 "payment_lock_duration": 5,  # minutes
                 "guest_token": booking.guest_access_token,  # Include guest token for guest bookings
@@ -521,11 +605,11 @@ class EnhancedFlightBookingViewSet(
                     "final_amount": float(
                         pricing_validation.get("final_amount", booking.final_amount)
                     ),
-                    "payable_amount": float(
-                        pricing_validation.get("payable_amount", booking.final_amount)
-                    ),
+                    "payable_amount": payable_amount,
                 },
             }
+            if agent_pricing is not None:
+                response_data["agent_pricing"] = agent_pricing
 
             self.log_info(
                 f"Flight booking created - payment pending: {flight_booking.booking_reference}",
@@ -3194,6 +3278,7 @@ class EnhancedFlightBookingViewSet(
             "other_services": [],
             # Store original pricing validation for reference
             "pricing_validation": pricing_validation,
+            "pay_with_commission": bool(request_data.get("pay_with_commission", False)),
         }
 
         # Extract ancillary services if present
@@ -3751,6 +3836,7 @@ class EnhancedFlightBookingViewSet(
             "other_services": session_data.get("ancillary_services", {}).get(
                 "other", []
             ),
+            "pay_with_commission": bool(request_data.get("pay_with_commission", False)),
         }
 
         return booking_data

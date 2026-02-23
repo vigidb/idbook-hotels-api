@@ -66,6 +66,9 @@ from apps.hotels.utils import hotel_policies_utils
 from apps.hotels.utils import hotel_utils
 from apps.booking.utils.db_utils import change_onhold_status, get_booking_based_tax_rule
 from apps.booking.utils.booking_utils import calculate_subscription_discount
+from apps.booking.utils.agent_linking_utils import get_agent_for_user
+from apps.booking.utils.markup_utils import AgentMarkupCalculator
+from decimal import Decimal
 from apps.analytics.utils.db_utils import create_or_update_property_count
 from rest_framework.decorators import action
 from apps.booking.models import Booking, HotelBooking
@@ -510,22 +513,36 @@ class PropertyViewSet(
                     pro_member_discount_value
                 )
 
+                detailed_pricing = {
+                    "rooms_pricing": self.confirmed_room_details,
+                    "subtotal": self.subtotal,
+                    "gst_amount": self.final_tax_amount,
+                    "total_room_amount_without_discount": float(
+                        self.total_room_amount_without_room_discount
+                    ),
+                    "total_room_amount_with_discount": self.total_room_amount_with_room_discount,
+                    "pro_member_discount_percent": pro_member_discount_percent,
+                    "pro_member_discount_value": float(pro_member_discount_value),
+                    "total_discount": total_discount,
+                    "final_amount": total_final_amount,
+                }
+
+                # Agent-specific: add markup info when request user is an agent
+                agent_detail = get_agent_for_user(user) if user else None
+                if agent_detail:
+                    markup_calc = AgentMarkupCalculator.get_agent_markup(
+                        agent_detail.id, Decimal(str(total_final_amount))
+                    )
+                    if markup_calc.get("markup_type"):
+                        detailed_pricing["agent_markup_percent"] = markup_calc.get("markup_percent")
+                        detailed_pricing["agent_markup_amount"] = float(markup_calc.get("markup_amount", 0))
+                        detailed_pricing["final_amount_with_markup"] = float(markup_calc.get("final_price", total_final_amount))
+                        detailed_pricing["markup_type"] = markup_calc.get("markup_type")
+
                 complete_pricing_details[property_id] = {
                     "status": "success",
                     "room_list": self.room_list,
-                    "detailed_pricing": {
-                        "rooms_pricing": self.confirmed_room_details,
-                        "subtotal": self.subtotal,
-                        "gst_amount": self.final_tax_amount,
-                        "total_room_amount_without_discount": float(
-                            self.total_room_amount_without_room_discount
-                        ),
-                        "total_room_amount_with_discount": self.total_room_amount_with_room_discount,
-                        "pro_member_discount_percent": pro_member_discount_percent,
-                        "pro_member_discount_value": float(pro_member_discount_value),
-                        "total_discount": total_discount,
-                        "final_amount": total_final_amount,
-                    },
+                    "detailed_pricing": detailed_pricing,
                 }
 
             except Exception as e:
@@ -850,17 +867,25 @@ class PropertyViewSet(
             "booking_slot": booking_slot,
         }
 
+        # Agent-specific: pass agent_detail so serializer can add agent pricing (markup) info
+        agent_detail = None
+        if request.user and request.user.is_authenticated:
+            agent_detail = get_agent_for_user(request.user)
+
+        serializer_context = {
+            "available_property_dict": available_property_dict,
+            "favorite_list": self.favorite_list,
+            "nonavailable_property_list": nonavailable_property_list,
+            "user_booking_request_details": user_booking_request_details,
+            "complete_pricing_details": complete_pricing_details,
+            "agent_detail": agent_detail,
+        }
+
         # Perform the default listing logic
         response = PropertyListSerializer(
             self.queryset,
             many=True,
-            context={
-                "available_property_dict": available_property_dict,
-                "favorite_list": self.favorite_list,
-                "nonavailable_property_list": nonavailable_property_list,
-                "user_booking_request_details": user_booking_request_details,
-                "complete_pricing_details": complete_pricing_details,
-            },
+            context=serializer_context,
         )
 
         custom_response = self.get_response(

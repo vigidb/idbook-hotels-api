@@ -87,6 +87,16 @@ def user_representation(user, refresh_token=None):
         except BusinessDetail.DoesNotExist:
             pass
 
+    # Get agent_id for user if user is an agent
+    agent_id = None
+    try:
+        from apps.booking.utils.agent_linking_utils import get_agent_for_user
+        agent_detail = get_agent_for_user(user)
+        if agent_detail:
+            agent_id = agent_detail.id
+    except Exception:
+        pass
+
     user_data = {
         "id": user.id,
         "mobile_number": user.mobile_number if user.mobile_number else "",
@@ -101,6 +111,7 @@ def user_representation(user, refresh_token=None):
         "profile_picture": profile_picture,
         "business_id": business_id_from_token or (user.business_id if user.business_id else ""),
         "company_id": user.company_id if user.company_id else "",
+        "agent_id": agent_id if agent_id else "",
         "default_group": user.default_group,
         "subscription_name": subscription_name,
         "user_subscription_id": user_subscription_id,

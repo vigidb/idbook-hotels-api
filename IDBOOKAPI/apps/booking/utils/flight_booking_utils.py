@@ -1223,6 +1223,16 @@ class FlightBookingProcessor:
 
         flight_booking = FlightBooking.objects.create(**flight_booking_data)
 
+        # Determine booking_source
+        from apps.booking.utils.booking_source_utils import determine_booking_source
+        company_id = self.booking_data.get("company_id") or (self.user.company_id if self.user else None)
+        booking_source = determine_booking_source(
+            user=self.user,
+            agent=None,  # Agent will be detected from user if applicable
+            company_id=company_id,
+            request=getattr(self, 'request', None)
+        )
+        
         # Create main Booking record
         booking_data = {
             "user": self.user,
@@ -1239,9 +1249,29 @@ class FlightBookingProcessor:
             "gst_type": pricing["gst_type"],
             "service_tax": pricing["service_tax"],
             "final_amount": pricing["final_amount"],
+            "booking_source": booking_source,
+            "pay_with_commission": bool(self.booking_data.get("pay_with_commission", False)),
         }
+        
+        # Set company_id if present
+        if company_id:
+            from apps.org_resources.models import CompanyDetail
+            try:
+                company = CompanyDetail.objects.get(id=company_id)
+                booking_data["company"] = company
+            except CompanyDetail.DoesNotExist:
+                pass
 
         booking = Booking.objects.create(**booking_data)
+        
+        # Handle agent linking if booking_source is AGENT
+        if booking_source == 'AGENT' and self.user:
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user, link_customer_to_agent_on_booking
+            agent_detail = get_agent_for_user(self.user)
+            if agent_detail:
+                booking.agent = agent_detail
+                booking.save()
+                link_customer_to_agent_on_booking(booking, agent_detail)
 
         # Update user profile with contact information from booking request
         if booking.user and self.booking_data.get("contact"):
@@ -1366,6 +1396,16 @@ class FlightBookingProcessor:
 
         flight_booking = FlightBooking.objects.create(**flight_booking_data)
 
+        # Determine booking_source
+        from apps.booking.utils.booking_source_utils import determine_booking_source
+        company_id = self.booking_data.get("company_id") or (self.user.company_id if self.user else None)
+        booking_source = determine_booking_source(
+            user=self.user,
+            agent=None,  # Agent will be detected from user if applicable
+            company_id=company_id,
+            request=getattr(self, 'request', None)
+        )
+
         # Create main Booking record
         booking_data = {
             "user": self.user,
@@ -1382,9 +1422,29 @@ class FlightBookingProcessor:
             "gst_type": pricing["gst_type"],
             "service_tax": pricing["service_tax"],
             "final_amount": pricing["final_amount"],
+            "booking_source": booking_source,
+            "pay_with_commission": bool(self.booking_data.get("pay_with_commission", False)),
         }
+        
+        # Set company_id if present
+        if company_id:
+            from apps.org_resources.models import CompanyDetail
+            try:
+                company = CompanyDetail.objects.get(id=company_id)
+                booking_data["company"] = company
+            except CompanyDetail.DoesNotExist:
+                pass
 
         booking = Booking.objects.create(**booking_data)
+        
+        # Handle agent linking if booking_source is AGENT
+        if booking_source == 'AGENT' and self.user:
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user, link_customer_to_agent_on_booking
+            agent_detail = get_agent_for_user(self.user)
+            if agent_detail:
+                booking.agent = agent_detail
+                booking.save()
+                link_customer_to_agent_on_booking(booking, agent_detail)
 
         # Update user profile with contact information from booking request
         if booking.user and self.booking_data.get("contact"):

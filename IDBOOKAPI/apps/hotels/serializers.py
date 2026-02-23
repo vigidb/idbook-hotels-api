@@ -50,6 +50,8 @@ from apps.hotels.utils.db_utils import (
     is_property_favorite,
 )
 from apps.hotels.utils.db_utils import get_property_count_by_location
+from apps.booking.utils.markup_utils import AgentMarkupCalculator
+from decimal import Decimal
 
 from django.conf import settings
 
@@ -210,6 +212,35 @@ class PropertyListSerializer(serializers.ModelSerializer):
                 ]
             else:
                 representation["complete_price_details"] = {"status": "not_calculated"}
+
+            # Agent-specific: add agent_pricing (markup) when request user is an agent
+            agent_detail = self.context.get("agent_detail")
+            if agent_detail and property_id:
+                lowest = representation.get("lowest_price")
+                starting = representation.get("starting_room_price", 0)
+                base_lowest = Decimal(str(lowest if lowest is not None else 0))
+                base_starting = Decimal(str(starting if starting is not None else 0))
+
+                markup_lowest = AgentMarkupCalculator.get_agent_markup(
+                    agent_detail.id, base_lowest
+                )
+                markup_starting = AgentMarkupCalculator.get_agent_markup(
+                    agent_detail.id, base_starting
+                )
+
+                representation["agent_pricing"] = {
+                    "markup_percent": markup_lowest.get("markup_percent"),
+                    "markup_amount": float(markup_lowest.get("markup_amount", 0)),
+                    "markup_type": markup_lowest.get("markup_type"),
+                    "net_lowest_price": float(base_lowest),
+                    "lowest_price_with_markup": float(markup_lowest.get("final_price", base_lowest)),
+                    "net_starting_room_price": float(base_starting),
+                    "starting_room_price_with_markup": float(
+                        markup_starting.get("final_price", base_starting)
+                    ),
+                }
+            else:
+                representation["agent_pricing"] = None
 
         return representation
 

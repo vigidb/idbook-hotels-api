@@ -85,6 +85,7 @@ from apps.booking.utils.booking_utils import (
     process_subscription_cashback,
     calculate_subscription_discount,
     commission_calculation,
+    get_booking_payable_amount,
 )
 from apps.booking.utils.flight_payment_utils import (
     FlightPaymentProcessor,
@@ -502,6 +503,17 @@ class BookingViewSet(
                             
                             booking.save()
                         else:
+                            # Determine booking_source using utility function
+                            from apps.booking.utils.booking_source_utils import determine_booking_source
+                            booking_source = determine_booking_source(
+                                user=booking.user,
+                                agent=None,  # Agent already checked above
+                                company_id=booking.company_id or (booking.user.company_id if booking.user else None),
+                                request=request
+                            )
+                            booking.booking_source = booking_source
+                            booking.save()
+                            
                             # Direct booking - maintain last agent relationship
                             from apps.booking.utils.agent_linking_utils import handle_direct_booking_customer_link
                             handle_direct_booking_customer_link(booking)
@@ -1872,6 +1884,26 @@ class BookingViewSet(
             if pro_member_discount_value > 0:
                 self.final_amount = self.final_amount - int(pro_member_discount_value)
 
+            # Agent markup calculation
+            agent_markup_percent = None
+            agent_markup_amount = Decimal('0.00')
+            final_price_with_markup = self.final_amount
+            
+            if user and user.is_authenticated:
+                from apps.booking.utils.agent_linking_utils import get_agent_for_user
+                from apps.booking.utils.markup_utils import AgentMarkupCalculator
+                
+                agent_detail = get_agent_for_user(user)
+                if agent_detail:
+                    # Calculate markup based on final amount (after all discounts)
+                    base_amount = Decimal(str(self.final_amount))
+                    markup_calc = AgentMarkupCalculator.get_agent_markup(
+                        agent_detail.id, base_amount
+                    )
+                    agent_markup_percent = markup_calc.get('markup_percent')
+                    agent_markup_amount = markup_calc.get('markup_amount', Decimal('0.00'))
+                    final_price_with_markup = float(markup_calc.get('final_price', base_amount))
+
             hotel_booking_dict = {
                 "confirmed_property_id": property_id,
                 "confirmed_room_details": self.confirmed_room_details,
@@ -1930,6 +1962,10 @@ class BookingViewSet(
                 "child_age_list": child_age_list,
                 "additional_notes": additional_notes,
                 "commission_info": [],
+                "agent_markup_percent": float(agent_markup_percent) if agent_markup_percent is not None else None,
+                "agent_markup_amount": float(agent_markup_amount),
+                "final_price_with_markup": final_price_with_markup,
+                "pay_with_commission": request.data.get("pay_with_commission", False),
             }
             # "commission_info":commission_details}
 
@@ -2001,6 +2037,93 @@ class BookingViewSet(
 
         user = self.request.user
 
+        # Handle guest details if user is not authenticated
+        if not user.is_authenticated:
+            guest_email = request.data.get("guest_email") or request.data.get("email")
+            guest_mobile = request.data.get("guest_mobile") or request.data.get("mobile_number")
+            guest_name = request.data.get("guest_name") or request.data.get("name")
+            guest_country = request.data.get("guest_country") or request.data.get("country")
+            guest_state = request.data.get("guest_state") or request.data.get("state")
+            guest_gst = request.data.get("guest_gst") or request.data.get("gst")
+            guest_pan = request.data.get("guest_pan") or request.data.get("pan")
+            
+            # If guest details are provided, create or get user
+            if guest_email or guest_mobile:
+                from apps.authentication.utils.db_utils import get_user_from_email, create_user
+                from apps.authentication.utils.authentication_utils import add_group_for_guest_user
+                
+                # Try to find existing user by email or mobile
+                existing_user = None
+                if guest_email:
+                    existing_user = get_user_from_email(guest_email.lower().strip())
+                elif guest_mobile:
+                    from apps.authentication.models import User
+                    existing_user = User.objects.filter(mobile_number=guest_mobile).first()
+                
+                if existing_user:
+                    # Use existing user
+                    user = existing_user
+                    # Update user details if provided and missing
+                    updated = False
+                    if guest_name and not user.name:
+                        user.name = guest_name
+                        updated = True
+                    if guest_email and not user.email:
+                        user.email = guest_email.lower().strip()
+                        updated = True
+                    if guest_mobile and not user.mobile_number:
+                        user.mobile_number = guest_mobile
+                        updated = True
+                    if updated:
+                        user.save()
+                else:
+                    # Create new guest user
+                    if not guest_email:
+                        custom_response = self.get_error_response(
+                            message="Guest email is required for guest bookings",
+                            status="error",
+                            errors=[{"field": "guest_email", "message": "Guest email is required"}],
+                            error_code="GUEST_EMAIL_REQUIRED",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                        return custom_response
+                    
+                    user_details = {
+                        "email": guest_email.lower().strip(),
+                        "mobile_number": guest_mobile or "",
+                        "name": guest_name or "",
+                        "email_verified": False,  # Guest users need to verify
+                        "mobile_verified": False,
+                    }
+                    
+                    customer_details = {}
+                    if guest_country:
+                        customer_details["country"] = guest_country
+                    if guest_state:
+                        customer_details["state"] = guest_state
+                    if guest_pan:
+                        customer_details["pan_card_number"] = guest_pan
+                    if guest_gst:
+                        # Note: GST field doesn't exist in Customer model, storing in other_details or address field
+                        # You may need to add a GST field to Customer model if needed
+                        pass
+                    
+                    try:
+                        user = create_user(user_details, customer_details)
+                        # Add to guest user group
+                        user = add_group_for_guest_user(user)
+                        print(f"Created guest user: {user.email} (ID: {user.id})")
+                    except Exception as e:
+                        print(f"Error creating guest user: {str(e)}")
+                        custom_response = self.get_error_response(
+                            message=f"Error creating guest user: {str(e)}",
+                            status="error",
+                            errors=[],
+                            error_code="GUEST_USER_CREATION_ERROR",
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+                        return custom_response
+
         property_id = request.data.get("property", None)
         company_id = request.data.get("company", None)
         room_list = request.data.get("room_list", [])
@@ -2017,6 +2140,7 @@ class BookingViewSet(
 
         coupon_code = request.data.get("coupon_code", None)
         coupon = None
+        pay_with_commission = request.data.get("pay_with_commission", False)
 
         ##        confirmed_room_details = []
         ##
@@ -2457,6 +2581,32 @@ class BookingViewSet(
                         pro_member_discount_value
                     )
 
+                # Agent markup calculation and application
+                agent_detail = None
+                agent_markup_percent = None
+                agent_markup_amount = Decimal('0.00')
+                final_price_with_markup = self.final_amount
+                
+                if user and user.is_authenticated:
+                    from apps.booking.utils.agent_linking_utils import get_agent_for_user
+                    from apps.booking.utils.markup_utils import AgentMarkupCalculator
+                    
+                    agent_detail = get_agent_for_user(user)
+                    if agent_detail:
+                        # Calculate markup based on final amount (after all discounts).
+                        # Keep self.final_amount as NET; store markup in final_price_with_markup.
+                        # Payable amount is determined by pay_with_commission at payment time
+                        # via get_booking_payable_amount().
+                        base_amount = Decimal(str(self.final_amount))
+                        markup_calc = AgentMarkupCalculator.get_agent_markup(
+                            agent_detail.id, base_amount
+                        )
+                        agent_markup_percent = markup_calc.get('markup_percent')
+                        agent_markup_amount = markup_calc.get('markup_amount', Decimal('0.00'))
+                        final_price_with_markup = float(markup_calc.get('final_price', base_amount))
+                        # Do NOT set self.final_amount = final_price_with_markup.
+                        # booking_dict["final_amount"] must stay net; payable uses pay_with_commission.
+
                 # Calculate total discount (room discount + coupon discount + pro member discount)
                 total_room_discount = (
                     self.total_room_amount_without_room_discount
@@ -2527,6 +2677,27 @@ class BookingViewSet(
                     "total_discount": total_discount,
                 }
                 
+                # Determine booking_source using utility function
+                from apps.booking.utils.booking_source_utils import determine_booking_source
+                booking_source = determine_booking_source(
+                    user=user,
+                    agent=agent_detail,
+                    company_id=company_id or (user.company_id if user else None),
+                    request=request
+                )
+                
+                # Add agent markup details if agent is present
+                if agent_detail:
+                    booking_dict["agent_id"] = agent_detail.id
+                    if agent_markup_percent is not None:
+                        booking_dict["agent_markup_percent"] = Decimal(str(agent_markup_percent))
+                    booking_dict["agent_markup_amount"] = agent_markup_amount
+                    booking_dict["final_price_with_markup"] = Decimal(str(final_price_with_markup))
+                
+                booking_dict["booking_source"] = booking_source
+                
+                booking_dict["pay_with_commission"] = bool(pay_with_commission)
+                
                 # Set status if provided
                 if booking_status:
                     booking_dict["status"] = booking_status
@@ -2592,7 +2763,30 @@ class BookingViewSet(
                 if not booking_id:
                     booking = Booking(**booking_dict)
                     booking.save()
-                    if user and user.is_authenticated:
+                    
+                    # Ensure user is linked to booking (for guest users created above)
+                    if user and not booking.user:
+                        booking.user = user
+                        booking.save()
+                    
+                    # Link customer to agent if agent is present
+                    # This will work for both authenticated users and newly created guest users
+                    if agent_detail and booking.user:
+                        from apps.booking.utils.agent_linking_utils import (
+                            link_customer_to_agent_on_booking,
+                            ensure_agent_contact_linked_as_customer,
+                        )
+                        link_customer_to_agent_on_booking(booking, agent_detail)
+                        # Link different guest contact as agent's customer (AGENT-CUST) for CRM only
+                        guest_email = request.data.get("guest_email") or request.data.get("email") or ""
+                        guest_mobile = request.data.get("guest_mobile") or request.data.get("mobile_number") or ""
+                        guest_name = request.data.get("guest_name") or request.data.get("name") or ""
+                        if guest_email or guest_mobile:
+                            ensure_agent_contact_linked_as_customer(
+                                agent_detail, guest_email, guest_mobile, guest_name
+                            )
+                    
+                    if user:
                         booking_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         update_monthly_pay_at_hotel_eligibility_task.apply_async(
                             args=[user.id, booking_date]
@@ -2603,6 +2797,27 @@ class BookingViewSet(
                     # Refresh from database to ensure we have latest data
                     if booking:
                         booking.refresh_from_db()
+                        
+                        # Ensure user is linked to booking (for guest users created above)
+                        if user and not booking.user:
+                            booking.user = user
+                            booking.save()
+                        
+                        # Link customer to agent if agent is present (for updates)
+                        # This will work for both authenticated users and newly created guest users
+                        if agent_detail and booking.user:
+                            from apps.booking.utils.agent_linking_utils import (
+                                link_customer_to_agent_on_booking,
+                                ensure_agent_contact_linked_as_customer,
+                            )
+                            link_customer_to_agent_on_booking(booking, agent_detail)
+                            guest_email = request.data.get("guest_email") or request.data.get("email") or ""
+                            guest_mobile = request.data.get("guest_mobile") or request.data.get("mobile_number") or ""
+                            guest_name = request.data.get("guest_name") or request.data.get("name") or ""
+                            if guest_email or guest_mobile:
+                                ensure_agent_contact_linked_as_customer(
+                                    agent_detail, guest_email, guest_mobile, guest_name
+                                )
 
                 bus_details = get_active_business()
 
@@ -2842,8 +3057,9 @@ class BookingViewSet(
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Default to WALLET payment for this endpoint
-            amount = request.data.get("amount", float(instance.final_amount))
+            # Use payable amount (net or with commission per pay_with_commission)
+            payable = get_booking_payable_amount(instance)
+            amount = request.data.get("amount", float(payable))
             payment_data = {"amount": amount, "payment_channel": "WALLET"}
             print("payment_data::", payment_data)
             processor = FlightPaymentProcessor(
@@ -2946,6 +3162,9 @@ class BookingViewSet(
         booking_payment_detail = create_booking_payment_details(instance.id, append_id)
         # merchant_transaction_id = booking_payment_detail.merchant_transaction_id
 
+        # Amount to charge: net or with commission per pay_with_commission on booking
+        payable = get_booking_payable_amount(instance)
+
         # Handling for pay_at_hotel case with eligibility check
         if pay_at_hotel:
             property_obj = instance.hotel_booking.confirmed_property
@@ -2957,7 +3176,7 @@ class BookingViewSet(
                 )
             else:
                 is_eligible, eligibility_message = check_pay_at_hotel_eligibility(
-                    user, instance.final_amount
+                    user, payable
                 )
                 if not is_eligible:
                     print(
@@ -3001,7 +3220,7 @@ class BookingViewSet(
                         )
 
                     # Save basic booking payment details without payment specific fields
-                    booking_payment_detail.amount = instance.final_amount
+                    booking_payment_detail.amount = payable
                     booking_payment_detail.transaction_for = "booking_confirmed"
                     booking_payment_detail.payment_type = "DIRECT"
                     booking_payment_detail.payment_medium = "Hotel"
@@ -3010,7 +3229,7 @@ class BookingViewSet(
 
                     # Update total no of confirmed booking for a property
                     process_property_confirmed_booking_total(property_id)
-                    if instance.final_amount > 20000:
+                    if float(payable) > 20000:
                         admin_send_sms_task.apply_async(
                             kwargs={
                                 "notification_type": "ADMIN_PAH_HIGH_VALUE_ALERT",
@@ -3063,7 +3282,7 @@ class BookingViewSet(
                         "notification_type": "WALLET_DEDUCTION_CONFIRMATION",
                         "params": {
                             "user_id": instance.user.id,
-                            "deduct_amount": float(instance.final_amount),
+                            "deduct_amount": float(payable),
                             "wallet_balance": float(wallet_balance),
                             "booking_id": instance.id,
                         },
@@ -3091,7 +3310,7 @@ class BookingViewSet(
                     "notification_type": "PAYMENT_FAILED_INFO",
                     "params": {
                         "booking_id": instance.id,
-                        "failed_amount": float(instance.final_amount),
+                        "failed_amount": float(payable),
                         "payment_purpose": "Hotel Booking",
                     },
                 }
@@ -3119,7 +3338,7 @@ class BookingViewSet(
 
         print("Confirmation Code::", confirmation_code)
         instance.confirmation_code = confirmation_code
-        instance.total_payment_made = instance.final_amount
+        instance.total_payment_made = payable
         instance.status = "confirmed"
         instance.save()
         instance.meta_info.booking_confirmed_date = datetime.now()
@@ -3140,7 +3359,7 @@ class BookingViewSet(
         booking_payment_detail.message = "Your payment is successful."
         booking_payment_detail.payment_type = "WALLET"
         booking_payment_detail.payment_medium = "Idbook"
-        booking_payment_detail.amount = instance.final_amount
+        booking_payment_detail.amount = payable
         booking_payment_detail.is_transaction_success = True
         booking_payment_detail.transaction_for = "booking_confirmed"
         booking_payment_detail.save()
@@ -3303,10 +3522,11 @@ class BookingViewSet(
         transaction_details = request.data.get("transaction_details", {})
         transaction_id = request.data.get("transaction_id", "")
 
-        # Validate amount matches booking final_amount
-        if amount != instance.final_amount:
+        # Validate amount matches booking payable amount (net or with commission)
+        payable = get_booking_payable_amount(instance)
+        if amount != payable:
             custom_response = self.get_error_response(
-                message=f"The payment amount must be equal to the booking final amount: {float(instance.final_amount)}",
+                message=f"The payment amount must be equal to the booking amount: {float(payable)}",
                 status="error",
                 errors=["amount"],
                 error_code="VALIDATION_ERROR",
@@ -4654,20 +4874,15 @@ class BookingPaymentDetailViewSet(
             ##                                                          status_code=status.HTTP_400_BAD_REQUEST)
             ##                return custom_response
 
-            # For flight bookings, use the booking's final amount instead of requiring user input
+            # Use payable amount (net or with commission per pay_with_commission)
+            payable = get_booking_payable_amount(booking)
             if booking.booking_type == "FLIGHT":
-                amount = str(booking.final_amount)  # Use booking amount for flights
+                amount = str(payable)
             else:
+                # Hotel: default to payable (net when pay_with_commission=False, with markup when True)
                 amount = request.data.get("amount", None)
-                if not amount:
-                    custom_response = self.get_error_response(
-                        message="Amount is required",
-                        status="error",
-                        errors=[],
-                        error_code="VALIDATION_ERROR",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-                    return custom_response
+                if amount is None or amount == "":
+                    amount = str(payable)
 
             # https://mercury-uat.phonepe.com/transact/simulator?token=87tM6GJCcJ142nCtz6gGhFHm9DCL3H4LepDHs5
 
@@ -4682,12 +4897,12 @@ class BookingPaymentDetailViewSet(
                 )
                 return custom_response
 
-            # Validate that the request amount matches the booking final amount
+            # Validate that the amount matches the booking payable amount (net or with commission)
             try:
                 request_amount = float(amount)
-                if request_amount != float(booking.final_amount):
+                if request_amount != float(payable):
                     custom_response = self.get_error_response(
-                        message=f"Amount mismatch. Expected amount: {float(booking.final_amount)}",
+                        message=f"Amount mismatch. Expected amount: {float(payable)}",
                         status="error",
                         errors=[],
                         error_code="AMOUNT_MISMATCH",

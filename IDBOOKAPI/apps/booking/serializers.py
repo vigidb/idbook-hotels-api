@@ -775,6 +775,24 @@ class BookingSerializer(serializers.ModelSerializer):
             ):
                 company_detail.confirmation_code = flight_booking.booking_reference
 
+        # Determine booking_source before saving
+        from apps.booking.utils.booking_source_utils import determine_booking_source
+        company_id = company.id if company else (user.company_id if user else None)
+        booking_source = determine_booking_source(
+            user=user,
+            agent=None,  # Agent will be detected from user if applicable
+            company_id=company_id,
+            request=request
+        )
+        company_detail.booking_source = booking_source
+        
+        # Handle agent linking if booking_source is AGENT
+        if booking_source == 'AGENT' and user:
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user
+            agent_detail = get_agent_for_user(user)
+            if agent_detail:
+                company_detail.agent = agent_detail
+
         # Validate company_id requirement for corporate users before saving
         if user:
             from apps.booking.utils.booking_utils import (
@@ -782,7 +800,6 @@ class BookingSerializer(serializers.ModelSerializer):
             )
 
             # Pass request to get active_group from token
-            request = self.context.get("request")
             is_valid, error_message = validate_company_id_for_corporate_user(
                 user, company, request=request
             )
@@ -792,6 +809,11 @@ class BookingSerializer(serializers.ModelSerializer):
                 )
 
         company_detail.save()
+        
+        # Link customer to agent if booking_source is AGENT
+        if booking_source == 'AGENT' and company_detail.user and company_detail.agent:
+            from apps.booking.utils.agent_linking_utils import link_customer_to_agent_on_booking
+            link_customer_to_agent_on_booking(company_detail, company_detail.agent)
 
         # Generate access token for all bookings (includes user group info)
         if company_detail.user:

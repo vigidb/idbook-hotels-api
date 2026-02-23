@@ -384,8 +384,9 @@ class Booking(models.Model):
         max_length=20,
         choices=[
             ('AGENT', 'Booked by Agent'),
-            ('DIRECT', 'Booked by Customer Directly'),
-            ('AGENT_PORTAL', 'Booked via Agent Portal')
+            ('CORPORATE', 'Booked by Corporate User'),
+            ('B2C', 'Booked by B2C User'),
+            ('GUEST', 'Booked by Guest User')
         ],
         default='DIRECT',
         help_text="Source of the booking"
@@ -512,6 +513,10 @@ class Booking(models.Model):
     final_price_with_markup = models.DecimalField(
         max_digits=20, decimal_places=6, null=True, blank=True,
         help_text="Final price including agent markup"
+    )
+    pay_with_commission = models.BooleanField(
+        default=False,
+        help_text="True: customer pays amount including agent commission/markup; False: pay net amount only. Used for hotel and flight bookings."
     )
 
     status = models.CharField(

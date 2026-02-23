@@ -1335,9 +1335,41 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
         group_name = "AGENT-GRP"
         self.grp, self.role = get_group_based_on_name(group_name)
+        
+        # If group or role doesn't exist, try to create them
+        if not self.grp:
+            from django.contrib.auth.models import Group
+            self.grp, created = Group.objects.get_or_create(name=group_name)
+            if created:
+                print(f"Created missing group: {group_name}")
+        
+        if not self.role:
+            from apps.authentication.models import Role
+            # Try to get or create the AGENT-ADMIN role
+            role_name = "AGENT-ADMIN"
+            self.role = Role.objects.filter(name=role_name, is_system_role=True).first()
+            if not self.role and self.grp:
+                # Create the role if it doesn't exist
+                self.role = Role.objects.create(
+                    name=role_name,
+                    short_code="AGT-ADMIN",
+                    group=self.grp,
+                    business=None,
+                    is_system_role=True,
+                )
+                print(f"Created missing role: {role_name}")
+        
         if not self.grp or not self.role:
+            # Provide more detailed error message
+            missing_items = []
+            if not self.grp:
+                missing_items.append("Group 'AGENT-GRP'")
+            if not self.role:
+                missing_items.append("Role 'AGENT-ADMIN'")
+            
+            error_message = f"Missing: {', '.join(missing_items)}. Please run: python manage.py migrate_permissions"
             error_list.append(
-                {"field": "", "error_code": "INVALID_GRP", "message": "Invalid Group"}
+                {"field": "", "error_code": "INVALID_GRP", "message": error_message}
             )
             return error_list
 
@@ -5309,6 +5341,25 @@ class AgentDashboardViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixi
                 created__date__gte=start_date,
                 created__date__lte=end_date,
             )
+        
+        # Filter by customer: user_id (User.id) or customer_id (Customer.id → resolved to user)
+        user_id_param = request.query_params.get("user_id")
+        customer_id_param = request.query_params.get("customer_id")
+        if user_id_param:
+            try:
+                bookings_query = bookings_query.filter(user_id=int(user_id_param))
+            except (ValueError, TypeError):
+                pass
+        elif customer_id_param:
+            from apps.customer.models import Customer
+            try:
+                customer_user_id = Customer.objects.filter(
+                    id=int(customer_id_param), agents=agent
+                ).values_list("user_id", flat=True).first()
+                if customer_user_id is not None:
+                    bookings_query = bookings_query.filter(user_id=customer_user_id)
+            except (ValueError, TypeError):
+                pass
         
         # Pagination
         offset = int(request.query_params.get("offset", 0))
