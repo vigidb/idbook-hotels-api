@@ -4,6 +4,7 @@ from apps.booking.viewsets import *
 from apps.booking.subviews import payment_viewset, related_viewset, flight_viewset
 from apps.booking.subviews.enhanced_flight_viewset import EnhancedFlightBookingViewSet
 from apps.booking.views import RazorpayPaymentPageView
+from apps.booking.query_viewsets import QueryViewSet, VisaBookingViewSet, EventBookingViewSet
 
 router = routers.DefaultRouter()
 
@@ -27,6 +28,9 @@ router.register(
     flight_viewset.FlightBookingViewSet,
     basename="legacy-flight-bookings",
 )
+router.register(r"queries", QueryViewSet, basename="query")
+router.register(r"visa-bookings", VisaBookingViewSet, basename="visa-booking")
+router.register(r"event-bookings", EventBookingViewSet, basename="event-booking")
 
 urlpatterns = [
     # Razorpay payment test page

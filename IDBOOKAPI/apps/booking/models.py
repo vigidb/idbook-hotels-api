@@ -1,4 +1,4 @@
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator, EmailValidator, RegexValidator
 from django.utils.translation import gettext_lazy as _
 from django.conf import settings
 from django.db import models
@@ -362,6 +362,368 @@ class FlightBooking(models.Model):
         verbose_name_plural = "FlightBookings"
 
 
+# Query Status Choices
+QUERY_STATUS_CHOICES = (
+    ("pending", "Pending"),
+    ("documents_reviewed", "Documents Reviewed"),  # For Visa only
+    ("quoted", "Quoted"),
+    ("confirmed", "Confirmed"),
+    ("completed", "Completed"),
+    ("cancelled", "Cancelled"),
+)
+
+# Booking For Choices
+BOOKING_FOR_CHOICES = (
+    ("B2C", "B2C Customer"),
+    ("CORPORATE", "Corporate"),
+    ("AGENT", "Agent"),
+)
+
+# Referral Type Choices
+REFERRAL_TYPE_CHOICES = (
+    ("EMPLOYEE", "Employee"),
+    ("USER", "User"),
+    ("AGENT", "Agent"),
+)
+
+# Communication Type Choices
+COMMUNICATION_TYPE_CHOICES = (
+    ("NOTE", "Note"),
+    ("EMAIL", "Email"),
+    ("CALL", "Call"),
+    ("SMS", "SMS"),
+    ("STATUS_UPDATE", "Status Update"),
+    ("QUOTE_UPDATE", "Quote Update"),
+)
+
+# Invoice Type Choices
+INVOICE_TYPE_CHOICES = (
+    ("PROFORMA", "Proforma Invoice"),
+    ("INVOICE", "Final Invoice"),
+)
+
+# Visa Type Choices
+VISA_TYPE_CHOICES = (
+    ("tourist", "Tourist"),
+    ("business", "Business"),
+    ("transit", "Transit"),
+    ("student", "Student"),
+    ("work", "Work"),
+    ("other", "Other"),
+)
+
+# Event Type Choices
+EVENT_TYPE_CHOICES = (
+    ("conference", "Conference"),
+    ("wedding", "Wedding"),
+    ("corporate", "Corporate Event"),
+    ("seminar", "Seminar"),
+    ("exhibition", "Exhibition"),
+    ("festival", "Festival"),
+    ("other", "Other"),
+)
+
+# Budget Range Choices
+BUDGET_RANGE_CHOICES = (
+    ("under_50000", "Under ₹50,000"),
+    ("50000_100000", "₹50,000 - ₹1,00,000"),
+    ("100000_250000", "₹1,00,000 - ₹2,50,000"),
+    ("250000_500000", "₹2,50,000 - ₹5,00,000"),
+    ("above_500000", "Above ₹5,00,000"),
+)
+
+
+class VisaBooking(models.Model):
+    """Visa booking model - similar to HotelBooking, FlightBooking"""
+    destination_country = models.CharField(max_length=100, help_text="Destination country for visa")
+    travel_date = models.DateField(help_text="Intended travel date")
+    visa_type = models.CharField(
+        max_length=50,
+        choices=VISA_TYPE_CHOICES,
+        default="tourist",
+        help_text="Type of visa required",
+    )
+    passport_number = models.CharField(max_length=50, blank=True, default="", help_text="Passport number")
+    passport_expiry = models.DateField(null=True, blank=True, help_text="Passport expiry date")
+    travel_purpose = models.TextField(blank=True, default="", help_text="Purpose of travel")
+    documents_uploaded = models.JSONField(
+        null=True,
+        default=dict,
+        help_text="JSON field for document URLs",
+    )
+    special_requirements = models.TextField(blank=True, default="", help_text="Any special requirements")
+    
+    # Status and admin fields
+    status = models.CharField(
+        max_length=50,
+        choices=QUERY_STATUS_CHOICES,
+        default="pending",
+        help_text="Current status of the booking",
+    )
+    itinerary_details = models.JSONField(
+        null=True,
+        default=dict,
+        help_text="Admin-added itinerary details",
+    )
+    admin_notes = models.TextField(blank=True, default="", help_text="Admin notes and comments")
+    
+    # Timestamps
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Visa Booking #{self.id} - {self.destination_country}"
+    
+    class Meta:
+        verbose_name_plural = "VisaBookings"
+        ordering = ["-created"]
+
+
+class EventBooking(models.Model):
+    """Event booking model - similar to HotelBooking, FlightBooking"""
+    event_name = models.CharField(max_length=200, help_text="Name of the event")
+    event_type = models.CharField(
+        max_length=50,
+        choices=EVENT_TYPE_CHOICES,
+        default="other",
+        help_text="Type of event",
+    )
+    event_date = models.DateTimeField(help_text="Event start date and time")
+    event_end_date = models.DateTimeField(null=True, blank=True, help_text="Event end date and time (optional)")
+    location = models.CharField(max_length=200, help_text="Event location (city/venue)")
+    attendee_count = models.PositiveIntegerField(default=1, help_text="Number of attendees")
+    budget_range = models.CharField(
+        max_length=50,
+        choices=BUDGET_RANGE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Budget range for the event",
+    )
+    special_requirements = models.TextField(blank=True, default="", help_text="Any special requirements")
+    
+    # Status and admin fields
+    status = models.CharField(
+        max_length=50,
+        choices=QUERY_STATUS_CHOICES,
+        default="pending",
+        help_text="Current status of the booking",
+    )
+    itinerary_details = models.JSONField(
+        null=True,
+        default=dict,
+        help_text="Admin-added itinerary details",
+    )
+    admin_notes = models.TextField(blank=True, default="", help_text="Admin notes and comments")
+    
+    # Timestamps
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Event Booking #{self.id} - {self.event_name}"
+    
+    class Meta:
+        verbose_name_plural = "EventBookings"
+        ordering = ["-created"]
+
+
+class Query(models.Model):
+    """
+    Unified Query model for all service types (Hotels, Flights, Vehicles, 
+    Packages, Visa, Events, Cabs)
+    Similar structure to Booking model
+    """
+    # Basic Info
+    query_type = models.CharField(
+        max_length=25, 
+        choices=BOOKING_TYPE, 
+        help_text="Type of query (HOTEL, FLIGHT, VISA, EVENT, etc.)"
+    )
+    query_reference = models.CharField(
+        max_length=500, 
+        null=True, 
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="Unique reference code for query"
+    )
+    
+    # User/Company Info
+    raised_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queries_raised",
+        help_text="User who created/submitted the query"
+    )
+    company = models.ForeignKey(
+        CompanyDetail,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Company if query is for corporate"
+    )
+    booking_for = models.CharField(
+        max_length=50,
+        choices=BOOKING_FOR_CHOICES,
+        default="B2C",
+        help_text="Booking made for whom"
+    )
+    
+    # Referral Tracking
+    referred_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queries_referred",
+        help_text="Employee or user who referred this query"
+    )
+    referral_type = models.CharField(
+        max_length=50,
+        choices=REFERRAL_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Type of referral"
+    )
+    
+    # Service-specific data (JSON for flexibility)
+    query_data = models.JSONField(
+        default=dict,
+        help_text="Service-specific query data (destination, dates, etc.)"
+    )
+    
+    # Status and Pricing
+    status = models.CharField(
+        max_length=50,
+        choices=QUERY_STATUS_CHOICES,
+        default="pending",
+        help_text="Current status of query"
+    )
+    quote_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        default=0.0,
+        help_text="Quoted amount"
+    )
+    
+    # Link to Invoice (proforma initially, converted to final on booking)
+    invoice = models.ForeignKey(
+        "Invoice",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queries",
+        help_text="Proforma invoice for this query (converts to final invoice on booking)"
+    )
+    
+    # Admin Management
+    itinerary_details = models.JSONField(
+        null=True,
+        default=dict,
+        help_text="Admin-added itinerary details"
+    )
+    admin_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Admin notes"
+    )
+    
+    # Link to Booking when converted
+    booking = models.ForeignKey(
+        "Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="from_query",
+        help_text="Booking created from this query"
+    )
+    
+    # Timestamps
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Query expiry date (for quotes)"
+    )
+    active = models.BooleanField(default=True)
+    
+    class Meta:
+        verbose_name_plural = "Queries"
+        ordering = ["-created"]
+        indexes = [
+            models.Index(fields=["query_type", "status"]),
+            models.Index(fields=["company", "status"]),
+            models.Index(fields=["raised_by", "status"]),
+            models.Index(fields=["booking_for", "status"]),
+        ]
+    
+    def __str__(self):
+        return f"Query #{self.id} - {self.query_type} - {self.status}"
+    
+    def save(self, *args, **kwargs):
+        """Auto-generate query reference if not provided"""
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        # Generate reference after save if it was None
+        if is_new and not self.query_reference:
+            self.query_reference = f"QRY-{self.id:06d}"
+            Query.objects.filter(id=self.id).update(query_reference=self.query_reference)
+
+
+class QueryCommunication(models.Model):
+    """
+    Communication notes and history for queries
+    """
+    query = models.ForeignKey(
+        Query,
+        on_delete=models.CASCADE,
+        related_name="communications",
+        help_text="Query this communication belongs to"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="User who added this communication"
+    )
+    communication_type = models.CharField(
+        max_length=50,
+        choices=COMMUNICATION_TYPE_CHOICES,
+        default="NOTE"
+    )
+    subject = models.CharField(
+        max_length=200,
+        blank=True,
+        default=""
+    )
+    message = models.TextField(
+        help_text="Communication message/notes"
+    )
+    attachments = models.JSONField(
+        null=True,
+        default=list,
+        help_text="List of attachment URLs"
+    )
+    is_internal = models.BooleanField(
+        default=False,
+        help_text="Internal note (not visible to customer)"
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ["-created"]
+        verbose_name_plural = "QueryCommunications"
+    
+    def __str__(self):
+        return f"Communication #{self.id} - {self.query.query_reference} - {self.communication_type}"
+
+
 class Booking(models.Model):
 
     user = models.ForeignKey(
@@ -432,6 +794,20 @@ class Booking(models.Model):
         null=True,
         blank=True,
         verbose_name="flight_booking",
+    )
+    visa_booking = models.ForeignKey(
+        VisaBooking,
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        verbose_name="visa_booking",
+    )
+    event_booking = models.ForeignKey(
+        EventBooking,
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        verbose_name="event_booking",
     )
 
     adult_count = models.PositiveSmallIntegerField(default=1, help_text="adults count")
@@ -536,6 +912,16 @@ class Booking(models.Model):
     is_checkin = models.BooleanField(default=False, help_text="Check_in status")
     is_checkout = models.BooleanField(default=False, help_text="Check_out status")
     is_direct_pay = models.BooleanField(default=False)
+    
+    # Link to source query
+    source_query = models.ForeignKey(
+        Query,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="converted_bookings",
+        help_text="Query this booking was created from"
+    )
 
     # objects = BookingManager()
 
@@ -572,7 +958,45 @@ class Invoice(models.Model):
     invoice_date = models.DateField()
     due_date = models.DateField(null=True)
     notes = models.CharField(max_length=255, default="", blank=True)
-    invoice_pdf = models.FileField(upload_to="booking/invoices/", blank=True, null=True)
+    
+    # Existing invoice_pdf field - DO NOT change upload_to path (existing data)
+    invoice_pdf = models.FileField(
+        upload_to="booking/invoices/", 
+        blank=True, 
+        null=True,
+        help_text="Final invoice PDF"
+    )
+    
+    # Additional document PDFs (new fields)
+    proforma_pdf = models.FileField(
+        upload_to="booking/invoices/proforma/", 
+        blank=True, 
+        null=True,
+        help_text="Proforma invoice PDF"
+    )
+    receipt_pdf = models.FileField(
+        upload_to="booking/invoices/receipts/", 
+        blank=True, 
+        null=True,
+        help_text="Payment receipt PDF"
+    )
+    credit_note_pdf = models.FileField(
+        upload_to="booking/invoices/credit_notes/", 
+        blank=True, 
+        null=True,
+        help_text="Credit note PDF (for refunds/adjustments)"
+    )
+    voucher_pdf = models.FileField(
+        upload_to="booking/invoices/vouchers/", 
+        blank=True, 
+        null=True,
+        help_text="Booking voucher PDF"
+    )
+    other_documents = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of other document URLs [{name, url, type, uploaded_at}]"
+    )
 
     billed_by = models.ForeignKey(
         BusinessDetail, on_delete=models.CASCADE, related_name="invoices_billed_by"
@@ -615,6 +1039,24 @@ class Invoice(models.Model):
     updated_by = models.CharField(max_length=50, default="", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    # Invoice type - proforma or final
+    invoice_type = models.CharField(
+        max_length=20,
+        choices=INVOICE_TYPE_CHOICES,
+        default="INVOICE",
+        help_text="Invoice type - PROFORMA for queries, INVOICE for confirmed bookings"
+    )
+    
+    # Link to source query (for invoices created from queries)
+    source_query = models.ForeignKey(
+        "Query",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invoices",
+        help_text="Query this invoice was created from"
+    )
 
     class Meta:
         ordering = ("-created_at",)
