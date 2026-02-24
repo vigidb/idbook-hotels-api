@@ -5,11 +5,28 @@ from decimal import Decimal
 from apps.org_resources.models import AgentDetail, AgentMarkupConfig
 
 
+def _markup_override_from_data(data):
+    """Build markup_override dict from a data dict (e.g. request.data). Returns None if nothing provided."""
+    if not data or not isinstance(data, dict):
+        return None
+    override = data.get("agent_markup_override")
+    if override and isinstance(override, dict):
+        if "percent" in override:
+            return {"percent": Decimal(str(override["percent"]))}
+        if "amount" in override:
+            return {"amount": Decimal(str(override["amount"]))}
+    if data.get("agent_markup_percent") is not None:
+        return {"percent": Decimal(str(data["agent_markup_percent"]))}
+    if data.get("agent_markup_amount") is not None:
+        return {"amount": Decimal(str(data["agent_markup_amount"]))}
+    return None
+
+
 class AgentMarkupCalculator:
     """Calculate agent markup for bookings"""
     
     @staticmethod
-    def get_agent_markup(agent_id, base_amount, markup_override=None):
+    def get_agent_markup(agent_id, base_amount, markup_override=None, request_or_data=None):
         """
         Get agent markup configuration and calculate markup amount.
         
@@ -17,7 +34,10 @@ class AgentMarkupCalculator:
             agent_id: ID of the agent
             base_amount: Base booking amount before markup
             markup_override: Optional dict with 'percent' or 'amount' to override default
-            
+            request_or_data: Optional request object or data dict; if provided and markup_override
+                is None, override is read from request.data or from the dict (keys: agent_markup_override,
+                agent_markup_percent, agent_markup_amount). Ignored if markup_override is provided.
+        
         Returns:
             dict with:
                 - markup_percent: Percentage used (if percentage type)
@@ -25,6 +45,9 @@ class AgentMarkupCalculator:
                 - final_price: Base amount + markup
                 - markup_type: 'PERCENT' or 'FIXED'
         """
+        if markup_override is None and request_or_data is not None:
+            data = getattr(request_or_data, "data", None) or request_or_data
+            markup_override = _markup_override_from_data(data)
         try:
             agent = AgentDetail.objects.get(id=agent_id)
         except AgentDetail.DoesNotExist:

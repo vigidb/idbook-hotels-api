@@ -1508,6 +1508,10 @@ class PreConfirmHotelBookingSerializer(serializers.ModelSerializer):
             "subtotal",
             "status",
             "commission_info",
+            "agent_markup_percent",
+            "agent_markup_amount",
+            "final_price_with_markup",
+            "pay_with_commission",
         )
 
 

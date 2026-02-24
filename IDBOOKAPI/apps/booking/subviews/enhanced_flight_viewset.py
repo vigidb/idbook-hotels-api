@@ -491,7 +491,7 @@ class EnhancedFlightBookingViewSet(
                 from apps.booking.utils.markup_utils import AgentMarkupCalculator
                 base_amount = Decimal(str(booking.final_amount or 0))
                 markup_calc = AgentMarkupCalculator.get_agent_markup(
-                    agent_detail.id, base_amount
+                    agent_detail.id, base_amount, request_or_data=request.data
                 )
                 booking.agent_markup_percent = (
                     Decimal(str(markup_calc["markup_percent"]))

@@ -468,6 +468,7 @@ class BookingViewSet(
         if serializer.is_valid():
             # If the serializer is valid, perform the default creation logic
             response = super().create(request, *args, **kwargs)
+            response_data = response.data
             if response.data:
                 booking_id = response.data.get("id")
                 print("Booking Id", booking_id)
@@ -491,7 +492,7 @@ class BookingViewSet(
                             from decimal import Decimal
                             base_amount = Decimal(str(booking.final_amount or booking.subtotal or 0))
                             markup_calc = AgentMarkupCalculator.get_agent_markup(
-                                agent_detail.id, base_amount
+                                agent_detail.id, base_amount, request_or_data=request.data
                             )
                             if markup_calc['markup_percent'] is not None:
                                 booking.agent_markup_percent = Decimal(str(markup_calc['markup_percent']))
@@ -524,10 +525,20 @@ class BookingViewSet(
                 booking_type = "search-booking"
                 send_booking_email_task.apply_async(args=[booking_id, booking_type])
 
+                # Re-serialize booking so response includes agent markup (applied after create)
+                if booking_id:
+                    booking = Booking.objects.filter(id=booking_id).first()
+                    if booking:
+                        response_data = self.get_serializer(booking).data
+                    else:
+                        response_data = response.data
+                else:
+                    response_data = response.data
+
             # Create a custom response
             custom_response = self.get_response(
                 status="success",
-                data=response.data,  # Use the data from the default response
+                data=response_data,  # Use data that includes markup when applied
                 message="Booking Created",
                 status_code=status.HTTP_201_CREATED,  # 201 for successful creation
             )
@@ -1898,7 +1909,7 @@ class BookingViewSet(
                     # Calculate markup based on final amount (after all discounts)
                     base_amount = Decimal(str(self.final_amount))
                     markup_calc = AgentMarkupCalculator.get_agent_markup(
-                        agent_detail.id, base_amount
+                        agent_detail.id, base_amount, request_or_data=request
                     )
                     agent_markup_percent = markup_calc.get('markup_percent')
                     agent_markup_amount = markup_calc.get('markup_amount', Decimal('0.00'))
@@ -2598,8 +2609,9 @@ class BookingViewSet(
                         # Payable amount is determined by pay_with_commission at payment time
                         # via get_booking_payable_amount().
                         base_amount = Decimal(str(self.final_amount))
+                        from apps.booking.utils.markup_utils import AgentMarkupCalculator
                         markup_calc = AgentMarkupCalculator.get_agent_markup(
-                            agent_detail.id, base_amount
+                            agent_detail.id, base_amount, request_or_data=request
                         )
                         agent_markup_percent = markup_calc.get('markup_percent')
                         agent_markup_amount = markup_calc.get('markup_amount', Decimal('0.00'))
