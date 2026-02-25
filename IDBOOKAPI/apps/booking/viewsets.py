@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import viewsets
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import views, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -78,6 +78,7 @@ from apps.booking.utils.booking_utils import (
     generate_booking_confirmation_code,
     calculate_refund_amount,
     refund_wallet_payment,
+    process_manual_refund,
     update_no_show_status,
     check_pay_at_hotel_eligibility,
     handle_pay_at_hotel_payment_cancellation,
@@ -1476,6 +1477,95 @@ class BookingViewSet(
                 )
             print("\n\n\n\n custom response final", custom_response)
             return custom_response
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="refund",
+        url_name="manual-refund",
+        permission_classes=[IsAdminUser],
+    )
+    def manual_refund(self, request, pk=None):
+        """
+        Manually trigger refund for a booking (e.g. when flight booking failed but payment was collected).
+        Staff/admin only. Supports Wallet and Razorpay. PhonePe must be refunded via cancel flow or gateway.
+        """
+        booking = Booking.objects.filter(pk=pk).select_related("user", "flight_booking", "hotel_booking").first()
+        if not booking:
+            return self.get_error_response(
+                message="Booking not found",
+                status="error",
+                errors=[],
+                error_code="BOOKING_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = getattr(request, "data", None) or {}
+        amount = data.get("amount")
+        if amount is not None:
+            try:
+                from decimal import Decimal, InvalidOperation
+                # Allow formatted strings like "₹4,644.00" or "4644.00"
+                amount_str = str(amount).strip().replace(",", "").lstrip("₹Rs.\s")
+                amount = Decimal(amount_str)
+            except (TypeError, ValueError, InvalidOperation):
+                return self.get_error_response(
+                    message="Invalid refund amount (use a number, e.g. 4644 or 4644.00)",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_AMOUNT",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+        reason = data.get("reason", "")
+
+        success, refund_status, result = process_manual_refund(booking, refund_amount=amount, reason=reason)
+
+        if success:
+            return self.get_response(
+                status="success",
+                message=f"Refund initiated successfully ({refund_status})",
+                data=result,
+                status_code=status.HTTP_200_OK,
+            )
+        if refund_status == "already_refunded":
+            return self.get_error_response(
+                message="This booking has already been refunded",
+                status="error",
+                errors=[result],
+                error_code="ALREADY_REFUNDED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if refund_status == "no_payment_found":
+            return self.get_error_response(
+                message="No successful payment found for this booking",
+                status="error",
+                errors=[result],
+                error_code="NO_PAYMENT_FOUND",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if refund_status == "manual_gateway_required":
+            return self.get_error_response(
+                message=result.get("error", "Use cancel flow or gateway dashboard for this payment method"),
+                status="error",
+                errors=[result],
+                error_code="MANUAL_GATEWAY_REQUIRED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if refund_status == "wallet_not_found":
+            return self.get_error_response(
+                message="Customer wallet not found; cannot credit refund to wallet. Process refund manually (e.g. bank transfer) or ensure the customer has a personal wallet.",
+                status="error",
+                errors=[result],
+                error_code="WALLET_NOT_FOUND",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return self.get_error_response(
+            message=result.get("error", "Refund failed"),
+            status="error",
+            errors=[result],
+            error_code="REFUND_FAILED",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     @action(
         detail=False,

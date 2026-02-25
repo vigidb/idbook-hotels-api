@@ -1041,28 +1041,80 @@ def calculate_refund_amount(total_payment_made, applicable_policy):
     return refund_amount, refund_details
 
 
+def get_refund_wallet_for_booking(instance):
+    """
+    Resolve the wallet to credit for a booking refund:
+    - Corporate booking (company_id) → company wallet
+    - Agent booking (agent_id) → agent wallet
+    - Otherwise → user (personal) wallet
+
+    Returns (wallet, wallet_type) where wallet_type is 'company', 'agent', or 'user'.
+    Returns (None, None) if no wallet found.
+    """
+    # 1. Corporate booking → company wallet
+    if getattr(instance, "company_id", None):
+        wallet = Wallet.objects.filter(
+            company_id=instance.company_id, active=True
+        ).first()
+        if wallet:
+            return (wallet, "company")
+
+    # 2. Agent booking → agent wallet
+    if getattr(instance, "agent_id", None):
+        wallet = Wallet.objects.filter(
+            agent_id=instance.agent_id, active=True
+        ).first()
+        if wallet:
+            return (wallet, "agent")
+
+    # 3. User (personal) wallet
+    if getattr(instance, "user_id", None) and instance.user_id:
+        wallet = Wallet.objects.filter(
+            user__id=instance.user_id,
+            company__isnull=True,
+            agent__isnull=True,
+            active=True,
+        ).first()
+        if wallet:
+            return (wallet, "user")
+
+    return (None, None)
+
+
 def refund_wallet_payment(instance, refund_amount, cancellation_details):
 
     refund_log = {}
     refund_log["booking_id"] = instance.id
 
     try:
+        # Resolve wallet: company → agent → user
+        wallet, wallet_type = get_refund_wallet_for_booking(instance)
+        if wallet is None:
+            refund_log["status"] = "failed"
+            refund_log["error_message"] = (
+                "No wallet found for this booking (company/agent/user). "
+                "Refund cannot be credited to wallet; process manually or use another method."
+            )
+            return (
+                False,
+                "wallet_not_found",
+                refund_log,
+            )
+
         # Generate unique merchant transaction ID for refund
-        append_id = "WLRF{}".format(instance.user.id)
+        append_id = "WLRF{}".format(instance.id)
         merchant_refund_id = get_unique_id_from_time(append_id)
         refund_log["merchant_refund_id"] = merchant_refund_id
 
-        # Credit amount back to user's wallet
-        wallet = Wallet.objects.filter(
-            user__id=instance.user.id, company__isnull=True
-        ).first()
         wallet.balance = wallet.balance + Decimal(refund_amount)
         wallet.save()
 
-        # Create wallet transaction record
+        # Create wallet transaction record (match wallet's user/company/agent)
         transaction_details = f"Amount credited for canceled {instance.booking_type} booking ({instance.confirmation_code})"
         WalletTransaction.objects.create(
-            user=instance.user,
+            user=wallet.user,
+            company=wallet.company,
+            agent=wallet.agent,
             amount=refund_amount,
             transaction_type="Credit",
             transaction_for="booking_refund",
@@ -1087,19 +1139,23 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
             transaction_details={
                 "refund_amount": float(refund_amount),
                 "refund_type": "wallet_credit",
+                "wallet_type": wallet_type,
                 "transaction_details": transaction_details,
             },
         )
 
         # Log the refund transaction
         log_data = {
-            "user": instance.user,
+            "user": wallet.user,
+            "company": wallet.company,
+            "agent": wallet.agent,
             "merchant_transaction_id": merchant_refund_id,
             "request": {
                 "booking_id": instance.id,
                 "refund_amount": float(refund_amount),
                 "transaction_type": "Credit",
                 "payment_type": "WALLET",
+                "wallet_type": wallet_type,
             },
             "response": {
                 "status": "success",
@@ -1141,6 +1197,177 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
         refund_log["error_message"] = str(e)
 
         return (False, refund_status, refund_log)
+
+
+def process_manual_refund(booking, refund_amount=None, reason=""):
+    """
+    Process a manual refund for a booking (e.g. when flight booking failed but payment was collected).
+    Supports Wallet (Idbook) and Razorpay. For PhonePe, returns a status asking to use gateway/cancel flow.
+
+    Returns:
+        tuple: (success: bool, refund_status: str, data: dict)
+    """
+    from apps.booking.utils.db_utils import create_booking_refund_details
+    from apps.log_management.utils.db_utils import create_booking_refund_log
+
+    # Get the latest successful payment (exclude existing refund records)
+    payment_details = (
+        BookingPaymentDetail.objects.filter(
+            booking=booking, is_transaction_success=True
+        )
+        .exclude(transaction_for="booking_refund")
+        .order_by("-created")
+        .first()
+    )
+
+    if not payment_details:
+        return (
+            False,
+            "no_payment_found",
+            {"error": "No successful payment found for this booking."},
+        )
+
+    # Check if already refunded
+    already_refunded = BookingPaymentDetail.objects.filter(
+        booking=booking,
+        transaction_for="booking_refund",
+        is_transaction_success=True,
+    ).exists()
+    if already_refunded:
+        return (
+            False,
+            "already_refunded",
+            {"error": "This booking has already been refunded."},
+        )
+
+    amount = refund_amount if refund_amount is not None else payment_details.amount
+    if not isinstance(amount, Decimal):
+        amount = Decimal(str(amount))
+    if amount <= 0:
+        return (
+            False,
+            "invalid_amount",
+            {"error": "Refund amount must be greater than zero."},
+        )
+
+    cancellation_details = {
+        "reason": reason or "Manual refund (e.g. booking failed after payment)",
+        "refund_type": "manual",
+        "triggered_at": datetime.now().isoformat(),
+    }
+
+    # --- Wallet (Idbook) ---
+    if (
+        payment_details.payment_type == "WALLET"
+        and payment_details.payment_medium == "Idbook"
+    ):
+        success, refund_status, refund_data = refund_wallet_payment(
+            booking, amount, cancellation_details
+        )
+        if success:
+            booking.status = "refunded"
+            booking.total_payment_made = Decimal("0.0")
+            booking.save(update_fields=["status", "total_payment_made"])
+            if getattr(booking, "flight_booking", None):
+                booking.flight_booking.status = "REFUNDED"
+                booking.flight_booking.save(update_fields=["status"])
+        return (success, refund_status, refund_data)
+
+    # --- Razorpay ---
+    if payment_details.payment_medium and payment_details.payment_medium.upper() == "RAZORPAY":
+        payment_id = payment_details.transaction_id
+        if not payment_id and payment_details.transaction_details:
+            payment_id = payment_details.transaction_details.get("razorpay_payment_id")
+        if not payment_id:
+            return (
+                False,
+                "payment_id_missing",
+                {"error": "Razorpay payment ID not found for this payment."},
+            )
+
+        try:
+            from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+
+            append_id = "MREF{}".format(booking.user.id)
+            refund_log_obj = create_booking_refund_details(
+                booking.id,
+                payment_details.merchant_transaction_id,
+                append_id,
+            )
+            merchant_refund_id = refund_log_obj.merchant_refund_id
+
+            refund_notes = {
+                "reason": reason or "Manual refund - booking failed or refund required",
+                "booking_id": str(booking.id),
+                "booking_type": getattr(booking, "booking_type", ""),
+                "merchant_refund_id": merchant_refund_id,
+            }
+
+            razorpay_mixin = RazorpayMixin()
+            refund_result = razorpay_mixin.refund_payment(
+                payment_id=payment_id,
+                amount=float(amount),
+                notes=refund_notes,
+                speed="normal",
+            )
+
+            refund_log = {
+                "booking_id": booking.id,
+                "merchant_refund_id": merchant_refund_id,
+                "original_transaction_id": payment_details.merchant_transaction_id,
+                "refund_amount": float(amount),
+                "request": {
+                    "payment_id": payment_id,
+                    "refund_amount": float(amount),
+                    "notes": refund_notes,
+                },
+                "response": refund_result,
+            }
+
+            if refund_result.get("success"):
+                refund_id = refund_result.get("refund_id")
+                refund_log["transaction_id"] = refund_id
+                refund_log["status"] = "pending"
+                create_booking_refund_log(refund_log)
+
+                booking.status = "refunded"
+                booking.total_payment_made = Decimal("0.0")
+                booking.save(update_fields=["status", "total_payment_made"])
+                if getattr(booking, "flight_booking", None):
+                    booking.flight_booking.status = "REFUNDED"
+                    booking.flight_booking.save(update_fields=["status"])
+
+                return (
+                    True,
+                    "refund_in_progress",
+                    {
+                        "refund_id": refund_id,
+                        "merchant_refund_id": merchant_refund_id,
+                        "refund_amount": float(amount),
+                        "message": "Razorpay refund initiated (async).",
+                    },
+                )
+            else:
+                refund_log["status"] = "failed"
+                refund_log["error_message"] = refund_result.get("error", "Refund failed")
+                create_booking_refund_log(refund_log)
+                return (
+                    False,
+                    "refund_failed",
+                    {"error": refund_result.get("error", "Refund failed")},
+                )
+        except Exception as e:
+            return (False, "refund_failed", {"error": str(e)})
+
+    # --- PhonePe / others: manual or use cancel flow ---
+    return (
+        False,
+        "manual_gateway_required",
+        {
+            "error": "Manual refund for this payment method (e.g. PhonePe) is not supported via this API. Use booking cancel flow or process refund from payment gateway dashboard.",
+            "payment_medium": getattr(payment_details, "payment_medium", ""),
+        },
+    )
 
 
 def update_no_show_status(user_id):

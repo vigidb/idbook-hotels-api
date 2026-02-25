@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib import messages
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
@@ -35,8 +36,34 @@ class BookingAdmin(admin.ModelAdmin):
         "created",
         "updated",
     )
-    # search_fields = ('company_name', 'company_phone', 'company_email', 'district', 'state', 'country', 'pin_code')
-    # list_filter = ('state', 'country')
+    actions = ["trigger_manual_refund"]
+
+    @admin.action(description="Trigger manual refund")
+    def trigger_manual_refund(self, request, queryset):
+        from apps.booking.utils.booking_utils import process_manual_refund
+
+        success_count = 0
+        for booking in queryset:
+            success, refund_status, result = process_manual_refund(booking)
+            if success:
+                success_count += 1
+                self.message_user(
+                    request,
+                    f"Booking {booking.id} ({booking.confirmation_code}): refund initiated ({refund_status}).",
+                    messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"Booking {booking.id} ({booking.confirmation_code}): {refund_status} - {result.get('error', result)}",
+                    messages.ERROR,
+                )
+        if success_count:
+            self.message_user(
+                request,
+                f"Manual refund initiated for {success_count} booking(s).",
+                messages.SUCCESS,
+            )
 
 
 class BookingPaymentAdmin(admin.ModelAdmin):
