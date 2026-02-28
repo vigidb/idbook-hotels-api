@@ -13,6 +13,7 @@ from apps.customer.models import Customer
 from apps.holiday_package.models import TourPackage
 from apps.vehicle_management.models import VehicleDetail
 from apps.org_resources.models import CompanyDetail
+from apps.org_resources.models import AgentDetail
 from apps.org_managements.models import BusinessDetail
 
 from IDBOOKAPI.basic_resources import (
@@ -563,6 +564,14 @@ class Query(models.Model):
         null=True,
         blank=True,
         help_text="Company if query is for corporate"
+    )
+    agent = models.ForeignKey(
+        AgentDetail,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queries",
+        help_text="Agent associated with this query (if created/managed by agent)"
     )
     booking_for = models.CharField(
         max_length=50,

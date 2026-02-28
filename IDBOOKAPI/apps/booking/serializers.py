@@ -27,6 +27,9 @@ from .models import (
 from apps.customer.models import Customer
 from apps.hotels.utils.db_utils import get_property_gallery
 from apps.booking.utils.db_utils import get_booking_commission
+from apps.authentication.constants import UserGroups, CORPORATE_GROUPS
+from apps.authentication.utils.token_utils import get_user_active_group
+from apps.booking.utils.agent_linking_utils import get_agent_for_user
 
 from django.conf import settings
 import logging
@@ -157,16 +160,46 @@ class QuerySerializer(serializers.ModelSerializer):
         """Validate query data"""
         request = self.context.get("request")
         user = request.user if request else None
-        
-        # If user is authenticated, set raised_by
-        if user and user.is_authenticated:
+        is_update = self.instance is not None
+
+        # On create: set raised_by and auto-populate company/agent/booking_for from authenticated user.
+        # On update: do not change raised_by (preserve the customer who created the query).
+        if user and user.is_authenticated and not is_update:
             attrs["raised_by"] = user
-        
+
+            active_group = get_user_active_group(user, request) if request else None
+            default_group = active_group or user.default_group
+
+            # Corporate users → corporate booking + company
+            if default_group in CORPORATE_GROUPS or getattr(user, "company_id", None):
+                attrs["booking_for"] = "CORPORATE"
+                # Prefer token company if not explicitly set
+                if getattr(user, "company_id", None):
+                    attrs["company_id"] = user.company_id
+
+            # Agent users → agent booking + agent link + referral metadata
+            elif default_group in (UserGroups.AGENT_GRP, UserGroups.AGENT_ADMIN):
+                attrs["booking_for"] = "AGENT"
+                agent = get_agent_for_user(user)
+                if agent:
+                    attrs["agent"] = agent
+                    # Default referral metadata if not already provided
+                    attrs.setdefault("referred_by", user)
+                    attrs.setdefault("referral_type", "AGENT")
+
+            # Everyone else → B2C
+            else:
+                attrs.setdefault("booking_for", "B2C")
+
+        # On update: ensure raised_by is not in attrs so the original creator is not overwritten
+        if is_update and "raised_by" in attrs:
+            del attrs["raised_by"]
+
         # Validate query_data is a dict
         query_data = attrs.get("query_data", {})
         if not isinstance(query_data, dict):
             raise serializers.ValidationError("query_data must be a JSON object")
-        
+
         return attrs
 
     def create(self, validated_data):

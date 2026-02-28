@@ -493,32 +493,40 @@ class QueryAdmin(admin.ModelAdmin):
         "query_type",
         "raised_by",
         "company",
+        "agent",
         "booking_for",
         "status",
         "quote_amount",
         "invoice_link",
+        "booking_link",
         "created",
     )
+    list_display_links = ("query_reference", "id")
     list_filter = ("query_type", "status", "booking_for", "created")
     search_fields = (
         "query_reference",
         "raised_by__email",
+        "raised_by__name",
         "company__company_name",
+        "agent__agent_name",
         "query_data",
     )
-    readonly_fields = ("id", "query_reference", "created", "updated")
+    readonly_fields = ("id", "query_reference", "created", "updated", "invoice_link", "booking_link")
     inlines = [QueryCommunicationInline]
-    
+    date_hierarchy = "created"
+    list_per_page = 25
+    ordering = ("-created",)
+
     fieldsets = (
         ("Basic Information", {"fields": ("id", "query_reference", "query_type", "status")}),
-        ("User/Company", {"fields": ("raised_by", "company", "booking_for")}),
+        ("User/Company", {"fields": ("raised_by", "company", "agent", "booking_for")}),
         ("Referral", {"fields": ("referred_by", "referral_type")}),
-        ("Pricing & Invoice", {"fields": ("quote_amount", "invoice", "expires_at")}),
+        ("Pricing & Invoice", {"fields": ("quote_amount", "invoice", "invoice_link", "expires_at")}),
         ("Data", {"fields": ("query_data", "itinerary_details", "admin_notes")}),
-        ("Relationships", {"fields": ("booking",)}),
+        ("Relationships", {"fields": ("booking", "booking_link")}),
         ("Timestamps", {"fields": ("created", "updated", "active")}),
     )
-    
+
     def invoice_link(self, obj):
         if obj.invoice:
             from django.urls import reverse
@@ -527,6 +535,16 @@ class QueryAdmin(admin.ModelAdmin):
             return format_html('<a href="{}">{} ({})</a>', url, obj.invoice.invoice_number, obj.invoice.invoice_type)
         return "-"
     invoice_link.short_description = "Invoice"
+
+    def booking_link(self, obj):
+        if obj.booking_id:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            url = reverse("admin:booking_booking_change", args=[obj.booking_id])
+            label = obj.booking.confirmation_code or f"Booking #{obj.booking_id}"
+            return format_html('<a href="{}">{}</a>', url, label)
+        return "-"
+    booking_link.short_description = "Booking"
 
 
 class QueryCommunicationAdmin(admin.ModelAdmin):

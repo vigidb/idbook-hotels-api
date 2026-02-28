@@ -18,8 +18,8 @@ Used when payment was collected but the booking failed (e.g. flight booking fail
 }
 ```
 
-- `amount` (optional): Refund amount. If omitted, full payment amount is refunded.
-- `reason` (optional): Stored in refund notes (e.g. for Razorpay).
+- `amount` (optional): Refund amount. If omitted, the **total of all successful payments** for that booking is refunded (full amount paid).
+- `reason` (optional): Refund reason. Stored in wallet transaction details, `BookingPaymentDetail.transaction_details.refund_reason`, refund logs (`BookingRefundLog` request), and Razorpay notes, so it appears correctly in payment history and admin.
 
 ### Responses
 
@@ -42,8 +42,9 @@ Same logic as the API: supports Wallet and Razorpay; shows success or error per 
 
 ## Behaviour
 
-- Uses the latest **successful** payment for the booking (ignores existing refund records).
+- **Amount:** Sums **all successful (non-refund) payments** for the booking. If you omit `amount`, that total is refunded so the full amount paid is covered. If the booking had multiple Razorpay payments, each is refunded in turn.
 - If the booking already has a successful refund, returns "Already refunded".
-- **Wallet:** Credits amount back to user wallet, creates refund payment record and log, sets booking status to `refunded` and (for flights) `flight_booking.status` to `REFUNDED`.
-- **Razorpay:** Creates refund log, calls Razorpay refund API, updates booking status. Refund may complete asynchronously (webhook can update status later).
+- **Reason:** The `reason` you send is stored in: wallet `WalletTransaction.transaction_details` and `BookingPaymentDetail.transaction_details.refund_reason`, `WalletTransactionLog.request.refund_reason`, and (for Razorpay) in the refund log request and Razorpay notes, so it appears in payment history and admin.
+- **Wallet:** Credits the amount to the correct wallet (company / agent / user), creates refund payment record and log with reason, sets booking status to `refunded` and (for flights) `flight_booking.status` to `REFUNDED`.
+- **Razorpay:** Refunds **every** successful Razorpay payment for the booking (one API call per payment), creates a refund log per payment with reason, updates booking status. Refunds may complete asynchronously (webhook can update status later).
 - **PhonePe:** Not supported by this flow; use cancel booking or gateway dashboard.

@@ -1109,8 +1109,14 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
         wallet.balance = wallet.balance + Decimal(refund_amount)
         wallet.save()
 
-        # Create wallet transaction record (match wallet's user/company/agent)
-        transaction_details = f"Amount credited for canceled {instance.booking_type} booking ({instance.confirmation_code})"
+        # Use refund reason from cancellation_details (e.g. manual refund reason)
+        refund_reason = (cancellation_details or {}).get(
+            "reason", "Booking cancellation / refund"
+        )
+        transaction_details = (
+            f"Amount credited for canceled {instance.booking_type} booking "
+            f"({instance.confirmation_code}). Reason: {refund_reason}"
+        )
         WalletTransaction.objects.create(
             user=wallet.user,
             company=wallet.company,
@@ -1140,11 +1146,12 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
                 "refund_amount": float(refund_amount),
                 "refund_type": "wallet_credit",
                 "wallet_type": wallet_type,
+                "refund_reason": refund_reason,
                 "transaction_details": transaction_details,
             },
         )
 
-        # Log the refund transaction
+        # Log the refund transaction (include reason)
         log_data = {
             "user": wallet.user,
             "company": wallet.company,
@@ -1153,6 +1160,7 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
             "request": {
                 "booking_id": instance.id,
                 "refund_amount": float(refund_amount),
+                "refund_reason": refund_reason,
                 "transaction_type": "Credit",
                 "payment_type": "WALLET",
                 "wallet_type": wallet_type,
@@ -1174,10 +1182,11 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
             instance.hotel_booking.cancellation_details = cancellation_details
             instance.hotel_booking.save(update_fields=["cancellation_details"])
 
-        # Add to refund log for return
+        # Add to refund log for return (include reason for API/detail)
         refund_log["status"] = "completed"
         refund_log["transaction_id"] = merchant_refund_id
         refund_log["refund_amount"] = float(refund_amount)
+        refund_log["refund_reason"] = refund_reason
 
         return (True, refund_status, refund_log)
 
@@ -1204,23 +1213,25 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
     Process a manual refund for a booking (e.g. when flight booking failed but payment was collected).
     Supports Wallet (Idbook) and Razorpay. For PhonePe, returns a status asking to use gateway/cancel flow.
 
+    Refunds the total of ALL successful (non-refund) payments for this booking by default, so the full
+    amount paid is refunded. Reason is stored in transaction details, payment details, and refund logs.
+
     Returns:
         tuple: (success: bool, refund_status: str, data: dict)
     """
     from apps.booking.utils.db_utils import create_booking_refund_details
     from apps.log_management.utils.db_utils import create_booking_refund_log
 
-    # Get the latest successful payment (exclude existing refund records)
-    payment_details = (
+    # All successful payments for this booking (exclude existing refund records)
+    successful_payments = list(
         BookingPaymentDetail.objects.filter(
             booking=booking, is_transaction_success=True
         )
         .exclude(transaction_for="booking_refund")
         .order_by("-created")
-        .first()
     )
 
-    if not payment_details:
+    if not successful_payments:
         return (
             False,
             "no_payment_found",
@@ -1240,7 +1251,11 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
             {"error": "This booking has already been refunded."},
         )
 
-    amount = refund_amount if refund_amount is not None else payment_details.amount
+    # Total amount from all successful payments (refund full amount paid by default)
+    total_paid = sum(
+        Decimal(str(p.amount)) for p in successful_payments
+    )
+    amount = refund_amount if refund_amount is not None else total_paid
     if not isinstance(amount, Decimal):
         amount = Decimal(str(amount))
     if amount <= 0:
@@ -1250,11 +1265,15 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
             {"error": "Refund amount must be greater than zero."},
         )
 
+    refund_reason = reason or "Manual refund (e.g. booking failed after payment)"
     cancellation_details = {
-        "reason": reason or "Manual refund (e.g. booking failed after payment)",
+        "reason": refund_reason,
         "refund_type": "manual",
         "triggered_at": datetime.now().isoformat(),
     }
+
+    # Use first payment to determine method (all should be same method for a given booking in typical flow)
+    payment_details = successful_payments[0]
 
     # --- Wallet (Idbook) ---
     if (
@@ -1273,40 +1292,57 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
                 booking.flight_booking.save(update_fields=["status"])
         return (success, refund_status, refund_data)
 
-    # --- Razorpay ---
-    if payment_details.payment_medium and payment_details.payment_medium.upper() == "RAZORPAY":
-        payment_id = payment_details.transaction_id
-        if not payment_id and payment_details.transaction_details:
-            payment_id = payment_details.transaction_details.get("razorpay_payment_id")
-        if not payment_id:
-            return (
-                False,
-                "payment_id_missing",
-                {"error": "Razorpay payment ID not found for this payment."},
-            )
+    # --- Razorpay: refund EACH successful Razorpay payment so full amount is refunded ---
+    razorpay_payments = [
+        p
+        for p in successful_payments
+        if p.payment_medium and p.payment_medium.upper() == "RAZORPAY"
+    ]
+    if not razorpay_payments:
+        return (
+            False,
+            "manual_gateway_required",
+            {
+                "error": "No Razorpay payment found. Use cancel flow or gateway for this payment method.",
+                "payment_medium": getattr(payment_details, "payment_medium", ""),
+            },
+        )
 
-        try:
-            from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
+    try:
+        from apps.payment_gateways.mixins.razorpay_mixins import RazorpayMixin
 
-            append_id = "MREF{}".format(booking.user.id)
+        razorpay_mixin = RazorpayMixin()
+        refunded_total = Decimal("0")
+        refund_ids = []
+        last_merchant_refund_id = None
+
+        for payment_details in razorpay_payments:
+            payment_id = payment_details.transaction_id
+            if not payment_id and payment_details.transaction_details:
+                payment_id = payment_details.transaction_details.get("razorpay_payment_id")
+            if not payment_id:
+                continue
+            pay_amount = Decimal(str(payment_details.amount))
+
+            append_id = "MREF{}".format(booking.id)
             refund_log_obj = create_booking_refund_details(
                 booking.id,
                 payment_details.merchant_transaction_id,
                 append_id,
             )
             merchant_refund_id = refund_log_obj.merchant_refund_id
+            last_merchant_refund_id = merchant_refund_id
 
             refund_notes = {
-                "reason": reason or "Manual refund - booking failed or refund required",
+                "reason": refund_reason,
                 "booking_id": str(booking.id),
                 "booking_type": getattr(booking, "booking_type", ""),
                 "merchant_refund_id": merchant_refund_id,
             }
 
-            razorpay_mixin = RazorpayMixin()
             refund_result = razorpay_mixin.refund_payment(
                 payment_id=payment_id,
-                amount=float(amount),
+                amount=float(pay_amount),
                 notes=refund_notes,
                 speed="normal",
             )
@@ -1315,10 +1351,12 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
                 "booking_id": booking.id,
                 "merchant_refund_id": merchant_refund_id,
                 "original_transaction_id": payment_details.merchant_transaction_id,
-                "refund_amount": float(amount),
+                "refund_amount": float(pay_amount),
+                "refund_reason": refund_reason,
                 "request": {
                     "payment_id": payment_id,
-                    "refund_amount": float(amount),
+                    "refund_amount": float(pay_amount),
+                    "refund_reason": refund_reason,
                     "notes": refund_notes,
                 },
                 "response": refund_result,
@@ -1329,35 +1367,42 @@ def process_manual_refund(booking, refund_amount=None, reason=""):
                 refund_log["transaction_id"] = refund_id
                 refund_log["status"] = "pending"
                 create_booking_refund_log(refund_log)
-
-                booking.status = "refunded"
-                booking.total_payment_made = Decimal("0.0")
-                booking.save(update_fields=["status", "total_payment_made"])
-                if getattr(booking, "flight_booking", None):
-                    booking.flight_booking.status = "REFUNDED"
-                    booking.flight_booking.save(update_fields=["status"])
-
-                return (
-                    True,
-                    "refund_in_progress",
-                    {
-                        "refund_id": refund_id,
-                        "merchant_refund_id": merchant_refund_id,
-                        "refund_amount": float(amount),
-                        "message": "Razorpay refund initiated (async).",
-                    },
-                )
+                refunded_total += pay_amount
+                refund_ids.append(refund_id)
             else:
                 refund_log["status"] = "failed"
                 refund_log["error_message"] = refund_result.get("error", "Refund failed")
                 create_booking_refund_log(refund_log)
-                return (
-                    False,
-                    "refund_failed",
-                    {"error": refund_result.get("error", "Refund failed")},
-                )
-        except Exception as e:
-            return (False, "refund_failed", {"error": str(e)})
+
+        if refunded_total > 0:
+            booking.status = "refunded"
+            booking.total_payment_made = Decimal("0.0")
+            booking.save(update_fields=["status", "total_payment_made"])
+            if getattr(booking, "flight_booking", None):
+                booking.flight_booking.status = "REFUNDED"
+                booking.flight_booking.save(update_fields=["status"])
+
+            return (
+                True,
+                "refund_in_progress",
+                {
+                    "refund_id": refund_ids[0] if len(refund_ids) == 1 else refund_ids,
+                    "refund_ids": refund_ids,
+                    "merchant_refund_id": last_merchant_refund_id,
+                    "refund_amount": float(refunded_total),
+                    "refund_reason": refund_reason,
+                    "payments_refunded": len(refund_ids),
+                    "message": "Razorpay refund(s) initiated (async).",
+                },
+            )
+        # No Razorpay refund succeeded
+        return (
+            False,
+            "refund_failed",
+            {"error": "Razorpay refund(s) failed for all payment(s). Check refund logs."},
+        )
+    except Exception as e:
+        return (False, "refund_failed", {"error": str(e)})
 
     # --- PhonePe / others: manual or use cancel flow ---
     return (
