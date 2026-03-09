@@ -67,7 +67,7 @@ from .models import (
     FeatureSubscription,
     BasicRulesConfig,
 )
-from apps.log_management.models import UserSubscriptionLogs
+from apps.log_management.models import UserSubscriptionLogs, WalletTransactionLog
 
 from IDBOOKAPI.utils import (
     paginate_queryset,
@@ -90,7 +90,7 @@ from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
 from apps.authentication.utils.authentication_utils import get_group_based_on_name
-from apps.customer.models import Customer
+from apps.customer.models import Customer, Wallet, WalletTransaction
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 
 from apps.org_resources.tasks import send_enquiry_email_task, pro_member_send_sms_task
@@ -1303,10 +1303,23 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         otp_cnt_mob = self.request.data.get("otp_cnt_mob", None)
         otp_cnt_email = self.request.data.get("otp_cnt_email", None)
 
+        # When agent_email and contact_email_address are the same, only contact
+        # email OTP is required (one verification for that inbox).
+        same_email = (
+            agent_email
+            and contact_email_address
+            and agent_email.strip().lower() == contact_email_address.strip().lower()
+        )
+        have_contact_otps = otp_cnt_mob and otp_cnt_email
+        need_agent_email_otp = agent_email and not same_email
+        have_agent_otp_if_needed = otp_agt_email if need_agent_email_otp else True
+        should_verify_otps = have_contact_otps and have_agent_otp_if_needed
+
         # Verify OTPs
-        if otp_agt_email and otp_cnt_mob and otp_cnt_email:
-            # agent email verify
-            if agent_email:
+        if should_verify_otps:
+            # Agent email OTP: only when different from contact email (same email
+            # is verified once via contact email OTP).
+            if agent_email and not same_email:
                 agtobj_emailotp = auth_db_utils.check_email_otp(
                     agent_email, otp_agt_email, "VERIFY"
                 )
@@ -1333,7 +1346,7 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                         }
                     )
 
-            # contact email verify
+            # contact email verify (also covers agent email when same_email)
             if contact_email_address:
                 cntobj_emailotp = auth_db_utils.check_email_otp(
                     contact_email_address, otp_cnt_email, "SIGNUP"
@@ -1362,19 +1375,32 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         
         if not self.role:
             from apps.authentication.models import Role
+            from django.contrib.auth.models import Permission
             # Try to get or create the AGENT-ADMIN role
             role_name = "AGENT-ADMIN"
             self.role = Role.objects.filter(name=role_name, is_system_role=True).first()
             if not self.role and self.grp:
-                # Create the role if it doesn't exist
+                # Create the role if it doesn't exist (short_code max_length=3 in Role model)
                 self.role = Role.objects.create(
                     name=role_name,
-                    short_code="AGT-ADMIN",
+                    short_code="AGT",
                     group=self.grp,
                     business=None,
                     is_system_role=True,
                 )
-                print(f"Created missing role: {role_name}")
+                # Assign agent permissions so the role has the same permissions as create_system_roles
+                agent_permission_codenames = [
+                    "view_agent",
+                    "change_agent",
+                    "manage_agent",
+                    "view_booking",
+                    "add_booking",
+                ]
+                permissions = Permission.objects.filter(
+                    codename__in=agent_permission_codenames
+                )
+                self.role.permissions.set(permissions)
+                print(f"Created missing role: {role_name} with {permissions.count()} permissions")
         
         if not self.grp or not self.role:
             # Provide more detailed error message
@@ -1402,7 +1428,9 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     }
                 )
 
-        # check contact email exist
+        # check contact email: only reject if already registered as an agent.
+        # Same email as a personal (non-agent) account is allowed — that user
+        # will be upgraded to agent in create().
         if contact_email_address:
             cntemail_grp_users = auth_db_utils.get_userid_list(
                 contact_email_address, group=self.grp
@@ -1412,11 +1440,11 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     {
                         "field": "contact_email_address",
                         "error_code": "CNT_EMAIL_EXIST",
-                        "message": "Contact email already exist",
+                        "message": "Contact email is already registered as an agent.",
                     }
                 )
 
-        # check contact number exist
+        # check contact number: only reject if already used by another agent
         if contact_number:
             mobile_grp_users = auth_db_utils.get_userid_list(
                 contact_number, group=self.grp
@@ -1450,7 +1478,8 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         if serializer.is_valid():
             agent_detail = serializer.save()
 
-            # create or update user based on contact email
+            # Create or link user by contact email. Same email as a personal
+            # account is allowed: we reuse that user and add agent group/role.
             user = User.objects.filter(
                 email=agent_detail.contact_email_address
             ).first()
@@ -1461,7 +1490,6 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     email=agent_detail.contact_email_address,
                     mobile_number=agent_detail.contact_number,
                     default_group="AGENT-GRP",
-                    agent_id=agent_detail.id,
                     email_verified=True,
                     mobile_verified=True,
                 )
@@ -1486,7 +1514,8 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 if agent_detail.contact_number and not user.mobile_number:
                     user.mobile_number = agent_detail.contact_number
                 user.default_group = "AGENT-GRP"
-                user.agent_id = agent_detail.id
+                if hasattr(user, "agent_id"):
+                    user.agent_id = agent_detail.id
                 user.email_verified = True
                 user.mobile_verified = True
                 user.save()
@@ -1661,24 +1690,25 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         # Get the object to be updated
         instance = self.get_object()
 
-        # Check if agent_name is provided (mandatory field)
-        agent_name = request.data.get("agent_name", "")
-        if not agent_name or agent_name.strip() == "":
-            error_list = [
-                {
-                    "field": "agent_name",
-                    "error_code": "REQUIRED_FIELD",
-                    "message": "agent_name is required and cannot be empty",
-                }
-            ]
-            response = self.get_error_response(
-                message="Validation Error",
-                status="error",
-                errors=error_list,
-                error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-            return response
+        # Require agent_name only when it is being updated (PATCH may send only some fields)
+        if "agent_name" in request.data:
+            agent_name = request.data.get("agent_name", "")
+            if not agent_name or (isinstance(agent_name, str) and agent_name.strip() == ""):
+                error_list = [
+                    {
+                        "field": "agent_name",
+                        "error_code": "REQUIRED_FIELD",
+                        "message": "agent_name is required and cannot be empty",
+                    }
+                ]
+                response = self.get_error_response(
+                    message="Validation Error",
+                    status="error",
+                    errors=error_list,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return response
 
         # Prevent contact_email_address from being updated
         # This ensures the relationship between user and agent remains intact
@@ -1742,8 +1772,36 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         action = request.query_params.get("action", "deactivate")  # "deactivate" or "delete"
 
         if action == "delete":
-            # Hard delete
+            # Resolve the user linked to this agent (for removing group/role and optional user delete)
+            user = instance.added_user or User.objects.filter(
+                email=instance.contact_email_address
+            ).first()
+            agent_grp, agent_role = get_group_based_on_name("AGENT-GRP")
+
+            if user:
+                # Remove AGENT-GRP and agent role from the user
+                if agent_grp and user.groups.filter(id=agent_grp.id).exists():
+                    user.groups.remove(agent_grp)
+                if agent_role and user.roles.filter(id=agent_role.id).exists():
+                    user.roles.remove(agent_role)
+                if user.default_group == "AGENT-GRP":
+                    user.default_group = None
+                if getattr(user, "agent_id", None) == instance.id:
+                    setattr(user, "agent_id", None)
+                user.save()
+
+            # Nullify agent FK on wallet-related tables (they use DO_NOTHING, so
+            # we must clear references before deleting the agent).
+            Wallet.objects.filter(agent=instance).update(agent=None)
+            WalletTransaction.objects.filter(agent=instance).update(agent=None)
+            WalletTransactionLog.objects.filter(agent=instance).update(agent=None)
+            # Hard delete the agent
             instance.delete()
+
+            # If the user had only the agent group, delete the user as well
+            if user and not user.groups.exists():
+                user.delete()
+
             custom_response = self.get_response(
                 data=None,
                 message="AgentDetail Deleted Successfully",

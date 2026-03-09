@@ -107,11 +107,11 @@ class Command(BaseCommand):
                     ],
                 },
             ],
-            # AGENT-GRP roles
+            # AGENT-GRP roles (name "AGENT-ADMIN" matches constants and get_group_based_on_name)
             UserGroups.AGENT_GRP: [
                 {
-                    "name": "Agent Admin",
-                    "short_code": "AA",
+                    "name": "AGENT-ADMIN",
+                    "short_code": "AGT",
                     "permissions": [
                         "view_agent",
                         "change_agent",

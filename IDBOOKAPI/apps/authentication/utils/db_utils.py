@@ -111,8 +111,15 @@ def create_mobile_otp(otp, mobile_number, otp_for):
         )
 
 
+def _user_username_q(username):
+    """Q object for User lookup by username (email or mobile). Email is case-insensitive."""
+    if username and "@" in str(username):
+        return Q(email__iexact=username) | Q(mobile_number=username)
+    return Q(email=username) | Q(mobile_number=username)
+
+
 def get_userid_list(username, group=None):
-    user_objs = User.objects.filter(Q(email=username) | Q(mobile_number=username))
+    user_objs = User.objects.filter(_user_username_q(username))
     if group:
         user_objs = user_objs.filter(groups=group)
 
@@ -128,9 +135,7 @@ def is_role_exist(user_objs, role):
 def get_user_details(user_id, username):
     """need to remove the user id"""
     user_detail = (
-        User.objects.filter(id=user_id)
-        .filter(Q(email=username) | Q(mobile_number=username))
-        .first()
+        User.objects.filter(id=user_id).filter(_user_username_q(username)).first()
     )
     return user_detail
 
@@ -138,7 +143,7 @@ def get_user_details(user_id, username):
 def get_group_based_user_details(group, username):
     user_detail = (
         User.objects.filter(groups=group, is_active=True)
-        .filter(Q(email=username) | Q(mobile_number=username))
+        .filter(_user_username_q(username))
         .first()
     )
     return user_detail

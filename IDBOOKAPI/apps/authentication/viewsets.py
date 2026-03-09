@@ -1316,7 +1316,6 @@ class OtpBasedUserEntryAPIView(
             # For Google auth cases, skip duplicate checks since user already exists
             if otp_for not in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
                 user_objs = db_utils.get_userid_list(username, group=grp)
-                print("user_objs:", user_objs)
 
                 # allow B2C-GRP sign up for guest user
                 is_role_exist = False
@@ -1329,11 +1328,17 @@ class OtpBasedUserEntryAPIView(
 
                 if otp_for == "LOGIN":
                     if not user_objs:
+                        group_hint = f" for {group_name}" if group_name else ""
                         response = self.get_error_response(
-                            message="Invalid User Credentials!",
+                            message=f"No account found with this {medium_type}{group_hint}. Please check your credentials or sign up.",
                             status="error",
-                            errors=[],
-                            error_code="MISSING_USERNAME",
+                            errors=[
+                                {
+                                    "field": "username",
+                                    "message": f"No user found with this {medium_type} in the selected group.",
+                                }
+                            ],
+                            error_code="USER_NOT_FOUND",
                             status_code=status.HTTP_406_NOT_ACCEPTABLE,
                         )
                         return response
