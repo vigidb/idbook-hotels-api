@@ -79,16 +79,16 @@ urlpatterns = [
     ),
     # re_path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # re_path('api/v1/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
-    # API documents
+    # API documentation (ReDoc + Swagger under /api/v1/docs/)
     re_path(
-        r"^api/v1/docs2/(?P<format>\.json|\.yaml)$",
-        schema_view.without_ui(cache_timeout=0),
-        name="schema-json",
-    ),
-    re_path(
-        r"^api/v1/docs2/$",
+        r"^api/v1/docs/swagger/$",
         schema_view.with_ui("swagger", cache_timeout=0),
         name="schema-swagger-ui",
+    ),
+    re_path(
+        r"^api/v1/docs/(?P<format>\.json|\.yaml)$",
+        schema_view.without_ui(cache_timeout=0),
+        name="schema-json",
     ),
     re_path(
         r"^api/v1/docs/$",

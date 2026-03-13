@@ -78,11 +78,63 @@ logger = logging.getLogger(__name__)
 
 
 def homepage(request):
-    from IDBOOKAPI.settings import BASE_URL as HOST
+    # Use the URL you're actually visiting so docs/links work (localhost vs production).
+    base = request.build_absolute_uri("/").rstrip("/")
 
-    return HttpResponse(
-        f"Welcome to APIs server please visit <a href='/api/v1/docs'>{HOST}/api/v1/docs</a> or <a href='/api/v1/docs2'>{HOST}/api/v1/docs2</a> "
-    )
+    html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDBOOK Hotels API</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #333; }}
+        h1 {{ color: #111; margin-bottom: 0.25rem; }}
+        .subtitle {{ color: #666; margin-bottom: 1.5rem; }}
+        a {{ color: #0d6efd; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .card {{ background: #f8f9fa; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }}
+        .card h2 {{ margin: 0 0 0.5rem 0; font-size: 1rem; color: #495057; }}
+        ul {{ margin: 0.25rem 0; padding-left: 1.25rem; }}
+        code {{ background: #e9ecef; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }}
+    </style>
+</head>
+<body>
+    <h1>IDBOOK Hotels API</h1>
+    <p class="subtitle">Backend API for hotel bookings, payments, and partner operations.</p>
+
+    <div class="card">
+        <h2>API documentation</h2>
+        <ul>
+            <li><a href="/api/v1/docs/">ReDoc</a> — <code>{base}/api/v1/docs/</code> (read-only reference)</li>
+            <li><a href="/api/v1/docs/swagger/">Swagger UI</a> — <code>{base}/api/v1/docs/swagger/</code> (interactive try-it-out)</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>OpenAPI schema</h2>
+        <ul>
+            <li><a href="/api/v1/docs/.json">JSON</a> — <code>{base}/api/v1/docs/.json</code></li>
+            <li><a href="/api/v1/docs/.yaml">YAML</a> — <code>{base}/api/v1/docs/.yaml</code></li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>Base URL</h2>
+        <p><code>{base}/api/v1/</code></p>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #6c757d;">Shown from the current request. For emails/notifications, <code>BASE_URL</code> / <code>BASE_URL_</code> in the environment is used.</p>
+    </div>
+
+    <div class="card">
+        <h2>Authentication</h2>
+        <p>JWT (Bearer). Obtain tokens at <code>POST /api/v1/auth/token/</code>, refresh at <code>POST /api/v1/auth/token/refresh/</code>.</p>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #6c757d;">In Swagger UI: call <code>POST /api/v1/auth/token/</code> with <code>username</code> and <code>password</code>, copy the <code>access</code> value, then click <strong>Authorize</strong> and enter <code>Bearer &lt;access_token&gt;</code>.</p>
+    </div>
+</body>
+</html>
+"""
+    return HttpResponse(html)
 
 
 class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

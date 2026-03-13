@@ -76,8 +76,8 @@ celery -A IDBOOKAPI beat --loglevel=info
 
 ### API Documentation
 
-- Swagger UI: `http://localhost:8000/api/v1/docs2/`
 - ReDoc: `http://localhost:8000/api/v1/docs/`
+- Swagger UI: `http://localhost:8000/api/v1/docs/swagger/`
 
 ## Architecture
 

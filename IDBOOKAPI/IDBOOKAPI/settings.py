@@ -9,10 +9,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
 environ.Env.read_env()
 
+# Base URL for the API (used on homepage, docs links, etc.). Defaults to localhost.
 if env("DEBUG"):
-    BASE_URL = env("BASE_URL")
+    BASE_URL = env("BASE_URL", default="http://localhost:8000")
 else:
-    BASE_URL = env("BASE_URL_")
+    BASE_URL = env("BASE_URL_", default="https://backend.idbookhotels.com")
+
+# Ensure BASE_URL has a scheme (http/https) so links work
+if BASE_URL and not BASE_URL.startswith(("http://", "https://")):
+    BASE_URL = ("https://" if "localhost" not in BASE_URL and "127.0.0.1" not in BASE_URL else "http://") + BASE_URL.rstrip("/")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
@@ -231,7 +236,7 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.BasicAuthentication",  # enables simple command line authentication
+        # "rest_framework.authentication.BasicAuthentication",  # enables simple command line authentication
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         # 'rest_framework.authentication.SessionAuthentication',
         # 'rest_framework.authentication.TokenAuthentication',
@@ -255,6 +260,30 @@ REST_FRAMEWORK = {
     },
     # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     # 'PAGE_SIZE': 10
+}
+
+# drf-yasg (OpenAPI docs): avoid 500 when generating schema with django-filter and no coreapi.
+# django-filter's get_schema_fields() requires coreapi, which can fail on Python 3.10+.
+# Disabling filter inspectors lets /api/v1/docs/ and /api/v1/docs/swagger/ load; filter params won't appear in schema.
+# To get filter params in the schema, install: pip install drf-yasg[coreapi] (or coreapi + coreschema).
+SWAGGER_SETTINGS = {
+    "DEFAULT_FILTER_INSPECTORS": [],
+    # Disable Django session-based auth buttons in Swagger; use JWT or Basic instead
+    "USE_SESSION_AUTH": False,
+    "SECURITY_DEFINITIONS": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT from POST /api/v1/auth/token/. Example: Bearer <access_token>",
+        },
+        "Basic": {
+            "type": "basic",
+            "description": "HTTP Basic auth (same credentials as Django admin if enabled).",
+        },
+    },
+    # Default to Bearer globally; you can still authorize with Basic in Swagger's Authorize dialog
+    "SECURITY_REQUIREMENTS": [{"Bearer": []}],
 }
 
 STATIC_URL = "/static/"
