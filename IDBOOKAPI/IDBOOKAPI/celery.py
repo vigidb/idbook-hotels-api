@@ -52,6 +52,9 @@ app.conf.task_routes = {
         "queue": email_send_queue
     },
     "apps.flights.tasks.send_flight_status_update_task": {"queue": email_send_queue},
+    "apps.messaging.tasks.enqueue_campaign_contacts_task": {"queue": email_send_queue},
+    "apps.messaging.tasks.send_campaign_batch_task": {"queue": email_send_queue},
+    "apps.messaging.tasks.process_due_campaign_contacts_task": {"queue": email_send_queue},
 }
 
 
@@ -94,6 +97,12 @@ app.conf.beat_schedule = {
         "task": "apps.flights.tasks.check_airiq_token_status_task",
         "schedule": crontab(minute=0),  # Every hour at minute 0
         "options": {"queue": "airiq-token-queue"},
+    },
+    # Messaging: process due campaign contacts (scheduled sends)
+    "process-due-campaign-contacts": {
+        "task": "apps.messaging.tasks.process_due_campaign_contacts_task",
+        "schedule": crontab(minute="*/1"),  # Every minute
+        "options": {"queue": email_send_queue},
     },
 }
 

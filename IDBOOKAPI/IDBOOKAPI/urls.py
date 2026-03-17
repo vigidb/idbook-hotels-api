@@ -23,6 +23,7 @@ from apps.hotels.urls import router as hotels_router
 from apps.vehicle_management.urls import router as vehicle_router
 from apps.log_management.urls import router as log_router
 from apps.analytics.urls import router as analytics_router
+from apps.messaging.urls import router as messaging_router
 
 
 schema_view = get_schema_view(
@@ -36,6 +37,63 @@ schema_view = get_schema_view(
     ),
     public=True,
     permission_classes=([permissions.AllowAny]),
+)
+
+# Dedicated schema for authentication/user onboarding flows only
+schema_view_auth = get_schema_view(
+    openapi.Info(
+        title="IDBOOK Auth & User Flows",
+        default_version="v1",
+        description=(
+            "Focused documentation for authentication and user onboarding flows:\n"
+            "- Username/password login\n"
+            "- OTP login/signup\n"
+            "- Google login/signup\n"
+            "- Password reset & profile endpoints"
+        ),
+        contact=openapi.Contact(email="contact@idbookhotels.com"),
+        license=openapi.License(name="BSD License"),
+    ),
+    public=True,
+    permission_classes=([permissions.AllowAny]),
+    patterns=[
+        # Limit this schema to authentication-related URLs under /api/v1/auth/
+        re_path("api/v1/", include("apps.authentication.urls")),
+    ],
+)
+
+# Dedicated schema for Messaging & Campaign APIs
+schema_view_messaging = get_schema_view(
+    openapi.Info(
+        title="IDBOOK Messaging & Campaign APIs",
+        default_version="v1",
+        description=(
+            "Customer Engagement & Messaging Automation System.\n\n"
+            "Authentication requirement:\n"
+            "- Step 0: Obtain a JWT access token using /api/v1/auth/token/ as a BUSINESS group user.\n"
+            "- Include `Authorization: Bearer <token>` in all subsequent requests.\n\n"
+            "Recommended flow:\n"
+            "1. Upload or create Contacts (B2C, Corporate, Agents, Hoteliers, etc.).\n"
+            "2. Configure Email/SMS templates (marketing-focused).\n"
+            "3. Create a Campaign (target group + filters like city, country).\n"
+            "4. Add one or more Campaign Steps (email/SMS, template, delays in hours/days/weeks).\n"
+            "5. Schedule the campaign or send immediately.\n"
+            "6. Monitor campaign status and message logs.\n\n"
+            "This documentation focuses on messaging-related endpoints under /api/v1/messaging/ "
+            "and the login endpoint under /api/v1/auth/token/ to make it easy to understand, "
+            "test, and iterate on campaigns in the correct order."
+        ),
+        contact=openapi.Contact(email="contact@idbookhotels.com"),
+        license=openapi.License(name="BSD License"),
+    ),
+    public=True,
+    permission_classes=([permissions.AllowAny]),
+    patterns=[
+        # Include auth token endpoints so users can authenticate first
+        re_path("api/v1/auth/", include("apps.authentication.urls")),
+        # Include the messaging router URLs so drf_yasg can introspect endpoints
+        re_path("api/v1/messaging/", include(messaging_router.urls)),
+    ],
 )
 
 urlpatterns = [
@@ -64,6 +122,7 @@ urlpatterns = [
     re_path("api/v1/vehcile-management/", include(vehicle_router.urls)),
     re_path("api/v1/log-management/", include(log_router.urls)),
     re_path("api/v1/analytics/", include(analytics_router.urls)),
+    re_path("api/v1/messaging/", include(messaging_router.urls)),
     re_path("api/v1/flights/", include("apps.flights.urls")),
     re_path("api/v1/socket-com/", include("apps.socket_com.urls")),
     # JWT token authentication
@@ -94,6 +153,28 @@ urlpatterns = [
         r"^api/v1/docs/$",
         schema_view.with_ui("redoc", cache_timeout=0),
         name="schema-redoc",
+    ),
+    # Auth-focused documentation (separate Swagger/ReDoc for user flows)
+    re_path(
+        r"^api/v1/docs/auth/swagger/$",
+        schema_view_auth.with_ui("swagger", cache_timeout=0),
+        name="schema-auth-swagger-ui",
+    ),
+    re_path(
+        r"^api/v1/docs/auth/$",
+        schema_view_auth.with_ui("redoc", cache_timeout=0),
+        name="schema-auth-redoc",
+    ),
+    # Messaging-focused documentation (separate Swagger/ReDoc for messaging flows)
+    re_path(
+        r"^api/v1/docs/messaging/swagger/$",
+        schema_view_messaging.with_ui("swagger", cache_timeout=0),
+        name="schema-messaging-swagger-ui",
+    ),
+    re_path(
+        r"^api/v1/docs/messaging/$",
+        schema_view_messaging.with_ui("redoc", cache_timeout=0),
+        name="schema-messaging-redoc",
     ),
 ]
 if settings.DEBUG:

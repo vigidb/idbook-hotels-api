@@ -52,3 +52,20 @@ ALL_GROUPS = (
     UserGroups.AGENT_GRP,
     UserGroups.AGENT_ADMIN,
 )
+
+# Choices for APIs/forms (value, display label) – used by messaging Contact.group_type and Campaign targeting
+ALL_GROUP_CHOICES = (
+    (UserGroups.B2C_GRP, "B2C User"),
+    (UserGroups.B2C_GUEST, "Guest"),
+    (UserGroups.CORP_ADMIN, "Corporate Admin"),
+    (UserGroups.CORP_EMP, "Corporate Employee"),
+    (UserGroups.CORPORATE_GRP, "Corporate"),
+    (UserGroups.BUSINESS_GRP, "Business"),
+    (UserGroups.BUS_ADMIN, "Business Admin"),
+    (UserGroups.HTLR_ADMIN, "Hotelier Admin"),
+    (UserGroups.FRANCH_ADMIN, "Franchise Admin"),
+    (UserGroups.HOTELIER_GRP, "Hotelier"),
+    (UserGroups.FRANCHISE_GRP, "Franchise"),
+    (UserGroups.AGENT_GRP, "Agent"),
+    (UserGroups.AGENT_ADMIN, "Agent Admin"),
+)

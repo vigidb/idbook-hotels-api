@@ -20,6 +20,8 @@ from rest_framework.generics import (
     RetrieveAPIView,
     UpdateAPIView,
 )
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.email_utils import (
     send_otp_email,
@@ -149,6 +151,28 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         return data
 
+    @swagger_auto_schema(
+        operation_summary="Signup with OTP verification (username/password flow)",
+        operation_description=(
+            "Signup a new user into a specific group (for example B2C, B2B) using email + mobile OTPs.\n\n"
+            "Flow:\n"
+            "1. Frontend calls the OTP send endpoints (email and mobile) for SIGNUP.\n"
+            "2. User enters email/mobile OTPs.\n"
+            "3. Frontend calls this endpoint with email, mobile_number, otp, otp_mobile, password and group_name.\n"
+            "4. On success, returns JWT tokens and user representation bound to the requested group."
+        ),
+        tags=["Auth - Signup (Password + OTP)"],
+        security=[],  # public endpoint
+        request_body=UserSignupSerializer,
+        responses={
+            201: openapi.Response(
+                description="Signup successful, JWT tokens returned"
+            ),
+            400: "Validation error",
+            401: "Email already exists for this group",
+            406: "OTP or group validation error",
+        },
+    )
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
@@ -766,6 +790,30 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
     serializer_class = LoginSerializer
 
+    @swagger_auto_schema(
+        operation_summary="Login with username/password (multi‑group aware)",
+        operation_description=(
+            "Primary username/password login endpoint.\n\n"
+            "- Accepts username (email or phone), password, and optional group_name/active_group.\n"
+            "- If email/mobile verification is pending, this will trigger OTPs and respond with HTTP 307 and "
+            "`verification_required` payload instead of tokens.\n"
+            "- On success, returns JWT access/refresh and user representation including active_group."
+        ),
+        tags=["Auth - Login (Password)"],
+        security=[],  # public login; JWT not required to call
+        request_body=LoginSerializer,
+        responses={
+            200: openapi.Response(description="Login successful, JWT tokens returned"),
+            307: openapi.Response(
+                description=(
+                    "Email/mobile verification required, OTPs sent. "
+                    "Client should guide user through OTP verification flow."
+                )
+            ),
+            400: "Invalid credentials or mobile verification required",
+            401: "Authentication failed",
+        },
+    )
     def post(self, request):
         self.log_request(request)  # Log the incoming request
 
@@ -950,6 +998,58 @@ class OtpBasedUserEntryAPIView(
     serializer_class = UserSignupSerializer
     http_method_names = ["get", "post", "put", "patch"]
 
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="OTP-based signup (single endpoint)",
+        operation_description=(
+            "OTP-first signup flow using mobile/email and group_name.\n\n"
+            "Typical flow:\n"
+            "1. Frontend calls OTP send endpoint for SIGNUP (mobile/email).\n"
+            "2. User enters OTP.\n"
+            "3. Frontend calls this endpoint with email, mobile_number, name, otp, group_name and optional referred_code.\n"
+            "4. On success, user is created/attached to the group and tokens are returned."
+        ),
+        tags=["Auth - Signup (OTP only)"],
+        security=[],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "email": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format="email",
+                    description="User email (optional but recommended)",
+                ),
+                "mobile_number": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="User mobile number (required, validated)",
+                ),
+                "name": openapi.Schema(
+                    type=openapi.TYPE_STRING, description="Display name"
+                ),
+                "otp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="OTP received by the user for SIGNUP",
+                ),
+                "referred_code": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional referral code",
+                ),
+                "group_name": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Target group identifier (e.g. B2C-GRP, B2B-GRP)",
+                    default="B2C-GRP",
+                ),
+            },
+            required=["mobile_number", "otp", "group_name"],
+        ),
+        responses={
+            200: openapi.Response(
+                description="Signup/login successful, JWT tokens and user data returned"
+            ),
+            400: "Invalid data",
+            406: "OTP, email or group validation error",
+        },
+    )
     @action(detail=False, methods=["POST"], url_path="signup", url_name="otp-signup")
     def otp_based_user_signup(self, request):
 
@@ -2841,6 +2941,50 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
     serializer_class = UserListSerializer
     http_method_names = ["get", "post", "put", "patch"]
 
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Google login/signup (per group)",
+        operation_description=(
+            "Authenticate or signup a user using a Google ID token, optionally binding them to a given group.\n\n"
+            "Flow:\n"
+            "1. Frontend obtains Google ID token from Google SDK.\n"
+            "2. Frontend calls this endpoint with id_token, optional group_name, mobile_number and referred_code.\n"
+            "3. If the email already exists in the given group, this acts as LOGIN and returns tokens.\n"
+            "4. If not, this acts as SIGNUP into that group and returns tokens."
+        ),
+        tags=["Auth - Social (Google)"],
+        security=[],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "id_token": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Google ID token from client-side Google auth",
+                ),
+                "group_name": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Target group identifier (e.g. B2C-GRP, B2B-GRP)",
+                    default="B2C-GRP",
+                ),
+                "mobile_number": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional mobile number to attach to user within the group",
+                ),
+                "referred_code": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional referral code",
+                ),
+            },
+            required=["id_token"],
+        ),
+        responses={
+            200: openapi.Response(
+                description="Google auth successful, JWT tokens and user representation returned"
+            ),
+            400: "Missing or invalid token / email",
+            406: "Group or mobile validation error",
+        },
+    )
     @action(
         detail=False,
         methods=["POST"],

@@ -82,6 +82,8 @@ INSTALLED_APPS = [
     "apps.analytics",
     "apps.payment_gateways",
     "apps.socket_com",  # WebSocket support for real-time updates
+    # customer engagement & messaging (contacts, campaigns, templates)
+    "apps.messaging",
 ]
 
 MIDDLEWARE = [
