@@ -596,6 +596,28 @@ class ContactUploadSessionViewSet(viewsets.ReadOnlyModelViewSet, StandardRespons
     ordering_fields = ["created_at", "finished_at", "total_rows", "success_count", "failure_count"]
     ordering = ["-created_at"]
 
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            custom = self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+            self.log_response(custom)
+            return custom
+        custom = self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
     @swagger_auto_schema(
         operation_summary="List contact uploads (with filters, search, sort, pagination)",
         operation_description=(
