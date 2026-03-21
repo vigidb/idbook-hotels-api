@@ -360,6 +360,22 @@ PARTNER_B2B_EMAIL = env(
     "PARTNER_B2B_EMAIL", default="partner.b2b@idbookhotels.com"
 )
 
+# Booking confirmation email footer (avoid hard-coded dummy contact lines in templates)
+EMAIL_TEMPLATE_SUPPORT_EMAIL = env(
+    "EMAIL_TEMPLATE_SUPPORT_EMAIL", default="support@idbookhotels.com"
+)
+EMAIL_TEMPLATE_SUPPORT_PHONE = env("EMAIL_TEMPLATE_SUPPORT_PHONE", default="")
+EMAIL_TEMPLATE_COMPANY_LINE = env(
+    "EMAIL_TEMPLATE_COMPANY_LINE", default="Idbook Hotels"
+)
+EMAIL_TEMPLATE_PRIVACY_URL = env(
+    "EMAIL_TEMPLATE_PRIVACY_URL", default="https://www.idbookhotels.com/privacy-policy"
+)
+EMAIL_TEMPLATE_TERMS_URL = env(
+    "EMAIL_TEMPLATE_TERMS_URL",
+    default="https://www.idbookhotels.com/terms-and-conditions",
+)
+
 OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
 
 # OTP verification rate limit: max attempts before cooldown, and cooldown duration (minutes)

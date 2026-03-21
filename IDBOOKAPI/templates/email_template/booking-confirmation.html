@@ -4,10 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>Booking Confirmation - Hotel 100 Petals</title>
+  <title>{% if property_name %}Booking confirmation — {{ property_name }}{% else %}Booking confirmation{% endif %}</title>
   {% load dictionary_filter %} 
   <style>
-    /* General Styles */
     body {
       font-family: 'Poppins', sans-serif;
       background-color: #f5f6fa;
@@ -53,7 +52,6 @@
       text-align: center;
     }
 
-    /* Information Box */
     .info-box {
       background-color: #f7f9fc;
       padding: 15px;
@@ -77,7 +75,6 @@
       color: #333;
     }
 
-    /* Flexbox for side by side layout */
     .flex-container {
       display: flex;
       justify-content: space-between;
@@ -93,7 +90,6 @@
       margin-right: 0;
     }
 
-    /* Room Info Table */
     table {
       width: 100%;
       margin-top: 15px;
@@ -111,7 +107,6 @@
       color: #333;
     }
 
-    /* CTA Buttons */
     .cta {
       text-align: center;
       margin-top: 20px;
@@ -132,7 +127,6 @@
       background-color: #555;
     }
 
-    /* Footer Section */
     .footer {
       text-align: center;
       background-color: #f5f6fa;
@@ -147,7 +141,6 @@
       text-decoration: none;
     }
 
-    /* Responsive Design */
     @media (max-width: 600px) {
       .content {
         padding: 15px;
@@ -171,154 +164,158 @@
 </head>
 <body>
   <div class="container">
-    <!-- Header Section -->
     <div class="header">
-      <img src="https://ik.imagekit.io/idbookhotels/idbook%20logo.png?updatedAt=1726323905017" alt="Hotel 100 Petals Logo">
+      <img src="https://ik.imagekit.io/idbookhotels/idbook%20logo.png?updatedAt=1726323905017" alt="{{ footer_company_line }}">
     </div>
 
-    <!-- Booking Confirmation Content -->
     <div class="content">
-      <h1>{{ property_name }} </h1>
-      <p class="sub-heading">Hi {{ name }}, you're all set for your stay at {{ property_name }}. Please find your reservation details below!</p>
+      <h1>{% if property_name %}{{ property_name }}{% else %}Hotel booking{% endif %}</h1>
+      <p class="sub-heading">Hi {{ name }}{% if property_name %}, you're confirmed for your stay at {{ property_name }}{% endif %}. Below are your reservation details.</p>
 
-      <!-- Self Checkin Information -->
       <div class="info-box">
-        <h2>Self Check-In</h2>
-        <p><strong>Check-in now</strong> to get your best room!</p>
-      </div>
-
-      <!-- Check-in/Check-out and Confirmation/Amount -->
-      <div class="info-box">
-        <h2>Booking Information</h2>
-        
+        <h2>Booking information</h2>
+        {% if confirmed_checkin_time or confirmed_checkout_time %}
         <div class="flex-container">
-          <!-- Check-in and Check-out -->
+          {% if confirmed_checkin_time %}
           <div class="flex-item">
             <p><strong>Check-in:</strong> {{ confirmed_checkin_time }}</p>
           </div>
+          {% endif %}
+          {% if confirmed_checkout_time %}
           <div class="flex-item">
             <p><strong>Check-out:</strong> {{ confirmed_checkout_time }}</p>
           </div>
+          {% endif %}
         </div>
-        
+        {% endif %}
+        {% if occupancy %}
         <div class="flex-container">
-          <!-- Check-in and Check-out -->
           <div class="flex-item">
-            <p><strong>Occupancy:</strong> {{ occupancy }} </p>
+            <p><strong>Occupancy:</strong> {{ occupancy }}</p>
           </div>
         </div>
-
+        {% endif %}
         <div class="flex-container">
-          <!-- Confirmation Code and Booking Amount -->
+          {% if confirmation_code %}
           <div class="flex-item">
-            <p><strong>Confirmation Code:</strong> {{ confirmation_code }}</p>
+            <p><strong>Confirmation code:</strong> {{ confirmation_code }}</p>
           </div>
+          {% endif %}
           <div class="flex-item">
-            <p><strong>Total Booking Amount:</strong> {{ total_booking_amount }} INR</p>
+            <p><strong>Total booking amount:</strong> {{ total_booking_amount }} INR</p>
           </div>
         </div>
       </div>
 
-      <!-- Customer Details -->
       <div class="info-box">
-        <h2>Customer Details</h2>
+        <h2>Guest contact</h2>
         <p><strong>Name:</strong> {{ name }}</p>
-        <p><strong>Email:</strong> {{ email }}</p>
-        <p><strong>Phone:</strong> {{ mobile_number }}</p>
+        {% if email %}<p><strong>Email:</strong> {{ email }}</p>{% endif %}
+        {% if mobile_number %}<p><strong>Phone:</strong> {{ mobile_number }}</p>{% endif %}
       </div>
 
-      <!-- Accommodation Details -->
+      {% if show_accommodation_section %}
       <div class="info-box">
-        <h2>Accommodation Details</h2>
-        <p><strong>Name:</strong> {{ property_name }}</p>
-        <p><strong>Address:</strong> {{ property_address }}</p>
-        <p><strong>Email:</strong> {{ property_email }}</p>
-        <p><strong>Phone:</strong> {{ property_phone_no }}</p>
+        <h2>Property</h2>
+        {% if property_name %}<p><strong>Name:</strong> {{ property_name }}</p>{% endif %}
+        {% if property_address %}<p><strong>Address:</strong> {{ property_address }}</p>{% endif %}
+        {% if show_property_email %}<p><strong>Property email:</strong> {{ property_email }}</p>{% endif %}
+        {% if show_property_phone %}<p><strong>Property phone:</strong> {{ property_phone_no }}</p>{% endif %}
       </div>
+      {% endif %}
 
-      <!-- Room Details -->
-      <h2>Room Details</h2>
+      {% if has_confirmed_rooms %}
+      <h2>Room details</h2>
       <table>
         <thead>
           <tr>
-            <th>Room Type</th>
-            <th>Rate Plan</th>
-            <th>No of Rooms</th>
+            <th>Room type</th>
+            <th>Booking slot</th>
+            <th>Rooms</th>
           </tr>
         </thead>
         <tbody>
-          {% for confirmed_room in confirmed_rooms  %} 
+          {% for confirmed_room in confirmed_rooms %}
           <tr>
             <td>{{ confirmed_room|get_key_based_value:"room_type" }}</td>
-            <td>MAP</td>
+            <td>{{ confirmed_room|get_key_based_value:"booking_slot" }}</td>
             <td>{{ confirmed_room|get_key_based_value:"no_of_rooms" }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      {% endif %}
 
-      <!-- Price Breakdown -->
-      <h2>Price Breakdown</h2>
+      <h2>Price breakdown</h2>
       <table>
         <tbody>
+          {% if show_subtotal_row %}
           <tr>
-            <td>Room SubTotal</td>
+            <td>Room subtotal</td>
             <td>{{ subtotal }} INR</td>
           </tr>
+          {% endif %}
+          {% if show_tax_row %}
           <tr>
-            <td>Goods and Services Tax</td>
+            <td>GST</td>
             <td>{{ tax }} INR</td>
           </tr>
+          {% endif %}
+          {% if show_coupon_row %}
           <tr>
-            <td>Coupon Code and Discount</td>
-            <td>{{ coupon_code }} (- {{ discount }} INR)</td>
+            <td>Coupon ({{ coupon_code }})</td>
+            <td>- {{ discount }} INR</td>
           </tr>
+          {% endif %}
+          {% if show_pro_discount_row %}
           <tr>
-            <td>Pro Membership Discount</td>
-            <td>{{ pro_discount }}% (- {{ pro_discount_value }} INR)</td>
+            <td>Pro membership discount{% if pro_discount %} ({{ pro_discount }}%){% endif %}</td>
+            <td>- {{ pro_discount_value }} INR</td>
           </tr>
+          {% endif %}
           <tr>
-            <td><strong>Final Total</strong></td>
+            <td><strong>Final total</strong></td>
             <td><strong>{{ total_booking_amount }} INR</strong></td>
           </tr>
+          {% if show_payment_made_row %}
           <tr>
-            <td>Total Payment Made</td>
+            <td>Total payment made</td>
             <td>{{ total_payment_made }} INR</td>
           </tr>
+          {% endif %}
+          {% if show_balance_due_row %}
           <tr>
-            <td><strong>Total Balance Due</strong></td>
+            <td><strong>Balance due</strong></td>
             <td><strong>{{ total_balance_due }} INR</strong></td>
           </tr>
+          {% endif %}
         </tbody>
       </table>
 
-      <!-- Cancellation Policy -->
-     <!-- <div class="info-box">
-        <h2>Cancellation Policy</h2>
-        <p>Guests will be <strong>REFUNDED 25%</strong> if cancelled 3 days before check-in date.</p>
-        <p>Guests will be <strong>REFUNDED 0%</strong> if cancelled within 3 days of check-in date.</p>
-      </div>-->
-
-      <!-- Free Amenities -->
-      <div class="info-box">
-        <h2>Free Hotel Amenities</h2>
-        <p>Internet/Wi-Fi, On Premise Parking, 24-hour front desk service, Room Service</p>
-      </div>
-
-      <!-- Call-to-Action Buttons -->
       <div class="cta">
-        <a href="{{ booking_link }}">View Booking</a> <!-- Link to booking details page -->
+        <a href="{{ booking_link }}">View booking</a>
         {% if document_cta_url %}
-        <a href="{{ document_cta_url }}" class="download">{{ document_cta_label }}</a> <!-- Dynamic invoice/receipt link -->
+        <a href="{{ document_cta_url }}" class="download">{{ document_cta_label }}</a>
         {% endif %}
       </div>
     </div>
 
-    <!-- Footer Section -->
     <div class="footer">
-      <p>Idbook Hotels | Address: Gangtok, Sikkim, India</p>
-      <p>Email: support@idbookhotels.com | Phone: +91-1234567890</p>
-      <p><a href="#">Privacy Policy</a> | <a href="#">Terms and Conditions</a></p>
+      <p>{{ footer_company_line }}</p>
+      {% if footer_support_email or footer_support_phone %}
+      <p>
+        {% if footer_support_email %}Email: {{ footer_support_email }}{% endif %}
+        {% if footer_support_email and footer_support_phone %} | {% endif %}
+        {% if footer_support_phone %}Phone: {{ footer_support_phone }}{% endif %}
+      </p>
+      {% endif %}
+      {% if footer_privacy_url or footer_terms_url %}
+      <p>
+        {% if footer_privacy_url %}<a href="{{ footer_privacy_url }}">Privacy policy</a>{% endif %}
+        {% if footer_privacy_url and footer_terms_url %} | {% endif %}
+        {% if footer_terms_url %}<a href="{{ footer_terms_url }}">Terms and conditions</a>{% endif %}
+      </p>
+      {% endif %}
     </div>
   </div>
 </body>

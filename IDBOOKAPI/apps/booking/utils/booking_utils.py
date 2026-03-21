@@ -320,6 +320,65 @@ def generate_htmlcontext_search_booking(booking):
         return context
 
 
+def _email_template_footer_context():
+    return {
+        "footer_support_email": settings.EMAIL_TEMPLATE_SUPPORT_EMAIL,
+        "footer_support_phone": (settings.EMAIL_TEMPLATE_SUPPORT_PHONE or "").strip(),
+        "footer_company_line": settings.EMAIL_TEMPLATE_COMPANY_LINE,
+        "footer_privacy_url": settings.EMAIL_TEMPLATE_PRIVACY_URL,
+        "footer_terms_url": settings.EMAIL_TEMPLATE_TERMS_URL,
+    }
+
+
+def _format_hotel_property_address(
+    property_address, area_name, city_name, state, country
+):
+    """Build a single line from non-empty address parts only."""
+    building = ""
+    pincode = ""
+    if property_address and isinstance(property_address, dict):
+        building = (property_address.get("building_or_hse_no") or "").strip()
+        pincode = (property_address.get("pincode") or "").strip()
+
+    parts = []
+    if building:
+        parts.append(building)
+    for val in (area_name, city_name, state):
+        if val and str(val).strip():
+            parts.append(str(val).strip())
+    if pincode:
+        if parts:
+            parts[-1] = f"{parts[-1]} - {pincode}"
+        else:
+            parts.append(pincode)
+    if country and str(country).strip():
+        parts.append(str(country).strip())
+    return ", ".join(parts)
+
+
+def _booking_confirmation_flags(
+    subtotal, tax, discount, coupon_code, pro_discount_value, pro_discount, total_balance_due, total_payment_made
+):
+    eps = 0.005
+
+    def pos(x):
+        try:
+            return float(x or 0) > eps
+        except (TypeError, ValueError):
+            return False
+
+    code = (coupon_code or "").strip()
+    pd = int(pro_discount or 0)
+    return {
+        "show_subtotal_row": pos(subtotal),
+        "show_tax_row": pos(tax),
+        "show_coupon_row": bool(code) and pos(discount),
+        "show_pro_discount_row": pos(pro_discount_value) or pd > 0,
+        "show_balance_due_row": pos(total_balance_due),
+        "show_payment_made_row": pos(total_payment_made),
+    }
+
+
 def generate_context_confirmed_booking(booking):
     booking_type = booking.booking_type
     adult_count = booking.adult_count
@@ -388,7 +447,6 @@ def generate_context_confirmed_booking(booking):
     if invoice_link:
         if is_paid:
             document_cta_label = "View Receipt"
-            document_cta_url = invoice_link
         else:
             document_cta_label = "View Invoice"
         document_cta_url = invoice_link
@@ -400,10 +458,11 @@ def generate_context_confirmed_booking(booking):
             f"No invoice link available for booking {booking.id}, invoice_id: {invoice_id}"
         )
 
-    # invoice_link = f"{settings.INV_FE_URL}/invoice/{invoice_id}"
-    occupancy = "{adult_count} Adults".format(adult_count=adult_count)
-    if child_count:
-        occupancy = occupancy + "{child_count} Child".format(child_count=child_count)
+    ac = int(adult_count or 0)
+    cc = int(child_count or 0)
+    occupancy = f"{ac} Adult" + ("s" if ac != 1 else "")
+    if cc:
+        occupancy += f", {cc} Child" + ("ren" if cc != 1 else "")
 
     context = {
         "booking_type": booking_type,
@@ -428,6 +487,20 @@ def generate_context_confirmed_booking(booking):
         "document_cta_url": document_cta_url,
         "invoice_status": invoice_status,
     }
+
+    context.update(
+        _booking_confirmation_flags(
+            subtotal,
+            tax,
+            discount,
+            coupon_code,
+            pro_discount_value,
+            pro_discount,
+            total_balance_due,
+            total_payment_made,
+        )
+    )
+    context.update(_email_template_footer_context())
 
     if booking_type == "HOTEL":
         property_name, property_address = "", ""
@@ -459,33 +532,30 @@ def generate_context_confirmed_booking(booking):
                 context["confirmed_rooms"] = []
             else:
                 context["confirmed_rooms"] = confirmed_rooms
-
-        ##                room_type = confirmed_room.room_type
-        ##                price_for_24_hours = confirmed_room.price_for_24_hours
+        else:
+            context["confirmed_rooms"] = []
 
         context["confirmed_checkin_time"] = confirmed_checkin_time
         context["confirmed_checkout_time"] = confirmed_checkout_time
 
         context["property_name"] = property_name
 
-        {
-            "pincode": "",
-            "coordinates": {"lat": "", "lng": ""},
-            "location_url": "",
-            "building_or_hse_no": "",
-        }
-        if property_address:
-            pincode = property_address.get("pincode", "")
-            building_no = property_address.get("building_or_hse_no", "")
-            final_address = f"{building_no}, {area_name}, {city_name}, {state} - {pincode}, {country}"
-        else:
-            final_address = f" {area_name}, {city_name}, {state}, {country}"
+        final_address = _format_hotel_property_address(
+            property_address, area_name, city_name, state, country
+        )
 
         context["property_address"] = final_address
         context["property_email"] = property_email
         context["property_phone_no"] = property_phone_no
-
-        # context['room_type'] = room_type
+        context["show_property_email"] = bool((property_email or "").strip())
+        context["show_property_phone"] = bool((property_phone_no or "").strip())
+        context["show_accommodation_section"] = bool(
+            (property_name or "").strip()
+            or (final_address or "").strip()
+            or (property_email or "").strip()
+            or (property_phone_no or "").strip()
+        )
+        context["has_confirmed_rooms"] = bool(context.get("confirmed_rooms"))
 
     elif booking_type == "HOLIDAYPACK":
         holidaypack_booking = booking.holiday_package_booking
@@ -517,6 +587,7 @@ def generate_context_confirmed_booking(booking):
         context["tour_duration"] = tour_duration
         context["date_of_journey"] = date_of_journey
         context["daily_plans"] = daily_plans
+        context["has_daily_plans"] = bool(daily_plans)
 
     elif booking_type == "VEHICLE":
         pickup_addr, dropoff_addr = "", ""
@@ -547,6 +618,11 @@ def generate_context_confirmed_booking(booking):
         context["driver_name"] = driver_name
         context["contact_email"] = contact_email
         context["contact_number"] = contact_number
+        context["show_driver_details"] = bool(
+            (driver_name or "").strip()
+            or (contact_email or "").strip()
+            or (contact_number or "").strip()
+        )
 
     elif booking_type == "FLIGHT":
         flight_trip, flight_class = "", ""
