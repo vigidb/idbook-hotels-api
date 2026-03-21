@@ -85,6 +85,8 @@ from .tasks import (
 )
 from .mixins.validation_mixins import ValidationMixin
 from apps.booking.mixins.booking_mixins import BookingMixins
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 User = get_user_model()
 
@@ -92,6 +94,7 @@ User = get_user_model()
 class PropertyViewSet(
     viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin, BookingMixins
 ):
+    swagger_tags = ["Hotels — Properties"]
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
     serializer_action_classes = {
@@ -292,22 +295,16 @@ class PropertyViewSet(
             )
             self.queryset = self.queryset.filter(id__in=property_list)
 
-        # filter based on slot based property
-        # is_slot_price_enabled = self.request.query_params.get('is_slot_price_enabled', 'false')
-        # is_slot_price_enabled = True if is_slot_price_enabled == "true" else False
-
-        # if is_slot_price_enabled:
-        #     property_slot_list = hotel_db_utils.get_slot_price_enabled_property()
-        #     self.queryset = self.queryset.filter(id__in=property_slot_list)
-
+        # Optional filter: only when the client explicitly wants slot/hourly-only hotels.
+        # Do not filter on "false": apps send is_slot_price_enabled=false for full-day
+        # (24 Hrs) searches; those properties still have is_slot_price_enabled=True on
+        # the model when they support hourly pricing, and would incorrectly be excluded.
         is_slot_price_enabled = self.request.query_params.get(
             "is_slot_price_enabled", ""
         ).lower()
 
         if is_slot_price_enabled == "true":
             self.queryset = self.queryset.filter(is_slot_price_enabled=True)
-        elif is_slot_price_enabled == "false":
-            self.queryset = self.queryset.filter(is_slot_price_enabled=False)
 
         if filter_dict:
             self.queryset = self.queryset.filter(**filter_dict)
@@ -783,6 +780,246 @@ class PropertyViewSet(
         # self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
+    _property_list_query_params = [
+        openapi.Parameter(
+            "offset",
+            openapi.IN_QUERY,
+            description="Pagination offset (used with limit).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "limit",
+            openapi.IN_QUERY,
+            description="Page size (used with offset).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "location",
+            openapi.IN_QUERY,
+            description="Comma-separated places; matches area, city, state, country, name, title.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "property_search",
+            openapi.IN_QUERY,
+            description="Search by property name or title (icontains).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "status",
+            openapi.IN_QUERY,
+            description="Property status (e.g. Active).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "checkin",
+            openapi.IN_QUERY,
+            description="Check-in datetime ISO-8601 with offset, e.g. 2026-03-21T14:40+05:30.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "checkout",
+            openapi.IN_QUERY,
+            description="Check-out datetime ISO-8601 with offset.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "adult_count",
+            openapi.IN_QUERY,
+            description="Number of adults (used for pricing allocation).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "child_count",
+            openapi.IN_QUERY,
+            description="Number of children.",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "child_age_list",
+            openapi.IN_QUERY,
+            description="Comma-separated child ages.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "infants",
+            openapi.IN_QUERY,
+            description="Infant count (passed through booking context).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "rooms",
+            openapi.IN_QUERY,
+            description="Requested room count.",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "duration",
+            openapi.IN_QUERY,
+            description="Booking duration (e.g. hours for slot flows).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "booking_slot",
+            openapi.IN_QUERY,
+            description='Slot length for pricing: "4 Hrs", "8 Hrs", "12 Hrs", or "24 Hrs" (default).',
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "bookingType",
+            openapi.IN_QUERY,
+            description="Client booking mode label (e.g. full-day).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "is_slot_price_enabled",
+            openapi.IN_QUERY,
+            description=(
+                'If "true", return only properties with hourly/slot pricing enabled. '
+                "If omitted or any other value (including false), do not filter by this "
+                "flag — use this for full-day searches so hotels that also offer hourly "
+                "pricing still appear."
+            ),
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "ordering",
+            openapi.IN_QUERY,
+            description="Comma-separated field names for ORDER BY.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "start_price",
+            openapi.IN_QUERY,
+            description="Lower bound for lowest-price filter (use with end_price).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "end_price",
+            openapi.IN_QUERY,
+            description="Upper bound for lowest-price filter (use with start_price).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "nearby_latitude",
+            openapi.IN_QUERY,
+            description="Latitude for distance sort (use with nearby_longitude).",
+            type=openapi.TYPE_NUMBER,
+        ),
+        openapi.Parameter(
+            "nearby_longitude",
+            openapi.IN_QUERY,
+            description="Longitude for distance sort (use with nearby_latitude).",
+            type=openapi.TYPE_NUMBER,
+        ),
+        openapi.Parameter(
+            "pay_at_hotel",
+            openapi.IN_QUERY,
+            description="true or false.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "property_amenity",
+            openapi.IN_QUERY,
+            description="Comma-separated hotel amenity titles (JSON amenity_details match).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "room_amenity",
+            openapi.IN_QUERY,
+            description="Comma-separated room amenities (filters by room).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "policies",
+            openapi.IN_QUERY,
+            description="Comma-separated policy field paths (see policies__* filters).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "rating",
+            openapi.IN_QUERY,
+            description="Comma-separated rating values.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "property_type",
+            openapi.IN_QUERY,
+            description="Comma-separated property types.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "room_type",
+            openapi.IN_QUERY,
+            description="Comma-separated room types.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "room_view",
+            openapi.IN_QUERY,
+            description="Comma-separated room views.",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "start_review_star",
+            openapi.IN_QUERY,
+            description="Minimum review_star (inclusive).",
+            type=openapi.TYPE_NUMBER,
+        ),
+        openapi.Parameter(
+            "end_review_star",
+            openapi.IN_QUERY,
+            description="Maximum review_star (exclusive).",
+            type=openapi.TYPE_NUMBER,
+        ),
+        openapi.Parameter(
+            "country",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "state",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "city_name",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "area_name",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "property_id",
+            openapi.IN_QUERY,
+            description="Filter by a single property id.",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "is_favorite",
+            openapi.IN_QUERY,
+            description="True or False (requires authenticated user for favorites).",
+            type=openapi.TYPE_STRING,
+        ),
+    ]
+
+    @swagger_auto_schema(
+        operation_summary="List/search properties",
+        operation_description=(
+            "Returns a paginated list of properties with lowest-price annotation and "
+            "per-property pricing details when check-in/out and guest counts are provided. "
+            "Response envelope: status, message, count, data."
+        ),
+        manual_parameters=_property_list_query_params,
+        responses={
+            200: openapi.Response(
+                description="Success: { status, message, count, data: PropertyList[] }",
+            ),
+        },
+    )
     def list(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
         self.favorite_list = []
