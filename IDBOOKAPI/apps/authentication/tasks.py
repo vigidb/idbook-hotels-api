@@ -1,6 +1,7 @@
 # task
 from IDBOOKAPI.celery import app as celery_idbook
 from IDBOOKAPI.email_utils import (
+    partner_b2b_bcc_list,
     send_otp_email,
     send_signup_link_email,
     send_welcome_email,
@@ -80,7 +81,16 @@ def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
         }
         html_content = email_template.render(context)
         print(f"Sending OTP email to {to_emails} with subject: {subject}")
-        send_otp_email(otp, to_emails, template=html_content, subject=subject)
+        otp_bcc = None
+        if group_name in ("HOTELIER-GRP", "FRANCHISE-GRP"):
+            otp_bcc = partner_b2b_bcc_list()
+        send_otp_email(
+            otp,
+            to_emails,
+            template=html_content,
+            subject=subject,
+            bcc=otp_bcc,
+        )
         print(f"OTP email sent successfully to {to_emails}")
     except Exception as e:
         import traceback
@@ -187,4 +197,7 @@ def send_signup_email_task(self, name, to_emails, group_name, extra_context=None
         context.update(extra_context)
 
     html_content = email_template.render(context)
-    send_welcome_email(subject, html_content, to_emails)
+    welcome_bcc = None
+    if group_name in ("HOTELIER-GRP", "FRANCHISE-GRP"):
+        welcome_bcc = partner_b2b_bcc_list()
+    send_welcome_email(subject, html_content, to_emails, bcc=welcome_bcc)

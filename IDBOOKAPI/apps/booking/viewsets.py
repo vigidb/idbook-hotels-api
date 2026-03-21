@@ -162,6 +162,7 @@ from apps.org_resources.db_utils import get_company_details
 from apps.customer.utils.db_utils import get_user_based_customer
 from django.shortcuts import get_object_or_404
 import logging
+from django.contrib.auth.models import AnonymousUser
 
 logger = logging.getLogger(__name__)
 
@@ -2784,7 +2785,7 @@ class BookingViewSet(
                 booking_source = determine_booking_source(
                     user=user,
                     agent=agent_detail,
-                    company_id=company_id or (user.company_id if user else None),
+                    company_id=company_id or (getattr(user, "company_id", None) if user else None),
                     request=request
                 )
                 
@@ -2867,7 +2868,7 @@ class BookingViewSet(
                     booking.save()
                     
                     # Ensure user is linked to booking (for guest users created above)
-                    if user and not booking.user:
+                    if getattr(user, "is_authenticated", False) and not booking.user:
                         booking.user = user
                         booking.save()
                     
@@ -2901,7 +2902,7 @@ class BookingViewSet(
                         booking.refresh_from_db()
                         
                         # Ensure user is linked to booking (for guest users created above)
-                        if user and not booking.user:
+                        if getattr(user, "is_authenticated", False) and not booking.user:
                             booking.user = user
                             booking.save()
                         

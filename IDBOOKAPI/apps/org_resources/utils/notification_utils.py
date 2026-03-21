@@ -204,45 +204,50 @@ def generate_user_notification(
         print("Notification Error", e)
 
 
+def _hotelier_notification_template_content(notification_type, variables_values):
+    """Returns (title, description, app_notification_type) for hotelier message templates."""
+    titles = {
+        "HOTEL_PROPERTY_ACTIVATION": "Property Activated",
+        "HOTEL_PROPERTY_DEACTIVATION": "Property Deactivated",
+        "HOTELIER_BOOKING_NOTIFICATION": "New Booking Received",
+        "HOTELER_BOOKING_CANCEL_NOTIFICATION": "Booking Cancelled",
+        "HOTELER_PAYMENT_NOTIFICATION": "Payment Received",
+        "HOTELIER_PROPERTY_REVIEW_NOTIFICATION": "New Review Received",
+        "HOTEL_PROPERTY_SUBMISSION": "Property Submission Received",
+        "HOTELIER_PAH_FEATURE": "Property Pay at Hotel Facility Added",
+        "HOTELIER_PAH_BOOKING_ALERT": "New Pay at Hotel Booking Received",
+    }
+
+    app_notification_type = (
+        "BOOKING"
+        if notification_type
+        in [
+            "HOTELIER_BOOKING_NOTIFICATION",
+            "HOTELER_BOOKING_CANCEL_NOTIFICATION",
+            "HOTELER_PAYMENT_NOTIFICATION",
+            "HOTELIER_PAH_BOOKING_ALERT",
+        ]
+        else "GENERAL"
+    )
+
+    template_code = notification_type
+    template = MessageTemplate.objects.get(template_code=template_code)
+    raw_message = template.template_message
+
+    raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
+    split_values = variables_values.split("|")
+    description = raw_message.format(*split_values)
+
+    title = titles.get(notification_type, "Notification")
+    return title, description, app_notification_type
+
+
 def create_hotelier_notification(property, notification_type, variables_values):
     # Create notification for hotelier
     try:
-        # Map notification types to titles
-        titles = {
-            "HOTEL_PROPERTY_ACTIVATION": "Property Activated",
-            "HOTEL_PROPERTY_DEACTIVATION": "Property Deactivated",
-            "HOTELIER_BOOKING_NOTIFICATION": "New Booking Received",
-            "HOTELER_BOOKING_CANCEL_NOTIFICATION": "Booking Cancelled",
-            "HOTELER_PAYMENT_NOTIFICATION": "Payment Received",
-            "HOTELIER_PROPERTY_REVIEW_NOTIFICATION": "New Review Received",
-            "HOTEL_PROPERTY_SUBMISSION": "Property Submission Received",
-            "HOTELIER_PAH_FEATURE": "Property Pay at Hotel Facility Added",
-            "HOTELIER_PAH_BOOKING_ALERT": "New Pay at Hotel Booking Received",
-        }
-
-        # Determine appropriate notification_type (GENERAL or BOOKING)
-        app_notification_type = (
-            "BOOKING"
-            if notification_type
-            in [
-                "HOTELIER_BOOKING_NOTIFICATION",
-                "HOTELER_BOOKING_CANCEL_NOTIFICATION",
-                "HOTELER_PAYMENT_NOTIFICATION",
-                "HOTELIER_PAH_BOOKING_ALERT",
-            ]
-            else "GENERAL"
+        title, description, app_notification_type = _hotelier_notification_template_content(
+            notification_type, variables_values
         )
-
-        # Get template message from DB
-        template_code = notification_type
-        template = MessageTemplate.objects.get(template_code=template_code)
-        raw_message = template.template_message
-
-        raw_message = re.sub(r"\{#var#\}", "{}", raw_message)
-        split_values = variables_values.split("|")
-        description = raw_message.format(*split_values)
-
-        title = titles.get(notification_type, "Notification")
 
         # Get the user associated with property using managed_by_id
         user = User.objects.filter(id=property.managed_by_id).first()
@@ -267,6 +272,48 @@ def create_hotelier_notification(property, notification_type, variables_values):
         create_notification(notification_dict)
     except Exception as e:
         print("Hotelier Notification Error", e)
+
+
+def create_hotelier_booking_notifications(property, notification_type, variables_values):
+    """
+    In-app notifications for a new hotel booking: property manager, creator (added_by),
+    and active superusers (each user at most once).
+    """
+    try:
+        title, description, app_notification_type = _hotelier_notification_template_content(
+            notification_type, variables_values
+        )
+
+        send_by = get_active_business().user
+        notified_ids = set()
+
+        def notify_user(user, group_name):
+            if not user or not getattr(user, "is_active", True):
+                return
+            if user.id in notified_ids:
+                return
+            notified_ids.add(user.id)
+            notification_dict = {
+                "user": user,
+                "send_by": send_by,
+                "notification_type": app_notification_type,
+                "title": title,
+                "description": description,
+                "redirect_url": "",
+                "image_link": "",
+                "group_name": group_name,
+            }
+            print("creating_hotelier_booking_notification", notification_dict)
+            create_notification(notification_dict)
+
+        if property.managed_by_id and property.managed_by:
+            notify_user(property.managed_by, "HOTELIER-GRP")
+        if property.added_by_id and property.added_by:
+            notify_user(property.added_by, "HOTELIER-GRP")
+        for su in User.objects.filter(is_superuser=True, is_active=True).order_by("id"):
+            notify_user(su, "BUSINESS-GRP")
+    except Exception as e:
+        print("Hotelier Booking Notification Error", e)
 
 
 def admin_create_notification(user, notification_type, variables_values):

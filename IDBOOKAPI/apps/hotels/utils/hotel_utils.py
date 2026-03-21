@@ -23,6 +23,7 @@ from django.template.loader import get_template
 import requests
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMessage
+from IDBOOKAPI.email_utils import partner_b2b_bcc_list
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
@@ -476,6 +477,7 @@ def send_agreement_email(property, pdf_content, context, is_verification=False):
         template_name = "service_agreement_template/service_agreement_request.html"
 
     to_email = property.email
+    bcc_partner = partner_b2b_bcc_list()
 
     # Get the email template
     email_template = get_template(template_name)
@@ -487,6 +489,7 @@ def send_agreement_email(property, pdf_content, context, is_verification=False):
         body=html_content,
         from_email=settings.EMAIL_HOST_USER,
         to=[to_email],
+        bcc=bcc_partner if bcc_partner else None,
     )
     email.content_subtype = "html"
 
@@ -564,15 +567,25 @@ def generate_hotel_receipt_pdf(context, booking_id=None, booking_obj=None):
 
 
 def send_receipt_email_with_attachment(
-    subject, hotel, recipient_list, html_content, pdf_content, attachment_name
+    subject,
+    hotel,
+    recipient_list,
+    html_content,
+    pdf_content,
+    attachment_name,
+    bcc=None,
 ):
 
     try:
+        bcc_list = []
+        if bcc:
+            bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
         message = EmailMessage(
             subject=subject,
             body=html_content,
             from_email=settings.EMAIL_HOST_USER,
             to=recipient_list,
+            bcc=bcc_list if bcc_list else None,
         )
         message.content_subtype = "html"
 

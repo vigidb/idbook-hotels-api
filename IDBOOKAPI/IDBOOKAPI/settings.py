@@ -39,6 +39,11 @@ HOTELIER_NOTIFICATIONS_ENABLED = env.bool(
     "HOTELIER_NOTIFICATIONS_ENABLED",
     default=(ENVIRONMENT == "production")
 )
+# Hotelier receipt PDF email (can enable in dev without HOTELIER_NOTIFICATIONS_ENABLED / SMS)
+HOTELIER_RECEIPT_EMAIL_ENABLED = env.bool(
+    "HOTELIER_RECEIPT_EMAIL_ENABLED",
+    default=HOTELIER_NOTIFICATIONS_ENABLED,
+)
 
 IMAGEKIT_PRIVATE_KEY = env("IMAGEKIT_PRIVATE_KEY")
 IMAGEKIT_PUBLIC_KEY = env("IMAGEKIT_PUBLIC_KEY")
@@ -336,6 +341,24 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EMAIL_HOST_USER = env("NOREPLY_EMAIL")
 EMAIL_HOST_PASSWORD = env("NOREPLY_PAASWORD")
 CORPORATE_EMAIL = env("CORPORATE_EMAIL")
+
+# Internal BCC for booking confirmation / hotelier receipt (ops inboxes)
+INTERNAL_BOOKING_EMAIL_FLIGHT = env(
+    "INTERNAL_BOOKING_EMAIL_FLIGHT", default="airlines@idbookhotels.com"
+)
+INTERNAL_BOOKING_EMAIL_HOTELS_OTHERS = env(
+    "INTERNAL_BOOKING_EMAIL_HOTELS_OTHERS", default="bookings@idbookhotels.com"
+)
+INTERNAL_BOOKING_EMAIL_AGENTS = env(
+    "INTERNAL_BOOKING_EMAIL_AGENTS", default="agents@idbookhotels.com"
+)
+INTERNAL_BOOKING_EMAIL_CORPORATES = env(
+    "INTERNAL_BOOKING_EMAIL_CORPORATES", default="corporates@idbookhotels.com"
+)
+# BCC on any email sent directly to a hotelier/property contact
+PARTNER_B2B_EMAIL = env(
+    "PARTNER_B2B_EMAIL", default="partner.b2b@idbookhotels.com"
+)
 
 OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
 

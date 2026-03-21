@@ -1,5 +1,9 @@
 from IDBOOKAPI.celery import app as celery_idbook
-from IDBOOKAPI.email_utils import send_booking_email, send_booking_email_with_attachment
+from IDBOOKAPI.email_utils import (
+    collect_internal_booking_bcc_emails,
+    send_booking_email,
+    send_booking_email_with_attachment,
+)
 from apps.booking.utils.db_utils import (
     get_booking,
     save_invoice_to_database,
@@ -98,12 +102,15 @@ def send_booking_email_task(self, booking_id, booking_type="search-booking"):
             print("context", context)
             html_content = email_template.render(context)
             print(user_email)
+            internal_bcc = collect_internal_booking_bcc_emails(booking)
             if attachment:
                 send_booking_email_with_attachment(
-                    subject, file, [user_email], html_content
+                    subject, file, [user_email], html_content, bcc=internal_bcc
                 )
             else:
-                send_booking_email(subject, booking, [user_email], html_content)
+                send_booking_email(
+                    subject, booking, [user_email], html_content, bcc=internal_bcc
+                )
 
             try:
                 # Notification

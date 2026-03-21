@@ -4,9 +4,14 @@ from apps.authentication.models import User
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from django.template.loader import get_template
 from django.conf import settings
-from IDBOOKAPI.email_utils import send_booking_email
+from IDBOOKAPI.email_utils import (
+    collect_internal_booking_bcc_emails,
+    merge_bcc_lists,
+    partner_b2b_bcc_list,
+    send_booking_email,
+)
 from IDBOOKAPI.utils import shorten_url
-from apps.booking.models import Booking, Review
+from apps.booking.models import Booking, BookingCommission, Review
 from .utils.db_utils import get_user_booking_data
 from .utils.hotel_utils import (
     generate_service_agreement_pdf,
@@ -14,7 +19,10 @@ from .utils.hotel_utils import (
     generate_hotel_receipt_pdf,
     send_receipt_email_with_attachment,
 )
-from apps.org_resources.utils.notification_utils import create_hotelier_notification
+from apps.org_resources.utils.notification_utils import (
+    create_hotelier_booking_notifications,
+    create_hotelier_notification,
+)
 from apps.booking.tasks import send_booking_sms_task
 from datetime import datetime
 import uuid
@@ -41,7 +49,14 @@ def send_hotel_sms_task(self, notification_type="", params=None):
             return Property.objects.filter(id=property_id).first()
 
         def get_booking_property(booking_id):
-            booking = Booking.objects.filter(id=booking_id).first()
+            booking = (
+                Booking.objects.select_related(
+                    "hotel_booking__confirmed_property__managed_by",
+                    "hotel_booking__confirmed_property__added_by",
+                )
+                .filter(id=booking_id)
+                .first()
+            )
             return booking, (
                 booking.hotel_booking.confirmed_property
                 if booking and booking.hotel_booking
@@ -92,7 +107,7 @@ def send_hotel_sms_task(self, notification_type="", params=None):
                 send_sms(
                     property.phone_no, "HOTELIER_BOOKING_NOTIFICATION", variables_values
                 )
-                create_hotelier_notification(
+                create_hotelier_booking_notifications(
                     property, notification_type, variables_values
                 )
 
@@ -241,7 +256,11 @@ def send_hotel_email_task(self, notification_type="", params=None):
 
                     subject = f"Your property {property_name} is now ACTIVE on Idbook"
                     send_booking_email(
-                        subject, property, [recipient_email], html_content
+                        subject,
+                        property,
+                        [recipient_email],
+                        html_content,
+                        bcc=partner_b2b_bcc_list(),
                     )
 
                     print(f"Email sent for property activation to {recipient_email}")
@@ -462,17 +481,23 @@ def create_service_agreement_task(
 
 @celery_idbook.task(bind=True)
 def send_hotel_receipt_email_task(self, booking_id):
-    # Skip hotelier receipt email in non-production environments
-    if not settings.HOTELIER_NOTIFICATIONS_ENABLED:
+    if not settings.HOTELIER_RECEIPT_EMAIL_ENABLED:
         print(
             f"Skipping hotelier receipt email for booking {booking_id} - "
-            f"HOTELIER_NOTIFICATIONS_ENABLED is disabled for environment: {settings.ENVIRONMENT}"
+            f"HOTELIER_RECEIPT_EMAIL_ENABLED is False (env: {settings.ENVIRONMENT})"
         )
         return None
 
     try:
-        booking = Booking.objects.get(id=booking_id)
-        commission = booking.commission_info
+        booking = Booking.objects.select_related(
+            "hotel_booking__confirmed_property__managed_by",
+            "hotel_booking__confirmed_property__added_by",
+            "commission_info",
+        ).get(id=booking_id)
+        try:
+            commission = booking.commission_info
+        except BookingCommission.DoesNotExist:
+            commission = None
         room_details = booking.hotel_booking.confirmed_room_details[0]
         booking_slot = room_details.get(
             "booking_slot", booking.hotel_booking.booking_slot
@@ -481,8 +506,49 @@ def send_hotel_receipt_email_task(self, booking_id):
         checkout = booking.hotel_booking.confirmed_checkout_time
 
         hotel = booking.hotel_booking.confirmed_property
-        recipient_email = hotel.email
-        print("recipient_email", recipient_email)
+        recipient_emails = []
+        seen_lower = set()
+
+        def _add_recipient(addr):
+            if not addr or not str(addr).strip():
+                return
+            addr = str(addr).strip()
+            key = addr.lower()
+            if key in seen_lower:
+                return
+            seen_lower.add(key)
+            recipient_emails.append(addr)
+
+        _add_recipient(hotel.email)
+        if hotel.managed_by_id and getattr(hotel, "managed_by", None):
+            mb = hotel.managed_by
+            if getattr(mb, "email", None):
+                _add_recipient(mb.email)
+        if hotel.added_by_id and getattr(hotel, "added_by", None):
+            ab = hotel.added_by
+            if getattr(ab, "email", None):
+                _add_recipient(ab.email)
+        raw_email_list = hotel.email_list
+        if isinstance(raw_email_list, list):
+            for e in raw_email_list:
+                _add_recipient(e)
+        elif isinstance(raw_email_list, dict):
+            for e in raw_email_list.get("emails") or []:
+                _add_recipient(e)
+
+        if not recipient_emails:
+            print(
+                f"No hotel or property manager email for booking {booking_id}; "
+                "skipping hotelier receipt email"
+            )
+            return None
+
+        print("recipient_emails", recipient_emails)
+
+        internal_bcc = merge_bcc_lists(
+            collect_internal_booking_bcc_emails(booking),
+            partner_b2b_bcc_list(),
+        )
 
         context = {
             "booking_id": booking.reference_code,
@@ -522,9 +588,11 @@ def send_hotel_receipt_email_task(self, booking_id):
             "pro_discount": booking.pro_member_discount_percent,
             "pro_discount_value": booking.pro_member_discount_value,
             "final_amount": float(booking.final_amount - booking.gst_amount),
-            "commission_amount": float(commission.com_amnt),
-            "commission_tax": float(commission.tax_amount),
-            "payable_amount": float(commission.hotelier_amount_with_tax),
+            "commission_amount": float(commission.com_amnt) if commission else 0.0,
+            "commission_tax": float(commission.tax_amount) if commission else 0.0,
+            "payable_amount": (
+                float(commission.hotelier_amount_with_tax) if commission else 0.0
+            ),
             "tax_percent": (
                 round((booking.gst_amount / booking.subtotal) * 100, 2)
                 if booking.subtotal
@@ -545,14 +613,15 @@ def send_hotel_receipt_email_task(self, booking_id):
             send_receipt_email_with_attachment(
                 subject,
                 hotel,
-                [recipient_email],
+                recipient_emails,
                 html_content,
                 pdf_bytes,
                 f"Hotel_Receipt_{booking.reference_code}.pdf",
+                bcc=internal_bcc,
             )
 
             print(
-                f"Receipt email with attachment sent to {recipient_email} for booking {booking.reference_code}"
+                f"Receipt email with attachment sent to {recipient_emails} for booking {booking.reference_code}"
             )
             return True
         except Exception as e:
@@ -561,9 +630,11 @@ def send_hotel_receipt_email_task(self, booking_id):
             email_template = get_template("email_template/hotelier-receipt.html")
             html_content = email_template.render(context)
             subject = f"Hotelier Receipt for Booking - {booking.reference_code}"
-            send_booking_email(subject, hotel, [recipient_email], html_content)
+            send_booking_email(
+                subject, hotel, recipient_emails, html_content, bcc=internal_bcc
+            )
             print(
-                f"Receipt email sent without attachment to {recipient_email} for booking {booking.reference_code}"
+                f"Receipt email sent without attachment to {recipient_emails} for booking {booking.reference_code}"
             )
             return False
     except Booking.DoesNotExist:
