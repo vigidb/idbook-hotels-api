@@ -8,6 +8,7 @@ from apps.messaging.viewsets import (
     MessageLogViewSet,
     EmailTemplateViewSet,
     TemplateVariablesViewSet,
+    MessagingTestViewSet,
 )
 
 router = routers.DefaultRouter()
@@ -18,6 +19,7 @@ router.register(r"campaign-steps", CampaignStepViewSet, basename="messaging-camp
 router.register(r"message-logs", MessageLogViewSet, basename="messaging-message-logs")
 router.register(r"email-templates", EmailTemplateViewSet, basename="messaging-email-templates")
 router.register(r"template-variables", TemplateVariablesViewSet, basename="messaging-template-variables")
+router.register(r"tests", MessagingTestViewSet, basename="messaging-tests")
 
 urlpatterns = []
 

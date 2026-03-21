@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Iterable, List, Dict, Any, Optional, Tuple
 
+import re
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -114,6 +116,18 @@ def get_default_provider_for_channel(channel: str) -> Optional[MessagingProvider
 
 
 def build_template_variables(contact: Contact, extra_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    company = None
+    agent = None
+    try:
+        if contact.group_type in CORPORATE_GROUPS or contact.group_type == UserGroups.CORPORATE_GRP:
+            company = resolve_company_detail_for_contact(contact)
+        if contact.group_type in (UserGroups.AGENT_GRP, UserGroups.AGENT_ADMIN):
+            agent = resolve_agent_detail_for_contact(contact)
+    except Exception:
+        # Best-effort enrichment only; never block message sending here.
+        company = None
+        agent = None
+
     ctx: Dict[str, Any] = {
         "name": contact.name or (contact.user.get_full_name() if contact.user else ""),
         "city": contact.city,
@@ -121,6 +135,12 @@ def build_template_variables(contact: Contact, extra_context: Optional[Dict[str,
         "phone": contact.phone,
         "email": contact.email,
         "group_type": contact.group_type,
+        # Nested access for richer templates, e.g. {contact.city}, {user.email}
+        "contact": contact,
+        "user": contact.user,
+        # Corporate / Agent enrichment (available only for those audiences)
+        "company": company,
+        "agent": agent,
     }
     if contact.user_id:
         ctx["user_id"] = contact.user_id
@@ -130,11 +150,175 @@ def build_template_variables(contact: Contact, extra_context: Optional[Dict[str,
     return ctx
 
 
+_LBRACE_SENTINEL = "__IDBOOK_LBRACE__"
+_RBRACE_SENTINEL = "__IDBOOK_RBRACE__"
+
+
+class MissingTemplateVariableError(Exception):
+    def __init__(self, missing: List[str]):
+        self.missing = missing
+        super().__init__(f"Missing template variables: {', '.join(missing)}")
+
+
+def _resolve_path(root: Any, path: str) -> Any:
+    """
+    Resolve dot paths like 'contact.city' or 'user.email' against dicts/objects.
+    Returns None if any step is missing.
+    """
+    current = root
+    for part in (p for p in path.split(".") if p):
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            if part not in current:
+                return None
+            current = current.get(part)
+            continue
+        if not hasattr(current, part):
+            return None
+        current = getattr(current, part)
+    return current
+
+
 def render_template_string(template: str, variables: Dict[str, Any]) -> str:
     """
-    Simple variable replacement using {var} placeholders.
+    Variable replacement using {var} placeholders.
+
+    Supports:
+    - Dot paths: {contact.city}, {user.email}
+    - Defaults: {name|default:Guest} (used when missing/blank)
+    - Literal braces: use {{ and }} in templates
     """
-    return template.format(**variables)
+    if not template:
+        return ""
+
+    # Preserve literal braces
+    safe = template.replace("{{", _LBRACE_SENTINEL).replace("}}", _RBRACE_SENTINEL)
+
+    pattern = re.compile(r"\{([^{}]+)\}")
+    missing_vars: List[str] = []
+
+    def _replace(match: re.Match) -> str:
+        expr = (match.group(1) or "").strip()
+        if not expr:
+            return ""
+
+        default_value = ""
+        if "|default:" in expr:
+            expr, default_value = expr.split("|default:", 1)
+            expr = expr.strip()
+            default_value = default_value.strip()
+
+        value = _resolve_path(variables, expr)
+        if value is None or value == "":
+            if default_value != "":
+                return str(default_value)
+            missing_vars.append(expr)
+            return ""
+        return str(value)
+
+    rendered = pattern.sub(_replace, safe)
+    rendered = rendered.replace(_LBRACE_SENTINEL, "{").replace(_RBRACE_SENTINEL, "}")
+    if missing_vars:
+        # De-duplicate while preserving first-seen order
+        seen = set()
+        unique_missing: List[str] = []
+        for v in missing_vars:
+            if v in seen:
+                continue
+            seen.add(v)
+            unique_missing.append(v)
+        raise MissingTemplateVariableError(unique_missing)
+    return rendered
+
+
+def apply_template_variable_defaults(template_variables_schema: Any, variables: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply per-template default values stored in EmailTemplate.variables_schema.
+
+    Backward compatible with existing schema formats:
+    - list[str] (variable names)
+    - list[{"name": "...", "default": "..."}]
+
+    Defaults only apply to *top-level* variable keys (e.g. "name", "city").
+    For nested paths like "user.first_name", prefer using {user.first_name|default:Guest}
+    in the template string itself.
+    """
+    if not template_variables_schema:
+        return variables
+    if not isinstance(template_variables_schema, list):
+        return variables
+
+    for item in template_variables_schema:
+        if isinstance(item, dict):
+            name = (item.get("name") or "").strip()
+            default_value = item.get("default")
+            if not name or default_value is None:
+                continue
+            if variables.get(name) in (None, ""):
+                variables[name] = default_value
+    return variables
+
+
+def build_system_variables(campaign_contact: CampaignContact) -> Dict[str, Any]:
+    """
+    Variables that are computed by the system at send-time (links, tokens, etc.).
+    """
+    frontend_base = (getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    if not frontend_base:
+        frontend_base = (getattr(settings, "BASE_URL", "") or "").rstrip("/")
+
+    payload = {
+        "contact_id": campaign_contact.contact_id,
+        "campaign_id": campaign_contact.campaign_id,
+        "campaign_contact_id": campaign_contact.id,
+        "channel": campaign_contact.step.channel if campaign_contact.step_id else "",
+    }
+    token = signing.dumps(payload, salt="messaging-unsubscribe")
+    unsubscribe_url = f"{frontend_base}/unsubscribe?token={token}" if frontend_base else ""
+    return {"unsubscribe_token": token, "unsubscribe_url": unsubscribe_url}
+
+
+def resolve_company_detail_for_contact(contact: Contact):
+    """
+    Best-effort CompanyDetail lookup for a messaging Contact.
+    Uses contact.email/phone to match CompanyDetail fields.
+    """
+    from django.db.models import Q
+    from apps.org_resources.models import CompanyDetail
+
+    phone = normalize_phone(contact.phone) if contact.phone else ""
+    email = (contact.email or "").strip().lower()
+
+    q = Q()
+    if email:
+        q |= Q(company_email__iexact=email) | Q(contact_email_address__iexact=email)
+    if phone:
+        q |= Q(company_phone=phone) | Q(contact_number=phone)
+    if not q:
+        return None
+    return CompanyDetail.objects.filter(q).select_related("added_user", "business_rep").first()
+
+
+def resolve_agent_detail_for_contact(contact: Contact):
+    """
+    Best-effort AgentDetail lookup for a messaging Contact.
+    Uses contact.email/phone to match AgentDetail fields.
+    """
+    from django.db.models import Q
+    from apps.org_resources.models import AgentDetail
+
+    phone = normalize_phone(contact.phone) if contact.phone else ""
+    email = (contact.email or "").strip().lower()
+
+    q = Q()
+    if email:
+        q |= Q(agent_email__iexact=email) | Q(contact_email_address__iexact=email)
+    if phone:
+        q |= Q(agent_phone=phone) | Q(contact_number=phone)
+    if not q:
+        return None
+    return AgentDetail.objects.filter(q).select_related("added_user").first()
 
 
 def send_sms_for_campaign_contact(campaign_contact: CampaignContact) -> None:
@@ -161,7 +345,14 @@ def send_sms_for_campaign_contact(campaign_contact: CampaignContact) -> None:
 
     # For marketing SMS we expect template_code to map to MessageTemplate
     template_code = step.template_code
-    variables = build_template_variables(contact)
+    variables = build_template_variables(
+        contact, extra_context=build_system_variables(campaign_contact)
+    )
+    # SMS provider expects only primitive values; exclude nested objects.
+    variables.pop("contact", None)
+    variables.pop("user", None)
+    variables.pop("company", None)
+    variables.pop("agent", None)
     # For now we flatten variables into pipe separated string in no particular order;
     # future improvement: map to {#var#} order definition.
     variables_values = "|".join(str(v) for v in variables.values() if v is not None)
@@ -256,16 +447,17 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
         return
 
-    variables = build_template_variables(contact)
+    variables = build_template_variables(
+        contact, extra_context=build_system_variables(campaign_contact)
+    )
+    variables = apply_template_variable_defaults(getattr(template, "variables_schema", None), variables)
     try:
         subject = render_template_string(template.subject, variables)
         body_html = render_template_string(template.body_html, variables)
-        body_text = template.body_text or render_template_string(
-            template.body_html, variables
-        )
-    except KeyError as e:
+        body_text = template.body_text or render_template_string(template.body_html, variables)
+    except MissingTemplateVariableError as exc:
         campaign_contact.status = CampaignContact.Status.FAILED
-        campaign_contact.error_message = f"Template variable missing: {e}"
+        campaign_contact.error_message = str(exc)
         campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
         MessageLog.objects.create(
             contact=contact,
@@ -274,7 +466,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
             channel=MessageLog.Channel.EMAIL,
             status=MessageLog.Status.FAILED,
             provider="django_email",
-            provider_response={"error": str(e)},
+            provider_response={"missing_variables": exc.missing},
             sent_at=None,
         )
         return
@@ -316,21 +508,45 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     )
 
 
-def get_template_variable_definitions() -> List[Dict[str, str]]:
+def get_template_variable_definitions() -> List[Dict[str, Any]]:
     """
-    Central registry of available template variables. This can be expanded over time.
+    Central registry of available template variables for the frontend.
+
+    Notes:
+    - Frontend should insert variables as {variable_name} into templates.
+    - Default value syntax: {name|default:Guest}
+    - Nested access is supported: {contact.city}, {user.email}
     """
     return [
-        {"name": "name", "label": "Contact name", "category": "contact"},
-        {"name": "city", "label": "City", "category": "contact"},
-        {"name": "country", "label": "Country", "category": "contact"},
-        {"name": "phone", "label": "Phone", "category": "contact"},
-        {"name": "email", "label": "Email", "category": "contact"},
-        {"name": "group_type", "label": "Group type", "category": "contact"},
-        {"name": "user_id", "label": "User ID", "category": "user"},
-        # booking / travel variables can be added later and resolved via extra_context
+        # Contact (flat)
+        {"name": "name", "label": "Contact name", "category": "contact", "scope": "all", "type": "string", "example": "{name}", "default_hint": "Guest"},
+        {"name": "city", "label": "City", "category": "contact", "scope": "all", "type": "string", "example": "{city}", "default_hint": ""},
+        {"name": "country", "label": "Country", "category": "contact", "scope": "all", "type": "string", "example": "{country}", "default_hint": ""},
+        {"name": "phone", "label": "Phone", "category": "contact", "scope": "all", "type": "string", "example": "{phone}", "default_hint": ""},
+        {"name": "email", "label": "Email", "category": "contact", "scope": "all", "type": "string", "example": "{email}", "default_hint": ""},
+        {"name": "group_type", "label": "Group type", "category": "contact", "scope": "all", "type": "string", "example": "{group_type}"},
+        # User (basic)
+        {"name": "user_id", "label": "User ID", "category": "user", "scope": "linked_user", "type": "number", "example": "{user_id}"},
+        {"name": "user.email", "label": "User email", "category": "user", "scope": "linked_user", "type": "string", "example": "{user.email}", "default_hint": ""},
+        {"name": "user.first_name", "label": "User first name", "category": "user", "scope": "linked_user", "type": "string", "example": "{user.first_name|default:Guest}", "default_hint": "Guest"},
+        # Nested contact access (useful for consistent UI groups)
+        {"name": "contact.city", "label": "Contact city", "category": "contact", "scope": "all", "type": "string", "example": "{contact.city}"},
+        {"name": "contact.email", "label": "Contact email", "category": "contact", "scope": "all", "type": "string", "example": "{contact.email}"},
+        # Corporate: CompanyDetail (best-effort resolution)
+        {"name": "company.company_name", "label": "Company name", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_name|default:}"},
+        {"name": "company.brand_name", "label": "Brand name", "category": "company", "scope": "corporate", "type": "string", "example": "{company.brand_name|default:}"},
+        {"name": "company.company_email", "label": "Company email", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_email|default:}"},
+        {"name": "company.company_phone", "label": "Company phone", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_phone|default:}"},
+        {"name": "company.contact_person_name", "label": "Company contact person", "category": "company", "scope": "corporate", "type": "string", "example": "{company.contact_person_name|default:}"},
+        # Agent: AgentDetail (best-effort resolution)
+        {"name": "agent.agent_name", "label": "Agent name", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_name|default:}"},
+        {"name": "agent.agent_code", "label": "Agent code", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_code|default:}"},
+        {"name": "agent.agent_email", "label": "Agent email", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_email|default:}"},
+        {"name": "agent.agent_phone", "label": "Agent phone", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_phone|default:}"},
+        # System variables (computed at send-time)
+        {"name": "unsubscribe_url", "label": "Unsubscribe link", "category": "system", "scope": "email", "type": "url", "example": "{unsubscribe_url}"},
+        {"name": "unsubscribe_token", "label": "Unsubscribe token", "category": "system", "scope": "email", "type": "string", "example": "{unsubscribe_token}"},
     ]
-
 
 def _link_user_by_phone_email(phone: str, email: str) -> Optional[User]:
     """Find User by mobile_number or email (exact/iexact)."""

@@ -1,4 +1,7 @@
 import re
+from typing import Any, Dict, Optional
+from django.conf import settings
+from django.core import signing
 from django.core.validators import EmailValidator
 from django.db import transaction
 from django.utils import timezone
@@ -35,11 +38,16 @@ from apps.messaging.serializers import (
     EmailTemplateSerializer,
 )
 from apps.messaging.services import (
+    MissingTemplateVariableError,
+    apply_template_variable_defaults,
+    build_template_variables,
     get_template_variable_definitions,
     normalize_phone,
     upsert_contact_from_row,
+    render_template_string,
 )
 from apps.messaging.tasks import enqueue_campaign_contacts_task, send_campaign_batch_task
+from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 
 
 class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -702,6 +710,353 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     http_method_names = ["get", "post", "put", "patch", "delete"]
     swagger_tags = ["2. Templates & Variables"]
 
+    def _build_test_system_variables(self, contact_id: Optional[int] = None) -> Dict[str, Any]:
+        frontend_base = (getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+        if not frontend_base:
+            frontend_base = (getattr(settings, "BASE_URL", "") or "").rstrip("/")
+        payload = {"contact_id": contact_id, "channel": "email", "purpose": "test"}
+        token = signing.dumps(payload, salt="messaging-unsubscribe")
+        unsubscribe_url = f"{frontend_base}/unsubscribe?token={token}" if frontend_base else ""
+        return {"unsubscribe_token": token, "unsubscribe_url": unsubscribe_url}
+
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Preview an email template with variables",
+        operation_description=(
+            "Renders subject/body using a selected contact (optional) and variable overrides.\n\n"
+            "Defaults are applied from EmailTemplate.variables_schema and inline |default: syntax."
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "contact_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Contact id to use as context."),
+                "variables": openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    description="Override variables (e.g. {\"name\": \"Vignesh\"}).",
+                    additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
+                ),
+            },
+        ),
+        responses={200: "Standard response: rendered subject/body"},
+    )
+    @action(detail=True, methods=["post"], url_path="preview")
+    def preview(self, request, pk=None):
+        self.log_request(request)
+        template = self.get_object()
+        contact_id = request.data.get("contact_id")
+        overrides = request.data.get("variables") or {}
+        if overrides is not None and not isinstance(overrides, dict):
+            return self.get_error_response(
+                message="variables must be an object",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        contact = None
+        if contact_id is not None:
+            try:
+                contact = Contact.objects.get(pk=int(contact_id))
+            except Exception:
+                return self.get_error_response(
+                    message="Invalid contact_id",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        variables = build_template_variables(contact) if contact else {}
+        variables.update(self._build_test_system_variables(contact_id=contact.id if contact else None))
+        variables.update(overrides)
+        variables = apply_template_variable_defaults(getattr(template, "variables_schema", None), variables)
+
+        try:
+            rendered = {
+                "subject": render_template_string(template.subject, variables),
+                "body_html": render_template_string(template.body_html, variables),
+                "body_text": template.body_text
+                and render_template_string(template.body_text, variables)
+                or render_template_string(template.body_html, variables),
+            }
+        except MissingTemplateVariableError as exc:
+            return self.get_error_response(
+                message=str(exc),
+                status="error",
+                errors={"missing_variables": exc.missing},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return self.get_response(
+            data=rendered,
+            message="Preview generated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Send a test email for this template",
+        operation_description=(
+            "Sends a test email using this template. Provide either to_email, or contact_id (uses contact.email).\n"
+            "You can pass variable overrides via `variables`."
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "to_email": openapi.Schema(type=openapi.TYPE_STRING, description="Recipient email for the test."),
+                "contact_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Contact id to use as context."),
+                "variables": openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    description="Override variables (e.g. {\"name\": \"Vignesh\"}).",
+                    additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
+                ),
+            },
+            required=[],
+        ),
+        responses={200: "Standard response: send result"},
+    )
+    @action(detail=True, methods=["post"], url_path="send-test")
+    def send_test(self, request, pk=None):
+        self.log_request(request)
+        template = self.get_object()
+        to_email = (request.data.get("to_email") or "").strip()
+        contact_id = request.data.get("contact_id")
+        overrides = request.data.get("variables") or {}
+        if overrides is not None and not isinstance(overrides, dict):
+            return self.get_error_response(
+                message="variables must be an object",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        contact = None
+        if contact_id is not None:
+            try:
+                contact = Contact.objects.get(pk=int(contact_id))
+            except Exception:
+                return self.get_error_response(
+                    message="Invalid contact_id",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not to_email and contact and contact.email:
+            to_email = contact.email
+        if not to_email:
+            return self.get_error_response(
+                message="to_email is required (or provide contact_id with email)",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate email format early
+        try:
+            EmailValidator()(to_email)
+        except Exception:
+            return self.get_error_response(
+                message="Invalid to_email",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        variables = build_template_variables(contact) if contact else {}
+        variables.update(self._build_test_system_variables(contact_id=contact.id if contact else None))
+        variables.update(overrides)
+        variables = apply_template_variable_defaults(getattr(template, "variables_schema", None), variables)
+
+        try:
+            subject = render_template_string(template.subject, variables)
+            body_text = template.body_text and render_template_string(template.body_text, variables) or render_template_string(template.body_html, variables)
+        except MissingTemplateVariableError as exc:
+            return self.get_error_response(
+                message=str(exc),
+                status="error",
+                errors={"missing_variables": exc.missing},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from IDBOOKAPI.email_utils import send_email as core_send_email
+
+        try:
+            core_send_email(
+                subject=subject,
+                message=body_text,
+                to_emails=[to_email],
+                from_email=settings.EMAIL_HOST_USER,
+            )
+        except Exception as exc:
+            return self.get_error_response(
+                message=f"Failed to send test email: {exc}",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return self.get_response(
+            data={"to_email": to_email, "template_id": template.id},
+            message="Test email sent",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["is_active", "is_marketing", "provider", "created_by", "slug", "name"]
+    search_fields = ["name", "slug", "subject", "body_html", "body_text"]
+    ordering_fields = ["created_at", "updated_at", "name", "slug", "is_active", "is_marketing"]
+    ordering = ["-created_at"]
+
+    _LIST_PARAMS = [
+        openapi.Parameter(
+            "offset",
+            openapi.IN_QUERY,
+            description="Pagination: skip this many records (default 0).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "limit",
+            openapi.IN_QUERY,
+            description="Pagination: max records per page (default 10).",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "search",
+            openapi.IN_QUERY,
+            description="Search in name, slug, subject, body_html, body_text (partial match).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter(
+            "ordering",
+            openapi.IN_QUERY,
+            description="Sort by: created_at, updated_at, name, slug, is_active, is_marketing. Prefix with '-' for descending (e.g. -created_at).",
+            type=openapi.TYPE_STRING,
+        ),
+        openapi.Parameter("is_active", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+        openapi.Parameter("is_marketing", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+        openapi.Parameter(
+            "provider",
+            openapi.IN_QUERY,
+            description="Filter by provider id.",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter(
+            "created_by",
+            openapi.IN_QUERY,
+            description="Filter by creator user id.",
+            type=openapi.TYPE_INTEGER,
+        ),
+        openapi.Parameter("slug", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        openapi.Parameter("name", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+    ]
+
+    @swagger_auto_schema(
+        operation_summary="List email templates (with filters, search, sort, pagination)",
+        operation_description=(
+            "Returns email templates in standard envelope.\n\n"
+            "Pagination: offset, limit (default limit=10).\n"
+            "Search: search by name, slug, subject, body_html, body_text.\n"
+            "Ordering: ordering by created_at, updated_at, name, slug, is_active, is_marketing.\n"
+            "Filters: is_active, is_marketing, provider, created_by, slug, name."
+        ),
+        manual_parameters=_LIST_PARAMS,
+        responses={200: "Standard response: { status, message, count, data: [EmailTemplate...] }"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        custom = self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            custom = self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+            self.log_response(custom)
+            return custom
+        custom = self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_create(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="Email template created",
+            status="success",
+            status_code=status.HTTP_201_CREATED,
+        )
+        self.log_response(custom)
+        return custom
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_update(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="Email template updated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        instance = self.get_object()
+        instance.delete()
+        custom = self.get_response(
+            data=None,
+            message="Email template deleted successfully",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
@@ -959,4 +1314,123 @@ class TemplateVariablesViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingM
     def list(self, request):
         definitions = get_template_variable_definitions()
         return self.get_response(data=definitions, status="success")
+
+
+class MessagingTestViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin):
+    """
+    Utilities: send test messages without campaigns.
+    """
+
+    permission_classes = [IsAuthenticated]
+    swagger_tags = ["4. Execution (Send & Schedule)"]
+
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Send a test SMS (Fast2SMS template)",
+        operation_description=(
+            "Send a test SMS using a provider template_code.\n\n"
+            "Provide either phone, or contact_id (uses contact.phone). "
+            "You can send `variables_values` directly (recommended), or pass `variables` to build a pipe string."
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["template_code"],
+            properties={
+                "template_code": openapi.Schema(type=openapi.TYPE_STRING, description="Fast2SMS template code."),
+                "phone": openapi.Schema(type=openapi.TYPE_STRING, description="Recipient phone (digits/+)."),
+                "contact_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Contact id to use as context."),
+                "variables_values": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Pipe-separated values in provider-expected order.",
+                ),
+                "variables": openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    description="Override variables to build variables_values if variables_values is not provided.",
+                    additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
+                ),
+            },
+        ),
+        responses={200: "Standard response: provider response"},
+    )
+    @action(detail=False, methods=["post"], url_path="sms/send-test")
+    def send_test_sms(self, request):
+        self.log_request(request)
+        template_code = (request.data.get("template_code") or "").strip()
+        phone = (request.data.get("phone") or "").strip()
+        contact_id = request.data.get("contact_id")
+        variables_values = (request.data.get("variables_values") or "").strip()
+        overrides = request.data.get("variables") or {}
+
+        if not template_code:
+            return self.get_error_response(
+                message="template_code is required",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if overrides is not None and not isinstance(overrides, dict):
+            return self.get_error_response(
+                message="variables must be an object",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        contact = None
+        if contact_id is not None:
+            try:
+                contact = Contact.objects.get(pk=int(contact_id))
+            except Exception:
+                return self.get_error_response(
+                    message="Invalid contact_id",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not phone and contact and contact.phone:
+            phone = contact.phone
+        phone_norm = normalize_phone(phone)
+        if not phone_norm:
+            return self.get_error_response(
+                message="phone is required (or provide contact_id with phone)",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not variables_values:
+            variables = build_template_variables(contact) if contact else {}
+            variables.update(overrides)
+            # remove nested objects and non-primitive keys
+            for k in ("contact", "user", "company", "agent"):
+                variables.pop(k, None)
+            # deterministic but may not match provider expected order; prefer variables_values input
+            variables_values = "|".join(str(variables[k]) for k in sorted(variables.keys()) if variables.get(k) not in (None, ""))
+
+        try:
+            resp = send_template_sms(
+                mobile_number=phone_norm,
+                template_code=template_code,
+                variables_values=variables_values,
+            )
+            data: Dict[str, Any] = {
+                "phone": phone_norm,
+                "template_code": template_code,
+                "variables_values": variables_values,
+                "provider_status_code": getattr(resp, "status_code", None),
+            }
+            try:
+                data["provider_response"] = resp.json() if resp is not None else None
+            except Exception:
+                data["provider_response"] = None
+        except Exception as exc:
+            return self.get_error_response(
+                message=f"Failed to send test SMS: {exc}",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return self.get_response(
+            data=data,
+            message="Test SMS sent",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
 
