@@ -864,6 +864,7 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         try:
             subject = render_template_string(template.subject, variables)
+            body_html = render_template_string(template.body_html, variables)
             body_text = template.body_text and render_template_string(template.body_text, variables) or render_template_string(template.body_html, variables)
         except MissingTemplateVariableError as exc:
             return self.get_error_response(
@@ -879,6 +880,7 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             core_send_email(
                 subject=subject,
                 message=body_text,
+                html_message=body_html,
                 to_emails=[to_email],
                 from_email=settings.EMAIL_HOST_USER,
             )

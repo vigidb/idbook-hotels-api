@@ -201,6 +201,13 @@ def send_booking_email_with_attachment(subject, file, to_emails, html_content, b
     print(status)
 
 
-def send_email(subject, message, to_emails: list, from_email):
-    status = send_mail(subject, message, from_email, to_emails)
+def send_email(subject, message, to_emails: list, from_email, html_message=None):
+    status = send_mail(
+        subject,
+        message,
+        from_email,
+        to_emails,
+        fail_silently=False,
+        html_message=html_message,
+    )
     print("email status::", status)

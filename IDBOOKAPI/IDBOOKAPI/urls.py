@@ -30,7 +30,15 @@ schema_view = get_schema_view(
     openapi.Info(
         title="IDBOOK APIs",
         default_version="v1",
-        description="IDBOOKAPI APIs: All apis for web application, android/IOS application",
+        description=(
+            "IDBOOKAPI APIs: All APIs for web application, Android/iOS application.\n\n"
+            "Authentication in Swagger (`/api/v1/docs/swagger/`):\n"
+            "1. Generate JWT token from `POST /api/v1/auth/token/` with your credentials.\n"
+            "2. Copy the `access` token from the response.\n"
+            "3. Click the `Authorize` button in Swagger UI.\n"
+            "4. In `Bearer`, enter: `Bearer <access_token>` and click `Authorize`.\n"
+            "5. Call protected APIs. Re-authorize after token expiry."
+        ),
         terms_of_service="https://www.google.com/policies/terms/",
         contact=openapi.Contact(email="contact@idbookhotels.com"),
         license=openapi.License(name="BSD License"),

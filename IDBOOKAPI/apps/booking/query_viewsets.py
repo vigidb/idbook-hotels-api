@@ -15,7 +15,11 @@ from datetime import date
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from apps.authentication.constants import UserGroups, CORPORATE_GROUPS, B2C_GROUPS
 from apps.authentication.utils.token_utils import get_user_active_group
+from apps.authentication.models import User
 from .models import Query, QueryCommunication, Booking, VisaBooking, EventBooking, Invoice, FlightBooking
+from apps.booking.utils.coupon_booking_helpers import apply_coupon_to_booking
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .serializers import (
     QuerySerializer, 
     QueryCommunicationSerializer, 
@@ -826,21 +830,98 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 
                 if booking_serializer.is_valid():
                     booking = booking_serializer.save()
-                    # Apply quote amount (serializer does not set subtotal/final_amount for non-FLIGHT)
-                    booking.subtotal = Decimal(str(query.quote_amount))
-                    booking.final_amount = Decimal(str(query.quote_amount))
+                    quote = Decimal(str(query.quote_amount))
+                    coupon_code = (
+                        request.data.get("coupon_code")
+                        or getattr(query, "coupon_code", "")
+                        or (qd.get("coupon_code") or "")
+                    )
+                    coupon_code = str(coupon_code).strip() if coupon_code else ""
+                    checkin_date = None
+                    booking_date = None
+                    qtype = str(query.query_type or "")
+                    if qtype == "HOLIDAYPACK":
+                        asd = qd.get("available_start_date")
+                        if asd:
+                            from datetime import datetime as dt
+
+                            if isinstance(asd, str):
+                                try:
+                                    checkin_date = dt.strptime(str(asd)[:10], "%Y-%m-%d").date()
+                                except ValueError:
+                                    pass
+                            elif isinstance(asd, dt):
+                                checkin_date = asd.date()
+                            else:
+                                checkin_date = asd
+                        booking_date = date.today()
+                    applied_coupon = False
+                    if coupon_code:
+                        try:
+                            apply_coupon_to_booking(
+                                booking,
+                                coupon_code,
+                                quote,
+                                user_id=query.raised_by_id,
+                                booking_type=qtype or "HOTEL",
+                                checkin_date=checkin_date,
+                                booking_date=booking_date,
+                            )
+                            applied_coupon = True
+                        except ValueError as exc:
+                            custom_response = self.get_error_response(
+                                message=str(exc),
+                                status="error",
+                                errors=[],
+                                error_code="COUPON_ERROR",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+                            self.log_response(custom_response)
+                            return custom_response
+                    if not applied_coupon:
+                        booking.subtotal = quote
+                        booking.final_amount = quote
+                    mp = request.data.get("min_payment_percent")
+                    ma = request.data.get("min_payment_amount")
+                    if mp is not None and mp != "":
+                        booking.min_payment_percent = Decimal(str(mp))
+                    if ma is not None and ma != "":
+                        booking.min_payment_amount = Decimal(str(ma))
                     # Link query <-> booking and preserve query context
                     booking.source_query = query
                     if getattr(query, "agent_id", None):
                         booking.agent_id = query.agent_id
                     booking_for = getattr(query, "booking_for", None)
-                    if booking_for and str(booking_for).upper() in ("AGENT", "CORPORATE", "B2C", "GUEST"):
+                    if booking_for and str(booking_for).upper() in (
+                        "AGENT",
+                        "CORPORATE",
+                        "B2C",
+                        "GUEST",
+                    ):
                         booking.booking_source = str(booking_for).upper()
-                    update_fields = ["source_query", "subtotal", "final_amount"]
+                    update_fields = ["source_query", "subtotal", "final_amount", "updated"]
+                    if applied_coupon:
+                        update_fields.extend(
+                            [
+                                "discount",
+                                "total_discount",
+                                "coupon",
+                                "coupon_code",
+                            ]
+                        )
                     if getattr(query, "agent_id", None):
                         update_fields.append("agent_id")
-                    if booking_for and str(booking_for).upper() in ("AGENT", "CORPORATE", "B2C", "GUEST"):
+                    if booking_for and str(booking_for).upper() in (
+                        "AGENT",
+                        "CORPORATE",
+                        "B2C",
+                        "GUEST",
+                    ):
                         update_fields.append("booking_source")
+                    if mp is not None and mp != "":
+                        update_fields.append("min_payment_percent")
+                    if ma is not None and ma != "":
+                        update_fields.append("min_payment_amount")
                     booking.save(update_fields=update_fields)
                     query.booking = booking
                     query.status = "confirmed"
@@ -894,6 +975,91 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         
+        self.log_response(custom_response)
+        return custom_response
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="assign-business-user",
+        permission_classes=[IsAuthenticated],
+    )
+    @swagger_auto_schema(
+        operation_summary="Assign query to BUSINESS-GRP user",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["assigned_to_user_id"],
+            properties={
+                "assigned_to_user_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+            },
+        ),
+        responses={200: "Query assigned", 400: "Validation error", 403: "Permission denied", 404: "User not found"},
+    )
+    def assign_business_user(self, request, pk=None):
+        """Manual assignment of query to a BUSINESS-GRP user."""
+        self.log_request(request)
+
+        if not is_admin_user(request.user, request):
+            custom_response = self.get_error_response(
+                message="Admin access required",
+                status="error",
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+        query = self.get_object()
+        assigned_to_user_id = request.data.get("assigned_to_user_id")
+        if not assigned_to_user_id:
+            custom_response = self.get_error_response(
+                message="assigned_to_user_id is required",
+                status="error",
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+        try:
+            assigned_user = User.objects.get(id=int(assigned_to_user_id), active=True)
+        except (ValueError, TypeError, User.DoesNotExist):
+            custom_response = self.get_error_response(
+                message="Assigned user not found",
+                status="error",
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+        if assigned_user.default_group != UserGroups.BUSINESS_GRP:
+            custom_response = self.get_error_response(
+                message="Assigned user must belong to BUSINESS-GRP",
+                status="error",
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+        query.referred_by = assigned_user
+        query.referral_type = "EMPLOYEE"
+        query.status = "assigned"
+        query.save(update_fields=["referred_by", "referral_type", "status", "updated"])
+
+        custom_response = self.get_response(
+            data={
+                "query": QuerySerializer(query).data,
+                "assigned_to": {
+                    "id": assigned_user.id,
+                    "name": assigned_user.name,
+                    "email": assigned_user.email,
+                },
+            },
+            message="Query assigned successfully",
+            status_code=status.HTTP_200_OK,
+        )
         self.log_response(custom_response)
         return custom_response
 

@@ -150,10 +150,6 @@ def build_template_variables(contact: Contact, extra_context: Optional[Dict[str,
     return ctx
 
 
-_LBRACE_SENTINEL = "__IDBOOK_LBRACE__"
-_RBRACE_SENTINEL = "__IDBOOK_RBRACE__"
-
-
 class MissingTemplateVariableError(Exception):
     def __init__(self, missing: List[str]):
         self.missing = missing
@@ -182,24 +178,28 @@ def _resolve_path(root: Any, path: str) -> Any:
 
 def render_template_string(template: str, variables: Dict[str, Any]) -> str:
     """
-    Variable replacement using {var} placeholders.
+    Variable replacement for template placeholders.
 
     Supports:
-    - Dot paths: {contact.city}, {user.email}
-    - Defaults: {name|default:Guest} (used when missing/blank)
-    - Literal braces: use {{ and }} in templates
+    - Dot paths: {{contact.city}}, {{user.email}}
+    - Defaults: {{name|default:Guest}} (used when missing/blank)
+    - Backward compatible single-brace tokens for valid variable expressions:
+      {name}, {contact.city}, {name|default:Guest}
     """
     if not template:
         return ""
 
-    # Preserve literal braces
-    safe = template.replace("{{", _LBRACE_SENTINEL).replace("}}", _RBRACE_SENTINEL)
-
-    pattern = re.compile(r"\{([^{}]+)\}")
+    # Match either:
+    # 1) {{ ... }} (preferred format)
+    # 2) { ... } for identifier-like expressions only (legacy format)
+    # This intentionally excludes CSS blocks like { margin: 0; ... }.
+    pattern = re.compile(
+        r"\{\{([^{}]+)\}\}|\{([a-zA-Z_][a-zA-Z0-9_.]*(?:\|default:[^{}]*)?)\}"
+    )
     missing_vars: List[str] = []
 
     def _replace(match: re.Match) -> str:
-        expr = (match.group(1) or "").strip()
+        expr = (match.group(1) or match.group(2) or "").strip()
         if not expr:
             return ""
 
@@ -217,8 +217,7 @@ def render_template_string(template: str, variables: Dict[str, Any]) -> str:
             return ""
         return str(value)
 
-    rendered = pattern.sub(_replace, safe)
-    rendered = rendered.replace(_LBRACE_SENTINEL, "{").replace(_RBRACE_SENTINEL, "}")
+    rendered = pattern.sub(_replace, template)
     if missing_vars:
         # De-duplicate while preserving first-seen order
         seen = set()
@@ -241,7 +240,7 @@ def apply_template_variable_defaults(template_variables_schema: Any, variables: 
     - list[{"name": "...", "default": "..."}]
 
     Defaults only apply to *top-level* variable keys (e.g. "name", "city").
-    For nested paths like "user.first_name", prefer using {user.first_name|default:Guest}
+    For nested paths like "user.first_name", prefer using {{user.first_name|default:Guest}}
     in the template string itself.
     """
     if not template_variables_schema:
@@ -454,7 +453,11 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     try:
         subject = render_template_string(template.subject, variables)
         body_html = render_template_string(template.body_html, variables)
-        body_text = template.body_text or render_template_string(template.body_html, variables)
+        body_text = (
+            render_template_string(template.body_text, variables)
+            if template.body_text
+            else render_template_string(template.body_html, variables)
+        )
     except MissingTemplateVariableError as exc:
         campaign_contact.status = CampaignContact.Status.FAILED
         campaign_contact.error_message = str(exc)
@@ -475,6 +478,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         core_send_email(
             subject=subject,
             message=body_text,
+            html_message=body_html,
             to_emails=[contact.email],
             from_email=settings.EMAIL_HOST_USER,
         )
@@ -513,39 +517,39 @@ def get_template_variable_definitions() -> List[Dict[str, Any]]:
     Central registry of available template variables for the frontend.
 
     Notes:
-    - Frontend should insert variables as {variable_name} into templates.
-    - Default value syntax: {name|default:Guest}
-    - Nested access is supported: {contact.city}, {user.email}
+    - Frontend should insert variables as {{variable_name}} into templates.
+    - Default value syntax: {{name|default:Guest}}
+    - Nested access is supported: {{contact.city}}, {{user.email}}
     """
     return [
         # Contact (flat)
-        {"name": "name", "label": "Contact name", "category": "contact", "scope": "all", "type": "string", "example": "{name}", "default_hint": "Guest"},
-        {"name": "city", "label": "City", "category": "contact", "scope": "all", "type": "string", "example": "{city}", "default_hint": ""},
-        {"name": "country", "label": "Country", "category": "contact", "scope": "all", "type": "string", "example": "{country}", "default_hint": ""},
-        {"name": "phone", "label": "Phone", "category": "contact", "scope": "all", "type": "string", "example": "{phone}", "default_hint": ""},
-        {"name": "email", "label": "Email", "category": "contact", "scope": "all", "type": "string", "example": "{email}", "default_hint": ""},
-        {"name": "group_type", "label": "Group type", "category": "contact", "scope": "all", "type": "string", "example": "{group_type}"},
+        {"name": "name", "label": "Contact name", "category": "contact", "scope": "all", "type": "string", "example": "{{name}}", "default_hint": "Guest"},
+        {"name": "city", "label": "City", "category": "contact", "scope": "all", "type": "string", "example": "{{city}}", "default_hint": ""},
+        {"name": "country", "label": "Country", "category": "contact", "scope": "all", "type": "string", "example": "{{country}}", "default_hint": ""},
+        {"name": "phone", "label": "Phone", "category": "contact", "scope": "all", "type": "string", "example": "{{phone}}", "default_hint": ""},
+        {"name": "email", "label": "Email", "category": "contact", "scope": "all", "type": "string", "example": "{{email}}", "default_hint": ""},
+        {"name": "group_type", "label": "Group type", "category": "contact", "scope": "all", "type": "string", "example": "{{group_type}}"},
         # User (basic)
-        {"name": "user_id", "label": "User ID", "category": "user", "scope": "linked_user", "type": "number", "example": "{user_id}"},
-        {"name": "user.email", "label": "User email", "category": "user", "scope": "linked_user", "type": "string", "example": "{user.email}", "default_hint": ""},
-        {"name": "user.first_name", "label": "User first name", "category": "user", "scope": "linked_user", "type": "string", "example": "{user.first_name|default:Guest}", "default_hint": "Guest"},
+        {"name": "user_id", "label": "User ID", "category": "user", "scope": "linked_user", "type": "number", "example": "{{user_id}}"},
+        {"name": "user.email", "label": "User email", "category": "user", "scope": "linked_user", "type": "string", "example": "{{user.email}}", "default_hint": ""},
+        {"name": "user.first_name", "label": "User first name", "category": "user", "scope": "linked_user", "type": "string", "example": "{{user.first_name|default:Guest}}", "default_hint": "Guest"},
         # Nested contact access (useful for consistent UI groups)
-        {"name": "contact.city", "label": "Contact city", "category": "contact", "scope": "all", "type": "string", "example": "{contact.city}"},
-        {"name": "contact.email", "label": "Contact email", "category": "contact", "scope": "all", "type": "string", "example": "{contact.email}"},
+        {"name": "contact.city", "label": "Contact city", "category": "contact", "scope": "all", "type": "string", "example": "{{contact.city}}"},
+        {"name": "contact.email", "label": "Contact email", "category": "contact", "scope": "all", "type": "string", "example": "{{contact.email}}"},
         # Corporate: CompanyDetail (best-effort resolution)
-        {"name": "company.company_name", "label": "Company name", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_name|default:}"},
-        {"name": "company.brand_name", "label": "Brand name", "category": "company", "scope": "corporate", "type": "string", "example": "{company.brand_name|default:}"},
-        {"name": "company.company_email", "label": "Company email", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_email|default:}"},
-        {"name": "company.company_phone", "label": "Company phone", "category": "company", "scope": "corporate", "type": "string", "example": "{company.company_phone|default:}"},
-        {"name": "company.contact_person_name", "label": "Company contact person", "category": "company", "scope": "corporate", "type": "string", "example": "{company.contact_person_name|default:}"},
+        {"name": "company.company_name", "label": "Company name", "category": "company", "scope": "corporate", "type": "string", "example": "{{company.company_name|default:}}"},
+        {"name": "company.brand_name", "label": "Brand name", "category": "company", "scope": "corporate", "type": "string", "example": "{{company.brand_name|default:}}"},
+        {"name": "company.company_email", "label": "Company email", "category": "company", "scope": "corporate", "type": "string", "example": "{{company.company_email|default:}}"},
+        {"name": "company.company_phone", "label": "Company phone", "category": "company", "scope": "corporate", "type": "string", "example": "{{company.company_phone|default:}}"},
+        {"name": "company.contact_person_name", "label": "Company contact person", "category": "company", "scope": "corporate", "type": "string", "example": "{{company.contact_person_name|default:}}"},
         # Agent: AgentDetail (best-effort resolution)
-        {"name": "agent.agent_name", "label": "Agent name", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_name|default:}"},
-        {"name": "agent.agent_code", "label": "Agent code", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_code|default:}"},
-        {"name": "agent.agent_email", "label": "Agent email", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_email|default:}"},
-        {"name": "agent.agent_phone", "label": "Agent phone", "category": "agent", "scope": "agent", "type": "string", "example": "{agent.agent_phone|default:}"},
+        {"name": "agent.agent_name", "label": "Agent name", "category": "agent", "scope": "agent", "type": "string", "example": "{{agent.agent_name|default:}}"},
+        {"name": "agent.agent_code", "label": "Agent code", "category": "agent", "scope": "agent", "type": "string", "example": "{{agent.agent_code|default:}}"},
+        {"name": "agent.agent_email", "label": "Agent email", "category": "agent", "scope": "agent", "type": "string", "example": "{{agent.agent_email|default:}}"},
+        {"name": "agent.agent_phone", "label": "Agent phone", "category": "agent", "scope": "agent", "type": "string", "example": "{{agent.agent_phone|default:}}"},
         # System variables (computed at send-time)
-        {"name": "unsubscribe_url", "label": "Unsubscribe link", "category": "system", "scope": "email", "type": "url", "example": "{unsubscribe_url}"},
-        {"name": "unsubscribe_token", "label": "Unsubscribe token", "category": "system", "scope": "email", "type": "string", "example": "{unsubscribe_token}"},
+        {"name": "unsubscribe_url", "label": "Unsubscribe link", "category": "system", "scope": "email", "type": "url", "example": "{{unsubscribe_url}}"},
+        {"name": "unsubscribe_token", "label": "Unsubscribe token", "category": "system", "scope": "email", "type": "string", "example": "{{unsubscribe_token}}"},
     ]
 
 def _link_user_by_phone_email(phone: str, email: str) -> Optional[User]:

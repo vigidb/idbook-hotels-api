@@ -253,12 +253,39 @@ def check_review_exist_for_booking(booking_id):
 
 
 def get_user_based_applied_coupon(user_id):
-    booking_coupon = (
+    """
+    Coupon codes to hide from browse lists for this user.
+
+    Includes every code already used on a confirmed booking, plus all codes in
+    any campaign where the user has hit max_redemptions_per_user (ledger).
+    """
+    from apps.coupons.models import Coupon, CouponCampaign, CouponRedemption
+
+    exclude = set(
         Booking.objects.filter(user__id=user_id, status="confirmed")
         .exclude(coupon_code="")
         .values_list("coupon_code", flat=True)
     )
-    return list(booking_coupon)
+
+    for campaign in CouponCampaign.objects.exclude(
+        max_redemptions_per_user__isnull=True
+    ).only("id", "max_redemptions_per_user"):
+        cap = campaign.max_redemptions_per_user
+        coupon_ids = Coupon.objects.filter(campaign_id=campaign.id).values_list(
+            "id", flat=True
+        )
+        used = CouponRedemption.objects.filter(
+            coupon_id__in=coupon_ids,
+            user_id=user_id,
+            status=CouponRedemption.RedemptionStatus.CONFIRMED,
+        ).count()
+        if cap is not None and used >= cap:
+            codes = Coupon.objects.filter(campaign_id=campaign.id).values_list(
+                "code", flat=True
+            )
+            exclude.update(codes)
+
+    return list(exclude)
 
 
 def check_user_used_coupon(coupon_code, user_id):

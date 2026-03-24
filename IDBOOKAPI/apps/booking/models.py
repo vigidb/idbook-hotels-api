@@ -366,6 +366,7 @@ class FlightBooking(models.Model):
 # Query Status Choices
 QUERY_STATUS_CHOICES = (
     ("pending", "Pending"),
+    ("assigned", "Assigned"),
     ("documents_reviewed", "Documents Reviewed"),  # For Visa only
     ("quoted", "Quoted"),
     ("confirmed", "Confirmed"),
@@ -618,7 +619,13 @@ class Query(models.Model):
         default=0.0,
         help_text="Quoted amount"
     )
-    
+    coupon_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Optional partner coupon captured on the query",
+    )
+
     # Link to Invoice (proforma initially, converted to final on booking)
     invoice = models.ForeignKey(
         "Invoice",
@@ -839,7 +846,7 @@ class Booking(models.Model):
     )
 
     # deal_price = models.DecimalField(default=0, decimal_places=6)
-    coupon_code = models.CharField(max_length=20, blank=True, default="")
+    coupon_code = models.CharField(max_length=64, blank=True, default="")
     discount = models.DecimalField(default=0, max_digits=15, decimal_places=6)
     pro_member_discount_percent = models.PositiveSmallIntegerField(
         default=0, help_text="Discount percent for pro member"
@@ -885,7 +892,23 @@ class Booking(models.Model):
     total_payment_made = models.DecimalField(
         max_digits=20, decimal_places=6, default=0.0, help_text="Total Payment made"
     )
-    
+    min_payment_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum %% of post-coupon final_amount required as first/advance payment",
+    )
+    min_payment_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Minimum rupee payment required for confirmation (optional).",
+    )
+
     # Agent markup fields
     agent_markup_percent = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,
@@ -933,6 +956,29 @@ class Booking(models.Model):
     )
 
     # objects = BookingManager()
+
+    def balance_due(self):
+        """Remaining amount after payments (post-coupon final_amount basis)."""
+        fa = self.final_amount or Decimal("0")
+        paid = self.total_payment_made or Decimal("0")
+        d = fa - paid
+        return d if d > 0 else Decimal("0")
+
+    def minimum_first_payment_amount(self):
+        """Smallest allowed first payment from min_payment_percent / min_payment_amount (take max of both when set)."""
+        fa = self.final_amount or Decimal("0")
+        if fa <= 0:
+            return Decimal("0")
+        candidates = []
+        if self.min_payment_percent is not None:
+            candidates.append(
+                (fa * (self.min_payment_percent / Decimal("100"))).quantize(Decimal("0.01"))
+            )
+        if self.min_payment_amount is not None:
+            candidates.append(self.min_payment_amount)
+        if not candidates:
+            return Decimal("0")
+        return max(candidates)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

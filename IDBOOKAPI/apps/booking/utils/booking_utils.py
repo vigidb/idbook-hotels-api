@@ -887,7 +887,7 @@ def get_booking_payable_amount(booking):
     return Decimal(str(booking.final_amount or 0))
 
 
-def deduct_booking_amount(booking, company_id=None, request=None):
+def deduct_booking_amount(booking, company_id=None, request=None, amount=None):
     """
     Deduct booking amount from appropriate wallet based on user's active group or booking agent.
 
@@ -908,7 +908,10 @@ def deduct_booking_amount(booking, company_id=None, request=None):
     Returns:
         bool: True if deduction successful, False otherwise
     """
-    deduct_amount = get_booking_payable_amount(booking)
+    if amount is None:
+        deduct_amount = get_booking_payable_amount(booking)
+    else:
+        deduct_amount = Decimal(str(amount))
 
     if not booking.user:
         # Guest booking without user - should not happen for wallet payment

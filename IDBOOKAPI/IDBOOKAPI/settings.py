@@ -264,6 +264,7 @@ REST_FRAMEWORK = {
         "user": "1000/hour",
         "switch_group": "10/min",  # Rate limit for group switching
         "login": "5/min",  # Rate limit for login attempts
+        "coupon_validity": "60/min",
     },
     # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     # 'PAGE_SIZE': 10
@@ -277,6 +278,9 @@ SWAGGER_SETTINGS = {
     "DEFAULT_FILTER_INSPECTORS": [],
     # Disable Django session-based auth buttons in Swagger; use JWT or Basic instead
     "USE_SESSION_AUTH": False,
+    # Keep authorized token in Swagger UI between page refreshes.
+    # (Swagger UI can't reliably auto-inject a token for security reasons.)
+    "PERSIST_AUTH": True,
     "SECURITY_DEFINITIONS": {
         "Bearer": {
             "type": "apiKey",

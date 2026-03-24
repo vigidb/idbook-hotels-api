@@ -218,6 +218,7 @@ GENDER_CHOICES = (
 
 BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
     ("pending", "Pending"),
+    ("payment_pending_verification", "Payment Pending Verification"),
     ("confirmed", "Confirmed"),
     ("canceled", "Canceled"),
     ("completed", "Completed"),

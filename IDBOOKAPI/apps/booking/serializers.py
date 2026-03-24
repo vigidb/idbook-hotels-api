@@ -1011,7 +1011,127 @@ class BookingSerializerMixin:
                 )
 
         company_detail.save()
-        
+
+        # Holiday package: pricing, partner coupon, min first payment (align with
+        # query convert_to_booking + PhonePe validate_initiate_payment_amount).
+        if booking_type == "HOLIDAYPACK":
+            from datetime import date, datetime
+            from decimal import Decimal
+
+            from apps.booking.utils.coupon_booking_helpers import apply_coupon_to_booking
+
+            rd = request.data
+            raw_sub = rd.get("subtotal")
+            raw_final = rd.get("final_amount")
+            quote = Decimal("0")
+            if raw_sub is not None or raw_final is not None:
+                try:
+                    quote = Decimal(str(raw_sub if raw_sub is not None else raw_final))
+                except Exception:
+                    quote = Decimal("0")
+
+            coupon_code = str(rd.get("coupon_code") or "").strip()
+
+            checkin_date = None
+            asd = rd.get("available_start_date")
+            if asd:
+                if isinstance(asd, str):
+                    try:
+                        checkin_date = datetime.strptime(asd[:10], "%Y-%m-%d").date()
+                    except ValueError:
+                        pass
+                elif isinstance(asd, datetime):
+                    checkin_date = asd.date()
+                else:
+                    checkin_date = asd
+
+            booking_date = None
+            bd = rd.get("booking_date")
+            if bd:
+                if isinstance(bd, str):
+                    try:
+                        booking_date = datetime.strptime(bd[:10], "%Y-%m-%d").date()
+                    except ValueError:
+                        pass
+                elif isinstance(bd, datetime):
+                    booking_date = bd.date()
+                else:
+                    booking_date = bd
+            else:
+                booking_date = date.today()
+
+            applied = False
+            if coupon_code:
+                if quote <= 0:
+                    raise serializers.ValidationError(
+                        {
+                            "coupon_code": "subtotal or final_amount is required to validate this coupon",
+                            "error_code": "COUPON_ERROR",
+                        }
+                    )
+                try:
+                    apply_coupon_to_booking(
+                        company_detail,
+                        coupon_code,
+                        quote,
+                        user_id=getattr(user, "id", None),
+                        booking_type="HOLIDAYPACK",
+                        checkin_date=checkin_date,
+                        booking_date=booking_date,
+                    )
+                    applied = True
+                except ValueError as exc:
+                    raise serializers.ValidationError(
+                        {"coupon_code": str(exc), "error_code": "COUPON_ERROR"}
+                    )
+
+            if not applied and quote > 0:
+                try:
+                    final_amt = (
+                        Decimal(str(raw_final))
+                        if raw_final is not None
+                        else quote
+                    )
+                except Exception:
+                    final_amt = quote
+                company_detail.subtotal = quote
+                company_detail.final_amount = final_amt
+                upd = ["subtotal", "final_amount", "updated"]
+                if rd.get("gst_amount") is not None:
+                    try:
+                        company_detail.gst_amount = Decimal(str(rd.get("gst_amount")))
+                        upd.append("gst_amount")
+                    except Exception:
+                        pass
+                if rd.get("gst_percentage") is not None:
+                    try:
+                        company_detail.gst_percentage = Decimal(
+                            str(rd.get("gst_percentage"))
+                        )
+                        upd.append("gst_percentage")
+                    except Exception:
+                        pass
+                company_detail.save(update_fields=upd)
+
+            mp = rd.get("min_payment_percent")
+            ma = rd.get("min_payment_amount")
+            mp_ma_fields = []
+            if mp is not None and str(mp).strip() != "":
+                try:
+                    company_detail.min_payment_percent = Decimal(str(mp))
+                    mp_ma_fields.append("min_payment_percent")
+                except Exception:
+                    pass
+            if ma is not None and str(ma).strip() != "":
+                try:
+                    company_detail.min_payment_amount = Decimal(str(ma))
+                    mp_ma_fields.append("min_payment_amount")
+                except Exception:
+                    pass
+            if mp_ma_fields:
+                mp_ma_fields.append("updated")
+                company_detail.save(update_fields=mp_ma_fields)
+
         # Link customer to agent if booking_source is AGENT
         if booking_source == 'AGENT' and company_detail.user and company_detail.agent:
             from apps.booking.utils.agent_linking_utils import link_customer_to_agent_on_booking
@@ -1485,6 +1605,10 @@ class BookingSerializerMixin:
                         holidaypack_booking
                     )
                     representation["holiday_package_booking"] = holiday_package_json
+                representation["balance_due"] = str(instance.balance_due())
+                representation["minimum_first_payment_amount"] = str(
+                    instance.minimum_first_payment_amount()
+                )
             elif booking_type == "HOTEL":
                 hotel_booking = instance.hotel_booking
                 if hotel_booking:

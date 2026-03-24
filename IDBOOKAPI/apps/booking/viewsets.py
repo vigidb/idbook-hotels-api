@@ -2628,20 +2628,32 @@ class BookingViewSet(
 
             with transaction.atomic():
 
-                # apply coupon discount
+                # apply coupon discount (campaign slabs or legacy flat coupon)
                 if coupon:
-                    coupon_discount_type = coupon.discount_type
-                    coupon_discount = coupon.discount
-                    discount, subtotal_after_discount = apply_coupon_based_discount(
-                        coupon_discount,
-                        coupon_discount_type,
-                        self.total_room_amount_with_room_discount,
+                    from apps.coupons.services.redemption import (
+                        compute_discount_for_coupon,
                     )
-                    # coupon_discount, coupon_discount_type, self.subtotal)
 
-                    self.final_amount = (
-                        float(subtotal_after_discount) + self.final_tax_amount
-                    )
+                    base_amt = Decimal(str(self.total_room_amount_with_room_discount))
+                    if coupon.campaign_id and coupon.campaign.slabs.exists():
+                        disc_dec, sub_after = compute_discount_for_coupon(
+                            coupon, base_amt
+                        )
+                        discount = float(disc_dec)
+                        self.final_amount = float(sub_after) + float(
+                            self.final_tax_amount
+                        )
+                    else:
+                        coupon_discount_type = coupon.discount_type
+                        coupon_discount = coupon.discount
+                        discount, subtotal_after_discount = apply_coupon_based_discount(
+                            coupon_discount,
+                            coupon_discount_type,
+                            self.total_room_amount_with_room_discount,
+                        )
+                        self.final_amount = (
+                            float(subtotal_after_discount) + self.final_tax_amount
+                        )
                 else:
                     discount = 0
                     self.final_amount = (
@@ -2866,6 +2878,25 @@ class BookingViewSet(
                 if not booking_id:
                     booking = Booking(**booking_dict)
                     booking.save()
+
+                    if coupon:
+                        booking.coupon = coupon
+                        booking.save(update_fields=["coupon", "updated"])
+                        from apps.coupons.services.redemption import (
+                            record_coupon_redemption,
+                        )
+
+                        try:
+                            record_coupon_redemption(
+                                coupon,
+                                booking,
+                                booking_subtotal=Decimal(
+                                    str(self.total_room_amount_with_room_discount)
+                                ),
+                                discount_applied=Decimal(str(discount)),
+                            )
+                        except ValueError as cr_err:
+                            print("Coupon redemption ledger:", cr_err)
                     
                     # Ensure user is linked to booking (for guest users created above)
                     if getattr(user, "is_authenticated", False) and not booking.user:
@@ -3106,21 +3137,29 @@ class BookingViewSet(
             return custom_response
 
         subtotal = instance.subtotal
-        # final_amount = instance.final_amount
         tax_amount = instance.gst_amount
 
-        coupon_discount_type = coupon.discount_type
-        coupon_discount = coupon.discount
-        discount, subtotal_after_discount = apply_coupon_based_discount(
-            coupon_discount, coupon_discount_type, subtotal
-        )
+        if coupon.campaign_id and coupon.campaign.slabs.exists():
+            from apps.coupons.services.redemption import compute_discount_for_coupon
 
-        self.final_amount = subtotal_after_discount + tax_amount
+            disc_amt, sub_after = compute_discount_for_coupon(
+                coupon, Decimal(str(subtotal))
+            )
+            discount = float(disc_amt)
+            subtotal_after_discount = float(sub_after)
+        else:
+            coupon_discount_type = coupon.discount_type
+            coupon_discount = coupon.discount
+            discount, subtotal_after_discount = apply_coupon_based_discount(
+                coupon_discount, coupon_discount_type, subtotal
+            )
 
-        # save the deduction details based on discount
+        self.final_amount = subtotal_after_discount + float(tax_amount)
+
         instance.final_amount = self.final_amount
         instance.discount = discount
-        instance.coupon_code = coupon_code
+        instance.coupon = coupon
+        instance.coupon_code = coupon.code
         instance.save()
 
         serializer = PreConfirmHotelBookingSerializer(instance)
@@ -3197,6 +3236,123 @@ class BookingViewSet(
 
         # Add check for pay_at_hotel parameter (HOTEL flow)
         pay_at_hotel = request.data.get("pay_at_hotel", False)
+
+        if instance.booking_type == "HOLIDAYPACK":
+            if not instance.user:
+                custom_response = self.get_error_response(
+                    message="The booking is not associated with any user",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return custom_response
+
+            payable = get_booking_payable_amount(instance)
+            amount = request.data.get("amount", None)
+            if amount is None or amount == "":
+                amount = float(payable)
+            try:
+                request_amount = float(amount)
+            except ValueError:
+                custom_response = self.get_error_response(
+                    message="Invalid amount format",
+                    status="error",
+                    errors=[],
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return custom_response
+
+            from apps.booking.utils.coupon_payment_utils import (
+                validate_initiate_payment_amount,
+            )
+
+            ok_pay, pay_msg = validate_initiate_payment_amount(instance, request_amount)
+            if not ok_pay:
+                return self.get_error_response(
+                    message=pay_msg,
+                    status="error",
+                    errors=[],
+                    error_code="AMOUNT_MISMATCH",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            append_id = "%s" % (user.id)
+            booking_payment_detail = create_booking_payment_details(instance.id, append_id)
+            deduct_status = deduct_booking_amount(
+                instance, instance.company_id, request=request, amount=request_amount
+            )
+            if not deduct_status:
+                booking_payment_detail.code = "PAYMENT_ERROR"
+                booking_payment_detail.message = "Insufficient fund in wallet balance"
+                booking_payment_detail.payment_type = "WALLET"
+                booking_payment_detail.payment_medium = "Idbook"
+                booking_payment_detail.amount = request_amount
+                booking_payment_detail.is_transaction_success = False
+                booking_payment_detail.transaction_for = "booking_confirmed"
+                booking_payment_detail.save()
+                return self.get_error_response(
+                    message="Error in wallet deduction; Please make sure wallet has sufficient fund",
+                    status="error",
+                    errors=[],
+                    error_code="WALLET_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            booking_id = instance.id
+            booking_type = instance.booking_type
+            while True:
+                confirmation_code = generate_booking_confirmation_code(
+                    booking_id, booking_type
+                )
+                is_exist = check_booking_confirmation_code(confirmation_code)
+                if not is_exist:
+                    break
+
+            instance.confirmation_code = confirmation_code
+            paid_so_far = Decimal(str(instance.total_payment_made or 0))
+            updated_paid = paid_so_far + Decimal(str(request_amount))
+            final_amount = Decimal(str(instance.final_amount or 0))
+            if final_amount > 0 and updated_paid > final_amount:
+                updated_paid = final_amount
+            instance.total_payment_made = updated_paid
+            instance.status = "confirmed"
+            instance.save(update_fields=["confirmation_code", "total_payment_made", "status", "updated"])
+            instance.meta_info.booking_confirmed_date = datetime.now()
+            instance.meta_info.save()
+
+            booking_payment_detail.code = "PAYMENT_SUCCESS"
+            booking_payment_detail.message = "Your payment is successful."
+            booking_payment_detail.payment_type = "WALLET"
+            booking_payment_detail.payment_medium = "Idbook"
+            booking_payment_detail.amount = request_amount
+            booking_payment_detail.is_transaction_success = True
+            booking_payment_detail.transaction_for = "booking_confirmed"
+            booking_payment_detail.save()
+
+            create_invoice_task.apply_async(args=[booking_id])
+            send_booking_sms_task.apply_async(
+                kwargs={
+                    "notification_type": "WALLET_DEDUCTION_CONFIRMATION",
+                    "params": {
+                        "user_id": instance.user.id,
+                        "deduct_amount": float(request_amount),
+                        "wallet_balance": float(get_wallet_balance(instance.user.id) or 0),
+                        "booking_id": instance.id,
+                    },
+                }
+            )
+            return self.get_response(
+                status="success",
+                data={
+                    "booking_id": instance.id,
+                    "total_payment_made": float(updated_paid),
+                    "balance_due": float(instance.balance_due()),
+                },
+                message="Booking Confirmed",
+                status_code=status.HTTP_200_OK,
+            )
 
         if not instance.hotel_booking:
             custom_response = self.get_error_response(
@@ -5000,24 +5156,42 @@ class BookingPaymentDetailViewSet(
                 )
                 return custom_response
 
-            # Validate that the amount matches the booking payable amount (net or with commission)
+            # Validate payment amount (full payable, or partial rules for HOLIDAYPACK)
             try:
                 request_amount = float(amount)
-                if request_amount != float(payable):
-                    custom_response = self.get_error_response(
-                        message=f"Amount mismatch. Expected amount: {float(payable)}",
-                        status="error",
-                        errors=[],
-                        error_code="AMOUNT_MISMATCH",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-                    return custom_response
             except ValueError:
                 custom_response = self.get_error_response(
                     message="Invalid amount format",
                     status="error",
                     errors=[],
                     error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return custom_response
+
+            if booking.booking_type == "HOLIDAYPACK":
+                from apps.booking.utils.coupon_payment_utils import (
+                    validate_initiate_payment_amount,
+                )
+
+                ok_pay, pay_msg = validate_initiate_payment_amount(
+                    booking, request_amount
+                )
+                if not ok_pay:
+                    custom_response = self.get_error_response(
+                        message=pay_msg,
+                        status="error",
+                        errors=[],
+                        error_code="AMOUNT_MISMATCH",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                    return custom_response
+            elif request_amount != float(payable):
+                custom_response = self.get_error_response(
+                    message=f"Amount mismatch. Expected amount: {float(payable)}",
+                    status="error",
+                    errors=[],
+                    error_code="AMOUNT_MISMATCH",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 return custom_response
@@ -5339,6 +5513,13 @@ class BookingPaymentDetailViewSet(
                         "razorpay_order_status": order_result["status"],
                     }
                     booking_payment_detail.save()
+                    if booking.status in (
+                        "pending",
+                        "on_hold",
+                        "payment_pending_verification",
+                    ):
+                        booking.status = "payment_pending_verification"
+                        booking.save(update_fields=["status", "updated"])
 
                     # Get Razorpay public key for frontend
                     razorpay_key = getattr(settings, "RAZORPAY_KEY_ID", "")
@@ -5415,6 +5596,24 @@ class BookingPaymentDetailViewSet(
         url_path="razorpay/verify",
         url_name="razorpay-verify",
         permission_classes=[],
+    )
+    @swagger_auto_schema(
+        operation_summary="Verify Razorpay payment and confirm booking",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"],
+            properties={
+                "razorpay_order_id": openapi.Schema(type=openapi.TYPE_STRING),
+                "razorpay_payment_id": openapi.Schema(type=openapi.TYPE_STRING),
+                "razorpay_signature": openapi.Schema(type=openapi.TYPE_STRING),
+            },
+        ),
+        responses={
+            200: "Payment verified and booking confirmed",
+            400: "Validation/signature/payment status error",
+            404: "Order or booking not found",
+            500: "Verification error",
+        },
     )
     def razorpay_verify_payment(self, request):
         """Verify Razorpay payment and confirm booking"""
@@ -5649,6 +5848,27 @@ class BookingPaymentDetailViewSet(
         url_name="razorpay-webhook",
         permission_classes=[],
     )
+    @swagger_auto_schema(
+        operation_summary="Razorpay webhook callback",
+        manual_parameters=[
+            openapi.Parameter(
+                "X-Razorpay-Signature",
+                openapi.IN_HEADER,
+                description="Razorpay webhook signature",
+                type=openapi.TYPE_STRING,
+                required=True,
+            )
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description="Raw Razorpay webhook payload",
+        ),
+        responses={
+            200: "Webhook processed successfully",
+            400: "Invalid signature or malformed payload",
+            500: "Webhook processing error",
+        },
+    )
     def razorpay_webhook(self, request):
         """Handle Razorpay webhook events"""
 
@@ -5799,7 +6019,13 @@ class BookingPaymentDetailViewSet(
                     break
             print("Confirmation Code::", confirmation_code)
             booking.confirmation_code = confirmation_code
-            booking.total_payment_made = amount
+            paid_so_far = Decimal(str(booking.total_payment_made or 0))
+            add_amt = Decimal(str(amount or 0))
+            updated_paid = paid_so_far + add_amt
+            final_amount = Decimal(str(booking.final_amount or 0))
+            if final_amount > 0 and updated_paid > final_amount:
+                updated_paid = final_amount
+            booking.total_payment_made = updated_paid
             booking.status = "confirmed"
             booking.save()
             booking.meta_info.booking_confirmed_date = datetime.now()
