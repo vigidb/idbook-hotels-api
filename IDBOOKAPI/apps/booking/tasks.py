@@ -3,6 +3,7 @@ from IDBOOKAPI.email_utils import (
     collect_internal_booking_bcc_emails,
     send_booking_email,
     send_booking_email_with_attachment,
+    send_email,
 )
 from apps.booking.utils.db_utils import (
     get_booking,
@@ -53,6 +54,7 @@ from apps.authentication.models import User
 from apps.customer.models import Wallet, WalletTransaction
 from apps.booking.utils.contact_utils import get_booking_contact_info
 from datetime import datetime
+from apps.booking.models import Query
 import pytz
 import logging
 
@@ -196,6 +198,150 @@ def send_booking_email_task(self, booking_id, booking_type="search-booking"):
                 print("Error in search booking email task", e)
 
     # send_otp_email(otp, to_emails)
+
+
+def _safe_float(val, default=0.0) -> float:
+    try:
+        if val is None:
+            return default
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_query_link(query: Query) -> str:
+    if getattr(query, "guest_access_token", None):
+        return (
+            f"{settings.FRONTEND_URL}/queries/{query.id}/?guest_token="
+            f"{query.guest_access_token}"
+        )
+    return f"{settings.FRONTEND_URL}/queries/{query.id}/"
+
+
+def _build_booking_link(booking) -> str:
+    if getattr(booking, "guest_access_token", None):
+        return (
+            f"{settings.FRONTEND_URL}/bookings/{booking.id}/?guest_token="
+            f"{booking.guest_access_token}"
+        )
+    return f"{settings.FRONTEND_URL}/bookings/{booking.id}/"
+
+
+@celery_idbook.task(bind=True)
+def send_query_email_task(self, query_id: int, event_type: str = "QUERY_CREATED"):
+    """
+    Send lifecycle email for query events (created/quoted/accepted/converted/assigned).
+    """
+    try:
+        query = Query.objects.select_related(
+            "raised_by", "company", "agent", "booking"
+        ).get(id=query_id)
+    except Query.DoesNotExist:
+        return
+
+    raised_by = getattr(query, "raised_by", None)
+    user_email = getattr(raised_by, "email", None) or ""
+    if not user_email:
+        return
+
+    booking = getattr(query, "booking", None)
+
+    # Quote/hold data (best-effort: template can handle missing fields).
+    quote_amount = _safe_float(getattr(query, "quote_amount", 0))
+    quote_valid_till = getattr(query, "expires_at", None)
+
+    hold_end_time = getattr(booking, "on_hold_end_time", None) if booking else None
+    min_first_payment_amount = None
+    try:
+        if booking and hasattr(booking, "minimum_first_payment_amount"):
+            min_first_payment_amount = booking.minimum_first_payment_amount()
+    except Exception:
+        min_first_payment_amount = None
+
+    context = {
+        "event_type": event_type,
+        "name": getattr(raised_by, "name", "") or "",
+        "email": user_email,
+        "mobile_number": getattr(raised_by, "mobile_number", "") or "",
+        "query_reference": getattr(query, "query_reference", "") or "",
+        "query_type": getattr(query, "query_type", "") or "",
+        "quote_amount": quote_amount,
+        "quote_valid_till": quote_valid_till,
+        "query_link": _build_query_link(query),
+        "booking_reference_code": getattr(booking, "reference_code", None) if booking else None,
+        "confirmation_code": getattr(booking, "confirmation_code", None) if booking else None,
+        "booking_link": _build_booking_link(booking) if booking else "",
+        "hold_end_time": hold_end_time,
+        "minimum_first_payment_amount": min_first_payment_amount,
+        "booking_status": getattr(booking, "status", None) if booking else None,
+    }
+
+    subjects = {
+        "QUERY_CREATED": "We received your request",
+        "QUERY_QUOTED": "Your quote is ready",
+        "QUERY_ACCEPTED": "Quote accepted - we'll proceed",
+        "QUERY_CONVERTED_TO_BOOKING": "Your booking is on hold",
+        "QUERY_ASSIGNED": "Your request is assigned to our team",
+        "QUERY_CANCELLED": "Your request has been cancelled",
+        "QUERY_COMPLETED": "Your booking request is now completed",
+    }
+    subject = subjects.get(event_type, "Update on your request")
+
+    template = get_template("email_template/query-lifecycle-email.html")
+    html_content = template.render(context)
+    send_email(
+        subject=subject,
+        message=subject,
+        to_emails=[user_email],
+        from_email=settings.EMAIL_HOST_USER,
+        html_message=html_content,
+    )
+
+
+@celery_idbook.task(bind=True)
+def send_query_sms_task(
+    self, query_id: int, notification_type: str = "QUERY_CREATED"
+):
+    """
+    Send SMS lifecycle for query events if an SMS template exists in DB.
+    """
+    try:
+        query = Query.objects.select_related("raised_by", "booking").get(id=query_id)
+    except Query.DoesNotExist:
+        return
+
+    raised_by = getattr(query, "raised_by", None)
+    mobile_number = getattr(raised_by, "mobile_number", None) or ""
+    if not mobile_number:
+        return
+
+    template_code_map = {
+        "QUERY_CREATED": "QUERY_CREATED",
+        "QUERY_QUOTED": "QUERY_QUOTED",
+        "QUERY_ACCEPTED": "QUERY_ACCEPTED",
+        "QUERY_CONVERTED_TO_BOOKING": "QUERY_CONVERTED_TO_BOOKING",
+        "QUERY_ASSIGNED": "QUERY_ASSIGNED",
+        "QUERY_CANCELLED": "QUERY_CANCELLED",
+        "QUERY_COMPLETED": "QUERY_COMPLETED",
+    }
+    # Only send SMS if we know a corresponding template code.
+    if notification_type not in template_code_map:
+        return
+    template_code = template_code_map[notification_type]
+
+    name = getattr(raised_by, "name", "") or ""
+    reference = getattr(query, "query_reference", "") or ""
+    booking = getattr(query, "booking", None)
+
+    if notification_type == "QUERY_QUOTED":
+        amount_or_status = _safe_float(getattr(query, "quote_amount", 0))
+    elif notification_type == "QUERY_CONVERTED_TO_BOOKING" and booking:
+        amount_or_status = getattr(booking, "status", "") or "on_hold"
+    else:
+        amount_or_status = notification_type.replace("QUERY_", "").replace("_", " ").title()
+
+    variables_values = f"{name}|{reference}|{amount_or_status}"
+    send_template_sms(mobile_number, template_code, variables_values)
 
 
 @celery_idbook.task(bind=True)

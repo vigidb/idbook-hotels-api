@@ -86,23 +86,42 @@ def compute_discount_for_coupon(coupon: Coupon, amount: Decimal) -> Tuple[Decima
     if amount < 0:
         amount = Decimal("0")
     campaign = coupon.campaign
-    if campaign and campaign.slabs.exists() and not coupon.use_coupon_value_override:
+
+    # 1) If campaign slabs exist, always compute slab-based discount first.
+    #    This ensures slab eligibility/mismatch rules remain applicable even
+    #    when a coupon "override" is enabled.
+    if campaign and campaign.slabs.exists():
         slab = pick_slab(campaign.slabs.all(), amount)
         if not slab:
             return Decimal("0"), amount
-        disc = _slab_discount_amount(slab, amount)
-        return disc, (amount - disc).quantize(Decimal("0.000001"))
 
-    # Legacy flat discount on Coupon row
-    from apps.coupons.utils.coupon_utils import apply_coupon_based_discount
+        disc_from_slabs = _slab_discount_amount(slab, amount)
+        amount_after_slabs = (amount - disc_from_slabs).quantize(Decimal("0.000001"))
 
+        # 2) If coupon value override is enabled, treat coupon.discount as a MAX
+        #    discount cap over the slab-based discount.
+        if coupon.use_coupon_value_override:
+            disc_cap_val = coupon.discount
+            dtype = coupon.discount_type
+            if dtype == "AMOUNT":
+                disc_cap = min(disc_cap_val, amount)
+            else:
+                disc_cap = (disc_cap_val * amount) / Decimal("100")
+                disc_cap = min(disc_cap, amount)
+
+            disc = min(disc_from_slabs, disc_cap)
+            return disc, (amount - disc).quantize(Decimal("0.000001"))
+
+        return disc_from_slabs, amount_after_slabs
+
+    # Legacy flat discount on Coupon row (no campaign slabs)
     disc_val = coupon.discount
     dtype = coupon.discount_type
     if dtype == "AMOUNT":
         disc = min(disc_val, amount)
-        return disc, (amount - disc).quantize(Decimal("0.000001"))
-    disc = (disc_val * amount) / Decimal("100")
-    disc = min(disc, amount)
+    else:
+        disc = (disc_val * amount) / Decimal("100")
+        disc = min(disc, amount)
     return disc.quantize(Decimal("0.000001")), (amount - disc).quantize(Decimal("0.000001"))
 
 

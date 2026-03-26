@@ -20,6 +20,8 @@ from .models import Query, QueryCommunication, Booking, VisaBooking, EventBookin
 from apps.booking.utils.coupon_booking_helpers import apply_coupon_to_booking
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from apps.customer.models import Customer
+from apps.authentication.utils.authentication_utils import add_group_for_guest_user
 from .serializers import (
     QuerySerializer, 
     QueryCommunicationSerializer, 
@@ -135,6 +137,72 @@ def _build_proforma_payload_from_query(query, business=None):
         "total": total_int,
         "total_tax": total_tax,
     }
+
+
+def _normalize_guest_phone(raw_phone: str) -> str:
+    digits = "".join(ch for ch in str(raw_phone or "") if ch.isdigit())
+    if len(digits) >= 10:
+        return digits[-10:]
+    return ""
+
+
+def _resolve_or_create_guest_user_for_query(query: Query) -> User | None:
+    """
+    Resolve a user for anonymous query conversion:
+    - Try existing user by email (preferred), then by mobile.
+    - Else create a lightweight guest/B2C user from query contact.
+    """
+    qd = query.query_data or {}
+    contact = qd.get("contact") or qd.get("contact_person") or {}
+    if not isinstance(contact, dict):
+        contact = {}
+
+    email = str(contact.get("email") or qd.get("email") or "").strip().lower()
+    phone = _normalize_guest_phone(contact.get("phone") or qd.get("phone") or qd.get("mobile_number"))
+    name = str(contact.get("name") or qd.get("name") or "Guest User").strip() or "Guest User"
+
+    user = None
+    if email:
+        user = User.objects.filter(email__iexact=email).first()
+    if not user and phone:
+        user = User.objects.filter(mobile_number=phone).first()
+
+    if user:
+        updates = []
+        if not user.name and name:
+            user.name = name
+            updates.append("name")
+        if not user.email and email:
+            user.email = email
+            updates.append("email")
+        if not user.mobile_number and phone:
+            user.mobile_number = phone
+            updates.append("mobile_number")
+        if not user.is_active:
+            user.is_active = True
+            updates.append("is_active")
+        if updates:
+            user.save(update_fields=updates + ["updated"])
+    else:
+        # Fallback for missing email/phone on anonymous query
+        if not email:
+            email = f"guest.query.{query.id}@idbookhotels.local"
+        if not phone:
+            phone = f"{(9000000000 + (query.id % 999999999)):010d}"
+        user = User.objects.create(
+            name=name,
+            email=email,
+            mobile_number=phone,
+            category="B-CUST",
+            default_group="B2C-GRP",
+            is_active=True,
+        )
+        add_group_for_guest_user(user)
+
+    if user and not Customer.objects.filter(user=user).exists():
+        Customer.objects.create(user=user, active=True)
+
+    return user
 
 
 class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -264,7 +332,14 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             else:
                 # B2C / other users see only their own
                 queryset = queryset.filter(raised_by=user)
-        
+        else:
+            # Anonymous users can only access their own queries via guest token.
+            guest_token = self.request.query_params.get("guest_token")
+            if guest_token:
+                queryset = queryset.filter(guest_access_token=guest_token)
+            else:
+                queryset = queryset.none()
+
         return queryset.order_by("-created")
     
     def create(self, request, *args, **kwargs):
@@ -274,6 +349,43 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             query = serializer.save()
+
+            # For anonymous queries: create/find guest user and issue a token so
+            # the guest can view the query without authentication.
+            if not request.user.is_authenticated and not query.raised_by:
+                guest_user = _resolve_or_create_guest_user_for_query(query)
+                if guest_user:
+                    query.raised_by = guest_user
+                    query.booking_for = query.booking_for or "B2C"
+                    if not query.guest_access_token:
+                        from apps.booking.utils.booking_utils import (
+                            generate_guest_access_token,
+                        )
+
+                        query.guest_access_token = generate_guest_access_token(
+                            query.id, user=guest_user
+                        )
+                    query.save(
+                        update_fields=[
+                            "raised_by",
+                            "booking_for",
+                            "guest_access_token",
+                            "updated",
+                        ]
+                    )
+
+            # Fire lifecycle notifications for query creation (best-effort)
+            try:
+                from apps.booking.tasks import (
+                    send_query_email_task,
+                    send_query_sms_task,
+                )
+
+                send_query_email_task.delay(query.id, "QUERY_CREATED")
+                send_query_sms_task.delay(query.id, "QUERY_CREATED")
+            except Exception:
+                pass
+
             custom_response = self.get_response(
                 data=QuerySerializer(query).data,
                 message="Query created successfully",
@@ -298,9 +410,44 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         self.log_request(request)
         partial = kwargs.get("partial", False)
         instance = self.get_object()
+        old_status = getattr(instance, "status", None)
+        requested_status = request.data.get("status")
+        if str(requested_status).lower() == "cancelled" and getattr(instance, "booking", None):
+            return self.get_error_response(
+                message="Booking already created. Query cannot be cancelled.",
+                status="error",
+                errors=[],
+                error_code="QUERY_BOOKING_EXISTS",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         if serializer.is_valid():
             query = serializer.save()
+
+            # Fire lifecycle notifications for query status changes (best-effort).
+            # Quote/accept/assign flows update `status` from "pending" -> "quoted" -> "confirmed".
+            try:
+                new_status = getattr(query, "status", None)
+                if old_status and new_status and old_status != new_status:
+                    status_to_event = {
+                        "quoted": "QUERY_QUOTED",
+                        "confirmed": "QUERY_ACCEPTED",
+                        "assigned": "QUERY_ASSIGNED",
+                        "cancelled": "QUERY_CANCELLED",
+                        "completed": "QUERY_COMPLETED",
+                    }
+                    event_type = status_to_event.get(new_status)
+                    if event_type:
+                        from apps.booking.tasks import (
+                            send_query_email_task,
+                            send_query_sms_task,
+                        )
+
+                        send_query_email_task.delay(query.id, event_type)
+                        send_query_sms_task.delay(query.id, event_type)
+            except Exception:
+                pass
+
             custom_response = self.get_response(
                 data=QuerySerializer(query).data,
                 message="Query updated successfully",
@@ -608,23 +755,178 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         """Convert query to booking (admin only)"""
         self.log_request(request)
         
-        if not is_admin_user(request.user, request):
+        query = self.get_object()
+
+        guest_token = request.query_params.get("guest_token")
+        is_owner = False
+        if request.user and getattr(request.user, "is_authenticated", False):
+            is_owner = (
+                getattr(query, "raised_by_id", None) is not None
+                and int(query.raised_by_id) == int(request.user.id)
+            )
+        if guest_token and getattr(query, "guest_access_token", None):
+            is_owner = str(query.guest_access_token) == str(guest_token)
+
+        if not (is_admin_user(request.user, request) or is_owner):
             return self.get_error_response(
-                message="Admin access required",
+                message="Permission denied",
                 status="error",
                 error_code="PERMISSION_DENIED",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
         
-        query = self.get_object()
-        
-        if query.booking:
+        if str(getattr(query, "status", "")).lower() in ("cancelled", "completed"):
             return self.get_error_response(
-                message="Query already converted to booking",
+                message="Cancelled/completed query cannot be converted to booking",
                 status="error",
-                error_code="ALREADY_CONVERTED",
+                error_code="QUERY_NOT_CONVERTIBLE",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
+
+        if query.booking:
+            # Idempotent conversion: allow updating the already-created booking
+            # (mainly for quote changes before payment is made / hold expiry).
+            booking = query.booking
+
+            booking_status = str(getattr(booking, "status", "") or "").lower()
+            if booking_status in ("confirmed", "completed", "canceled", "no_show"):
+                return self.get_error_response(
+                    message="Booking already confirmed/completed. Cannot update from query.",
+                    status="error",
+                    error_code="BOOKING_FINALIZED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                paid = Decimal(str(getattr(booking, "total_payment_made", 0) or 0))
+            except Exception:
+                paid = Decimal("0")
+
+            if paid > 0:
+                return self.get_error_response(
+                    message="Payment already started. Cannot update booking amounts from query.",
+                    status="error",
+                    error_code="BOOKING_PAYMENT_STARTED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            hold_end_time = getattr(booking, "on_hold_end_time", None)
+            if hold_end_time and timezone.now() > hold_end_time:
+                return self.get_error_response(
+                    message="Hold expired. Cannot update booking from query.",
+                    status="error",
+                    error_code="HOLD_EXPIRED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                with transaction.atomic():
+                    quote = Decimal(str(query.quote_amount))
+                    qd = query.query_data or {}
+
+                    # Update hold/status from quote validity
+                    booking.status = "on_hold" if query.expires_at else "pending"
+                    booking.on_hold_end_time = (
+                        query.expires_at if query.expires_at else None
+                    )
+
+                    applied_coupon = False
+                    coupon_code = (
+                        request.data.get("coupon_code")
+                        or getattr(query, "coupon_code", "")
+                        or (qd.get("coupon_code") or "")
+                    )
+                    coupon_code = str(coupon_code).strip() if coupon_code else ""
+
+                    checkin_date = None
+                    booking_date = None
+                    qtype = str(query.query_type or "")
+                    if qtype == "HOLIDAYPACK":
+                        asd = qd.get("available_start_date")
+                        if asd:
+                            from datetime import datetime as dt
+
+                            if isinstance(asd, str):
+                                try:
+                                    checkin_date = (
+                                        dt.strptime(str(asd)[:10], "%Y-%m-%d")
+                                    ).date()
+                                except ValueError:
+                                    pass
+                            elif isinstance(asd, dt):
+                                checkin_date = asd.date()
+                            else:
+                                checkin_date = asd
+                        booking_date = date.today()
+
+                    if coupon_code:
+                        apply_coupon_to_booking(
+                            booking,
+                            coupon_code,
+                            quote,
+                            user_id=query.raised_by_id,
+                            booking_type=qtype or "HOTEL",
+                            checkin_date=checkin_date,
+                            booking_date=booking_date,
+                        )
+                        applied_coupon = True
+                    if not applied_coupon:
+                        booking.subtotal = quote
+                        booking.final_amount = quote
+
+                    # Update min-first-payment (HOLIDAYPACK)
+                    q_itinerary = getattr(query, "itinerary_details", None) or {}
+                    mp = request.data.get("min_payment_percent")
+                    ma = request.data.get("min_payment_amount")
+                    if (mp is None or mp == "") and isinstance(q_itinerary, dict):
+                        mp = q_itinerary.get("min_payment_percent")
+                    if (ma is None or ma == "") and isinstance(q_itinerary, dict):
+                        ma = q_itinerary.get("min_payment_amount")
+
+                    update_fields = [
+                        "status",
+                        "on_hold_end_time",
+                        "subtotal",
+                        "final_amount",
+                        "updated",
+                    ]
+
+                    if mp is not None and str(mp).strip() != "":
+                        booking.min_payment_percent = Decimal(str(mp))
+                        update_fields.append("min_payment_percent")
+                    if ma is not None and str(ma).strip() != "":
+                        booking.min_payment_amount = Decimal(str(ma))
+                        update_fields.append("min_payment_amount")
+
+                    booking.source_query = query
+                    update_fields.append("source_query")
+                    if getattr(query, "agent_id", None):
+                        booking.agent_id = query.agent_id
+                        update_fields.append("agent_id")
+
+                    if getattr(query, "guest_access_token", None):
+                        booking.guest_access_token = query.guest_access_token
+                        update_fields.append("guest_access_token")
+
+                    booking.save(update_fields=list(set(update_fields)))
+
+                    custom_response = self.get_response(
+                        data={
+                            "query": QuerySerializer(query).data,
+                            "booking": BookingSerializer(booking).data,
+                        },
+                        message="Booking updated from query.",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    self.log_response(custom_response)
+                    return custom_response
+            except Exception as e:
+                return self.get_error_response(
+                    message=f"Error updating booking from query: {str(e)}",
+                    status="error",
+                    error_code="BOOKING_UPDATE_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         if not query.quote_amount or query.quote_amount <= 0:
             return self.get_error_response(
@@ -634,16 +936,36 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         
-        if not query.raised_by:
-            return self.get_error_response(
-                message="Query must have a user (raised_by) to convert to booking",
-                status="error",
-                error_code="USER_REQUIRED",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-        
         try:
             with transaction.atomic():
+                if not query.raised_by:
+                    guest_user = _resolve_or_create_guest_user_for_query(query)
+                    if not guest_user:
+                        return self.get_error_response(
+                            message="Could not resolve guest user from query contact details",
+                            status="error",
+                            error_code="USER_REQUIRED",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                    query.raised_by = guest_user
+                    query.booking_for = query.booking_for or "B2C"
+                    if not query.guest_access_token:
+                        from apps.booking.utils.booking_utils import (
+                            generate_guest_access_token,
+                        )
+
+                        query.guest_access_token = generate_guest_access_token(
+                            query.id, user=guest_user
+                        )
+                    query.save(
+                        update_fields=[
+                            "raised_by",
+                            "booking_for",
+                            "guest_access_token",
+                            "updated",
+                        ]
+                    )
+
                 qd = query.query_data or {}
                 if query.query_type == "FLIGHT":
                     # Tracking-only flight: create Booking + FlightBooking from query for manual tracking.
@@ -703,14 +1025,42 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                         infant_count=qd.get("infant_count", 0),
                         subtotal=quote,
                         final_amount=quote,
-                        status="pending",
+                        status="on_hold" if query.expires_at else "pending",
+                        on_hold_end_time=query.expires_at if query.expires_at else None,
                         booking_source=booking_source,
                         source_query=query,
                         agent=query.agent if getattr(query, "agent", None) else None,
                     )
+                    if getattr(query, "guest_access_token", None):
+                        booking.guest_access_token = query.guest_access_token
+                        booking.save(update_fields=["guest_access_token"])
                     query.booking = booking
-                    query.status = "confirmed"
+                    query.status = "completed"
                     query.save()
+                    # Notify guest/customer about conversion into booking (best-effort)
+                    try:
+                        from apps.booking.tasks import (
+                            send_query_email_task,
+                            send_query_sms_task,
+                        )
+
+                        transaction.on_commit(
+                            lambda: send_query_email_task.delay(
+                                query.id, "QUERY_CONVERTED_TO_BOOKING"
+                            )
+                        )
+                        transaction.on_commit(
+                            lambda: send_query_sms_task.delay(
+                                query.id, "QUERY_CONVERTED_TO_BOOKING"
+                            )
+                        )
+                        transaction.on_commit(
+                            lambda: send_query_email_task.delay(
+                                query.id, "QUERY_COMPLETED"
+                            )
+                        )
+                    except Exception:
+                        pass
                     if query.invoice and query.invoice.invoice_type == "PROFORMA":
                         proforma = query.invoice
                         last_invoice = Invoice.objects.filter(invoice_type="INVOICE").order_by("-id").first()
@@ -750,7 +1100,8 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                     "company": query.company_id,
                     "subtotal": float(query.quote_amount),
                     "final_amount": float(query.quote_amount),
-                    "status": "pending",
+                    "status": "on_hold" if query.expires_at else "pending",
+                    "on_hold_end_time": query.expires_at if query.expires_at else None,
                     "adult_count": qd.get("adult_count", 1),
                     "child_count": qd.get("child_count", 0),
                     "infant_count": qd.get("infant_count", 0),
@@ -881,11 +1232,21 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                     if not applied_coupon:
                         booking.subtotal = quote
                         booking.final_amount = quote
+                    # Minimum-first-payment settings can come from:
+                    # 1) convert-to-booking request payload, or
+                    # 2) stored holiday quote details (query.itinerary_details)
+                    q_itinerary = getattr(query, "itinerary_details", None) or {}
                     mp = request.data.get("min_payment_percent")
                     ma = request.data.get("min_payment_amount")
-                    if mp is not None and mp != "":
+
+                    if (mp is None or mp == "") and isinstance(q_itinerary, dict):
+                        mp = q_itinerary.get("min_payment_percent")
+                    if (ma is None or ma == "") and isinstance(q_itinerary, dict):
+                        ma = q_itinerary.get("min_payment_amount")
+
+                    if mp is not None and str(mp).strip() != "":
                         booking.min_payment_percent = Decimal(str(mp))
-                    if ma is not None and ma != "":
+                    if ma is not None and str(ma).strip() != "":
                         booking.min_payment_amount = Decimal(str(ma))
                     # Link query <-> booking and preserve query context
                     booking.source_query = query
@@ -918,14 +1279,41 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                         "GUEST",
                     ):
                         update_fields.append("booking_source")
-                    if mp is not None and mp != "":
+                    if mp is not None and str(mp).strip() != "":
                         update_fields.append("min_payment_percent")
-                    if ma is not None and ma != "":
+                    if ma is not None and str(ma).strip() != "":
                         update_fields.append("min_payment_amount")
                     booking.save(update_fields=update_fields)
+                    if getattr(query, "guest_access_token", None):
+                        booking.guest_access_token = query.guest_access_token
+                        booking.save(update_fields=["guest_access_token"])
                     query.booking = booking
-                    query.status = "confirmed"
+                    query.status = "completed"
                     query.save()
+                    # Notify guest/customer about conversion into booking (best-effort)
+                    try:
+                        from apps.booking.tasks import (
+                            send_query_email_task,
+                            send_query_sms_task,
+                        )
+
+                        transaction.on_commit(
+                            lambda: send_query_email_task.delay(
+                                query.id, "QUERY_CONVERTED_TO_BOOKING"
+                            )
+                        )
+                        transaction.on_commit(
+                            lambda: send_query_sms_task.delay(
+                                query.id, "QUERY_CONVERTED_TO_BOOKING"
+                            )
+                        )
+                        transaction.on_commit(
+                            lambda: send_query_email_task.delay(
+                                query.id, "QUERY_COMPLETED"
+                            )
+                        )
+                    except Exception:
+                        pass
                     
                     # Convert proforma invoice to final invoice if exists
                     if query.invoice and query.invoice.invoice_type == "PROFORMA":
@@ -1022,7 +1410,9 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             return custom_response
 
         try:
-            assigned_user = User.objects.get(id=int(assigned_to_user_id), active=True)
+            assigned_user = User.objects.get(
+                id=int(assigned_to_user_id), is_active=True
+            )
         except (ValueError, TypeError, User.DoesNotExist):
             custom_response = self.get_error_response(
                 message="Assigned user not found",
@@ -1047,6 +1437,15 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         query.referral_type = "EMPLOYEE"
         query.status = "assigned"
         query.save(update_fields=["referred_by", "referral_type", "status", "updated"])
+
+        # Best-effort notifications for assignment
+        try:
+            from apps.booking.tasks import send_query_email_task, send_query_sms_task
+
+            send_query_email_task.delay(query.id, "QUERY_ASSIGNED")
+            send_query_sms_task.delay(query.id, "QUERY_ASSIGNED")
+        except Exception:
+            pass
 
         custom_response = self.get_response(
             data={

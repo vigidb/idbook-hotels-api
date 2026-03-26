@@ -166,8 +166,8 @@ class Coupon(models.Model):
     use_coupon_value_override = models.BooleanField(
         default=False,
         help_text=(
-            "If true, this coupon's own discount_type/discount is used even when campaign "
-            "slabs are configured."
+            "If true, when campaign slabs are configured, coupon.discount is used as a maximum "
+            "discount cap (slabs still apply)."
         ),
     )
     max_redemptions_total = models.PositiveIntegerField(

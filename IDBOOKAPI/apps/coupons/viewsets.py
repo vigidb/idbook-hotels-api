@@ -340,6 +340,13 @@ class CouponAmountSlabViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch"]
 
+    def get_permissions(self):
+        # Allow public reads (list/retrieve) for coupon slab tiers.
+        # Keep write operations (POST/PATCH/PUT) protected.
+        if self.request.method in ("GET",):
+            return [AllowAny()]
+        return super().get_permissions()
+
     def get_queryset(self):
         queryset = super().get_queryset()
         campaign = self.request.query_params.get("campaign")

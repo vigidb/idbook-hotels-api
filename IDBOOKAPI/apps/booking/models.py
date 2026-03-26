@@ -626,6 +626,14 @@ class Query(models.Model):
         help_text="Optional partner coupon captured on the query",
     )
 
+    guest_access_token = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text="Secure token for guest users to access their query without authentication",
+    )
+
     # Link to Invoice (proforma initially, converted to final on booking)
     invoice = models.ForeignKey(
         "Invoice",

@@ -3248,6 +3248,22 @@ class BookingViewSet(
                 )
                 return custom_response
 
+            # Holidaypack holds must be honoured: if the hold window is expired,
+            # do not allow payment to confirm the booking.
+            if (
+                getattr(instance, "on_hold_end_time", None)
+                and timezone.now() > instance.on_hold_end_time
+            ):
+                return self.get_error_response(
+                    message="Hold expired. Booking cannot be confirmed.",
+                    status="error",
+                    errors=[],
+                    error_code="HOLD_EXPIRED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_status = instance.status
+
             payable = get_booking_payable_amount(instance)
             amount = request.data.get("amount", None)
             if amount is None or amount == "":
@@ -3302,25 +3318,54 @@ class BookingViewSet(
 
             booking_id = instance.id
             booking_type = instance.booking_type
-            while True:
-                confirmation_code = generate_booking_confirmation_code(
-                    booking_id, booking_type
-                )
-                is_exist = check_booking_confirmation_code(confirmation_code)
-                if not is_exist:
-                    break
-
-            instance.confirmation_code = confirmation_code
             paid_so_far = Decimal(str(instance.total_payment_made or 0))
             updated_paid = paid_so_far + Decimal(str(request_amount))
             final_amount = Decimal(str(instance.final_amount or 0))
             if final_amount > 0 and updated_paid > final_amount:
                 updated_paid = final_amount
             instance.total_payment_made = updated_paid
-            instance.status = "confirmed"
-            instance.save(update_fields=["confirmation_code", "total_payment_made", "status", "updated"])
-            instance.meta_info.booking_confirmed_date = datetime.now()
-            instance.meta_info.save()
+
+            required_min_payment = instance.minimum_first_payment_amount()
+            # If min payment is not configured, treat the requirement as full payment.
+            if required_min_payment is None or required_min_payment <= 0:
+                required_min_payment = final_amount
+
+            # Decide status based on min payment threshold (and hold window).
+            if getattr(instance, "on_hold_end_time", None) and timezone.now() > instance.on_hold_end_time:
+                instance.status = "canceled"
+            elif updated_paid >= required_min_payment:
+                instance.status = "confirmed"
+            else:
+                instance.status = "payment_pending_verification"
+
+            if instance.status == "confirmed" and old_status not in ("confirmed", "completed"):
+                while True:
+                    confirmation_code = generate_booking_confirmation_code(
+                        booking_id, booking_type
+                    )
+                    is_exist = check_booking_confirmation_code(confirmation_code)
+                    if not is_exist:
+                        break
+
+                instance.confirmation_code = confirmation_code
+                instance.save(
+                    update_fields=[
+                        "confirmation_code",
+                        "total_payment_made",
+                        "status",
+                        "updated",
+                    ]
+                )
+                instance.meta_info.booking_confirmed_date = datetime.now()
+                instance.meta_info.save()
+            else:
+                instance.save(
+                    update_fields=[
+                        "total_payment_made",
+                        "status",
+                        "updated",
+                    ]
+                )
 
             booking_payment_detail.code = "PAYMENT_SUCCESS"
             booking_payment_detail.message = "Your payment is successful."
@@ -3331,18 +3376,19 @@ class BookingViewSet(
             booking_payment_detail.transaction_for = "booking_confirmed"
             booking_payment_detail.save()
 
-            create_invoice_task.apply_async(args=[booking_id])
-            send_booking_sms_task.apply_async(
-                kwargs={
-                    "notification_type": "WALLET_DEDUCTION_CONFIRMATION",
-                    "params": {
-                        "user_id": instance.user.id,
-                        "deduct_amount": float(request_amount),
-                        "wallet_balance": float(get_wallet_balance(instance.user.id) or 0),
-                        "booking_id": instance.id,
-                    },
-                }
-            )
+            if instance.status == "confirmed" and old_status not in ("confirmed", "completed"):
+                create_invoice_task.apply_async(args=[booking_id])
+                send_booking_sms_task.apply_async(
+                    kwargs={
+                        "notification_type": "WALLET_DEDUCTION_CONFIRMATION",
+                        "params": {
+                            "user_id": instance.user.id,
+                            "deduct_amount": float(request_amount),
+                            "wallet_balance": float(get_wallet_balance(instance.user.id) or 0),
+                            "booking_id": instance.id,
+                        },
+                    }
+                )
             return self.get_response(
                 status="success",
                 data={
@@ -3350,7 +3396,11 @@ class BookingViewSet(
                     "total_payment_made": float(updated_paid),
                     "balance_due": float(instance.balance_due()),
                 },
-                message="Booking Confirmed",
+                message=(
+                    "Booking Confirmed"
+                    if instance.status == "confirmed"
+                    else "Payment received. Complete minimum payment to confirm."
+                ),
                 status_code=status.HTTP_200_OK,
             )
 
@@ -5038,6 +5088,7 @@ class BookingPaymentDetailViewSet(
     queryset = BookingPaymentDetail.objects.all()
     serializer_class = BookingPaymentDetailSerializer
     permission_classes = []
+    authentication_classes = [BookingAuthentication, JWTAuthentication]
 
     def cross_check_booking_availability(self, instance):
         # Only check availability for hotel bookings
@@ -5720,7 +5771,8 @@ class BookingPaymentDetailViewSet(
 
             if payment_details:
                 # Update payment detail
-                amount_paid = float(payment_data.get("amount", 0)) / 100  # Convert from paise to rupees
+                # Razorpay amounts are in paise; use Decimal to avoid float rounding issues.
+                amount_paid = Decimal(str(payment_data.get("amount", 0))) / Decimal("100")
                 update_booking_payment_details(
                     payment_details.merchant_transaction_id,
                     {
@@ -5813,22 +5865,21 @@ class BookingPaymentDetailViewSet(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
 
-            else:
-                # For hotel and other booking types, use standard confirmation
-                amount_paid = float(payment_data.get("amount", 0)) / 100
-                self.set_booking_as_confirmed(booking.id, amount_paid)
+            # For hotel and other booking types, use standard confirmation
+            amount_paid = Decimal(str(payment_data.get("amount", 0))) / Decimal("100")
+            self.set_booking_as_confirmed(booking.id, amount_paid)
 
-                return self.get_response(
-                    status="success",
-                    data={
-                        "booking_id": booking.id,
-                        "payment_id": razorpay_payment_id,
-                        "order_id": razorpay_order_id,
-                        "status": "confirmed",
-                    },
-                    message="Payment verified and booking confirmed",
-                    status_code=status.HTTP_200_OK,
-                )
+            return self.get_response(
+                status="success",
+                data={
+                    "booking_id": booking.id,
+                    "payment_id": razorpay_payment_id,
+                    "order_id": razorpay_order_id,
+                    "status": "confirmed",
+                },
+                message="Payment verified and booking confirmed",
+                status_code=status.HTTP_200_OK,
+            )
 
         except Exception as e:
             logger.error(f"Razorpay payment verification error: {str(e)}")
@@ -5939,7 +5990,7 @@ class BookingPaymentDetailViewSet(
                                     handle_flight_payment_success,
                                 )
 
-                                amount = float(payment_entity.get("amount", 0)) / 100
+                                amount = Decimal(str(payment_entity.get("amount", 0))) / Decimal("100")
                                 payment_details_dict = {
                                     "amount": amount,
                                     "transaction_id": payment_id,
@@ -6008,6 +6059,7 @@ class BookingPaymentDetailViewSet(
             booking_id = booking.id
             print("booking id---", booking_id)
             booking_type = booking.booking_type
+            old_status = booking.status
 
             ##            confirmation_code = generate_booking_confirmation_code(booking_id, booking_type)
             while True:
@@ -6018,7 +6070,6 @@ class BookingPaymentDetailViewSet(
                 if not is_exist:
                     break
             print("Confirmation Code::", confirmation_code)
-            booking.confirmation_code = confirmation_code
             paid_so_far = Decimal(str(booking.total_payment_made or 0))
             add_amt = Decimal(str(amount or 0))
             updated_paid = paid_so_far + add_amt
@@ -6026,77 +6077,103 @@ class BookingPaymentDetailViewSet(
             if final_amount > 0 and updated_paid > final_amount:
                 updated_paid = final_amount
             booking.total_payment_made = updated_paid
-            booking.status = "confirmed"
-            booking.save()
-            booking.meta_info.booking_confirmed_date = datetime.now()
-            booking.meta_info.save()
-
-            # save booking commission details (only for hotel bookings)
-            if booking.booking_type == "HOTEL":
-                commission_details = commission_calculation(
-                    booking.hotel_booking.confirmed_property_id,
-                    booking.subtotal,
-                    booking.total_discount,
-                    booking.final_amount,
-                    booking.gst_amount,
-                )
-                if commission_details:
-                    add_or_update_booking_commission(booking.id, commission_details)
-
-                # update property confirmed booking count
-                property_id = booking.hotel_booking.confirmed_property_id
-                process_property_confirmed_booking_total(property_id)
-
-            create_invoice_task.apply_async(args=[booking_id])
-
-            # Send appropriate email based on booking type
-            if booking.booking_type == "HOTEL":
-                send_hotel_receipt_email_task.apply_async(args=[booking_id])
-            elif booking.booking_type == "FLIGHT":
-                # Add flight-specific email task here if needed
-                pass
-
-            try:
-                cashback_applied = process_subscription_cashback(
-                    booking.user, booking_id
-                )
-                if cashback_applied:
-                    print(
-                        f"[Cashback] Cashback successfully applied for booking ID: {booking_id}"
-                    )
-                else:
-                    print(
-                        f"[Cashback] No cashback applied for booking ID: {booking_id}"
-                    )
-            except Exception as cashback_error:
-                print(
-                    f"[Cashback ERROR] Failed to apply cashback for booking ID {booking_id}: {cashback_error}"
-                )
-
-            # Send Pro Member Discount SMS notification if discount applied
-            if (
-                hasattr(booking, "pro_member_discount_value")
-                and booking.pro_member_discount_value > 0
+            new_status = "confirmed"
+            if booking_type == "HOLIDAYPACK" and booking.status not in (
+                "confirmed",
+                "completed",
             ):
-                if booking.booking_type == "HOTEL":
-                    hotel_name = booking.hotel_booking.confirmed_property.name
-                elif booking.booking_type == "FLIGHT":
-                    hotel_name = (
-                        f"Flight Booking {booking.flight_booking.booking_reference}"
-                    )
+                hold_end_time = getattr(booking, "on_hold_end_time", None)
+                if hold_end_time and timezone.now() > hold_end_time:
+                    new_status = "canceled"
                 else:
-                    hotel_name = f"{booking.booking_type} Booking"
+                    required_min_payment = booking.minimum_first_payment_amount()
+                    # If min-first-payment isn't configured, treat requirement as full payment.
+                    if required_min_payment is None or required_min_payment <= 0:
+                        required_min_payment = final_amount
 
-                pro_member_send_sms_task.apply_async(
-                    kwargs={
-                        "notification_type": "PRO_MEMBER_DISCOUNT",
-                        "params": {
-                            "user_id": booking.user.id,
-                            "discount_amount": booking.pro_member_discount_value,
-                            "hotel_name": hotel_name,
-                        },
-                    }
-                )
+                    new_status = (
+                        "confirmed"
+                        if updated_paid >= required_min_payment
+                        else "payment_pending_verification"
+                    )
+
+            booking.status = new_status
+            booking.save()
+
+            if new_status == "confirmed" and old_status not in ("confirmed", "completed"):
+                booking.confirmation_code = confirmation_code
+                booking.save(update_fields=["confirmation_code", "status", "total_payment_made"])
+                booking.meta_info.booking_confirmed_date = datetime.now()
+                booking.meta_info.save()
+
+                # save booking commission details (only for hotel bookings)
+                if booking.booking_type == "HOTEL":
+                    commission_details = commission_calculation(
+                        booking.hotel_booking.confirmed_property_id,
+                        booking.subtotal,
+                        booking.total_discount,
+                        booking.final_amount,
+                        booking.gst_amount,
+                    )
+                    if commission_details:
+                        add_or_update_booking_commission(
+                            booking.id, commission_details
+                        )
+
+                    # update property confirmed booking count
+                    property_id = booking.hotel_booking.confirmed_property_id
+                    process_property_confirmed_booking_total(property_id)
+
+                create_invoice_task.apply_async(args=[booking_id])
+
+                # Send appropriate email based on booking type
+                if booking.booking_type == "HOTEL":
+                    send_hotel_receipt_email_task.apply_async(args=[booking_id])
+                elif booking.booking_type == "FLIGHT":
+                    # Add flight-specific email task here if needed
+                    pass
+
+                try:
+                    cashback_applied = process_subscription_cashback(
+                        booking.user, booking_id
+                    )
+                    if cashback_applied:
+                        print(
+                            f"[Cashback] Cashback successfully applied for booking ID: {booking_id}"
+                        )
+                    else:
+                        print(
+                            f"[Cashback] No cashback applied for booking ID: {booking_id}"
+                        )
+                except Exception as cashback_error:
+                    print(
+                        f"[Cashback ERROR] Failed to apply cashback for booking ID {booking_id}: {cashback_error}"
+                    )
+
+                # Send Pro Member Discount SMS notification if discount applied
+                if (
+                    hasattr(booking, "pro_member_discount_value")
+                    and booking.pro_member_discount_value > 0
+                ):
+                    if booking.booking_type == "HOTEL":
+                        hotel_name = booking.hotel_booking.confirmed_property.name
+                    elif booking.booking_type == "FLIGHT":
+                        hotel_name = (
+                            f"Flight Booking {booking.flight_booking.booking_reference}"
+                        )
+                    else:
+                        hotel_name = f"{booking.booking_type} Booking"
+
+                    pro_member_send_sms_task.apply_async(
+                        kwargs={
+                            "notification_type": "PRO_MEMBER_DISCOUNT",
+                            "params": {
+                                "user_id": booking.user.id,
+                                "discount_amount": booking.pro_member_discount_value,
+                                "hotel_name": hotel_name,
+                            },
+                        }
+                    )
 
     @action(
         detail=False,

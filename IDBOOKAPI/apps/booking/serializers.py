@@ -1609,6 +1609,14 @@ class BookingSerializerMixin:
                 representation["minimum_first_payment_amount"] = str(
                     instance.minimum_first_payment_amount()
                 )
+                # Frontend expects a hold/expiry value to show pay window.
+                representation["on_hold_end_time"] = (
+                    instance.on_hold_end_time.isoformat()
+                    if getattr(instance, "on_hold_end_time", None)
+                    else None
+                )
+                # Backward/alternate naming used in some UI components.
+                representation["hold_expires_at"] = representation["on_hold_end_time"]
             elif booking_type == "HOTEL":
                 hotel_booking = instance.hotel_booking
                 if hotel_booking:
