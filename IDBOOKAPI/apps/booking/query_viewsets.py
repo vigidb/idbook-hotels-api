@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.conf import settings
 from decimal import Decimal
 from datetime import date
 
@@ -205,6 +206,20 @@ def _resolve_or_create_guest_user_for_query(query: Query) -> User | None:
     return user
 
 
+def _get_default_query_assignee() -> User | None:
+    """
+    Resolve the default business assignee for incoming queries.
+    Falls back to sonu@idbookhotels.com when no setting is provided.
+    """
+    default_email = (
+        getattr(settings, "QUERY_DEFAULT_ASSIGNEE_EMAIL", "sonu@idbookhotels.com")
+        or "sonu@idbookhotels.com"
+    ).strip().lower()
+    if not default_email:
+        return None
+    return User.objects.filter(email__iexact=default_email, is_active=True).first()
+
+
 class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     """
     Unified ViewSet for all query types
@@ -310,6 +325,11 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if referred_by:
             queryset = queryset.filter(referred_by_id=referred_by)
         
+        # Filter by assigned_to
+        assigned_to = self.request.query_params.get("assigned_to")
+        if assigned_to:
+            queryset = queryset.filter(assigned_to_id=assigned_to)
+        
         # User/role-specific filtering
         if user.is_authenticated:
             active_group = get_user_active_group(user, self.request)
@@ -374,6 +394,15 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                         ]
                     )
 
+            # Auto-mark newly created queries as assigned when a default
+            # business assignee is configured. Do not mutate referred_by/
+            # referral_type here; those are reserved for referral tracking.
+            default_assignee = _get_default_query_assignee()
+            if default_assignee and query.status != "assigned":
+                query.assigned_to = default_assignee
+                query.status = "assigned"
+                query.save(update_fields=["assigned_to", "status", "updated"])
+
             # Fire lifecycle notifications for query creation (best-effort)
             try:
                 from apps.booking.tasks import (
@@ -383,6 +412,8 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
                 send_query_email_task.delay(query.id, "QUERY_CREATED")
                 send_query_sms_task.delay(query.id, "QUERY_CREATED")
+                if query.assigned_to:
+                    send_query_email_task.delay(query.id, "QUERY_ASSIGNED")
             except Exception:
                 pass
 
@@ -411,6 +442,8 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         partial = kwargs.get("partial", False)
         instance = self.get_object()
         old_status = getattr(instance, "status", None)
+        old_quote_amount = getattr(instance, "quote_amount", None)
+        old_expires_at = getattr(instance, "expires_at", None)
         requested_status = request.data.get("status")
         if str(requested_status).lower() == "cancelled" and getattr(instance, "booking", None):
             return self.get_error_response(
@@ -424,27 +457,43 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if serializer.is_valid():
             query = serializer.save()
 
-            # Fire lifecycle notifications for query status changes (best-effort).
-            # Quote/accept/assign flows update `status` from "pending" -> "quoted" -> "confirmed".
+            # Fire lifecycle notifications for status and quote updates (best-effort).
             try:
                 new_status = getattr(query, "status", None)
+                status_to_event = {
+                    "quoted": "QUERY_QUOTED",
+                    "confirmed": "QUERY_ACCEPTED",
+                    "assigned": "QUERY_ASSIGNED",
+                    "cancelled": "QUERY_CANCELLED",
+                    "completed": "QUERY_COMPLETED",
+                }
+                event_type = None
                 if old_status and new_status and old_status != new_status:
-                    status_to_event = {
-                        "quoted": "QUERY_QUOTED",
-                        "confirmed": "QUERY_ACCEPTED",
-                        "assigned": "QUERY_ASSIGNED",
-                        "cancelled": "QUERY_CANCELLED",
-                        "completed": "QUERY_COMPLETED",
-                    }
                     event_type = status_to_event.get(new_status)
-                    if event_type:
-                        from apps.booking.tasks import (
-                            send_query_email_task,
-                            send_query_sms_task,
-                        )
+                else:
+                    # If quote is newly set or updated (with/without status transition),
+                    # send QUERY_QUOTED so guest users receive quote notifications.
+                    quote_changed = str(old_quote_amount or "") != str(
+                        getattr(query, "quote_amount", "") or ""
+                    )
+                    expiry_changed = str(old_expires_at or "") != str(
+                        getattr(query, "expires_at", "") or ""
+                    )
+                    has_quote = bool(
+                        getattr(query, "quote_amount", None)
+                        and float(getattr(query, "quote_amount", 0) or 0) > 0
+                    )
+                    if has_quote and (quote_changed or expiry_changed):
+                        event_type = "QUERY_QUOTED"
 
-                        send_query_email_task.delay(query.id, event_type)
-                        send_query_sms_task.delay(query.id, event_type)
+                if event_type:
+                    from apps.booking.tasks import (
+                        send_query_email_task,
+                        send_query_sms_task,
+                    )
+
+                    send_query_email_task.delay(query.id, event_type)
+                    send_query_sms_task.delay(query.id, event_type)
             except Exception:
                 pass
 
@@ -1379,6 +1428,15 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             required=["assigned_to_user_id"],
             properties={
                 "assigned_to_user_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "referred_by_user_id": openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description="Optional referral owner for performance tracking",
+                ),
+                "referral_type": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=["EMPLOYEE", "USER", "AGENT"],
+                    description="Optional referral classification",
+                ),
             },
         ),
         responses={200: "Query assigned", 400: "Validation error", 403: "Permission denied", 404: "User not found"},
@@ -1423,7 +1481,12 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             self.log_response(custom_response)
             return custom_response
 
-        if assigned_user.default_group != UserGroups.BUSINESS_GRP:
+        # Validate business membership via actual group relations.
+        # Do not rely on default/active group fields (deprecated for this check).
+        is_business_member = assigned_user.groups.filter(
+            name__in=[UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN]
+        ).exists()
+        if not is_business_member:
             custom_response = self.get_error_response(
                 message="Assigned user must belong to BUSINESS-GRP",
                 status="error",
@@ -1433,10 +1496,48 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             self.log_response(custom_response)
             return custom_response
 
-        query.referred_by = assigned_user
-        query.referral_type = "EMPLOYEE"
+        referred_by_user_id = request.data.get("referred_by_user_id")
+        referral_type = request.data.get("referral_type")
+        if referral_type and referral_type not in ("EMPLOYEE", "USER", "AGENT"):
+            custom_response = self.get_error_response(
+                message="Invalid referral_type. Allowed: EMPLOYEE, USER, AGENT",
+                status="error",
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+        query.assigned_to = assigned_user
         query.status = "assigned"
-        query.save(update_fields=["referred_by", "referral_type", "status", "updated"])
+        update_fields = ["assigned_to", "status", "updated"]
+
+        # Optional referral tracking (frontend-provided only)
+        if referred_by_user_id is not None:
+            if str(referred_by_user_id).strip() == "":
+                query.referred_by = None
+            else:
+                try:
+                    referral_user = User.objects.get(
+                        id=int(referred_by_user_id), is_active=True
+                    )
+                except (ValueError, TypeError, User.DoesNotExist):
+                    custom_response = self.get_error_response(
+                        message="Referred user not found",
+                        status="error",
+                        error_code="NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+                    self.log_response(custom_response)
+                    return custom_response
+                query.referred_by = referral_user
+            update_fields.append("referred_by")
+
+        if referral_type is not None:
+            query.referral_type = referral_type or None
+            update_fields.append("referral_type")
+
+        query.save(update_fields=update_fields)
 
         # Best-effort notifications for assignment
         try:
@@ -1454,6 +1555,12 @@ class QueryViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
                     "id": assigned_user.id,
                     "name": assigned_user.name,
                     "email": assigned_user.email,
+                },
+                "referral": {
+                    "referred_by_id": getattr(query.referred_by, "id", None),
+                    "referred_by_name": getattr(query.referred_by, "name", None),
+                    "referred_by_email": getattr(query.referred_by, "email", None),
+                    "referral_type": query.referral_type,
                 },
             },
             message="Query assigned successfully",

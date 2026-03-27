@@ -234,15 +234,28 @@ def send_query_email_task(self, query_id: int, event_type: str = "QUERY_CREATED"
     """
     try:
         query = Query.objects.select_related(
-            "raised_by", "company", "agent", "booking"
+            "raised_by", "company", "agent", "booking", "assigned_to"
         ).get(id=query_id)
     except Query.DoesNotExist:
+        logger.warning(
+            "Query email skipped: query not found (query_id=%s, event=%s)",
+            query_id,
+            event_type,
+        )
         return
 
     raised_by = getattr(query, "raised_by", None)
-    user_email = getattr(raised_by, "email", None) or ""
-    if not user_email:
-        return
+    user_email = (getattr(raised_by, "email", None) or "").strip()
+    default_assignee_email = (
+        getattr(settings, "QUERY_DEFAULT_ASSIGNEE_EMAIL", "sonu@idbookhotels.com")
+        or "sonu@idbookhotels.com"
+    ).strip()
+    assigned_user = getattr(query, "assigned_to", None)
+    assigned_user_name = (getattr(assigned_user, "name", None) or "").strip()
+    assigned_user_email = (getattr(assigned_user, "email", None) or "").strip()
+    assigned_user_mobile = (
+        getattr(assigned_user, "mobile_number", None) or ""
+    ).strip()
 
     booking = getattr(query, "booking", None)
 
@@ -274,6 +287,9 @@ def send_query_email_task(self, query_id: int, event_type: str = "QUERY_CREATED"
         "hold_end_time": hold_end_time,
         "minimum_first_payment_amount": min_first_payment_amount,
         "booking_status": getattr(booking, "status", None) if booking else None,
+        "assigned_to_name": assigned_user_name,
+        "assigned_to_email": assigned_user_email,
+        "assigned_to_mobile": assigned_user_mobile,
     }
 
     subjects = {
@@ -287,15 +303,97 @@ def send_query_email_task(self, query_id: int, event_type: str = "QUERY_CREATED"
     }
     subject = subjects.get(event_type, "Update on your request")
 
-    template = get_template("email_template/query-lifecycle-email.html")
-    html_content = template.render(context)
-    send_email(
-        subject=subject,
-        message=subject,
-        to_emails=[user_email],
-        from_email=settings.EMAIL_HOST_USER,
-        html_message=html_content,
+    print(
+        f"[QUERY_EMAIL] resolving recipients query_id={query_id} event={event_type} "
+        f"user_email={user_email!r} default_assignee={default_assignee_email!r} "
+        f"assigned_to={assigned_user_email!r}"
     )
+
+    recipients = []
+    if user_email:
+        recipients.append(user_email)
+
+    # Always include internal assignee / default business contact on every
+    # query lifecycle event so the team stays informed and emails are never
+    # silently dropped when the customer has no real email address.
+    if default_assignee_email:
+        recipients.append(default_assignee_email)
+    if assigned_user_email:
+        recipients.append(assigned_user_email)
+
+    # Deduplicate while preserving order.
+    deduped_recipients = []
+    seen = set()
+    for email in recipients:
+        normalized = email.lower()
+        if normalized and normalized not in seen:
+            deduped_recipients.append(email)
+            seen.add(normalized)
+
+    if not deduped_recipients:
+        print(
+            f"[QUERY_EMAIL] skipped: no recipients query_id={query_id} event={event_type}"
+        )
+        return
+
+    try:
+        template = get_template("email_template/query-lifecycle-email.html")
+        html_content = template.render(context)
+    except Exception as exc:
+        print(
+            f"[QUERY_EMAIL] template render failed query_id={query_id} event={event_type} error={exc}"
+        )
+        logger.exception(
+            "Query email template render failed (query_id=%s, event=%s): %s",
+            query_id,
+            event_type,
+            exc,
+        )
+        # Fallback so email still goes out even if html template rendering fails.
+        html_content = (
+            f"{subject}\n\n"
+            f"Query Ref: {getattr(query, 'query_reference', '')}\n"
+            f"Event: {event_type}\n"
+        )
+
+    logger.info(
+        "Sending query email (query_id=%s, event=%s, recipients=%s, subject=%s)",
+        query_id,
+        event_type,
+        deduped_recipients,
+        subject,
+    )
+    try:
+        print(
+            f"[QUERY_EMAIL] start query_id={query_id} event={event_type} recipients={deduped_recipients} subject={subject}"
+        )
+        send_email(
+            subject=subject,
+            message=subject,
+            to_emails=deduped_recipients,
+            from_email=settings.EMAIL_HOST_USER,
+            html_message=html_content,
+        )
+        print(
+            f"[QUERY_EMAIL] success query_id={query_id} event={event_type} recipients={deduped_recipients}"
+        )
+        logger.info(
+            "Query email sent (query_id=%s, event=%s, recipients=%s)",
+            query_id,
+            event_type,
+            deduped_recipients,
+        )
+    except Exception as exc:
+        print(
+            f"[QUERY_EMAIL] failed query_id={query_id} event={event_type} recipients={deduped_recipients} error={exc}"
+        )
+        logger.exception(
+            "Query email failed (query_id=%s, event=%s, recipients=%s): %s",
+            query_id,
+            event_type,
+            deduped_recipients,
+            exc,
+        )
 
 
 @celery_idbook.task(bind=True)

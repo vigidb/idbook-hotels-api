@@ -261,3 +261,56 @@ class CouponRedemption(models.Model):
 
     def __str__(self):
         return f"{self.coupon.code} → booking {self.booking_id}"
+
+
+class UserCouponClaim(models.Model):
+    """
+    User-level coupon claim ledger (independent of booking creation).
+    Useful for reserving a coupon to a specific user profile and tracking
+    remaining discount budget for that user's future bookings.
+    """
+
+    coupon = models.ForeignKey(
+        Coupon, on_delete=models.CASCADE, related_name="user_claims"
+    )
+    user = models.ForeignKey(
+        "authentication.User",
+        on_delete=models.CASCADE,
+        related_name="claimed_coupons",
+    )
+    is_exclusive = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, this coupon is reserved to this user and cannot be used "
+            "by other users."
+        ),
+    )
+    claimed_discount_budget = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text=(
+            "Optional per-user discount budget reserved at claim time. "
+            "When set, user redemptions should not exceed this amount."
+        ),
+    )
+    active = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["coupon", "user"],
+                name="unique_user_coupon_claim",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["coupon", "active"]),
+            models.Index(fields=["user", "active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} claimed {self.coupon.code}"

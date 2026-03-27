@@ -580,6 +580,14 @@ class Query(models.Model):
         default="B2C",
         help_text="Booking made for whom"
     )
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queries_assigned",
+        help_text="Business user currently assigned to handle this query",
+    )
     
     # Referral Tracking
     referred_by = models.ForeignKey(

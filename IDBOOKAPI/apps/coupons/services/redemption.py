@@ -10,7 +10,13 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from apps.coupons.models import Coupon, CouponCampaign, CouponAmountSlab, CouponRedemption
+from apps.coupons.models import (
+    Coupon,
+    CouponCampaign,
+    CouponAmountSlab,
+    CouponRedemption,
+    UserCouponClaim,
+)
 from apps.booking.models import Booking
 from apps.booking.utils.db_utils import check_user_used_coupon
 
@@ -25,6 +31,7 @@ USER_MESSAGES = {
     "BUDGET_EXHAUSTED": "This offer has reached its usage limit.",
     "PER_USER_CAP": "You have already used this offer the maximum number of times.",
     "LEGACY_ONE_PER_USER": "This coupon has already been used on a confirmed booking.",
+    "COUPON_RESERVED": "This claimed coupon is reserved for another user.",
 }
 
 
@@ -324,6 +331,24 @@ def validate_coupon_for_context(
                 "payable_after_discount": None,
             }
 
+    # Claimed exclusive coupon guard:
+    # if someone exclusively claimed this coupon, only that user can use it.
+    if user_id:
+        exclusive_claim_exists = UserCouponClaim.objects.filter(
+            coupon=coupon,
+            active=True,
+            is_exclusive=True,
+        ).exclude(user_id=user_id).exists()
+        if exclusive_claim_exists:
+            return {
+                "valid": False,
+                "reason_code": "COUPON_RESERVED",
+                "user_message": USER_MESSAGES["COUPON_RESERVED"],
+                "coupon": coupon,
+                "discount_applied": None,
+                "payable_after_discount": None,
+            }
+
     disc = None
     payable = None
     if amount is not None:
@@ -337,6 +362,37 @@ def validate_coupon_for_context(
                 "discount_applied": None,
                 "payable_after_discount": None,
             }
+
+    # If this user has claimed coupon with a budget, keep discount within remaining.
+    if user_id and amount is not None:
+        claim = UserCouponClaim.objects.filter(
+            coupon=coupon,
+            user_id=user_id,
+            active=True,
+        ).first()
+        if claim and claim.claimed_discount_budget is not None:
+            redeemed_so_far = (
+                coupon.redemptions.filter(
+                    user_id=user_id,
+                    status=CouponRedemption.RedemptionStatus.CONFIRMED,
+                ).aggregate(s=Sum("discount_applied"))["s"]
+                or Decimal("0")
+            )
+            remaining_budget = Decimal(str(claim.claimed_discount_budget or 0)) - Decimal(
+                str(redeemed_so_far or 0)
+            )
+            if remaining_budget <= 0:
+                return {
+                    "valid": False,
+                    "reason_code": "BUDGET_EXHAUSTED",
+                    "user_message": USER_MESSAGES["BUDGET_EXHAUSTED"],
+                    "coupon": coupon,
+                    "discount_applied": None,
+                    "payable_after_discount": None,
+                }
+            if disc is not None and disc > remaining_budget:
+                disc = remaining_budget
+                payable = (amount - disc).quantize(Decimal("0.000001"))
 
     ok, lim_reason = assert_coupon_limits(
         coupon, user_id, proposed_discount=disc

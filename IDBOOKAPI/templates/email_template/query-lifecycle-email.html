@@ -201,7 +201,7 @@
               </p>
               {% endif %}
 
-              {% if (event_type == "QUERY_CONVERTED_TO_BOOKING" or event_type == "QUERY_COMPLETED") and booking_status %}
+              {% if event_type == "QUERY_CONVERTED_TO_BOOKING" and booking_status or event_type == "QUERY_COMPLETED" and booking_status %}
               <p>
                 <strong>Booking status:</strong> {{ booking_status|capfirst }}
               </p>
@@ -210,7 +210,26 @@
           </div>
         </div>
 
-        {% if (event_type == "QUERY_CONVERTED_TO_BOOKING" or event_type == "QUERY_COMPLETED") %}
+        {% if event_type == "QUERY_ASSIGNED" and assigned_to_name or event_type == "QUERY_ASSIGNED" and assigned_to_email or event_type == "QUERY_ASSIGNED" and assigned_to_mobile %}
+        <div class="card">
+          <h2>Assigned executive</h2>
+          <div class="row">
+            <div class="field">
+              {% if assigned_to_name %}
+              <p><strong>Name:</strong> {{ assigned_to_name }}</p>
+              {% endif %}
+              {% if assigned_to_email %}
+              <p><strong>Email:</strong> {{ assigned_to_email }}</p>
+              {% endif %}
+              {% if assigned_to_mobile %}
+              <p><strong>Contact number:</strong> {{ assigned_to_mobile }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if event_type == "QUERY_CONVERTED_TO_BOOKING" or event_type == "QUERY_COMPLETED" %}
         <div class="card">
           <h2>Next steps to confirm</h2>
           <div class="highlight">
@@ -234,7 +253,7 @@
         {% endif %}
 
         <div class="cta">
-          {% if (event_type == "QUERY_CONVERTED_TO_BOOKING" or event_type == "QUERY_COMPLETED") and booking_link %}
+          {% if event_type == "QUERY_CONVERTED_TO_BOOKING" and booking_link or event_type == "QUERY_COMPLETED" and booking_link %}
           <a href="{{ booking_link }}">View booking</a>
           {% elif query_link %}
           <a class="secondary" href="{{ query_link }}">Open request</a>

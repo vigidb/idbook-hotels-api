@@ -9,6 +9,7 @@ router.register(r"coupon-campaigns", CouponCampaignViewSet, basename="coupon-cam
 router.register(r"coupon-slabs", CouponAmountSlabViewSet, basename="coupon-slabs")
 router.register(r"coupon-redemptions", CouponRedemptionViewSet, basename="coupon-redemptions")
 router.register(r"coupon-claims", CouponClaimViewSet, basename="coupon-claims")
+router.register(r"user-coupon-claims", UserCouponClaimViewSet, basename="user-coupon-claims")
 router.register(r"coupons", CouponViewSet, basename="coupons")
 
 urlpatterns = []

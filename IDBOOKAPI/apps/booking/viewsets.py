@@ -3329,10 +3329,15 @@ class BookingViewSet(
             # If min payment is not configured, treat the requirement as full payment.
             if required_min_payment is None or required_min_payment <= 0:
                 required_min_payment = final_amount
+            # Guard against bad configuration: required minimum can never exceed final amount.
+            if final_amount > 0 and required_min_payment > final_amount:
+                required_min_payment = final_amount
 
             # Decide status based on min payment threshold (and hold window).
             if getattr(instance, "on_hold_end_time", None) and timezone.now() > instance.on_hold_end_time:
                 instance.status = "canceled"
+            elif final_amount > 0 and updated_paid >= final_amount:
+                instance.status = "confirmed"
             elif updated_paid >= required_min_payment:
                 instance.status = "confirmed"
             else:
@@ -6073,6 +6078,21 @@ class BookingPaymentDetailViewSet(
             paid_so_far = Decimal(str(booking.total_payment_made or 0))
             add_amt = Decimal(str(amount or 0))
             updated_paid = paid_so_far + add_amt
+            # Prefer authoritative successful transaction sum when available.
+            # Some gateway callback paths may not consistently pass amount,
+            # but payment detail rows still have the successful transaction amount.
+            try:
+                success_rows = booking.booking_payment.filter(
+                    is_transaction_success=True
+                ).only("amount")
+                paid_from_success_rows = Decimal("0")
+                for row in success_rows:
+                    paid_from_success_rows += Decimal(str(getattr(row, "amount", 0) or 0))
+                if paid_from_success_rows > 0:
+                    updated_paid = paid_from_success_rows
+            except Exception:
+                # Fall back to incremental update if payment-detail aggregation fails.
+                pass
             final_amount = Decimal(str(booking.final_amount or 0))
             if final_amount > 0 and updated_paid > final_amount:
                 updated_paid = final_amount
@@ -6090,10 +6110,16 @@ class BookingPaymentDetailViewSet(
                     # If min-first-payment isn't configured, treat requirement as full payment.
                     if required_min_payment is None or required_min_payment <= 0:
                         required_min_payment = final_amount
+                    # Guard against bad configuration: required minimum can never exceed final amount.
+                    if final_amount > 0 and required_min_payment > final_amount:
+                        required_min_payment = final_amount
 
                     new_status = (
                         "confirmed"
-                        if updated_paid >= required_min_payment
+                        if (
+                            (final_amount > 0 and updated_paid >= final_amount)
+                            or updated_paid >= required_min_payment
+                        )
                         else "payment_pending_verification"
                     )
 

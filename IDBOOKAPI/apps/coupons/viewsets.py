@@ -21,6 +21,7 @@ from .serializers import (
     CouponAmountSlabSerializer,
     CouponRedemptionSerializer,
     CouponClaimSerializer,
+    UserCouponClaimSerializer,
 )
 from .models import (
     Coupon,
@@ -28,6 +29,7 @@ from .models import (
     CouponCampaign,
     CouponAmountSlab,
     CouponRedemption,
+    UserCouponClaim,
 )
 from rest_framework.decorators import action
 from rest_framework.throttling import ScopedRateThrottle
@@ -500,7 +502,11 @@ class CouponRedemptionViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMix
         if partner:
             queryset = queryset.filter(coupon__partner_id=partner)
         if user_id:
-            queryset = queryset.filter(user_id=user_id)
+            # Non-admin callers can only access their own claims.
+            if str(user_id) != str(self.request.user.id):
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(user_id=user_id)
         if booking:
             queryset = queryset.filter(booking_id=booking)
         if booking_type:
@@ -556,9 +562,11 @@ class CouponRedemptionViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMix
 
 
 class CouponClaimViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, LoggingMixin):
+    # Legacy/admin claimed tab: coupon applied against bookings.
     queryset = AppliedCoupon.objects.all().order_by("-id")
     serializer_class = CouponClaimSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ["get"]
 
     def get_queryset(self):
         queryset = (
@@ -609,6 +617,167 @@ class CouponClaimViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, L
         )
         self.log_response(custom_response)
         return custom_response
+
+class UserCouponClaimViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    queryset = UserCouponClaim.objects.all().order_by("-id")
+    serializer_class = UserCouponClaimSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch"]
+
+    def _default_claim_budget_for_coupon(self, coupon):
+        # Priority:
+        # 1) Explicit total budget
+        # 2) Coupon value override amount (for amount-type override)
+        if coupon.max_total_discount_budget is not None:
+            return coupon.max_total_discount_budget
+        if (
+            getattr(coupon, "use_coupon_value_override", False)
+            and str(getattr(coupon, "discount_type", "")).upper() == "AMOUNT"
+            and getattr(coupon, "discount", None) is not None
+        ):
+            return coupon.discount
+        return None
+
+    def _is_admin_user(self):
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        active_group = get_user_active_group(user, self.request)
+        default_group = active_group or getattr(user, "default_group", "")
+        return default_group in [UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN]
+
+    def get_queryset(self):
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related(
+                "coupon",
+                "coupon__campaign",
+                "coupon__partner",
+                "user",
+            )
+        )
+        campaign = self.request.query_params.get("campaign")
+        partner = self.request.query_params.get("partner")
+        user_id = self.request.query_params.get("user")
+        search = (self.request.query_params.get("search") or "").strip()
+
+        if campaign:
+            queryset = queryset.filter(coupon__campaign_id=campaign)
+        if partner:
+            queryset = queryset.filter(coupon__partner_id=partner)
+        is_admin_user = self._is_admin_user()
+        if user_id:
+            if not is_admin_user and str(user_id) != str(self.request.user.id):
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(user_id=user_id)
+        else:
+            if not is_admin_user:
+                queryset = queryset.filter(user_id=self.request.user.id)
+        if search:
+            queryset = queryset.filter(
+                Q(coupon__code__icontains=search)
+                | Q(coupon__name__icontains=search)
+                | Q(user__name__icontains=search)
+                | Q(user__email__icontains=search)
+            )
+        return order_ops(self.request, queryset)
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, queryset = paginate_queryset(self.request, queryset)
+        serializer = self.get_serializer(queryset, many=True)
+        custom_response = self.get_response(
+            count=count,
+            status="success",
+            data=serializer.data,
+            message="List Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom_response)
+        return custom_response
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        raw_code = request.data.get("coupon_code")
+        code = str(raw_code or "").strip().upper()
+        if not code:
+            resp = self.get_error_response(
+                message="coupon_code is required",
+                status="error",
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        coupon = Coupon.objects.filter(code__iexact=code, active=True).select_related(
+            "campaign", "partner"
+        ).first()
+        if not coupon:
+            resp = self.get_error_response(
+                message="Coupon not found",
+                status="error",
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        # If coupon is effectively single-user (max 1 redemption), reserve exclusively.
+        is_single_user_coupon = (
+            (coupon.max_redemptions_total is not None and coupon.max_redemptions_total <= 1)
+            or (coupon.max_redemptions_per_user is not None and coupon.max_redemptions_per_user <= 1)
+            or (
+                coupon.campaign
+                and (
+                    (coupon.campaign.max_redemptions_total is not None and coupon.campaign.max_redemptions_total <= 1)
+                    or (coupon.campaign.max_redemptions_per_user is not None and coupon.campaign.max_redemptions_per_user <= 1)
+                )
+            )
+        )
+        if is_single_user_coupon:
+            conflict = UserCouponClaim.objects.filter(
+                coupon_id=coupon.id, active=True
+            ).exclude(user_id=request.user.id).exists()
+            if conflict:
+                resp = self.get_error_response(
+                    message="This claimed coupon is already reserved by another user.",
+                    status="error",
+                    error_code="COUPON_RESERVED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                self.log_response(resp)
+                return resp
+
+        claim, created = UserCouponClaim.objects.get_or_create(
+            coupon=coupon,
+            user=request.user,
+            defaults={
+                "is_exclusive": bool(is_single_user_coupon),
+                "claimed_discount_budget": self._default_claim_budget_for_coupon(coupon),
+                "active": True,
+            },
+        )
+        if not created:
+            # Reactivate and refresh derived claim settings on re-claim.
+            claim.active = True
+            claim.is_exclusive = bool(is_single_user_coupon) or claim.is_exclusive
+            if claim.claimed_discount_budget is None:
+                claim.claimed_discount_budget = self._default_claim_budget_for_coupon(coupon)
+            claim.save(update_fields=["active", "is_exclusive", "claimed_discount_budget", "updated"])
+
+        serializer = self.get_serializer(claim)
+        resp = self.get_response(
+            status="success",
+            data=serializer.data,
+            message="Coupon claimed successfully",
+            status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
 
 
 class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
