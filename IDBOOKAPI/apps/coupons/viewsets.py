@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets
@@ -43,6 +45,7 @@ from apps.booking.models import AppliedCoupon
 
 from datetime import datetime
 from decimal import Decimal
+from django.db import transaction
 from django.db.models import Q
 from django.db.utils import ProgrammingError
 
@@ -53,6 +56,45 @@ from apps.authentication.constants import UserGroups
 from apps.authentication.utils.token_utils import get_user_active_group
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+
+logger = logging.getLogger(__name__)
+
+
+def _coupon_console_is_admin(request):
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    active_group = get_user_active_group(user, request)
+    default_group = active_group or getattr(user, "default_group", "")
+    return default_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN)
+
+
+def _parse_bulk_int_ids(request_data, *keys):
+    raw = None
+    for k in keys:
+        if k in request_data and request_data.get(k) is not None:
+            raw = request_data.get(k)
+            break
+    if not isinstance(raw, (list, tuple)):
+        return None
+    out = []
+    for x in raw:
+        try:
+            out.append(int(x))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _truthy_hard_delete(request_data):
+    v = request_data.get("hard_delete", request_data.get("permanent"))
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    return bool(v)
 
 
 class CouponPartnerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -191,6 +233,99 @@ class CouponPartnerViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         )
         self.log_response(custom_response)
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="bulk-delete",
+        url_name="coupon-partner-bulk-delete",
+    )
+    def bulk_delete(self, request):
+        """Bulk deactivate (active=False) or permanently delete partners (admin only)."""
+        self.log_request(request)
+        ids = _parse_bulk_int_ids(request.data, "partner_ids", "ids")
+        if ids is None:
+            resp = self.get_error_response(
+                message="Provide partner_ids (list of integers).",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+        if not ids:
+            resp = self.get_error_response(
+                message="No valid partner ids.",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        qs = self.get_queryset().filter(id__in=ids)
+        found_ids = list(qs.order_by("id").values_list("id", flat=True))
+        missing = sorted(set(ids) - set(found_ids))
+
+        if not found_ids:
+            resp = self.get_error_response(
+                message="No matching partners for this user.",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        hard = _truthy_hard_delete(request.data)
+        if hard:
+            if not _coupon_console_is_admin(request):
+                resp = self.get_error_response(
+                    message="Only business administrators can permanently delete partners.",
+                    status="error",
+                    errors=[],
+                    error_code="FORBIDDEN",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+                self.log_response(resp)
+                return resp
+            try:
+                with transaction.atomic():
+                    qs.delete()
+            except Exception as e:
+                logger.exception("partner bulk hard delete failed: %s", e)
+                resp = self.get_error_response(
+                    message="Could not delete one or more partners.",
+                    status="error",
+                    errors=[str(e)],
+                    error_code="DELETE_FAILED",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+                self.log_response(resp)
+                return resp
+            payload = {"deleted_ids": found_ids, "not_deleted_ids": missing}
+            msg = f"Permanently deleted {len(found_ids)} partner(s)."
+        else:
+            qs.update(active=False)
+            payload = {
+                "deactivated_ids": found_ids,
+                "not_deactivated_ids": missing,
+            }
+            msg = f"Deactivated {len(found_ids)} partner(s)."
+        if missing:
+            msg += f" {len(missing)} id(s) were not found or not allowed."
+
+        resp = self.get_response(
+            status="success",
+            data=payload,
+            message=msg,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
 
 
 class CouponCampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -334,6 +469,99 @@ class CouponCampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         )
         self.log_response(custom_response)
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="bulk-delete",
+        url_name="coupon-campaign-bulk-delete",
+    )
+    def bulk_delete(self, request):
+        """Bulk deactivate (active=False) or permanently delete campaigns (admin only)."""
+        self.log_request(request)
+        ids = _parse_bulk_int_ids(request.data, "campaign_ids", "ids")
+        if ids is None:
+            resp = self.get_error_response(
+                message="Provide campaign_ids (list of integers).",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+        if not ids:
+            resp = self.get_error_response(
+                message="No valid campaign ids.",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        qs = self.get_queryset().filter(id__in=ids)
+        found_ids = list(qs.order_by("id").values_list("id", flat=True))
+        missing = sorted(set(ids) - set(found_ids))
+
+        if not found_ids:
+            resp = self.get_error_response(
+                message="No matching campaigns for this user.",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        hard = _truthy_hard_delete(request.data)
+        if hard:
+            if not _coupon_console_is_admin(request):
+                resp = self.get_error_response(
+                    message="Only business administrators can permanently delete campaigns.",
+                    status="error",
+                    errors=[],
+                    error_code="FORBIDDEN",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+                self.log_response(resp)
+                return resp
+            try:
+                with transaction.atomic():
+                    qs.delete()
+            except Exception as e:
+                logger.exception("campaign bulk hard delete failed: %s", e)
+                resp = self.get_error_response(
+                    message="Could not delete one or more campaigns.",
+                    status="error",
+                    errors=[str(e)],
+                    error_code="DELETE_FAILED",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+                self.log_response(resp)
+                return resp
+            payload = {"deleted_ids": found_ids, "not_deleted_ids": missing}
+            msg = f"Permanently deleted {len(found_ids)} campaign(s)."
+        else:
+            qs.update(active=False)
+            payload = {
+                "deactivated_ids": found_ids,
+                "not_deactivated_ids": missing,
+            }
+            msg = f"Deactivated {len(found_ids)} campaign(s)."
+        if missing:
+            msg += f" {len(missing)} id(s) were not found or not allowed."
+
+        resp = self.get_response(
+            status="success",
+            data=payload,
+            message=msg,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
 
 
 class CouponAmountSlabViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -481,6 +709,91 @@ class CouponAmountSlabViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logg
         self.log_response(custom_response)
         return custom_response
 
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="bulk-delete",
+        url_name="coupon-slab-bulk-delete",
+    )
+    def bulk_delete(self, request):
+        """Permanently delete amount slabs (admin only). Slabs have no active flag."""
+        self.log_request(request)
+        if not _coupon_console_is_admin(request):
+            resp = self.get_error_response(
+                message="Only business administrators can delete slabs.",
+                status="error",
+                errors=[],
+                error_code="FORBIDDEN",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+            self.log_response(resp)
+            return resp
+
+        ids = _parse_bulk_int_ids(request.data, "slab_ids", "ids")
+        if ids is None:
+            resp = self.get_error_response(
+                message="Provide slab_ids (list of integers).",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+        if not ids:
+            resp = self.get_error_response(
+                message="No valid slab ids.",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        qs = self.get_queryset().filter(id__in=ids)
+        found_ids = list(qs.order_by("id").values_list("id", flat=True))
+        missing = sorted(set(ids) - set(found_ids))
+
+        if not found_ids:
+            resp = self.get_error_response(
+                message="No matching slabs.",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        try:
+            with transaction.atomic():
+                qs.delete()
+        except Exception as e:
+            logger.exception("slab bulk delete failed: %s", e)
+            resp = self.get_error_response(
+                message="Could not delete one or more slabs.",
+                status="error",
+                errors=[str(e)],
+                error_code="DELETE_FAILED",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            self.log_response(resp)
+            return resp
+
+        payload = {"deleted_ids": found_ids, "not_deleted_ids": missing}
+        msg = f"Deleted {len(found_ids)} slab(s)."
+        if missing:
+            msg += f" {len(missing)} id(s) were not found or not allowed."
+        resp = self.get_response(
+            status="success",
+            data=payload,
+            message=msg,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
+
 
 class CouponRedemptionViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = CouponRedemption.objects.all().order_by("-created")
@@ -562,7 +875,7 @@ class CouponRedemptionViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMix
 
 
 class CouponClaimViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, LoggingMixin):
-    # Legacy/admin claimed tab: coupon applied against bookings.
+    # Booking-applied coupons (AppliedCoupon); admin "Claimed" tab uses user-coupon-claims instead.
     queryset = AppliedCoupon.objects.all().order_by("-id")
     serializer_class = CouponClaimSerializer
     permission_classes = [IsAuthenticated]
@@ -618,11 +931,12 @@ class CouponClaimViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, L
         self.log_response(custom_response)
         return custom_response
 
+
 class UserCouponClaimViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = UserCouponClaim.objects.all().order_by("-id")
     serializer_class = UserCouponClaimSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "post", "patch"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def _default_claim_budget_for_coupon(self, coupon):
         # Priority:
@@ -779,6 +1093,29 @@ class UserCouponClaimViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
         self.log_response(resp)
         return resp
 
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        if not self._is_admin_user():
+            resp = self.get_error_response(
+                message="Only administrators can delete coupon claims",
+                status="error",
+                error_code="FORBIDDEN",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+            self.log_response(resp)
+            return resp
+        instance = self.get_object()
+        claim_id = instance.pk
+        instance.delete()
+        resp = self.get_response(
+            status="success",
+            data={"id": claim_id},
+            message="User coupon claim deleted",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
+
 
 class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = Coupon.objects.all()
@@ -884,6 +1221,24 @@ class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         if code:
             self.queryset = self.queryset.filter(code__icontains=code)
+
+        campaign_id = self.request.query_params.get("campaign_id") or self.request.query_params.get(
+            "campaign", ""
+        )
+        if campaign_id not in (None, ""):
+            try:
+                self.queryset = self.queryset.filter(campaign_id=int(campaign_id))
+            except (TypeError, ValueError):
+                pass
+
+        partner_id = self.request.query_params.get("partner_id") or self.request.query_params.get(
+            "partner", ""
+        )
+        if partner_id not in (None, ""):
+            try:
+                self.queryset = self.queryset.filter(partner_id=int(partner_id))
+            except (TypeError, ValueError):
+                pass
 
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -1126,6 +1481,132 @@ class CouponViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             message="Coupon Details",
             status_code=status.HTTP_200_OK,
         )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="bulk-delete",
+        url_name="coupon-bulk-delete",
+    )
+    def bulk_delete(self, request):
+        """
+        Bulk deactivate (active=False) or permanently delete coupons.
+
+        Pass hard_delete=true (or permanent=true) to remove rows from the DB (admin only).
+        CASCADE removes related redemptions, user claims, and applied-coupon rows.
+        """
+        self.log_request(request)
+        raw_ids = request.data.get("coupon_ids")
+        if raw_ids is None:
+            raw_ids = request.data.get("ids")
+        if not isinstance(raw_ids, (list, tuple)):
+            resp = self.get_error_response(
+                message="Provide coupon_ids (list of integers).",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        ids = []
+        for x in raw_ids:
+            try:
+                ids.append(int(x))
+            except (TypeError, ValueError):
+                continue
+
+        if not ids:
+            resp = self.get_error_response(
+                message="No valid coupon ids.",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        self.coupon_filter_ops()
+        qs = self.queryset.filter(id__in=ids)
+        found_ids = list(qs.order_by("id").values_list("id", flat=True))
+        missing = sorted(set(ids) - set(found_ids))
+
+        if not found_ids:
+            resp = self.get_error_response(
+                message="No matching coupons for this user.",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        def _truthy(val):
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.strip().lower() in ("true", "1", "yes")
+            return bool(val)
+
+        hard_delete = _truthy(request.data.get("hard_delete")) or _truthy(
+            request.data.get("permanent")
+        )
+
+        if hard_delete:
+            if not self._is_admin_user():
+                resp = self.get_error_response(
+                    message="Only business administrators can permanently delete coupons.",
+                    status="error",
+                    errors=[],
+                    error_code="FORBIDDEN",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+                self.log_response(resp)
+                return resp
+            try:
+                with transaction.atomic():
+                    qs.delete()
+            except Exception as e:
+                logger.exception("coupon bulk hard delete failed: %s", e)
+                resp = self.get_error_response(
+                    message="Could not delete one or more coupons.",
+                    status="error",
+                    errors=[str(e)],
+                    error_code="DELETE_FAILED",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+                self.log_response(resp)
+                return resp
+
+            payload = {
+                "deleted_ids": found_ids,
+                "not_deleted_ids": missing,
+            }
+            msg = f"Permanently deleted {len(found_ids)} coupon(s)."
+            if missing:
+                msg += f" {len(missing)} id(s) were not found or not allowed."
+        else:
+            updated = qs.update(active=False)
+            payload = {
+                "deactivated_ids": found_ids,
+                "not_deactivated_ids": missing,
+                "updated_count": updated,
+            }
+            msg = f"Deactivated {len(found_ids)} coupon(s)."
+            if missing:
+                msg += f" {len(missing)} id(s) were not found or not allowed."
+
+        resp = self.get_response(
+            status="success",
+            data=payload,
+            message=msg,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
 
     @action(
         detail=False,

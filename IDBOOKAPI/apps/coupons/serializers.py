@@ -129,13 +129,16 @@ class UserCouponClaimSerializer(serializers.ModelSerializer):
 
     def get_redeemed_discount_so_far(self, obj):
         from decimal import Decimal
-        from django.db.models import Sum
+        from django.db.models import Q, Sum
 
+        # Count confirmed redemptions for this claimant: match redemption.user or
+        # booking.user (redemption.user is often null for guest / pre-link flows).
         s = (
             obj.coupon.redemptions.filter(
-                user_id=obj.user_id,
-                status="confirmed",
-            ).aggregate(v=Sum("discount_applied"))["v"]
+                Q(user_id=obj.user_id) | Q(booking__user_id=obj.user_id),
+                status=CouponRedemption.RedemptionStatus.CONFIRMED,
+            )
+            .aggregate(v=Sum("discount_applied"))["v"]
             or Decimal("0")
         )
         return str(s)

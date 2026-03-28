@@ -931,6 +931,18 @@ class BookingSerializerMixin:
             child_age_list=child_age_list,
         )
 
+        # Quote hold / amounts from input (e.g. query convert-to-booking maps expires_at → on_hold_end_time).
+        # Flight status and pricing are set in the FLIGHT branch below.
+        if booking_type != "FLIGHT":
+            if "status" in validated_data and validated_data["status"] is not None:
+                company_detail.status = validated_data["status"]
+            if "on_hold_end_time" in validated_data:
+                company_detail.on_hold_end_time = validated_data["on_hold_end_time"]
+            if "subtotal" in validated_data and validated_data["subtotal"] is not None:
+                company_detail.subtotal = validated_data["subtotal"]
+            if "final_amount" in validated_data and validated_data["final_amount"] is not None:
+                company_detail.final_amount = validated_data["final_amount"]
+
         # Calculate pricing for flight bookings
         if booking_type == "FLIGHT" and flight_booking:
             from apps.booking.utils.flight_booking_utils import FlightBookingProcessor

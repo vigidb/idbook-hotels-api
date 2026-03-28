@@ -196,21 +196,24 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
     def _handle_payment_failed(self, payload, razorpay_mixin, payment_log):
         """Handle payment.failed event"""
         self.log_warning("Processing payment.failed event")
-        
+
+        notes = {}
+        order_result = {"success": False}
+
         payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
         razorpay_payment_id = payment_entity.get("id")
         razorpay_order_id = payment_entity.get("order_id")
-        
+
         self.log_info(f"Failed payment - payment_id: {razorpay_payment_id}, order_id: {razorpay_order_id}")
-        
+
         # Get order details
         order_result = razorpay_mixin.get_order_details(razorpay_order_id)
         if order_result.get("success"):
             order_data = order_result.get("order", {})
-            notes = order_data.get("notes", {})
+            notes = order_data.get("notes", {}) or {}
             transaction_type = notes.get("transaction_type", "")
             booking_type = notes.get("booking_type", "")
-            
+
             # Route to appropriate failure handler
             if transaction_type == "wallet_recharge":
                 merchant_transaction_id = notes.get("merchant_transaction_id")
@@ -259,9 +262,42 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                     razorpay_order.payment_status = "failed"
                     razorpay_order.status = "failed"
                     razorpay_order.save()
+                    merchant_transaction_id = notes.get("merchant_transaction_id")
+                    if merchant_transaction_id:
+                        from apps.booking.utils.db_utils import update_booking_payment_details
+                        update_booking_payment_details(
+                            merchant_transaction_id,
+                            {
+                                "transaction_id": razorpay_payment_id,
+                                "code": "PAYMENT_FAILED",
+                                "message": "Razorpay payment failed",
+                                "is_transaction_success": False,
+                            },
+                        )
                 except Exception as e:
                     self.log_error(f"Error updating failed hotel payment: {str(e)}")
-        
+            elif notes.get("merchant_transaction_id") and booking_type != "HOTEL":
+                # Holiday package / generic booking payments (notes include merchant_transaction_id)
+                from apps.payment_gateways.models import RazorpayOrder
+                try:
+                    razorpay_order = RazorpayOrder.objects.get(rp_id=razorpay_order_id)
+                    razorpay_order.payment_id = razorpay_payment_id
+                    razorpay_order.payment_status = "failed"
+                    razorpay_order.status = "failed"
+                    razorpay_order.save()
+                    from apps.booking.utils.db_utils import update_booking_payment_details
+                    update_booking_payment_details(
+                        notes["merchant_transaction_id"],
+                        {
+                            "transaction_id": razorpay_payment_id,
+                            "code": "PAYMENT_FAILED",
+                            "message": "Razorpay payment failed",
+                            "is_transaction_success": False,
+                        },
+                    )
+                except Exception as e:
+                    self.log_error(f"Error updating failed booking payment: {str(e)}")
+
         payment_log["response"] = {"success": False, "event": "payment.failed"}
         # Set merchant_transaction_id if available
         merchant_transaction_id = notes.get("merchant_transaction_id", "") if order_result.get("success") else ""
@@ -1014,7 +1050,20 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                         print(f"Cashback applied for booking {booking_id}")
                 except Exception as cashback_error:
                     print(f"Cashback processing failed (non-critical): {str(cashback_error)}")
-                
+
+                try:
+                    from apps.booking.utils.coupon_booking_helpers import (
+                        record_booking_coupon_redemption_if_pending,
+                    )
+
+                    record_booking_coupon_redemption_if_pending(booking)
+                except Exception as coupon_rx_err:
+                    logger.error(
+                        "Coupon redemption after hotel webhook confirm failed for %s: %s",
+                        booking_id,
+                        coupon_rx_err,
+                    )
+
                 print(f"✓ Hotel booking {booking_id} confirmed successfully")
                 self.log_info(f"Hotel booking {booking_id} confirmed successfully")
             except Exception as confirm_error:
@@ -1120,6 +1169,10 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                             "is_transaction_success": True,
                         }
                     )
+                # Holiday package and other non-hotel flows use this handler; align with verify-callback confirmation.
+                from apps.booking.viewsets import BookingPaymentDetailViewSet
+
+                BookingPaymentDetailViewSet().set_booking_as_confirmed(booking.id, amount)
         except RazorpayOrder.DoesNotExist:
             self.log_warning(f"RazorpayOrder not found: {razorpay_order_id}")
         except Exception as e:

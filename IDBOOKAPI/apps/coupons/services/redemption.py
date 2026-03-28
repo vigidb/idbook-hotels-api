@@ -458,7 +458,7 @@ def record_coupon_redemption(
     return CouponRedemption.objects.create(
         coupon=coupon,
         booking=booking,
-        user=booking.user,
+        user_id=booking.user_id,
         booking_type=booking.booking_type,
         booking_subtotal=booking_subtotal,
         discount_applied=discount_applied,

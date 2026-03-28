@@ -101,6 +101,7 @@ from apps.booking.utils.flight_status_utils import (
 
 from apps.booking.mixins.booking_mixins import BookingMixins
 from apps.booking.mixins.validation_mixins import ValidationMixins
+from apps.booking.utils.booking_deletion_helpers import detach_booking_related_records
 
 from apps.hotels.utils.db_utils import (
     get_property_room_for_booking,  # need to remove
@@ -313,7 +314,6 @@ class BookingViewSet(
         agent = self.get_agent_for_user(user)
         if agent and not user.is_superuser:
             # Agent can see bookings they created or bookings for customers linked to them
-            from django.db.models import Q
             agent_booking_filter = Q(agent=agent) | Q(user__customer_profile__agents=agent)
             # Apply agent filter to queryset
             if default_group in B2C_GROUPS:
@@ -864,6 +864,104 @@ class BookingViewSet(
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    def perform_destroy(self, instance):
+        detach_booking_related_records([instance.pk])
+        super().perform_destroy(instance)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        permission_classes=[IsAuthenticated],
+        url_path="bulk-delete",
+        url_name="booking-bulk-delete",
+    )
+    def bulk_delete(self, request):
+        """
+        Delete many bookings in one request.
+        Clears payment/invoice/refund logs (DO_NOTHING FKs) and delinks queries.
+        Only bookings visible after the same role filters as list() can be deleted.
+        """
+        self.log_request(request)
+        raw_ids = request.data.get("booking_ids")
+        if raw_ids is None:
+            raw_ids = request.data.get("ids")
+        if not isinstance(raw_ids, (list, tuple)):
+            resp = self.get_error_response(
+                message="Provide booking_ids (list of integers).",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        ids = []
+        for x in raw_ids:
+            try:
+                ids.append(int(x))
+            except (TypeError, ValueError):
+                continue
+
+        if not ids:
+            resp = self.get_error_response(
+                message="No valid booking ids.",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(resp)
+            return resp
+
+        self.booking_filter_ops()
+        qs = self.queryset.filter(id__in=ids)
+        found_ids = list(qs.order_by("id").values_list("id", flat=True))
+        missing = sorted(set(ids) - set(found_ids))
+
+        if not found_ids:
+            resp = self.get_error_response(
+                message="No matching bookings to delete for this user.",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(resp)
+            return resp
+
+        try:
+            with transaction.atomic():
+                detach_booking_related_records(found_ids)
+                qs.delete()
+        except Exception as e:
+            logger.exception("bulk_delete bookings failed: %s", e)
+            resp = self.get_error_response(
+                message="Could not delete one or more bookings.",
+                status="error",
+                errors=[str(e)],
+                error_code="DELETE_FAILED",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            self.log_response(resp)
+            return resp
+
+        payload = {
+            "deleted_ids": found_ids,
+            "not_deleted_ids": missing,
+        }
+        msg = f"Deleted {len(found_ids)} booking(s)."
+        if missing:
+            msg += f" {len(missing)} id(s) were not found or not allowed."
+        resp = self.get_response(
+            status="success",
+            data=payload,
+            message=msg,
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(resp)
+        return resp
 
     @swagger_auto_schema(
         query_serializer=QueryFilterUserBookingSerializer,
@@ -2819,7 +2917,7 @@ class BookingViewSet(
                 
                 if coupon:
                     booking_dict["coupon_code"] = coupon_code
-                    # booking.coupon_code = coupon_code
+                    booking_dict["coupon_id"] = coupon.id
 
                 # Validate company_id requirement for corporate users
                 if user and user.is_authenticated:
@@ -2880,23 +2978,14 @@ class BookingViewSet(
                     booking.save()
 
                     if coupon:
-                        booking.coupon = coupon
-                        booking.save(update_fields=["coupon", "updated"])
-                        from apps.coupons.services.redemption import (
-                            record_coupon_redemption,
+                        from apps.booking.utils.coupon_booking_helpers import (
+                            sync_applied_coupon_from_booking,
                         )
 
                         try:
-                            record_coupon_redemption(
-                                coupon,
-                                booking,
-                                booking_subtotal=Decimal(
-                                    str(self.total_room_amount_with_room_discount)
-                                ),
-                                discount_applied=Decimal(str(discount)),
-                            )
-                        except ValueError as cr_err:
-                            print("Coupon redemption ledger:", cr_err)
+                            sync_applied_coupon_from_booking(booking)
+                        except Exception as cr_err:
+                            print("Coupon applied ledger:", cr_err)
                     
                     # Ensure user is linked to booking (for guest users created above)
                     if getattr(user, "is_authenticated", False) and not booking.user:
@@ -2931,7 +3020,16 @@ class BookingViewSet(
                     # Refresh from database to ensure we have latest data
                     if booking:
                         booking.refresh_from_db()
-                        
+                        if booking.coupon_id:
+                            from apps.booking.utils.coupon_booking_helpers import (
+                                sync_applied_coupon_from_booking,
+                            )
+
+                            try:
+                                sync_applied_coupon_from_booking(booking)
+                            except Exception as cr_err:
+                                print("Coupon applied ledger (update):", cr_err)
+
                         # Ensure user is linked to booking (for guest users created above)
                         if getattr(user, "is_authenticated", False) and not booking.user:
                             booking.user = user
@@ -3161,6 +3259,15 @@ class BookingViewSet(
         instance.coupon = coupon
         instance.coupon_code = coupon.code
         instance.save()
+
+        try:
+            from apps.booking.utils.coupon_booking_helpers import (
+                sync_applied_coupon_from_booking,
+            )
+
+            sync_applied_coupon_from_booking(instance)
+        except Exception as sync_err:
+            print("Applied coupon sync (apply-coupon):", sync_err)
 
         serializer = PreConfirmHotelBookingSerializer(instance)
 
@@ -5966,8 +6073,8 @@ class BookingPaymentDetailViewSet(
                         razorpay_order = RazorpayOrder.objects.get(rp_id=order_id)
                         booking = razorpay_order.booking
 
-                        if booking and not booking.status == "confirmed":
-                            # Update payment status
+                        if booking:
+                            # Update payment status (including follow-up payments on already-confirmed bookings)
                             razorpay_order.payment_id = payment_id
                             razorpay_order.payment_status = payment_status
                             razorpay_order.status = "paid"
@@ -5989,24 +6096,24 @@ class BookingPaymentDetailViewSet(
                                     },
                                 )
 
-                            # Confirm booking if not already confirmed
                             if booking.booking_type == "FLIGHT":
-                                from apps.booking.utils.flight_payment_utils import (
-                                    handle_flight_payment_success,
-                                )
+                                if booking.status != "confirmed":
+                                    from apps.booking.utils.flight_payment_utils import (
+                                        handle_flight_payment_success,
+                                    )
 
-                                amount = Decimal(str(payment_entity.get("amount", 0))) / Decimal("100")
-                                payment_details_dict = {
-                                    "amount": amount,
-                                    "transaction_id": payment_id,
-                                    "payment_method": "RAZORPAY",
-                                    "payment_medium": "RAZORPAY",
-                                    "razorpay_order_id": order_id,
-                                    "razorpay_payment_id": payment_id,
-                                }
-                                handle_flight_payment_success(
-                                    booking.id, payment_details_dict
-                                )
+                                    amount = Decimal(str(payment_entity.get("amount", 0))) / Decimal("100")
+                                    payment_details_dict = {
+                                        "amount": amount,
+                                        "transaction_id": payment_id,
+                                        "payment_method": "RAZORPAY",
+                                        "payment_medium": "RAZORPAY",
+                                        "razorpay_order_id": order_id,
+                                        "razorpay_payment_id": payment_id,
+                                    }
+                                    handle_flight_payment_success(
+                                        booking.id, payment_details_dict
+                                    )
                             else:
                                 amount = float(payment_entity.get("amount", 0)) / 100
                                 self.set_booking_as_confirmed(booking.id, amount)
@@ -6103,7 +6210,14 @@ class BookingPaymentDetailViewSet(
                 "completed",
             ):
                 hold_end_time = getattr(booking, "on_hold_end_time", None)
-                if hold_end_time and timezone.now() > hold_end_time:
+                incoming = Decimal(str(amount or 0))
+                # Hold expiry cancels only when nothing has been paid and this callback carries no payment amount.
+                if (
+                    hold_end_time
+                    and timezone.now() > hold_end_time
+                    and paid_so_far <= 0
+                    and incoming <= 0
+                ):
                     new_status = "canceled"
                 else:
                     required_min_payment = booking.minimum_first_payment_amount()
@@ -6199,6 +6313,19 @@ class BookingPaymentDetailViewSet(
                                 "hotel_name": hotel_name,
                             },
                         }
+                    )
+
+                try:
+                    from apps.booking.utils.coupon_booking_helpers import (
+                        record_booking_coupon_redemption_if_pending,
+                    )
+
+                    record_booking_coupon_redemption_if_pending(booking)
+                except Exception as coupon_rx_err:
+                    logger.error(
+                        "Coupon redemption hook after confirm failed for booking %s: %s",
+                        booking_id,
+                        coupon_rx_err,
                     )
 
     @action(
