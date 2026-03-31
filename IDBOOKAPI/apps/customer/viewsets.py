@@ -383,6 +383,21 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         if serializer.is_valid():
             response = self.perform_update(serializer)
             if name:
+                max_len = instance.user._meta.get_field("name").max_length
+                if max_len and len(name) > max_len:
+                    custom_response = self.get_error_response(
+                        message="Validation Error",
+                        status="error",
+                        errors=[
+                            {
+                                "field": "name",
+                                "message": f"Ensure this field has no more than {max_len} characters.",
+                            }
+                        ],
+                        error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                    return custom_response
                 instance.user.name = name
                 instance.user.save()
             custom_response = self.get_response(

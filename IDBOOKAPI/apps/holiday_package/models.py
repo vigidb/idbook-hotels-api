@@ -60,9 +60,9 @@ class Executive(models.Model):
             )
         ],
     )
-    first_name = models.CharField(max_length=30)
+    first_name = models.CharField(max_length=150)
     last_name = models.CharField(
-        max_length=30,
+        max_length=150,
         null=True,
         blank=True,
     )

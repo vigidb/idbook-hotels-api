@@ -9,11 +9,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
 environ.Env.read_env()
 
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = env.bool("DEBUG", default=False)
+
 # Base URL for the API (used on homepage, docs links, etc.). Defaults to localhost.
-if env("DEBUG"):
+if DEBUG:
     BASE_URL = env("BASE_URL", default="http://localhost:8000")
 else:
-    BASE_URL = env("BASE_URL_", default="https://backend.idbookhotels.com")
+    BASE_URL = env("BASE_URL_", default="https://api.idbookhotels.com")
 
 # Ensure BASE_URL has a scheme (http/https) so links work
 if BASE_URL and not BASE_URL.startswith(("http://", "https://")):
@@ -25,8 +28,6 @@ if BASE_URL and not BASE_URL.startswith(("http://", "https://")):
 # SECRET_KEY = 'django-insecure-pr#pwd&(i6#4n%$+regb8ddufbf8k5mb$^e!$jz*t)ny)y%_f='
 SECRET_KEY = env("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env("DEBUG")
 FLIGHT_API_DEBUG = bool(env("FLIGHT_API_DEBUG", default=False)) or False
 ALLOWED_HOSTS = [env("ALLOWED_HOSTS")]
 ENVIRONMENT = env("ENVIRONMENT")

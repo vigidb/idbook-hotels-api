@@ -285,7 +285,7 @@ class BilledUserSerializer(serializers.Serializer):
         required=True, help_text="Email address of the user."
     )
     name = serializers.CharField(
-        max_length=30, required=True, help_text="Name of the user."
+        max_length=255, required=True, help_text="Name of the user."
     )
     user_group = serializers.CharField(
         max_length=50,

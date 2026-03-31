@@ -161,13 +161,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text="Mobile number of the user (10 digits only).",
     )
     name = models.CharField(
-        max_length=30, null=True, blank=True, help_text="Name of the user."
+        max_length=255, null=True, blank=True, help_text="Name of the user."
     )
     first_name = models.CharField(
-        max_length=30, null=True, blank=True, help_text="First name of the user."
+        max_length=150, null=True, blank=True, help_text="First name of the user."
     )
     last_name = models.CharField(
-        max_length=30, null=True, blank=True, help_text="Last name of the user."
+        max_length=150, null=True, blank=True, help_text="Last name of the user."
     )
 
     referral = models.CharField(
