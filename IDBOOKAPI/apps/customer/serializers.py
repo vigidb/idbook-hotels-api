@@ -31,6 +31,9 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+        # Backward-compatible keys used by invoice UI.
+        representation["GSTIN"] = representation.get("gstin", "") or ""
+        representation["PAN"] = representation.get("pan_card_number", "") or ""
         if instance.profile_picture:
             representation["profile_picture"] = (
                 f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.profile_picture)}"

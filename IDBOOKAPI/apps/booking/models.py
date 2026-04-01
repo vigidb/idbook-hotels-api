@@ -1085,6 +1085,18 @@ class Invoice(models.Model):
 
     billed_to_details = models.JSONField(default=dict, null=True)
 
+    billed_to_type = models.CharField(
+        max_length=20,
+        default="",
+        blank=True,
+        help_text="Type of billed_to_ref_id (user/company/agent)",
+    )
+    billed_to_ref_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Reference id for billed_to_type (User.id / CompanyDetail.id / AgentDetail.id)",
+    )
+
     supply_details = models.JSONField(default=dict, null=True)
     items = models.JSONField(default=list, null=True)
     payment_details = models.JSONField(default=list, null=True)

@@ -65,6 +65,8 @@ from IDBOOKAPI.utils import paginate_queryset
 from django.db import transaction
 from apps.booking.models import Booking
 from apps.customer.models import Wallet, WalletTransaction
+from apps.org_resources.models import CompanyDetail, AgentDetail
+from apps.hotels.models import Property
 from apps.log_management.models import (
     WalletTransactionLog,
     BookingPaymentLog,
@@ -2128,6 +2130,51 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
     http_method_names = ["get", "post", "put", "patch", "delete"]
 
     @action(
+        detail=False,
+        methods=["post"],
+        url_path="ensure-linked-entities",
+        permission_classes=[IsAuthenticated],
+        url_name="ensure-linked-entities",
+    )
+    def ensure_linked_entities(self, request):
+        """
+        Ensure group-specific entity rows exist for the current user.
+
+        Use this for cases where a user already belongs to CORPORATE-GRP / AGENT-GRP
+        but their `CompanyDetail` / `AgentDetail` was never created (or was deleted).
+        This endpoint is idempotent.
+        """
+        from apps.authentication.utils.token_utils import get_user_active_group
+        from apps.org_resources.utils.group_entity_utils import (
+            ensure_agent_detail_for_user,
+            ensure_company_detail_for_user,
+        )
+
+        user = request.user
+        active_group = get_user_active_group(user, request)
+        group_name = active_group or getattr(user, "default_group", None)
+
+        company = None
+        agent = None
+        if group_name == "CORPORATE-GRP":
+            company = ensure_company_detail_for_user(user)
+        elif group_name == "AGENT-GRP":
+            agent = ensure_agent_detail_for_user(user)
+
+        return Response(
+            {
+                "status": "success",
+                "message": "Linked entities ensured",
+                "data": {
+                    "active_group": group_name,
+                    "company_id": company.id if company else getattr(user, "company_id", None),
+                    "agent_id": agent.id if agent else None,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
         detail=True,
         methods=["delete"],
         url_path="delete_user",
@@ -2172,6 +2219,23 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 WalletTransaction.objects.filter(user=user).delete()
                 Wallet.objects.filter(user=user).delete()
                 
+                # ========== DETACH COMPANY REFERENCES BEFORE USER DELETE ==========
+                # Deleting the user will CASCADE-delete CompanyDetail rows where this user is
+                # added_user/business_rep. Null out any nullable FKs pointing to those companies
+                # to avoid DB FK violations (e.g. WalletTransaction.company).
+                try:
+                    from apps.org_resources.models import CompanyDetail
+                    companies_for_user = CompanyDetail.objects.filter(
+                        Q(added_user=user) | Q(business_rep=user)
+                    )
+                    if companies_for_user.exists():
+                        company_ids = list(companies_for_user.values_list("id", flat=True))
+                        Wallet.objects.filter(company_id__in=company_ids).update(company=None)
+                        WalletTransaction.objects.filter(company_id__in=company_ids).update(company=None)
+                        WalletTransactionLog.objects.filter(company_id__in=company_ids).update(company=None)
+                except Exception as company_error:
+                    print(f"Warning: Could not clear company references: {company_error}")
+
                 # ========== DELETE CUSTOMER PROFILE ==========
                 from apps.customer.models import Customer
                 Customer.objects.filter(user=user).delete()
@@ -2850,22 +2914,51 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             email = validated_data["email"]
             name = validated_data["name"]
             user_group = validated_data["user_group"]
+            address = validated_data.get("address", "")
+            state = validated_data.get("state", "")
+            gstin = validated_data.get("gstin", "")
+            pan_number = validated_data.get("pan_number", "")
+            company_name = validated_data.get("company_name", "")
+            agency_name = validated_data.get("agency_name", "")
+            company_email = validated_data.get("company_email", "") or email
+            company_phone = validated_data.get("company_phone", "") or mobile_number
+            agent_email = validated_data.get("agent_email", "") or email
+            agent_phone = validated_data.get("agent_phone", "") or mobile_number
 
-            # Check if user already exists with same email or mobile
-            existing_user = User.objects.filter(
-                Q(email=email) | Q(mobile_number=mobile_number)
-            ).first()
-
-            if existing_user:
+            # Reuse existing user by email/mobile (do NOT create duplicates).
+            # Only error if email belongs to one user and mobile belongs to another.
+            existing_by_email = User.objects.filter(email=email).first() if email else None
+            existing_by_mobile = (
+                User.objects.filter(mobile_number=mobile_number).first()
+                if mobile_number
+                else None
+            )
+            if (
+                existing_by_email
+                and existing_by_mobile
+                and existing_by_email.id != existing_by_mobile.id
+            ):
                 return self.get_error_response(
-                    message="User already exists with this email or mobile number",
+                    message="Email and mobile belong to different users",
                     status="error",
                     errors=[],
-                    error_code="USER_ALREADY_EXISTS",
+                    error_code="USER_CONFLICT",
                     status_code=status.HTTP_409_CONFLICT,
                 )
 
+            existing_user = existing_by_email or existing_by_mobile
+
             # Get group and role based on user_group
+            # Invoice clients support only these groups
+            if user_group not in ("B2C-GRP", "CORPORATE-GRP", "AGENT-GRP"):
+                return self.get_error_response(
+                    message="This client type is not supported in invoice clients",
+                    status="error",
+                    errors=[],
+                    error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
             grp, role = authentication_utils.get_group_based_on_name(user_group)
             if not grp or not role:
                 return self.get_error_response(
@@ -2876,27 +2969,151 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     status_code=status.HTTP_406_NOT_ACCEPTABLE,
                 )
 
-            # Create user within transaction
             with transaction.atomic():
-                # Create the user
-                user = User.objects.create(
-                    email=email,
-                    mobile_number=mobile_number,
-                    name=name,
-                    first_name=name.split(" ")[0] if name else "",
-                    last_name=(
-                        " ".join(name.split(" ")[1:])
-                        if len(name.split(" ")) > 1
+                # Create or update the user (single user row across groups)
+                if existing_user:
+                    user = existing_user
+                    user.email = email or user.email
+                    user.mobile_number = mobile_number or user.mobile_number
+                    user.name = name or user.name
+                    user.first_name = user.name.split(" ")[0] if user.name else ""
+                    user.last_name = (
+                        " ".join(user.name.split(" ")[1:])
+                        if user.name and len(user.name.split(" ")) > 1
                         else ""
-                    ),
-                    default_group=user_group,
-                    is_active=True,
+                    )
+                    user.is_active = True
+                    user.save()
+                else:
+                    user = User.objects.create(
+                        email=email,
+                        mobile_number=mobile_number,
+                        name=name,
+                        first_name=name.split(" ")[0] if name else "",
+                        last_name=(
+                            " ".join(name.split(" ")[1:])
+                            if len(name.split(" ")) > 1
+                            else ""
+                        ),
+                        is_active=True,
+                    )
+
+                # Ensure customer profile exists (used for billing fields even for other groups)
+                customer, _ = Customer.objects.get_or_create(
+                    user_id=user.id,
+                    defaults={
+                        "active": True,
+                        "address": address,
+                        "state": state,
+                        "gstin": gstin,
+                        "pan_card_number": pan_number,
+                    },
                 )
+                # Update billing fields if provided
+                if address is not None:
+                    customer.address = address
+                if state is not None:
+                    customer.state = state
+                if gstin is not None:
+                    customer.gstin = gstin
+                if pan_number is not None:
+                    customer.pan_card_number = pan_number
+                customer.active = True
+                customer.save()
 
-                # Create customer profile
-                Customer.objects.create(user_id=user.id, active=True)
+                # Create/link group-specific profile objects
+                if user_group == "CORPORATE-GRP":
+                    # Only create a new company if user has no linked one.
+                    company = (
+                        CompanyDetail.objects.filter(id=user.company_id).first()
+                        if getattr(user, "company_id", None)
+                        else None
+                    )
+                    if not company:
+                        company = CompanyDetail.objects.filter(company_email=company_email).first()
+                    if not company:
+                        company = CompanyDetail.objects.create(
+                            added_user=user,
+                            business_rep=user,
+                            company_name=(company_name or name),
+                            company_email=company_email,
+                            company_phone=company_phone,
+                            registered_address=address,
+                            state=state or "",
+                            gstin_no=gstin or "",
+                            pan_no=pan_number or "",
+                            approved=True,
+                            is_active=True,
+                        )
+                    else:
+                        if company_name:
+                            company.company_name = company_name
+                        if validated_data.get("company_email") is not None:
+                            company.company_email = company_email
+                        if validated_data.get("company_phone") is not None:
+                            company.company_phone = company_phone
+                        company.registered_address = address or company.registered_address
+                        company.state = state or company.state
+                        company.gstin_no = gstin or company.gstin_no
+                        company.pan_no = pan_number or company.pan_no
+                        # Ensure linked to this user if missing
+                        if not company.business_rep_id:
+                            company.business_rep = user
+                        if not company.added_user_id:
+                            company.added_user = user
+                        company.save()
+                    if getattr(user, "company_id", None) != company.id:
+                        user.company_id = company.id
+                        user.save(update_fields=["company_id"])
 
-                # Assign group and role
+                elif user_group == "AGENT-GRP":
+                    # Only create a new agent if user has no linked agent profile.
+                    agent = AgentDetail.objects.filter(added_user=user).order_by("-id").first()
+                    if not agent:
+                        agent = AgentDetail.objects.filter(contact_email_address=email).first()
+                    if not agent:
+                        agent = AgentDetail.objects.create(
+                            added_user=user,
+                            agent_name=(agency_name or name),
+                            agent_email=agent_email,
+                            agent_phone=agent_phone,
+                            contact_person_name=name,
+                            contact_email_address=email,
+                            contact_number=mobile_number,
+                            registered_address=address,
+                            state=state or "",
+                            gstin_no=gstin or "",
+                            pan_no=pan_number or "",
+                            approved=True,
+                            is_active=True,
+                        )
+                    else:
+                        if agency_name:
+                            agent.agent_name = agency_name
+                        if validated_data.get("agent_email") is not None:
+                            agent.agent_email = agent_email
+                        if validated_data.get("agent_phone") is not None:
+                            agent.agent_phone = agent_phone
+                        agent.registered_address = address or agent.registered_address
+                        agent.state = state or agent.state
+                        agent.gstin_no = gstin or agent.gstin_no
+                        agent.pan_no = pan_number or agent.pan_no
+                        if not agent.added_user_id:
+                            agent.added_user = user
+                        agent.save()
+                    # IMPORTANT: Do NOT set Customer.primary_agent for an agent user.
+                    # primary_agent is meant to link a *customer* to their agent, not to define the agent's own profile.
+
+                elif user_group == "HOTELIER-GRP" or user_group == "BUSINESS-GRP":
+                    return self.get_error_response(
+                        message="This client type is not supported in invoice clients",
+                        status="error",
+                        errors=[],
+                        error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Assign group and role (do not clear existing memberships)
                 if grp:
                     user.groups.add(grp)
                 if role:
@@ -2914,6 +3131,12 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     "default_group": user.default_group,
                     "created": user.created,
                     "is_active": user.is_active,
+                    "customer_details": {
+                        "address": address,
+                        "state": state,
+                        "GSTIN": gstin,
+                        "PAN": pan_number,
+                    },
                 }
 
                 return Response(
@@ -2934,6 +3157,215 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="billed-to-user",
+        permission_classes=[IsAuthenticated],
+        url_name="billed-to-user-update",
+    )
+    def update_billed_to_user(self, request, pk=None):
+        """
+        Update billed client details by user id.
+        """
+        user = User.objects.filter(id=pk).first()
+        if not user:
+            return self.get_error_response(
+                message="User not found",
+                status="error",
+                errors=[],
+                error_code="USER_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = BilledUserSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Invalid request data",
+                status="error",
+                errors=serializer.errors,
+                error_code="INVALID_DATA",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        with transaction.atomic():
+            email = data.get("email", user.email)
+            mobile_number = data.get("mobile_number", user.mobile_number)
+            user_group = data.get("user_group")
+            if not user_group:
+                # Infer from current group membership; fallback to B2C
+                group_names = set(user.groups.values_list("name", flat=True))
+                if "CORPORATE-GRP" in group_names:
+                    user_group = "CORPORATE-GRP"
+                elif "AGENT-GRP" in group_names:
+                    user_group = "AGENT-GRP"
+                else:
+                    user_group = "B2C-GRP"
+
+            if user_group not in ("B2C-GRP", "CORPORATE-GRP", "AGENT-GRP"):
+                return self.get_error_response(
+                    message="This client type is not supported in invoice clients",
+                    status="error",
+                    errors=[],
+                    error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Keep global uniqueness on User; do not enforce "unique by group".
+            if email and User.objects.filter(email=email).exclude(id=user.id).exists():
+                return self.get_error_response(
+                    message="User already exists with this email",
+                    status="error",
+                    errors=[],
+                    error_code="EMAIL_ALREADY_EXISTS",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+            if mobile_number and User.objects.filter(mobile_number=mobile_number).exclude(id=user.id).exists():
+                return self.get_error_response(
+                    message="User already exists with this mobile number",
+                    status="error",
+                    errors=[],
+                    error_code="MOBILE_ALREADY_EXISTS",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+
+            user.name = data.get("name", user.name)
+            user.email = email
+            user.mobile_number = mobile_number
+            user.first_name = user.name.split(" ")[0] if user.name else ""
+            user.last_name = " ".join(user.name.split(" ")[1:]) if user.name and len(user.name.split(" ")) > 1 else ""
+            user.save()
+
+            customer, _ = Customer.objects.get_or_create(user_id=user.id, defaults={"active": True})
+            if "address" in data:
+                customer.address = data.get("address") or ""
+            if "state" in data:
+                customer.state = data.get("state") or ""
+            if "gstin" in data:
+                customer.gstin = data.get("gstin") or ""
+            if "pan_number" in data:
+                customer.pan_card_number = data.get("pan_number") or ""
+            customer.active = True
+            customer.save()
+
+            # Ensure group-specific links exist and are updated
+            if user_group == "CORPORATE-GRP":
+                company_name = data.get("company_name", "")
+                company_email = data.get("company_email", "") or email
+                company_phone = data.get("company_phone", "") or mobile_number
+
+                company = (
+                    CompanyDetail.objects.filter(id=user.company_id).first()
+                    if getattr(user, "company_id", None)
+                    else None
+                )
+                if not company:
+                    company = CompanyDetail.objects.filter(company_email=company_email).first()
+                if not company:
+                    company = CompanyDetail.objects.create(
+                        added_user=user,
+                        business_rep=user,
+                        company_name=(company_name or user.name or user.email or ""),
+                        company_email=company_email,
+                        company_phone=company_phone,
+                        registered_address=(customer.address or ""),
+                        state=(customer.state or ""),
+                        gstin_no=(customer.gstin or ""),
+                        pan_no=(customer.pan_card_number or ""),
+                        approved=True,
+                        is_active=True,
+                    )
+                else:
+                    if company_name:
+                        company.company_name = company_name
+                    if data.get("company_email") is not None:
+                        company.company_email = company_email
+                    if data.get("company_phone") is not None:
+                        company.company_phone = company_phone
+                    company.registered_address = customer.address or company.registered_address
+                    company.state = customer.state or company.state
+                    company.gstin_no = customer.gstin or company.gstin_no
+                    company.pan_no = customer.pan_card_number or company.pan_no
+                    if not company.business_rep_id:
+                        company.business_rep = user
+                    if not company.added_user_id:
+                        company.added_user = user
+                    company.save()
+                if user.company_id != company.id:
+                    user.company_id = company.id
+                    user.save(update_fields=["company_id"])
+
+            elif user_group == "AGENT-GRP":
+                agency_name = data.get("agency_name", "")
+                agent_email = data.get("agent_email", "") or email
+                agent_phone = data.get("agent_phone", "") or mobile_number
+
+                agent = AgentDetail.objects.filter(added_user=user).order_by("-id").first()
+                if not agent:
+                    agent = AgentDetail.objects.filter(contact_email_address=email).first()
+                if not agent:
+                    agent = AgentDetail.objects.create(
+                        added_user=user,
+                        agent_name=(agency_name or user.name or ""),
+                        agent_email=agent_email,
+                        agent_phone=agent_phone,
+                        contact_person_name=(user.name or ""),
+                        contact_email_address=email,
+                        contact_number=mobile_number,
+                        registered_address=(customer.address or ""),
+                        state=(customer.state or ""),
+                        gstin_no=(customer.gstin or ""),
+                        pan_no=(customer.pan_card_number or ""),
+                        approved=True,
+                        is_active=True,
+                    )
+                else:
+                    if agency_name:
+                        agent.agent_name = agency_name
+                    if data.get("agent_email") is not None:
+                        agent.agent_email = agent_email
+                    if data.get("agent_phone") is not None:
+                        agent.agent_phone = agent_phone
+                    agent.contact_person_name = user.name or agent.contact_person_name
+                    agent.contact_email_address = email
+                    agent.contact_number = mobile_number
+                    agent.registered_address = customer.address or agent.registered_address
+                    agent.state = customer.state or agent.state
+                    agent.gstin_no = customer.gstin or agent.gstin_no
+                    agent.pan_no = customer.pan_card_number or agent.pan_no
+                    if not agent.added_user_id:
+                        agent.added_user = user
+                    agent.save()
+                # IMPORTANT: Do NOT set Customer.primary_agent for an agent user.
+
+            grp, role = authentication_utils.get_group_based_on_name(user_group)
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
+
+        return Response(
+            {
+                "status": "success",
+                "message": "Billed user updated successfully",
+                "data": {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "mobile_number": user.mobile_number,
+                    "user_group": user_group,
+                    "customer_details": {
+                        "address": customer.address or "",
+                        "state": customer.state or "",
+                        "GSTIN": customer.gstin or "",
+                        "PAN": customer.pan_card_number or "",
+                    },
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):

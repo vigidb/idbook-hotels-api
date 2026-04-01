@@ -50,7 +50,9 @@ from .serializers import (
     GroupSerializer,
 )
 from apps.org_resources.serializers import CompanyDetailSerializer
-from apps.org_resources.models import CompanyDetail
+from apps.org_resources.serializers import AgentDetailSerializer
+from apps.org_resources.models import CompanyDetail, AgentDetail
+from apps.hotels.models import Property
 from rest_framework.decorators import action
 
 
@@ -449,6 +451,9 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         # Get the authenticated user
         user = request.user
 
+        client_type = request.query_params.get("client_type", "all").strip().lower()
+        search = request.query_params.get("search", "").strip()
+
         # User filters
         role_name = request.query_params.get("role", "")
         name = request.query_params.get("name", "").strip()
@@ -457,7 +462,13 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         # Filter user queryset based on name, email, and role
         user_queryset = self.filter_queryset(self.get_queryset().order_by("-created"))
 
-        if name:
+        if search:
+            user_queryset = user_queryset.filter(
+                Q(name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(mobile_number__icontains=search)
+            )
+        elif name:
             user_queryset = user_queryset.filter(name__icontains=name)
 
         if email:
@@ -470,20 +481,55 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if company_id:
             user_queryset = user_queryset.filter(company_id=company_id)
 
-        # Apply pagination to user queryset
-        user_count, user_queryset = paginate_queryset(request, user_queryset)
-        user_serializer = UserAdminListSerializer(user_queryset, many=True)
+        # IMPORTANT: For invoice client search UI:
+        # - corporate => ONLY company entities (no corporate users)
+        # - agent => ONLY agent entities (no agent users)
+        # - b2c => ONLY b2c users
+        if client_type in ("corporate", "agent"):
+            user_count, user_serializer = 0, UserAdminListSerializer([], many=True)
+        else:
+            if client_type == "b2c":
+                group = db_utils.get_group_by_name("B2C-GRP")
+                if group:
+                    user_queryset = user_queryset.filter(groups__in=[group])
+
+            # Apply pagination to user queryset
+            user_count, user_queryset = paginate_queryset(request, user_queryset)
+            user_serializer = UserAdminListSerializer(user_queryset, many=True)
 
         # Company filters
         company_queryset = CompanyDetail.objects.all().order_by("-id")
+        agent_queryset = AgentDetail.objects.all().order_by("-id")
+        property_queryset = Property.objects.all().order_by("-id")
 
         company_is_active = request.query_params.get("company_is_active", None)
         company_phone = request.query_params.get("company_phone", "").strip()
         company_email = request.query_params.get("company_email", "").strip()
 
-        # Apply company filters
-        if name:
+        # Apply company/agent/property filters (shared search)
+        if search:
+            company_queryset = company_queryset.filter(
+                Q(company_name__icontains=search)
+                | Q(company_email__icontains=search)
+                | Q(company_phone__icontains=search)
+            )
+            agent_queryset = agent_queryset.filter(
+                Q(agent_name__icontains=search)
+                | Q(agent_email__icontains=search)
+                | Q(contact_email_address__icontains=search)
+                | Q(agent_phone__icontains=search)
+                | Q(contact_number__icontains=search)
+            )
+            property_queryset = property_queryset.filter(
+                Q(name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone_no__icontains=search)
+                | Q(customer_care_no__icontains=search)
+            )
+        elif name:
             company_queryset = company_queryset.filter(company_name__icontains=name)
+            agent_queryset = agent_queryset.filter(agent_name__icontains=name)
+            property_queryset = property_queryset.filter(name__icontains=name)
 
         if company_phone:
             company_queryset = company_queryset.filter(
@@ -502,18 +548,35 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
         if company_id:
             company_queryset = company_queryset.filter(id=company_id)
 
-        # Apply pagination to company queryset
-        company_count, company_queryset = paginate_queryset(request, company_queryset)
-        company_serializer = CompanyDetailSerializer(company_queryset, many=True)
+        # Apply client_type scoping for entity lists
+        include_companies = client_type in ("all", "corporate")
+        include_agents = client_type in ("all", "agent")
+        include_properties = False
+
+        company_count, company_serializer = 0, []
+        agent_count, agent_serializer = 0, []
+        property_count, property_serializer = 0, []
+
+        if include_companies:
+            company_count, company_queryset = paginate_queryset(request, company_queryset)
+            company_serializer = CompanyDetailSerializer(company_queryset, many=True).data
+
+        if include_agents:
+            agent_count, agent_queryset = paginate_queryset(request, agent_queryset)
+            agent_serializer = AgentDetailSerializer(agent_queryset, many=True).data
+
+        # Hotels are not invoice clients anymore
 
         data = {
             "users_details": user_serializer.data,
-            "company_details": company_serializer.data,
+            "company_details": company_serializer,
+            "agent_details": agent_serializer,
+            "property_details": [],
         }
 
         # Return the response with user and company details
         return self.get_response(
-            count=user_count + company_count,
+            count=user_count + company_count + agent_count,
             status="success",
             data=data,
             message="Users and Company Details Retrieved",

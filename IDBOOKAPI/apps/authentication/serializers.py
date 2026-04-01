@@ -290,17 +290,25 @@ class BilledUserSerializer(serializers.Serializer):
     user_group = serializers.CharField(
         max_length=50,
         required=True,
-        help_text="User group (FRANCHISE-GRP, HOTELIER-GRP, CORPORATE-GRP, B2C-GRP, BUSINESS-GRP)",
+        help_text="User group (FRANCHISE-GRP, HOTELIER-GRP, CORPORATE-GRP, B2C-GRP, BUSINESS-GRP, AGENT-GRP)",
     )
+    address = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    state = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    gstin = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    pan_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    company_name = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    agency_name = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    company_email = serializers.EmailField(required=False, allow_blank=True)
+    company_phone = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    agent_email = serializers.EmailField(required=False, allow_blank=True)
+    agent_phone = serializers.CharField(required=False, allow_blank=True, max_length=50)
 
     def validate_user_group(self, value):
         """Validate user group"""
         valid_groups = [
-            "FRANCHISE-GRP",
-            "HOTELIER-GRP",
             "CORPORATE-GRP",
             "B2C-GRP",
-            "BUSINESS-GRP",
+            "AGENT-GRP",
         ]
         if value not in valid_groups:
             raise serializers.ValidationError(

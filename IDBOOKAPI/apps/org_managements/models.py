@@ -23,6 +23,10 @@ class BusinessDetail(models.Model):
     active = models.BooleanField(
         default=False, help_text="Whether the business is active."
     )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Default billed-by business (fallback when specific business not found).",
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

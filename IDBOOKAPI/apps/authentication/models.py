@@ -223,12 +223,21 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     def __str__(self):
-        if self.email:
-            return str(self.email)
-        elif self.mobile_number:
-            return str(self.mobile_number)
-        else:
-            return str(self.id)
+        name = (self.name or "").strip()
+        email = (self.email or "").strip()
+        mobile = (self.mobile_number or "").strip()
+
+        if name and email:
+            return f"{name} <{email}>"
+        if email:
+            return email
+        if name and mobile:
+            return f"{name} ({mobile})"
+        if mobile:
+            return mobile
+        if name:
+            return name
+        return str(self.id)
 
     def get_short_name(self):
         return self.first_name

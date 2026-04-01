@@ -184,9 +184,21 @@ def get_agent_for_user(user):
     try:
         # Check if user is linked to an AgentDetail
         agent_detail = AgentDetail.objects.filter(
-            Q(added_user=user) | 
-            Q(contact_email_address=user.email)
+            Q(added_user=user) | Q(contact_email_address__iexact=user.email)
         ).first()
-        return agent_detail
+        if agent_detail:
+            return agent_detail
+
+        # If user is an agent but missing AgentDetail, auto-create and return it (idempotent).
+        default_group = getattr(user, "default_group", None)
+        is_agent = (
+            default_group == "AGENT-GRP"
+            or user.groups.filter(name="AGENT-GRP").exists()
+        )
+        if is_agent:
+            from apps.org_resources.utils.group_entity_utils import ensure_agent_detail_for_user
+
+            return ensure_agent_detail_for_user(user)
+        return None
     except Exception:
         return None

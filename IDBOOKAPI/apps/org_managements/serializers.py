@@ -74,3 +74,43 @@ class BusinessDetailSerializer(serializers.ModelSerializer):
         business_detail.save()
 
         return business_detail
+
+
+class BusinessDetailAdminSerializer(serializers.ModelSerializer):
+    """
+    Admin/staff serializer that allows assigning BusinessDetail to any user.
+    Backward-compatible: normal users still use BusinessDetailSerializer (user inferred from request.user).
+    """
+
+    user_id = serializers.PrimaryKeyRelatedField(
+        source="user",
+        queryset=User.objects.all(),
+        write_only=True,
+        required=True,
+        help_text="User id that owns this business",
+    )
+    user = ORGMUserSerializer(read_only=True)
+
+    class Meta:
+        model = BusinessDetail
+        fields = (
+            "id",
+            "user",
+            "user_id",
+            "business_name",
+            "hsn_sac_no",
+            "business_logo",
+            "business_phone",
+            "business_email",
+            "domain_name",
+            "full_address",
+            "gstin_no",
+            "pan_no",
+            "website_url",
+            "state",
+            "country",
+            "active",
+            "is_default",
+            "created",
+            "updated",
+        )

@@ -358,6 +358,113 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
         data = request.data.copy()
 
+        # Resolve billed_by (BusinessDetail) and auto-populate billed_by_details + supply_details
+        try:
+            from apps.org_managements.models import BusinessDetail
+            from apps.org_managements.utils import get_default_business
+
+            billed_by_id = data.get("billed_by") or data.get("billed_by_id")
+            # Determine "place of supply" if present (frontend may send supplyDetails or supply_details)
+            supply = data.get("supply_details") or data.get("supplyDetails") or {}
+            place_of_supply = (
+                (supply.get("placeOfSupply") or supply.get("place_of_supply") or "").strip()
+                if isinstance(supply, dict)
+                else ""
+            )
+
+            business = None
+            if billed_by_id:
+                business = BusinessDetail.objects.filter(id=billed_by_id).first()
+            if not business:
+                # Fallback: state match → default → active
+                business = get_default_business(state=place_of_supply or None)
+                if business:
+                    data["billed_by"] = business.id
+
+            if business:
+                # Auto-fill billed_by_details if missing/empty
+                if not data.get("billed_by_details"):
+                    logo_url = ""
+                    try:
+                        if getattr(business, "business_logo", None):
+                            logo_url = business.business_logo.url
+                    except Exception:
+                        logo_url = ""
+                    data["billed_by_details"] = {
+                        "name": business.business_name or "",
+                        "address": business.full_address or "",
+                        "GSTIN": business.gstin_no or "",
+                        "PAN": business.pan_no or "",
+                        "email": business.business_email or "",
+                        "website": business.website_url or "",
+                        "hsn_sac_no": business.hsn_sac_no or "",
+                        "mobile_number": business.business_phone or "",
+                        "logo": logo_url,
+                    }
+
+                # Auto-fill supply_details if missing or partial
+                supply_details = data.get("supply_details") or {}
+                if not isinstance(supply_details, dict):
+                    supply_details = {}
+                if not supply_details.get("countryOfSupply"):
+                    supply_details["countryOfSupply"] = business.country or ""
+                if not supply_details.get("placeOfSupply"):
+                    supply_details["placeOfSupply"] = business.state or ""
+                data["supply_details"] = supply_details
+        except Exception as e:
+            # Do not block invoice creation on fallback logic errors
+            print(f"Warning: could not resolve billed_by defaults: {e}")
+
+        # Build billed_to_details and ensure billed_to (User FK) is set for company/agent too.
+        billed_to_type = (data.get("billed_to_type") or "user").strip().lower()
+        billed_to_ref_id = data.get("billed_to_ref_id")
+
+        if billed_to_type == "company" and billed_to_ref_id:
+            from apps.org_resources.models import CompanyDetail
+
+            company = CompanyDetail.objects.filter(id=billed_to_ref_id).first()
+            if company:
+                # Always keep billed_to as a User id (contact user for this entity)
+                contact_user_id = getattr(company, "business_rep_id", None) or getattr(company, "added_user_id", None)
+                if contact_user_id:
+                    data["billed_to"] = contact_user_id
+                data["billed_to_details"] = {
+                    "name": company.company_name or "",
+                    "address": company.registered_address or "",
+                    "GSTIN": company.gstin_no or "",
+                    "PAN": company.pan_no or "",
+                }
+
+        elif billed_to_type == "agent" and billed_to_ref_id:
+            from apps.org_resources.models import AgentDetail
+
+            agent = AgentDetail.objects.filter(id=billed_to_ref_id).first()
+            if agent:
+                contact_user_id = getattr(agent, "added_user_id", None)
+                if contact_user_id:
+                    data["billed_to"] = contact_user_id
+                data["billed_to_details"] = {
+                    "name": agent.agent_name or "",
+                    "address": agent.registered_address or "",
+                    "GSTIN": agent.gstin_no or "",
+                    "PAN": agent.pan_no or "",
+                }
+
+        else:
+            # Default: billed_to refers to user id
+            billed_to_user_id = data.get("billed_to")
+            if billed_to_user_id:
+                from apps.customer.models import Customer
+
+                cust = Customer.objects.filter(user_id=billed_to_user_id).first()
+                if cust:
+                    data["billed_to_details"] = {
+                        "name": cust.user.get_full_name() if cust.user else "",
+                        "address": cust.address or "",
+                        "GSTIN": cust.gstin or "",
+                        "PAN": cust.pan_card_number or "",
+                    }
+
         # Check if invoice_number is provided, if not generate one (scoped per billed_by)
         if not data.get("invoice_number"):
             billed_by_id = data.get("billed_by")
@@ -761,6 +868,58 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
 
         data = request.data.copy()
 
+        # If billed_by is not provided on update, keep existing. If provided or missing details, normalize.
+        try:
+            from apps.org_managements.models import BusinessDetail
+            from apps.org_managements.utils import get_default_business
+
+            billed_by_id = data.get("billed_by") or data.get("billed_by_id") or getattr(instance, "billed_by_id", None)
+            supply = data.get("supply_details") or data.get("supplyDetails") or (instance.supply_details or {})
+            place_of_supply = (
+                (supply.get("placeOfSupply") or supply.get("place_of_supply") or "").strip()
+                if isinstance(supply, dict)
+                else ""
+            )
+
+            business = BusinessDetail.objects.filter(id=billed_by_id).first() if billed_by_id else None
+            if not business:
+                business = get_default_business(state=place_of_supply or None)
+                if business and not data.get("billed_by"):
+                    data["billed_by"] = business.id
+
+            if business:
+                # Only fill billed_by_details/supply_details if client isn't explicitly sending them
+                if "billed_by_details" not in data:
+                    logo_url = ""
+                    try:
+                        if getattr(business, "business_logo", None):
+                            logo_url = business.business_logo.url
+                    except Exception:
+                        logo_url = ""
+                    data["billed_by_details"] = {
+                        "name": business.business_name or "",
+                        "address": business.full_address or "",
+                        "GSTIN": business.gstin_no or "",
+                        "PAN": business.pan_no or "",
+                        "email": business.business_email or "",
+                        "website": business.website_url or "",
+                        "hsn_sac_no": business.hsn_sac_no or "",
+                        "mobile_number": business.business_phone or "",
+                        "logo": logo_url,
+                    }
+
+                if "supply_details" not in data:
+                    supply_details = instance.supply_details or {}
+                    if not isinstance(supply_details, dict):
+                        supply_details = {}
+                    if not supply_details.get("countryOfSupply"):
+                        supply_details["countryOfSupply"] = business.country or ""
+                    if not supply_details.get("placeOfSupply"):
+                        supply_details["placeOfSupply"] = business.state or ""
+                    data["supply_details"] = supply_details
+        except Exception as e:
+            print(f"Warning: could not resolve billed_by defaults (update): {e}")
+
         # Load existing items if not provided in the update payload
         items = (
             data.get("items") or instance.items
@@ -854,11 +1013,16 @@ class InvoiceViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 invoice.save()
                 update_payment_details(booking, invoice)
 
-            # if invoice.invoice_pdf:
-            #     invoice.invoice_pdf.delete(save=False)
-            #     print("json.dumps(data)", json.dumps(data))
-
-            #     manual_generate_invoice_pdf(json.dumps(data), booking_id=booking_id)
+            try:
+                pdf_payload = data.copy()
+                pdf_payload["invoiceNumber"] = invoice.invoice_number
+                pdf_payload["discount"] = data.get("discount", invoice.discount or 0)
+                billed_by_details = data.get("billed_by_details") or invoice.billed_by_details or {}
+                pdf_payload["billed_mob_num"] = billed_by_details.get("mobile_number", "")
+                manual_generate_invoice_pdf(pdf_payload, booking_id)
+                invoice.refresh_from_db()
+            except Exception as e:
+                print(f"PDF Regeneration Error: {str(e)}")
 
             response = self.get_response(
                 status="success",

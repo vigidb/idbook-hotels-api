@@ -40,7 +40,11 @@ from rest_framework.decorators import action
 ##from org_resources.models import *
 ##from payment_gateways.models import *
 
-from .serializers import ORGMUserSerializer, BusinessDetailSerializer
+from .serializers import (
+    ORGMUserSerializer,
+    BusinessDetailSerializer,
+    BusinessDetailAdminSerializer,
+)
 
 
 class ORGMUserViewSet(viewsets.ModelViewSet):
@@ -61,8 +65,55 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete", "list"]
 
+    def get_serializer_class(self):
+        # Allow staff/superuser to create/edit BusinessDetail for any user.
+        request = getattr(self, "request", None)
+        if request and request.user and (request.user.is_staff or request.user.is_superuser):
+            return BusinessDetailAdminSerializer
+        return BusinessDetailSerializer
+
+    def _sync_user_business_id(self, business_detail: BusinessDetail):
+        """
+        Keep User.business_id in sync with BusinessDetail.id for convenience,
+        since parts of the system use User.business_id to resolve billed-by context.
+        """
+        try:
+            user = business_detail.user
+            if getattr(user, "business_id", None) != business_detail.id:
+                user.business_id = business_detail.id
+                user.save(update_fields=["business_id"])
+        except Exception:
+            # Avoid breaking CRUD on sync failures; model integrity remains.
+            pass
+
+    def _enforce_single_default(self, business_detail: BusinessDetail):
+        # Ensure only one default business exists at a time.
+        # If this instance is marked default, unset all others.
+        if getattr(business_detail, "is_default", False):
+            BusinessDetail.objects.exclude(id=business_detail.id).filter(is_default=True).update(
+                is_default=False
+            )
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        self._sync_user_business_id(instance)
+        self._enforce_single_default(instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        self._sync_user_business_id(instance)
+        self._enforce_single_default(instance)
+
     def business_filter_ops(self):
         """Apply filtering operations for business details"""
+        # Filter by default flag
+        is_default = self.request.query_params.get("is_default", None)
+        if is_default is not None:
+            if is_default.lower() == "true":
+                self.queryset = self.queryset.filter(is_default=True)
+            elif is_default.lower() == "false":
+                self.queryset = self.queryset.filter(is_default=False)
+
         # Filter by active status
         active = self.request.query_params.get("active", None)
         if active is not None:
@@ -165,17 +216,13 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         #     return custom_response
 
         serializer = self.get_serializer(data=request.data)
-
         if serializer.is_valid():
-            # If the serializer is valid, perform the default creation logic
-            response = super().create(request, *args, **kwargs)
-
-            # Create a custom response
+            self.perform_create(serializer)
             custom_response = self.get_response(
                 status="success",
-                data=response.data,  # Use the data from the default response
+                data=serializer.data,
                 message="Business Details Created",
-                status_code=status.HTTP_201_CREATED,  # 201 for successful creation
+                status_code=status.HTTP_201_CREATED,
             )
         else:
             custom_response = self.get_error_response(
@@ -199,13 +246,10 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
         serializer = self.get_serializer(instance, data=request.data)
 
         if serializer.is_valid():
-            # If the serializer is valid, perform the default update logic
-            response = super().update(request, *args, **kwargs)
-
-            # Create a custom response
+            self.perform_update(serializer)
             custom_response = self.get_response(
                 status="success",
-                data=response.data,  # Use the data from the default response
+                data=serializer.data,
                 message="Business Details Updated",
                 status_code=status.HTTP_200_OK,  # 200 for successful update
             )

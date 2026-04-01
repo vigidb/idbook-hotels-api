@@ -60,6 +60,11 @@ class Customer(models.Model):
         blank=True,
         null=True,
     )
+    gstin = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+    )
     aadhar_card = models.FileField(upload_to="customer/idproof/", blank=True, null=True)
     aadhar_card_number = models.CharField(
         max_length=20,

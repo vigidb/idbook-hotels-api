@@ -26,6 +26,8 @@ from .models import available_permission_ids, available_permission_queryset
 from IDBOOKAPI.utils import format_custom_id
 
 from apps.customer.serializers import CustomerProfileSerializer
+from apps.org_resources.models import CompanyDetail, AgentDetail
+from apps.hotels.models import Property
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -159,6 +161,9 @@ class UserAdminListSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         user = instance
         customer_data = {}
+        company_data = {}
+        agent_data = {}
+        property_data = {}
         if instance:
             customer = user.customer_profile.all().first()
             if customer:
@@ -166,6 +171,59 @@ class UserAdminListSerializer(serializers.ModelSerializer):
                 customer_data = customer_serializer.data
 
         representation["customer_details"] = customer_data
+        # Corporate profile: User + CompanyDetail (linked via user.company_id)
+        if user.company_id:
+            company = CompanyDetail.objects.filter(id=user.company_id).first()
+            if company:
+                company_data = {
+                    "id": company.id,
+                    "name": company.company_name,
+                    "address": company.registered_address or "",
+                    "state": company.state or "",
+                    "GSTIN": company.gstin_no or "",
+                    "PAN": company.pan_no or "",
+                    "email": company.company_email or "",
+                    "phone": company.company_phone or "",
+                }
+        representation["company_details"] = company_data
+
+        # Agent profile: User + AgentDetail (linked via AgentDetail.added_user or contact_email_address)
+        agent = (
+            AgentDetail.objects.filter(added_user=user).order_by("-id").first()
+            or AgentDetail.objects.filter(contact_email_address=user.email).first()
+        )
+        if agent:
+            agent_data = {
+                "id": agent.id,
+                "name": agent.agent_name,
+                "address": agent.registered_address or "",
+                "state": agent.state or "",
+                "GSTIN": agent.gstin_no or "",
+                "PAN": agent.pan_no or "",
+                "email": agent.contact_email_address or agent.agent_email or "",
+                "phone": agent.contact_number or agent.agent_phone or "",
+            }
+        representation["agent_details"] = agent_data
+
+        # Hotelier profile: User + Property (linked via Property.managed_by)
+        prop = Property.objects.filter(managed_by=user).order_by("-id").first()
+        if prop:
+            phone = ""
+            if getattr(prop, "phone_no", ""):
+                phone = prop.phone_no
+            else:
+                phone_list = getattr(prop, "phone_no_list", None)
+                if isinstance(phone_list, list) and phone_list:
+                    phone = str(phone_list[0])
+            property_data = {
+                "id": prop.id,
+                "name": prop.name,
+                "address": (prop.address or {}).get("full_address", "") if isinstance(prop.address, dict) else "",
+                "state": prop.state or "",
+                "email": prop.email or "",
+                "phone": phone,
+            }
+        representation["property_details"] = property_data
 
         # Use UserRole model instead of old ManyToMany roles field
         from apps.authentication.models import UserRole
