@@ -64,8 +64,11 @@ def get_message_template_by_code(template_code):
         return None
 
 
-def send_template_sms(mobile_number, template_code, variables_values):
-
+def send_template_sms(mobile_number, template_code, variables_values, sms_config=None):
+    """
+    Send DLT template SMS via Fast2SMS.
+    If `sms_config` is provided, it must include api_key and dlt_sender_id; otherwise env settings are used.
+    """
     try:
         # Get message_id from template code
         message_id = get_message_template_by_code(template_code)
@@ -76,8 +79,17 @@ def send_template_sms(mobile_number, template_code, variables_values):
 
         sms_url = "https://www.fast2sms.com/dev/bulkV2"
 
-        api_key = settings.FAST2SMS_APIKEY
-        dlt_sender_id = settings.FAST_DLT_SENDER_ID
+        if sms_config:
+            api_key = (
+                (sms_config.get("api_key") or "").strip() or settings.FAST2SMS_APIKEY
+            )
+            dlt_sender_id = (
+                (sms_config.get("dlt_sender_id") or "").strip()
+                or settings.FAST_DLT_SENDER_ID
+            )
+        else:
+            api_key = settings.FAST2SMS_APIKEY
+            dlt_sender_id = settings.FAST_DLT_SENDER_ID
 
         payload = f"sender_id={dlt_sender_id}&message={message_id}&variables_values={variables_values}&route=dlt&numbers={mobile_number}"
         headers = {

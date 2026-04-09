@@ -11,6 +11,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from IDBOOKAPI.email_utils import send_email as core_send_email
+from IDBOOKAPI.email_utils import send_email_with_smtp_config
 from apps.authentication.constants import CORPORATE_GROUPS, UserGroups
 from apps.authentication.models import User
 from apps.messaging.models import (
@@ -20,6 +21,10 @@ from apps.messaging.models import (
     CampaignContact,
     MessageLog,
     MessagingProviderConfig,
+)
+from apps.messaging.provider_runtime import (
+    resolve_email_provider_for_send,
+    resolve_sms_provider_for_send,
 )
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 
@@ -356,10 +361,20 @@ def send_sms_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     # future improvement: map to {#var#} order definition.
     variables_values = "|".join(str(v) for v in variables.values() if v is not None)
 
+    step_db = (
+        CampaignStep.objects.select_related("messaging_provider")
+        .filter(pk=step.pk)
+        .first()
+    )
+    sms_prov_used, sms_cfg = resolve_sms_provider_for_send(
+        step_provider=step_db.messaging_provider if step_db else None,
+        default_resolver=get_default_provider_for_channel,
+    )
     response = send_template_sms(
         mobile_number=phone,
         template_code=template_code,
         variables_values=variables_values,
+        sms_config=sms_cfg,
     )
 
     status = MessageLog.Status.SENT
@@ -383,13 +398,17 @@ def send_sms_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         status = MessageLog.Status.FAILED
         error_message = f"Exception while sending SMS: {exc}"
 
+    provider_label = (
+        f"fast2sms:{sms_prov_used.name}" if sms_prov_used else "fast2sms"
+    )
+
     MessageLog.objects.create(
         contact=contact,
         campaign=campaign_contact.campaign,
         step=step,
         channel=MessageLog.Channel.SMS,
         status=status,
-        provider="fast2sms",
+        provider=provider_label,
         provider_response=provider_response,
         sent_at=timezone.now() if status == MessageLog.Status.SENT else None,
     )
@@ -439,7 +458,9 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     from apps.messaging.models import EmailTemplate
 
     try:
-        template = EmailTemplate.objects.get(slug=step.template_code, is_active=True)
+        template = EmailTemplate.objects.select_related("provider").get(
+            slug=step.template_code, is_active=True
+        )
     except EmailTemplate.DoesNotExist:
         campaign_contact.status = CampaignContact.Status.FAILED
         campaign_contact.error_message = f"EmailTemplate with slug '{step.template_code}' not found"
@@ -474,14 +495,37 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         )
         return
 
+    step_db = (
+        CampaignStep.objects.select_related("messaging_provider")
+        .filter(pk=step.pk)
+        .first()
+    )
+    email_prov_used, smtp_cfg = resolve_email_provider_for_send(
+        step_provider=step_db.messaging_provider if step_db else None,
+        template_provider=template.provider,
+        default_resolver=get_default_provider_for_channel,
+    )
+    provider_label = (
+        f"smtp:{email_prov_used.name}" if smtp_cfg and email_prov_used else "django_email"
+    )
+
     try:
-        core_send_email(
-            subject=subject,
-            message=body_text,
-            html_message=body_html,
-            to_emails=[contact.email],
-            from_email=settings.EMAIL_HOST_USER,
-        )
+        if smtp_cfg:
+            send_email_with_smtp_config(
+                subject=subject,
+                message=body_text,
+                to_emails=[contact.email],
+                html_message=body_html,
+                smtp=smtp_cfg,
+            )
+        else:
+            core_send_email(
+                subject=subject,
+                message=body_text,
+                html_message=body_html,
+                to_emails=[contact.email],
+                from_email=settings.EMAIL_HOST_USER,
+            )
         status = MessageLog.Status.SENT
         sent_at = timezone.now()
         error_message = ""
@@ -496,7 +540,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         step=step,
         channel=MessageLog.Channel.EMAIL,
         status=status,
-        provider="django_email",
+        provider=provider_label,
         provider_response={},
         sent_at=sent_at,
     )

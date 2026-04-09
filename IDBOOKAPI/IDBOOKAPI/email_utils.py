@@ -1,4 +1,6 @@
-from django.core.mail import send_mail, EmailMultiAlternatives
+from typing import Any, Dict, List, Optional
+
+from django.core.mail import send_mail, EmailMultiAlternatives, get_connection
 from django.conf import settings
 from django.core.validators import validate_email
 
@@ -211,3 +213,36 @@ def send_email(subject, message, to_emails: list, from_email, html_message=None)
         html_message=html_message,
     )
     print("email status::", status)
+
+
+def send_email_with_smtp_config(
+    *,
+    subject: str,
+    message: str,
+    to_emails: List[str],
+    html_message: Optional[str],
+    smtp: Dict[str, Any],
+) -> int:
+    """
+    Send using an explicit SMTP connection (for per-campaign / per-template providers).
+    `smtp` keys: host, port, username, password, use_tls, from_email
+    """
+    conn = get_connection(
+        backend="django.core.mail.backends.smtp.EmailBackend",
+        host=smtp["host"],
+        port=int(smtp["port"]),
+        username=smtp["username"],
+        password=smtp["password"],
+        use_tls=bool(smtp.get("use_tls", True)),
+    )
+    from_addr = smtp.get("from_email") or smtp["username"]
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=message or "",
+        from_email=from_addr,
+        to=to_emails,
+        connection=conn,
+    )
+    if html_message:
+        msg.attach_alternative(html_message, "text/html")
+    return msg.send()

@@ -230,6 +230,18 @@ class CampaignStep(models.Model):
         max_length=16, choices=DelayUnit.choices, default=DelayUnit.HOURS
     )
     active = models.BooleanField(default=True)
+    messaging_provider = models.ForeignKey(
+        MessagingProviderConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="campaign_steps",
+        help_text=(
+            "Optional: send this step via this provider (must match channel). "
+            "If empty, uses the email template's provider (email only), then the default provider for the channel, "
+            "then server environment settings."
+        ),
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

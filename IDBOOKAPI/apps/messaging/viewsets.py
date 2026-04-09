@@ -26,6 +26,7 @@ from apps.messaging.models import (
     CampaignContact,
     MessageLog,
     EmailTemplate,
+    MessagingProviderConfig,
 )
 from apps.messaging.serializers import (
     ContactSerializer,
@@ -36,11 +37,18 @@ from apps.messaging.serializers import (
     CampaignContactSerializer,
     MessageLogSerializer,
     EmailTemplateSerializer,
+    MessagingProviderConfigSerializer,
+)
+from apps.messaging.provider_runtime import (
+    credential_guidance,
+    resolve_email_provider_for_test,
+    resolve_sms_config_for_test,
 )
 from apps.messaging.services import (
     MissingTemplateVariableError,
     apply_template_variable_defaults,
     build_template_variables,
+    get_default_provider_for_channel,
     get_template_variable_definitions,
     normalize_phone,
     upsert_contact_from_row,
@@ -48,6 +56,7 @@ from apps.messaging.services import (
 )
 from apps.messaging.tasks import enqueue_campaign_contacts_task, send_campaign_batch_task
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
+from IDBOOKAPI.email_utils import send_email_with_smtp_config
 
 
 class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -704,7 +713,9 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     Define marketing email templates used by campaign steps (channel=email).
     """
 
-    queryset = EmailTemplate.objects.all().order_by("-created_at")
+    queryset = EmailTemplate.objects.all().select_related("provider").order_by(
+        "-created_at"
+    )
     serializer_class = EmailTemplateSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete"]
@@ -808,6 +819,13 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                     description="Override variables (e.g. {\"name\": \"Vignesh\"}).",
                     additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
                 ),
+                "messaging_provider_id": openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description=(
+                        "Optional. Use this email MessagingProviderConfig for SMTP. "
+                        "Omit to follow template → default provider → server env."
+                    ),
+                ),
             },
             required=[],
         ),
@@ -876,14 +894,58 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         from IDBOOKAPI.email_utils import send_email as core_send_email
 
+        raw_pid = request.data.get("messaging_provider_id")
+        override_provider_id = None
+        if raw_pid is not None and raw_pid != "":
+            try:
+                override_provider_id = int(raw_pid)
+            except (TypeError, ValueError):
+                return self.get_error_response(
+                    message="messaging_provider_id must be an integer",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
-            core_send_email(
-                subject=subject,
-                message=body_text,
-                html_message=body_html,
-                to_emails=[to_email],
-                from_email=settings.EMAIL_HOST_USER,
+            prov_used, smtp_cfg = resolve_email_provider_for_test(
+                template_provider=template.provider,
+                override_provider_id=override_provider_id,
+                default_resolver=get_default_provider_for_channel,
             )
+        except ValueError as exc:
+            return self.get_error_response(
+                message=str(exc),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if prov_used and not smtp_cfg:
+            return self.get_error_response(
+                message=(
+                    "Selected email provider is missing required SMTP settings "
+                    "(smtp_host, smtp_username, smtp_password, from_email)."
+                ),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            if smtp_cfg:
+                send_email_with_smtp_config(
+                    subject=subject,
+                    message=body_text,
+                    html_message=body_html,
+                    to_emails=[to_email],
+                    smtp=smtp_cfg,
+                )
+            else:
+                core_send_email(
+                    subject=subject,
+                    message=body_text,
+                    html_message=body_html,
+                    to_emails=[to_email],
+                    from_email=settings.EMAIL_HOST_USER,
+                )
         except Exception as exc:
             return self.get_error_response(
                 message=f"Failed to send test email: {exc}",
@@ -892,7 +954,12 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             )
 
         return self.get_response(
-            data={"to_email": to_email, "template_id": template.id},
+            data={
+                "to_email": to_email,
+                "template_id": template.id,
+                "messaging_provider_id": prov_used.id if prov_used else None,
+                "used_custom_smtp": bool(smtp_cfg),
+            },
             message="Test email sent",
             status="success",
             status_code=status.HTTP_200_OK,
@@ -1275,6 +1342,138 @@ class MessageLogViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, Lo
     swagger_tags = ["5. Monitoring & Analytics"]
 
 
+class MessagingProviderConfigViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
+    """
+    Custom email (SMTP) and SMS (Fast2SMS) provider rows used by campaign steps,
+    email templates, and test sends. When unset, the API falls back to the default
+    row for that channel (if any), then to server environment variables.
+    """
+
+    queryset = MessagingProviderConfig.objects.all().order_by("channel", "name")
+    serializer_class = MessagingProviderConfigSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "put", "patch", "delete"]
+    swagger_tags = ["2. Templates & Variables"]
+
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["channel", "active", "is_default"]
+    search_fields = ["name"]
+    ordering_fields = ["created_at", "updated_at", "name", "channel"]
+    ordering = ["channel", "name"]
+
+    @swagger_auto_schema(
+        method="get",
+        operation_summary="How to obtain SMTP and Fast2SMS credentials",
+        operation_description=(
+            "Short admin copy: `general` and per-field `hint` only (no long prose)."
+        ),
+        responses={200: "Standard response: { general, email, sms }"},
+    )
+    @action(detail=False, methods=["get"], url_path="credential-guidance")
+    def credential_guidance_action(self, request):
+        return self.get_response(data=credential_guidance(), status="success")
+
+    @swagger_auto_schema(
+        operation_summary="List messaging provider configs",
+        manual_parameters=[
+            openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("channel", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("active", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter("is_default", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter("search", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        ],
+        responses={200: "Standard response envelope with list"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        custom = self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            return self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+        return self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        self.perform_create(serializer)
+        return self.get_response(
+            data=serializer.data,
+            message="Provider config created",
+            status="success",
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        self.perform_update(serializer)
+        return self.get_response(
+            data=serializer.data,
+            message="Provider config updated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        instance = self.get_object()
+        instance.delete()
+        return self.get_response(
+            data=None,
+            message="Provider config deleted",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+
 class TemplateVariablesViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin):
     permission_classes = [IsAuthenticated]
     swagger_tags = ["2. Templates & Variables"]
@@ -1350,6 +1549,10 @@ class MessagingTestViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
                     description="Override variables to build variables_values if variables_values is not provided.",
                     additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
                 ),
+                "messaging_provider_id": openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description="Optional. SMS MessagingProviderConfig (Fast2SMS) to use instead of environment defaults.",
+                ),
             },
         ),
         responses={200: "Standard response: provider response"},
@@ -1406,11 +1609,33 @@ class MessagingTestViewSet(viewsets.ViewSet, StandardResponseMixin, LoggingMixin
             # deterministic but may not match provider expected order; prefer variables_values input
             variables_values = "|".join(str(variables[k]) for k in sorted(variables.keys()) if variables.get(k) not in (None, ""))
 
+        raw_pid = request.data.get("messaging_provider_id")
+        override_provider_id = None
+        if raw_pid is not None and raw_pid != "":
+            try:
+                override_provider_id = int(raw_pid)
+            except (TypeError, ValueError):
+                return self.get_error_response(
+                    message="messaging_provider_id must be an integer",
+                    status="error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            sms_cfg = resolve_sms_config_for_test(override_provider_id)
+        except ValueError as exc:
+            return self.get_error_response(
+                message=str(exc),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             resp = send_template_sms(
                 mobile_number=phone_norm,
                 template_code=template_code,
                 variables_values=variables_values,
+                sms_config=sms_cfg,
             )
             data: Dict[str, Any] = {
                 "phone": phone_norm,
