@@ -360,6 +360,11 @@ INTERNAL_BOOKING_EMAIL_AGENTS = env(
 INTERNAL_BOOKING_EMAIL_CORPORATES = env(
     "INTERNAL_BOOKING_EMAIL_CORPORATES", default="corporates@idbookhotels.com"
 )
+# Default business user (by email) for new Query records and query notification recipients
+QUERY_DEFAULT_ASSIGNEE_EMAIL = env(
+    "QUERY_DEFAULT_ASSIGNEE_EMAIL",
+    default="booking@idbookhotels.com",
+)
 # BCC on any email sent directly to a hotelier/property contact
 PARTNER_B2B_EMAIL = env(
     "PARTNER_B2B_EMAIL", default="partner.b2b@idbookhotels.com"
