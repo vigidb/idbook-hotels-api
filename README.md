@@ -39,27 +39,63 @@ API docs (when enabled): ReDoc at `/api/v1/docs/`, Swagger at `/api/v1/docs/swag
 
 ## Celery
 
-Run workers from the `IDBOOKAPI` directory after activating the venv.
+Run workers from the `IDBOOKAPI` directory after activating the venv. Queue names and routes are defined in `IDBOOKAPI/IDBOOKAPI/celery.py`.
 
-**Production-style email worker:**
+### Queues used by this project
+
+| Queue | Used when `ENVIRONMENT=dev` | Used in production (`ENVIRONMENT` not `dev`) |
+|-------|----------------------------|-----------------------------------------------|
+| Transactional email/SMS (OTP, booking, hotel, org, flight notifications) | `dev-email-send-queue` | `email-send-queue` |
+| Marketing / messaging campaigns (`apps.messaging.tasks.*`) | `dev-marketing-campaign-queue` | `marketing-campaign-queue` |
+| AirIQ token tasks (always) | `airiq-token-queue` | `airiq-token-queue` |
+| Recurring payment + wallet expiry Beat jobs (always) | `recpay-initiate-queue` | `recpay-initiate-queue` |
+
+### One worker — development
+
+Use with **`ENVIRONMENT=dev`** so tasks are published to the `dev-*` queues. This single process consumes **all** queues referenced for dev plus the two environment-agnostic queues:
 
 ```bash
-celery -A IDBOOKAPI worker -l info -Q email-send-queue
+cd IDBOOKAPI
+celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,dev-marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue
 ```
 
-**Local dev** (queues used when `ENVIRONMENT=dev` plus flight/recurring queues):
+### One worker — production
+
+Use with **production** settings (`ENVIRONMENT` anything other than `dev`). This consumes **all** queues referenced in `celery.py` for that mode:
 
 ```bash
-celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,email-send-queue,airiq-token-queue,recpay-initiate-queue
+cd IDBOOKAPI
+celery -A IDBOOKAPI worker -l info -Q email-send-queue,marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue
 ```
 
-**Beat** (scheduled tasks, e.g. recurring payments — worker consumes `recpay-initiate-queue` with embedded beat):
+**Production tip:** To keep bulk campaigns from competing with OTP on the same process, run **two** workers instead — e.g. one with `-Q email-send-queue,airiq-token-queue,recpay-initiate-queue` and one with `-Q marketing-campaign-queue` — as described in [docs/Messaging_Scalability_Reliability_Production_Guide.md](docs/Messaging_Scalability_Reliability_Production_Guide.md).
+
+### Celery Beat
+
+Beat must run separately unless you embed it on a worker (see below). It schedules tasks onto the same queues as in the table (e.g. `process_due_campaign_contacts_task` → marketing campaign queue).
 
 ```bash
-celery -A IDBOOKAPI worker -l info -Q recpay-initiate-queue -B -s recpay-task.schedule
+cd IDBOOKAPI
+celery -A IDBOOKAPI beat -l info
 ```
 
-Beat schedule lives in `IDBOOKAPI/IDBOOKAPI/celery.py`.
+**Optional:** embed Beat on the dev worker (same `-Q` as the dev one-liner above):
+
+```bash
+cd IDBOOKAPI
+celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,dev-marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue -B -s celerybeat-schedule
+```
+
+**Optional:** embed Beat on the production all-queues worker:
+
+```bash
+cd IDBOOKAPI
+celery -A IDBOOKAPI worker -l info -Q email-send-queue,marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue -B -s celerybeat-schedule
+```
+
+**Messaging campaigns:** `enqueue_campaign_contacts_task` only queues sends for contacts that are already due. Future-dated steps need **`process_due_campaign_contacts_task`**, which Beat runs every minute on the marketing campaign queue for your environment. Without a worker on that queue (and Beat), campaign work stalls in the broker.
+
+For **limits, providers, and operational detail**, see [docs/Messaging_Scalability_Reliability_Production_Guide.md](docs/Messaging_Scalability_Reliability_Production_Guide.md).
 
 ## Optional dev workflows
 

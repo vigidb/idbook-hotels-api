@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core import signing
 from django.core.validators import EmailValidator
 from django.db import transaction
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status
@@ -18,6 +19,7 @@ from drf_yasg import openapi
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.utils import paginate_queryset
 from apps.authentication.constants import ALL_GROUP_CHOICES, UserGroups
+from apps.org_resources.models import MessageTemplate
 from apps.messaging.models import (
     Contact,
     ContactUploadSession,
@@ -32,10 +34,13 @@ from apps.messaging.serializers import (
     ContactSerializer,
     ContactUploadSessionSerializer,
     CampaignSerializer,
+    CampaignListSerializer,
     CampaignCreateUpdateSerializer,
+    CampaignAudiencePreviewSerializer,
     CampaignStepSerializer,
     CampaignContactSerializer,
     MessageLogSerializer,
+    SmsTemplateSerializer,
     EmailTemplateSerializer,
     MessagingProviderConfigSerializer,
 )
@@ -48,9 +53,13 @@ from apps.messaging.services import (
     MissingTemplateVariableError,
     apply_template_variable_defaults,
     build_template_variables,
+    campaign_has_active_steps,
+    count_campaign_audience,
     get_default_provider_for_channel,
     get_template_variable_definitions,
     normalize_phone,
+    normalize_segment_tags,
+    resolve_campaign_contacts,
     upsert_contact_from_row,
     render_template_string,
 )
@@ -360,7 +369,12 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
             "Existing contacts are matched by (group_type + phone) or (group_type + email). "
             "Duplicate rows in the file (same group_type + phone/email as an earlier row) are ignored and not upserted.\n\n"
             "Counts: success_count = created_count + updated_count (first occurrence per identity only). "
-            "duplicate_in_file_count = rows skipped as duplicates within this CSV."
+            "duplicate_in_file_count = rows skipped as duplicates within this CSV.\n\n"
+            "Optional form fields:\n"
+            "- **group_type** — default when a row omits `group_type` (same values as column).\n"
+            "- **default_tags** — comma-separated labels applied to every row, **union** with per-row "
+            "`tags` / `segment_tags` column (all normalized lowercase); then merged with existing "
+            "contact tags on update."
         ),
         manual_parameters=[
             openapi.Parameter(
@@ -369,7 +383,21 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 type=openapi.TYPE_FILE,
                 required=True,
                 description="CSV file with contacts exported from Excel.",
-            )
+            ),
+            openapi.Parameter(
+                name="group_type",
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_STRING,
+                required=False,
+                description="Default group_type for rows that omit the column (e.g. B2C-GRP).",
+            ),
+            openapi.Parameter(
+                name="default_tags",
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_STRING,
+                required=False,
+                description="Comma-separated tags applied to every row in addition to per-row tags.",
+            ),
         ],
         responses={
             201: openapi.Response(
@@ -402,8 +430,12 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
     def upload(self, request):
         """
         Upload contacts via CSV/Excel-like file.
-        For MVP we support a simple CSV where the header row contains:
-        name,phone,email,city,country,group_type
+        CSV header row may include:
+        name, phone, email, city, country, group_type, remarks, department, tags
+        (tags = comma-separated labels, merged with existing tags on update).
+
+        Optional multipart fields: group_type (default for rows without column),
+        default_tags (comma-separated; union with each row's tags before upsert).
         """
         upload_file = request.FILES.get("file")
         if not upload_file:
@@ -441,6 +473,19 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
         duplicate_in_file_count = 0
         seen_in_file = set()  # (group_type, phone_norm or email_norm) for duplicate detection
         error_rows = []
+
+        default_group_type = (request.POST.get("group_type") or "").strip()
+        if default_group_type and default_group_type not in dict(ALL_GROUP_CHOICES):
+            return self.get_error_response(
+                message=f"Invalid default group_type '{default_group_type}'",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        default_tags_raw = (request.POST.get("default_tags") or "").strip()
+        default_tag_list = (
+            normalize_segment_tags(default_tags_raw) if default_tags_raw else []
+        )
 
         def decode_file_content(raw_bytes):
             """Try UTF-8, then Windows-1252, then latin-1 (accepts any byte)."""
@@ -483,6 +528,9 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                 "mail": "email",
                 "group": "group_type",
                 "group type": "group_type",
+                "labels": "tags",
+                "segment tags": "tags",
+                "segment_tags": "tags",
             }
 
             for idx, row in enumerate(reader, start=2):  # 1-based + header row
@@ -499,9 +547,18 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                     email = (row.get("email") or "").strip()
                     city = (row.get("city") or "").strip()
                     country = (row.get("country") or "").strip()
-                    group_type = (row.get("group_type") or "").strip() or UserGroups.B2C_GRP
+                    group_type = (row.get("group_type") or "").strip() or (
+                        default_group_type or UserGroups.B2C_GRP
+                    )
                     remarks = (row.get("remarks") or "").strip()
                     department = (row.get("department") or "").strip()
+                    row_tag_list: list = []
+                    if "tags" in row or "segment_tags" in row:
+                        tag_cell = (row.get("tags") or row.get("segment_tags") or "").strip()
+                        row_tag_list = (
+                            normalize_segment_tags(tag_cell) if tag_cell else []
+                        )
+                    segment_tags_arg = sorted(set(default_tag_list) | set(row_tag_list))
 
                     if not phone and not email:
                         raise ValueError("Either phone or email is required")
@@ -536,6 +593,7 @@ class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin)
                         group_type=group_type,
                         remarks=remarks,
                         department=department,
+                        segment_tags=segment_tags_arg,
                     )
                     success_count += 1
                     if created:
@@ -1132,23 +1190,334 @@ class EmailTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
 class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     """
-    Step 3: Campaigns
-
-    Create and manage high-level campaigns (audience + filters).
+    Campaigns: audience (target group + JSON filters), multi-step flows, scheduling.
     """
 
-    queryset = Campaign.objects.all().order_by("-created_at")
+    queryset = Campaign.objects.all()
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete"]
     swagger_tags = ["3. Campaigns & Steps"]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["status", "target_group_type"]
+    search_fields = ["name", "description"]
+    ordering_fields = ["created_at", "updated_at", "name", "schedule_time", "status"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        return (
+            Campaign.objects.annotate(step_count=Count("steps", distinct=True))
+            .select_related("created_by")
+            .prefetch_related(
+                Prefetch(
+                    "steps",
+                    queryset=CampaignStep.objects.select_related("messaging_provider").order_by(
+                        "order_index"
+                    ),
+                )
+            )
+            .order_by("-created_at")
+        )
 
     def get_serializer_class(self):
+        if self.action == "list":
+            return CampaignListSerializer
         if self.action in ("create", "update", "partial_update"):
             return CampaignCreateUpdateSerializer
         return CampaignSerializer
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def _dispatch_prereq_error(self, campaign):
+        if not campaign_has_active_steps(campaign):
+            return self.get_error_response(
+                message=(
+                    "Add at least one active step with a template (email slug or SMS template_code). "
+                    "Manage steps via /api/v1/messaging/campaign-steps/?campaign=<id>."
+                ),
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if count_campaign_audience(campaign) == 0:
+            return self.get_error_response(
+                message="No contacts match this audience. Adjust target_group_type or target_filters.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    @swagger_auto_schema(
+        operation_summary="List campaigns (filters, search, pagination)",
+        manual_parameters=[
+            openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("search", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("ordering", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("status", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("target_group_type", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        ],
+        responses={200: "Standard envelope: count, data"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        custom = self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            custom = self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+            self.log_response(custom)
+            return custom
+        custom = self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_create(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="Campaign created",
+            status="success",
+            status_code=status.HTTP_201_CREATED,
+        )
+        self.log_response(custom)
+        return custom
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_update(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="Campaign updated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        instance = self.get_object()
+        if instance.status in (Campaign.Status.SCHEDULED, Campaign.Status.RUNNING):
+            custom = self.get_error_response(
+                message="Pause the campaign before deleting.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        instance.delete()
+        custom = self.get_response(
+            data=None,
+            message="Campaign deleted successfully",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    @swagger_auto_schema(
+        method="post",
+        tags=["3. Campaigns & Steps"],
+        operation_summary="Preview audience size without saving a campaign",
+        request_body=CampaignAudiencePreviewSerializer,
+        responses={200: "count and targeting echo"},
+    )
+    @action(detail=False, methods=["post"], url_path="audience-preview")
+    def audience_preview(self, request):
+        self.log_request(request)
+        ser = CampaignAudiencePreviewSerializer(data=request.data)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(ser.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        c = Campaign(
+            target_group_type=ser.validated_data.get("target_group_type") or "",
+            target_filters=ser.validated_data.get("target_filters") or {},
+        )
+        n = count_campaign_audience(c)
+        return self.get_response(
+            data={
+                "count": n,
+                "target_group_type": c.target_group_type,
+                "target_filters": c.target_filters,
+            },
+            message="Audience preview",
+            status="success",
+        )
+
+    @swagger_auto_schema(
+        method="post",
+        tags=["3. Campaigns & Steps"],
+        operation_summary="Sample contacts matching audience filters (paginated)",
+        request_body=CampaignAudiencePreviewSerializer,
+        responses={200: "Standard envelope: total count + Contact[] slice"},
+    )
+    @action(detail=False, methods=["post"], url_path="audience-sample")
+    def audience_sample(self, request):
+        self.log_request(request)
+        ser = CampaignAudiencePreviewSerializer(data=request.data)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(ser.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            limit = int(request.data.get("limit", 25))
+        except (TypeError, ValueError):
+            limit = 25
+        try:
+            offset = int(request.data.get("offset", 0))
+        except (TypeError, ValueError):
+            offset = 0
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+
+        c = Campaign(
+            target_group_type=ser.validated_data.get("target_group_type") or "",
+            target_filters=ser.validated_data.get("target_filters") or {},
+        )
+        qs = resolve_campaign_contacts(c).order_by("-id")
+        total = qs.count()
+        slice_qs = qs[offset : offset + limit]
+        data = ContactSerializer(slice_qs, many=True).data
+        return self.get_response(
+            data=data,
+            count=total,
+            message="Audience sample",
+            status="success",
+        )
+
+    @swagger_auto_schema(
+        method="get",
+        tags=["3. Campaigns & Steps"],
+        operation_summary="Saved campaign: audience count and targeting",
+    )
+    @action(detail=True, methods=["get"], url_path="audience")
+    def audience(self, request, pk=None):
+        self.log_request(request)
+        campaign = self.get_object()
+        n = count_campaign_audience(campaign)
+        return self.get_response(
+            data={
+                "count": n,
+                "target_group_type": campaign.target_group_type,
+                "target_filters": campaign.target_filters or {},
+            },
+            status="success",
+        )
+
+    @swagger_auto_schema(
+        method="get",
+        tags=["5. Monitoring & Analytics"],
+        operation_summary="Paginated campaign_contact rows (per-recipient pipeline)",
+        manual_parameters=[
+            openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter(
+                "status",
+                openapi.IN_QUERY,
+                type=openapi.TYPE_STRING,
+                description="Filter by CampaignContact status",
+            ),
+        ],
+    )
+    @action(detail=True, methods=["get"], url_path="contacts")
+    def contacts(self, request, pk=None):
+        self.log_request(request)
+        campaign = self.get_object()
+        qs = CampaignContact.objects.filter(campaign=campaign).select_related(
+            "contact", "step"
+        )
+        st = (request.query_params.get("status") or "").strip()
+        if st:
+            qs = qs.filter(status=st)
+        qs = qs.order_by("-id")
+        count, page = paginate_queryset(request, qs)
+        ser = CampaignContactSerializer(page, many=True)
+        return self.get_response(
+            data=ser.data,
+            count=count,
+            message="Campaign contacts",
+            status="success",
+        )
+
+    @swagger_auto_schema(
+        method="post",
+        tags=["3. Campaigns & Steps"],
+        operation_summary="Delete queued rows for draft/paused campaigns (re-build audience)",
+    )
+    @action(detail=True, methods=["post"], url_path="reset-contacts")
+    def reset_contacts(self, request, pk=None):
+        self.log_request(request)
+        campaign = self.get_object()
+        if campaign.status not in (Campaign.Status.DRAFT, Campaign.Status.PAUSED):
+            return self.get_error_response(
+                message="Only draft or paused campaigns can reset contacts.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        deleted, _ = CampaignContact.objects.filter(campaign=campaign).delete()
+        return self.get_response(
+            data={"deleted": deleted},
+            message="Campaign contacts cleared",
+            status="success",
+        )
 
     @swagger_auto_schema(
         method="post",
@@ -1185,6 +1554,9 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @action(detail=True, methods=["post"])
     def schedule(self, request, pk=None):
         campaign = self.get_object()
+        err = self._dispatch_prereq_error(campaign)
+        if err:
+            return err
         schedule_time_str = request.data.get("schedule_time")
         if not schedule_time_str:
             return self.get_error_response(
@@ -1233,6 +1605,9 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @action(detail=True, methods=["post"])
     def send_now(self, request, pk=None):
         campaign = self.get_object()
+        err = self._dispatch_prereq_error(campaign)
+        if err:
+            return err
         campaign.schedule_time = timezone.now()
         campaign.status = Campaign.Status.RUNNING
         campaign.save(update_fields=["schedule_time", "status", "updated_at"])
@@ -1266,7 +1641,7 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @swagger_auto_schema(
         method="get",
         tags=["5. Monitoring & Analytics"],
-        operation_summary="Get campaign status and counters",
+        operation_summary="Campaign status, aggregate counters, and per-step breakdown",
         responses={
             200: openapi.Response(
                 description="Campaign status with counters",
@@ -1276,15 +1651,8 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                         "data": {
                             "campaign_id": 1,
                             "status": "running",
-                            "counters": {
-                                "total": 1000,
-                                "pending": 200,
-                                "queued": 0,
-                                "sent": 780,
-                                "failed": 10,
-                                "skipped_opt_out": 5,
-                                "blacklisted": 5,
-                            },
+                            "counters": {},
+                            "steps": [],
                         },
                     }
                 },
@@ -1308,8 +1676,57 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status=CampaignContact.Status.BLACKLISTED
             ).count(),
         }
+        agg_rows = (
+            CampaignContact.objects.filter(campaign=campaign)
+            .values("step_id")
+            .annotate(
+                total=Count("id"),
+                pending=Count("id", filter=Q(status=CampaignContact.Status.PENDING)),
+                queued=Count("id", filter=Q(status=CampaignContact.Status.QUEUED)),
+                sent=Count("id", filter=Q(status=CampaignContact.Status.SENT)),
+                failed=Count("id", filter=Q(status=CampaignContact.Status.FAILED)),
+                skipped_opt_out=Count(
+                    "id", filter=Q(status=CampaignContact.Status.SKIPPED_OPT_OUT)
+                ),
+                blacklisted=Count(
+                    "id", filter=Q(status=CampaignContact.Status.BLACKLISTED)
+                ),
+            )
+        )
+        by_step = {r["step_id"]: r for r in agg_rows}
+        steps_out = []
+        for step in campaign.steps.all().order_by("order_index"):
+            row = by_step.get(step.id, {})
+            steps_out.append(
+                {
+                    "step_id": step.id,
+                    "order_index": step.order_index,
+                    "channel": step.channel,
+                    "template_code": step.template_code,
+                    "delay_amount": step.delay_amount,
+                    "delay_unit": step.delay_unit,
+                    "active": step.active,
+                    "messaging_provider_id": step.messaging_provider_id,
+                    "counters": {
+                        "total": row.get("total") or 0,
+                        "pending": row.get("pending") or 0,
+                        "queued": row.get("queued") or 0,
+                        "sent": row.get("sent") or 0,
+                        "failed": row.get("failed") or 0,
+                        "skipped_opt_out": row.get("skipped_opt_out") or 0,
+                        "blacklisted": row.get("blacklisted") or 0,
+                    },
+                }
+            )
+        audience_count = count_campaign_audience(campaign)
         return self.get_response(
-            data={"campaign_id": campaign.id, "status": campaign.status, "counters": counters},
+            data={
+                "campaign_id": campaign.id,
+                "status": campaign.status,
+                "audience_count": audience_count,
+                "counters": counters,
+                "steps": steps_out,
+            },
             status="success",
         )
 
@@ -1321,11 +1738,113 @@ class CampaignStepViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingM
     Attach one or more steps (Email/SMS, templates, delays) to a campaign.
     """
 
-    queryset = CampaignStep.objects.all().order_by("campaign_id", "order_index")
+    queryset = CampaignStep.objects.all().select_related("campaign", "messaging_provider")
     serializer_class = CampaignStepSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete"]
     swagger_tags = ["3. Campaigns & Steps"]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["campaign", "channel", "active"]
+    search_fields = ["template_code"]
+    ordering_fields = ["order_index", "created_at", "campaign"]
+    ordering = ["campaign_id", "order_index"]
+
+    @swagger_auto_schema(
+        operation_summary="List campaign steps",
+        manual_parameters=[
+            openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("campaign", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("channel", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("active", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+        ],
+        responses={200: "Standard envelope"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        custom = self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            return self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+        return self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        self.perform_create(serializer)
+        return self.get_response(
+            data=serializer.data,
+            message="Campaign step created",
+            status="success",
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        self.perform_update(serializer)
+        return self.get_response(
+            data=serializer.data,
+            message="Campaign step updated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        instance = self.get_object()
+        instance.delete()
+        return self.get_response(
+            data=None,
+            message="Campaign step deleted",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
 
 
 class MessageLogViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -1335,11 +1854,231 @@ class MessageLogViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, Lo
     Inspect individual message logs for debugging and analytics.
     """
 
-    queryset = MessageLog.objects.all().order_by("-created_at")
+    queryset = MessageLog.objects.all().select_related("contact", "campaign", "step")
     serializer_class = MessageLogSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get"]
     swagger_tags = ["5. Monitoring & Analytics"]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["campaign", "step", "contact", "channel", "status"]
+    ordering_fields = ["created_at", "sent_at", "status", "channel"]
+    ordering = ["-created_at"]
+
+    @swagger_auto_schema(
+        operation_summary="List message logs (filters, pagination)",
+        manual_parameters=[
+            openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("campaign", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("step", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("contact", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+            openapi.Parameter("channel", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter("status", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        ],
+        responses={200: "Standard envelope"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        return self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            return self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+        return self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+
+class SmsTemplateViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+    """
+    SMS / DLT templates (MessageTemplate): CRUD, filters, and catalog for campaign steps.
+
+    Query **for_campaigns=true** to list only **active** templates with types allowed on
+    campaign SMS steps (**service_explicit**, **promotional**).
+    """
+
+    queryset = MessageTemplate.objects.all().order_by("-updated_at")
+    serializer_class = SmsTemplateSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "put", "patch", "delete"]
+    swagger_tags = ["2. Templates & Variables"]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["template_code", "template_type", "is_active", "message_id"]
+    search_fields = ["name", "template_code", "message_id", "template_message"]
+    ordering_fields = [
+        "id",
+        "template_code",
+        "message_id",
+        "name",
+        "template_type",
+        "is_active",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-updated_at"]
+
+    _SMS_LIST_PARAMS = [
+        openapi.Parameter("offset", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+        openapi.Parameter("limit", openapi.IN_QUERY, type=openapi.TYPE_INTEGER),
+        openapi.Parameter("search", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        openapi.Parameter("ordering", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        openapi.Parameter("template_code", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        openapi.Parameter("message_id", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        openapi.Parameter(
+            "template_type",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+            description="transactional | service_implicit | service_explicit | promotional",
+        ),
+        openapi.Parameter("is_active", openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN),
+        openapi.Parameter(
+            "for_campaigns",
+            openapi.IN_QUERY,
+            type=openapi.TYPE_BOOLEAN,
+            description="If true, only active service_explicit + promotional (campaign picker).",
+        ),
+    ]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        raw = (self.request.query_params.get("for_campaigns") or "").lower()
+        if raw in ("1", "true", "yes"):
+            return qs.filter(
+                is_active=True,
+                template_type__in=MessageTemplate.CAMPAIGN_ALLOWED_TYPES,
+            )
+        return qs
+
+    @swagger_auto_schema(
+        operation_summary="List SMS templates (filters, search, sort, pagination)",
+        operation_description=(
+            "Pagination: offset, limit.\n"
+            "Search: name, template_code, message_id, template_message.\n"
+            "Filters: template_code, message_id, template_type, is_active.\n"
+            "**for_campaigns=true**: only templates eligible for messaging campaign SMS steps."
+        ),
+        manual_parameters=_SMS_LIST_PARAMS,
+        responses={200: "Standard envelope"},
+    )
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)
+        queryset = self.filter_queryset(self.get_queryset())
+        count, paginated_queryset = paginate_queryset(request, queryset)
+        serializer = self.get_serializer(paginated_queryset, many=True)
+        custom = self.get_response(
+            data=serializer.data,
+            message="List Retrieved",
+            count=count,
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def retrieve(self, request, *args, **kwargs):
+        self.log_request(request)
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            custom = self.get_response(
+                data=None,
+                message="Error occurred",
+                status_code=response.status_code,
+                is_error=True,
+                status="error",
+            )
+            self.log_response(custom)
+            return custom
+        custom = self.get_response(
+            data=response.data,
+            message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def create(self, request, *args, **kwargs):
+        self.log_request(request)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_create(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="SMS template created",
+            status="success",
+            status_code=status.HTTP_201_CREATED,
+        )
+        self.log_response(custom)
+        return custom
+
+    def update(self, request, *args, **kwargs):
+        self.log_request(request)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            custom = self.get_error_response(
+                message="Validation error",
+                status="error",
+                errors=self.custom_serializer_error(serializer.errors),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+            self.log_response(custom)
+            return custom
+        self.perform_update(serializer)
+        custom = self.get_response(
+            data=serializer.data,
+            message="SMS template updated",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.log_request(request)
+        instance = self.get_object()
+        instance.delete()
+        custom = self.get_response(
+            data=None,
+            message="SMS template deleted successfully",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(custom)
+        return custom
 
 
 class MessagingProviderConfigViewSet(

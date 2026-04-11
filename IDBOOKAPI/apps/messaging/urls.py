@@ -6,6 +6,7 @@ from apps.messaging.viewsets import (
     CampaignViewSet,
     CampaignStepViewSet,
     MessageLogViewSet,
+    SmsTemplateViewSet,
     EmailTemplateViewSet,
     MessagingProviderConfigViewSet,
     TemplateVariablesViewSet,
@@ -19,6 +20,11 @@ router.register(r"campaigns", CampaignViewSet, basename="messaging-campaigns")
 router.register(r"campaign-steps", CampaignStepViewSet, basename="messaging-campaign-steps")
 router.register(r"message-logs", MessageLogViewSet, basename="messaging-message-logs")
 router.register(r"email-templates", EmailTemplateViewSet, basename="messaging-email-templates")
+router.register(
+    r"sms-templates",
+    SmsTemplateViewSet,
+    basename="messaging-sms-templates",
+)
 router.register(
     r"provider-configs",
     MessagingProviderConfigViewSet,

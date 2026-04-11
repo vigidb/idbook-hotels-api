@@ -223,8 +223,16 @@ admin.site.register(BankDetail, BankDetailAdmin)
 
 
 class MessageTemplateAdmin(admin.ModelAdmin):
-    list_display = ("message_id", "template_code", "template_message")
-    search_fields = ("message_id", "template_code")
+    list_display = (
+        "name",
+        "template_code",
+        "message_id",
+        "template_type",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = ("template_type", "is_active")
+    search_fields = ("name", "message_id", "template_code", "template_message")
     # list_editable = ('template_code', 'temp_message')
 
 

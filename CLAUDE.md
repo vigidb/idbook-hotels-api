@@ -162,7 +162,8 @@ Key environment variables:
 ### Background Tasks (Celery)
 
 **Queue Configuration** (`IDBOOKAPI/celery.py`):
-- Email/SMS tasks route to `email-send-queue` (production) or `dev-email-send-queue` (development)
+- Transactional email/SMS (OTP, booking, hotel, org, flight notifications) route to `email-send-queue` (production) or `dev-email-send-queue` (development)
+- **Marketing / messaging campaigns** (`apps.messaging.tasks.*`) route to `marketing-campaign-queue` or `dev-marketing-campaign-queue` so bulk work does not block OTP and confirmations
 - Recurring payment tasks route to `recpay-initiate-queue`
 
 **Scheduled Tasks (Celery Beat)**:
@@ -174,6 +175,7 @@ Key environment variables:
 - `apps.booking.tasks` - Booking confirmations, invoices, cancellations
 - `apps.hotels.tasks` - Hotel notifications, service agreements
 - `apps.org_resources.tasks` - Recurring payments, enquiries
+- `apps.messaging.tasks` - Campaign enqueue, batch sends, scheduled campaign drain (marketing queue)
 
 ### API Structure
 

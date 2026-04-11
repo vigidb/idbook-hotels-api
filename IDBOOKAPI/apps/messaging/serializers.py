@@ -17,7 +17,8 @@ from apps.messaging.provider_runtime import (
     merge_settings_preserving_secrets,
     mask_settings_for_api,
 )
-from apps.messaging.services import normalize_phone
+from apps.messaging.services import normalize_phone, normalize_segment_tags
+from apps.org_resources.models import MessageTemplate
 
 
 class ContactSerializer(serializers.ModelSerializer):
@@ -46,6 +47,9 @@ class ContactSerializer(serializers.ModelSerializer):
         # Normalize email
         if email:
             attrs["email"] = email.lower()
+
+        if "segment_tags" in attrs:
+            attrs["segment_tags"] = normalize_segment_tags(attrs.get("segment_tags"))
 
         return attrs
 
@@ -135,6 +139,13 @@ class CampaignStepSerializer(serializers.ModelSerializer):
         channel = attrs.get("channel")
         if self.instance:
             channel = channel or self.instance.channel
+        if "template_code" in attrs:
+            template_code = (attrs.get("template_code") or "").strip()
+        elif self.instance:
+            template_code = (self.instance.template_code or "").strip()
+        else:
+            template_code = ""
+
         prov = attrs.get("messaging_provider")
         if self.instance and prov is None and "messaging_provider" not in attrs:
             prov = self.instance.messaging_provider
@@ -152,6 +163,41 @@ class CampaignStepSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
+
+        if channel and template_code:
+            if channel == CampaignStep.Channel.EMAIL:
+                if not EmailTemplate.objects.filter(
+                    slug=template_code, is_active=True, is_marketing=True
+                ).exists():
+                    raise serializers.ValidationError(
+                        {
+                            "template_code": [
+                                f'No active marketing email template with slug "{template_code}". '
+                                "Transactional and auth email templates cannot be used in campaigns."
+                            ]
+                        }
+                    )
+            elif channel == CampaignStep.Channel.SMS:
+                mt = MessageTemplate.objects.filter(template_code=template_code).first()
+                if not mt or not mt.is_active:
+                    raise serializers.ValidationError(
+                        {
+                            "template_code": [
+                                f'No active SMS template with template_code "{template_code}".'
+                            ]
+                        }
+                    )
+                if mt.template_type not in MessageTemplate.CAMPAIGN_ALLOWED_TYPES:
+                    raise serializers.ValidationError(
+                        {
+                            "template_code": [
+                                "Campaigns may only use Service explicit or Promotional SMS "
+                                "templates. Transactional, service implicit (e.g. OTP/auth), "
+                                "and similar types cannot be selected here."
+                            ]
+                        }
+                    )
+
         return attrs
 
     class Meta:
@@ -160,11 +206,84 @@ class CampaignStepSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
-class CampaignSerializer(serializers.ModelSerializer):
-    steps = CampaignStepSerializer(many=True, read_only=True)
+class CampaignListSerializer(serializers.ModelSerializer):
+    """List view: no nested steps (use step_count + channels)."""
+
+    step_count = serializers.IntegerField(read_only=True)
+    channels = serializers.SerializerMethodField()
+    created_by_email = serializers.SerializerMethodField()
 
     class Meta:
         model = Campaign
+        fields = (
+            "id",
+            "name",
+            "description",
+            "target_group_type",
+            "target_filters",
+            "status",
+            "schedule_time",
+            "created_at",
+            "updated_at",
+            "step_count",
+            "channels",
+            "created_by_email",
+        )
+
+    def get_channels(self, obj: Campaign) -> list:
+        seen = []
+        for s in obj.steps.all():
+            if s.channel not in seen:
+                seen.append(s.channel)
+        return seen
+
+    def get_created_by_email(self, obj: Campaign) -> str:
+        u = getattr(obj, "created_by", None)
+        return getattr(u, "email", "") or ""
+
+
+class CampaignSerializer(serializers.ModelSerializer):
+    steps = CampaignStepSerializer(many=True, read_only=True)
+    created_by_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Campaign
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "updated_at", "created_by", "status")
+
+    def get_created_by_email(self, obj: Campaign) -> str:
+        u = getattr(obj, "created_by", None)
+        return getattr(u, "email", "") or ""
+
+
+class CampaignAudiencePreviewSerializer(serializers.Serializer):
+    target_group_type = serializers.CharField(required=False, allow_blank=True, default="")
+    target_filters = serializers.JSONField(required=False, default=dict)
+
+    def validate_target_group_type(self, value: str) -> str:
+        v = (value or "").strip()
+        if v and v not in dict(ALL_GROUP_CHOICES):
+            raise serializers.ValidationError("Invalid target_group_type")
+        return v
+
+
+class SmsTemplateSerializer(serializers.ModelSerializer):
+    """SMS / DLT templates (org_resources.MessageTemplate) — full CRUD for messaging UI."""
+
+    def validate_message_id(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("message_id is required.")
+        return v
+
+    def validate_template_code(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("template_code is required.")
+        return v
+
+    class Meta:
+        model = MessageTemplate
         fields = "__all__"
         read_only_fields = ("id", "created_at", "updated_at")
 

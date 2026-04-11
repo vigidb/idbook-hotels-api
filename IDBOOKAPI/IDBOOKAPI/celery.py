@@ -15,8 +15,10 @@ app.autodiscover_tasks()
 environment = settings.ENVIRONMENT
 if environment == "dev":
     email_send_queue = "dev-email-send-queue"
+    marketing_campaign_queue = "dev-marketing-campaign-queue"
 else:
     email_send_queue = "email-send-queue"
+    marketing_campaign_queue = "marketing-campaign-queue"
 # email_booking_queue = "email-booking-queue"
 app.conf.task_routes = {
     "apps.authentication.tasks.send_email_task": {"queue": email_send_queue},
@@ -54,9 +56,16 @@ app.conf.task_routes = {
         "queue": email_send_queue
     },
     "apps.flights.tasks.send_flight_status_update_task": {"queue": email_send_queue},
-    "apps.messaging.tasks.enqueue_campaign_contacts_task": {"queue": email_send_queue},
-    "apps.messaging.tasks.send_campaign_batch_task": {"queue": email_send_queue},
-    "apps.messaging.tasks.process_due_campaign_contacts_task": {"queue": email_send_queue},
+    # Marketing / bulk campaigns — isolated from OTP, booking, and other transactional tasks
+    "apps.messaging.tasks.enqueue_campaign_contacts_task": {
+        "queue": marketing_campaign_queue
+    },
+    "apps.messaging.tasks.send_campaign_batch_task": {
+        "queue": marketing_campaign_queue
+    },
+    "apps.messaging.tasks.process_due_campaign_contacts_task": {
+        "queue": marketing_campaign_queue
+    },
 }
 
 
@@ -104,7 +113,7 @@ app.conf.beat_schedule = {
     "process-due-campaign-contacts": {
         "task": "apps.messaging.tasks.process_due_campaign_contacts_task",
         "schedule": crontab(minute="*/1"),  # Every minute
-        "options": {"queue": email_send_queue},
+        "options": {"queue": marketing_campaign_queue},
     },
 }
 

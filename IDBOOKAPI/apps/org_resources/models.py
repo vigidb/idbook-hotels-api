@@ -718,12 +718,53 @@ class UserNotification(models.Model):
 
 
 class MessageTemplate(models.Model):
+    """
+    DLT-registered SMS templates (Fast2SMS template_code + provider message_id).
+
+    **Template types (India DLT):**
+    - transactional: Banking OTPs and direct financial transaction alerts only.
+    - service_implicit: Non-promotional, user-triggered (OTP non-banking, orders, delivery).
+    - service_explicit: Consent-based promos to existing customers (loyalty, newsletters).
+    - promotional: Marketing; DND restrictions; numerical sender IDs.
+
+    Campaign steps may only reference **service_explicit** and **promotional** (active).
+    """
+
+    class TemplateType(models.TextChoices):
+        TRANSACTIONAL = "transactional", "Transactional"
+        SERVICE_IMPLICIT = "service_implicit", "Service implicit"
+        SERVICE_EXPLICIT = "service_explicit", "Service explicit"
+        PROMOTIONAL = "promotional", "Promotional"
+
+    #: Types allowed on messaging campaign SMS steps
+    CAMPAIGN_ALLOWED_TYPES = frozenset(
+        {TemplateType.SERVICE_EXPLICIT, TemplateType.PROMOTIONAL}
+    )
+
+    name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Internal display name (optional).",
+    )
     message_id = models.CharField(max_length=50, unique=True)
     template_code = models.CharField(max_length=255)
     template_message = models.TextField()
+    template_type = models.CharField(
+        max_length=32,
+        choices=TemplateType.choices,
+        default=TemplateType.SERVICE_IMPLICIT,
+        db_index=True,
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["template_code"]
 
     def __str__(self):
-        return self.template_code
+        return self.template_code or self.name or str(self.pk)
 
 
 class Subscription(models.Model):

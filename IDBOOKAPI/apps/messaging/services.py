@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import json
 from typing import Iterable, List, Dict, Any, Optional, Tuple
 
 import re
@@ -37,6 +38,64 @@ def normalize_phone(phone: str) -> str:
     return phone.replace(" ", "").replace("-", "")
 
 
+def normalize_segment_tags(value: Any) -> List[str]:
+    """
+    Normalize free-form tags to a sorted unique list of lowercase strings.
+    Accepts list, comma-separated string, or JSON array string.
+    """
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    value = parsed
+                else:
+                    value = [s]
+            except json.JSONDecodeError:
+                value = [s]
+        else:
+            value = [x.strip() for x in s.split(",") if x.strip()]
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: List[str] = []
+    for t in value:
+        x = str(t).strip().lower()
+        if x:
+            out.append(x)
+    return sorted(set(out))
+
+
+def _apply_segment_tag_filters(qs: QuerySet[Contact], filters: Dict[str, Any]) -> QuerySet[Contact]:
+    """
+    target_filters may include:
+      - tags or segment_tags: list of strings (or comma-separated string)
+      - tags_match: "any" (default) or "all" — contact.segment_tags must include any / all listed tags
+    Uses JSON contains on PostgreSQL (jsonb @>); tags are compared lowercase.
+    """
+    raw = filters.get("tags")
+    if raw is None:
+        raw = filters.get("segment_tags")
+    if raw is None:
+        return qs
+    tags = normalize_segment_tags(raw)
+    if not tags:
+        return qs
+    match_mode = str(filters.get("tags_match") or "any").strip().lower()
+    if match_mode == "all":
+        for t in tags:
+            qs = qs.filter(segment_tags__contains=[t])
+        return qs
+    q = Q()
+    for t in tags:
+        q |= Q(segment_tags__contains=[t])
+    return qs.filter(q)
+
+
 def resolve_campaign_contacts(campaign: Campaign) -> QuerySet[Contact]:
     qs = Contact.objects.all()
     if campaign.target_group_type:
@@ -47,8 +106,23 @@ def resolve_campaign_contacts(campaign: Campaign) -> QuerySet[Contact]:
         qs = qs.filter(city__iexact=city)
     if country := filters.get("country"):
         qs = qs.filter(country__iexact=country)
+    qs = _apply_segment_tag_filters(qs, filters)
 
     return qs
+
+
+def count_campaign_audience(campaign: Campaign) -> int:
+    """Number of contacts matching campaign targeting (cheap COUNT query)."""
+    return resolve_campaign_contacts(campaign).count()
+
+
+def campaign_has_active_steps(campaign: Campaign) -> bool:
+    """At least one active step with a non-empty template (slug / SMS code)."""
+    return (
+        campaign.steps.filter(active=True)
+        .exclude(template_code="")
+        .exists()
+    )
 
 
 def get_delay_delta(step: CampaignStep) -> timedelta:
@@ -679,6 +753,7 @@ def upsert_contact_from_row(
     source: str = "excel_upload",
     remarks: str = "",
     department: str = "",
+    segment_tags: Optional[List[str]] = None,
 ) -> Tuple[Contact, bool]:
     """
     Create or update a Contact from a single row of imported data.
@@ -696,6 +771,8 @@ def upsert_contact_from_row(
         contact_filter &= Q(email=email_norm)
     contact = contact_q.filter(contact_filter).first()
 
+    tag_list = normalize_segment_tags(segment_tags) if segment_tags is not None else []
+
     if not contact:
         user = link_existing_user_by_group(phone_norm, email_norm, group_type)
         contact = Contact.objects.create(
@@ -709,6 +786,7 @@ def upsert_contact_from_row(
             source=source,
             remarks=(remarks or "").strip(),
             department=(department or "").strip(),
+            segment_tags=tag_list,
         )
         return contact, True
 
@@ -737,6 +815,14 @@ def upsert_contact_from_row(
     if department is not None and department.strip():
         contact.department = department.strip()
         update_fields.append("department")
+    if segment_tags is not None:
+        existing_raw = contact.segment_tags if isinstance(contact.segment_tags, list) else []
+        merged = sorted(
+            set(normalize_segment_tags(existing_raw)) | set(tag_list)
+        )
+        if merged != normalize_segment_tags(existing_raw):
+            contact.segment_tags = merged
+            update_fields.append("segment_tags")
     if len(update_fields) > 1:
         contact.save(update_fields=update_fields)
     return contact, False
