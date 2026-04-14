@@ -5,6 +5,46 @@ from django.conf import settings
 from django.core.validators import validate_email
 
 
+def _is_non_production_email() -> bool:
+    env = str(getattr(settings, "ENVIRONMENT", "") or "").strip().lower()
+    return bool(getattr(settings, "DEBUG", False)) or env in {
+        "dev",
+        "development",
+        "test",
+        "testing",
+        "staging",
+    }
+
+
+def _decorate_email_content(subject: str, message: str = "", html_message: str = ""):
+    if not _is_non_production_email():
+        return subject or "", message or "", html_message or ""
+
+    raw_subject = (subject or "").strip()
+    tagged_subject = raw_subject if raw_subject.startswith("[TEST]") else f"[TEST] {raw_subject}"
+    text_notice = (
+        "TEST EMAIL NOTICE: This email is sent from IDBOOK development/test "
+        "environment. It is not a real production communication."
+    )
+    html_notice = (
+        '<div style="padding:10px 12px;margin:0 0 12px 0;'
+        'background:#fff3cd;border:1px solid #ffecb5;color:#664d03;'
+        'font-family:Arial,sans-serif;font-size:12px;line-height:1.4;">'
+        "<strong>TEST EMAIL NOTICE:</strong> This email is sent from IDBOOK "
+        "development/test environment. It is not a real production communication."
+        "</div>"
+    )
+    tagged_message = f"{text_notice}\n\n{message or ''}"
+    if html_message:
+        tagged_html = f"{html_notice}{html_message}"
+    else:
+        tagged_html = (
+            f"{html_notice}<pre style=\"white-space:pre-wrap;font-family:Arial,sans-serif;\">"
+            f"{(message or '').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
+        )
+    return tagged_subject, tagged_message, tagged_html
+
+
 def email_validation(email):
     try:
         validate_email(email)
@@ -31,24 +71,25 @@ def send_otp_email(otp, to_emails, template=None, subject=None, bcc=None):
     bcc_list = []
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
+    subject, body_text, body_html = _decorate_email_content(subject, template or "", template or "")
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
-            body=template or "",
+            body=body_text,
             from_email=from_email,
             to=to_emails if isinstance(to_emails, list) else [to_emails],
             bcc=bcc_list,
         )
-        msg.content_subtype = "html"
+        msg.attach_alternative(body_html, "text/html")
         status = msg.send()
     else:
         status = send_mail(
             subject,
-            template,
+            body_text,
             from_email,
             to_emails,
             fail_silently=False,
-            html_message=template,
+            html_message=body_html,
         )
     print("email status::", status)
 
@@ -61,7 +102,8 @@ def send_password_forget_email(reset_password_link, to_emails):
         )
     )
     from_email = settings.EMAIL_HOST_USER
-    status = send_mail(subject, message, from_email, to_emails)
+    subject, message, html_message = _decorate_email_content(subject, message, "")
+    status = send_mail(subject, message, from_email, to_emails, html_message=html_message)
     print("email status::", status)
 
 
@@ -70,13 +112,14 @@ def send_signup_link_email(signup_link, to_emails, html_content):
     ##    message = "Click the following link to sign up: {signup_link}".format(
     ##        signup_link=signup_link)
     from_email = settings.EMAIL_HOST_USER
+    subject, message, html_message = _decorate_email_content(subject, html_content, html_content)
     status = send_mail(
         subject,
-        html_content,
+        message,
         from_email,
         to_emails,
         fail_silently=False,
-        html_message=html_content,
+        html_message=html_message,
     )
     print("email status::", status)
 
@@ -86,24 +129,25 @@ def send_welcome_email(subject, template, to_emails, bcc=None):
     bcc_list = []
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
+    subject, body_text, body_html = _decorate_email_content(subject, template or "", template or "")
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
-            body=template,
+            body=body_text,
             from_email=from_email,
             to=to_emails if isinstance(to_emails, list) else [to_emails],
             bcc=bcc_list,
         )
-        msg.content_subtype = "html"
+        msg.attach_alternative(body_html, "text/html")
         status = msg.send()
     else:
         status = send_mail(
             subject,
-            template,
+            body_text,
             from_email,
             to_emails,
             fail_silently=False,
-            html_message=template,
+            html_message=body_html,
         )
     print("welcome email status::", status)
 
@@ -157,25 +201,26 @@ def send_booking_email(subject, booking, to_emails, html_content, bcc=None):
     bcc_list = None
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
+    subject, body_text, body_html = _decorate_email_content(subject, html_content or "", html_content or "")
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
-            body=html_content,
+            body=body_text,
             from_email=from_email,
             to=to_emails,
             bcc=bcc_list,
         )
-        msg.content_subtype = "html"
+        msg.attach_alternative(body_html, "text/html")
         status = msg.send()
         print(status)
     else:
         status = send_mail(
             subject,
-            html_content,
+            body_text,
             from_email,
             to_emails,
             fail_silently=False,
-            html_message=html_content,
+            html_message=body_html,
         )
         print(status)
 
@@ -189,21 +234,23 @@ def send_booking_email_with_attachment(subject, file, to_emails, html_content, b
     extra = {}
     if bcc_list:
         extra["bcc"] = bcc_list
+    subject, body_text, body_html = _decorate_email_content(subject, html_content or "", html_content or "")
     msg = EmailMultiAlternatives(
         subject=subject,
-        body=html_content,
+        body=body_text,
         from_email=from_email,
         to=to_emails,
         **extra,
     )
     if file:
         msg.attach("flight-ticket.pdf", file.read())
-    msg.content_subtype = "html"
+    msg.attach_alternative(body_html, "text/html")
     status = msg.send()
     print(status)
 
 
 def send_email(subject, message, to_emails: list, from_email, html_message=None):
+    subject, message, html_message = _decorate_email_content(subject, message or "", html_message or "")
     status = send_mail(
         subject,
         message,
@@ -227,6 +274,9 @@ def send_email_with_smtp_config(
     Send using an explicit SMTP connection (for per-campaign / per-template providers).
     `smtp` keys: host, port, username, password, use_tls, from_email
     """
+    subject, message, html_message = _decorate_email_content(
+        subject, message or "", html_message or ""
+    )
     conn = get_connection(
         backend="django.core.mail.backends.smtp.EmailBackend",
         host=smtp["host"],
