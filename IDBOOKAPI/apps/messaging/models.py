@@ -185,6 +185,22 @@ class Campaign(models.Model):
         blank=True,
         help_text="If set, initial campaign dispatch will be scheduled for this time.",
     )
+    repeat_every_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "If set (>0), auto-create the next campaign run after completion "
+            "with schedule_time + repeat_every_days."
+        ),
+    )
+    repeat_from_campaign = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="generated_repeats",
+        help_text="Internal link to the previous run when this campaign was auto-generated.",
+    )
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

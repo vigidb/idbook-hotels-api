@@ -223,6 +223,8 @@ class CampaignListSerializer(serializers.ModelSerializer):
             "target_filters",
             "status",
             "schedule_time",
+            "repeat_every_days",
+            "repeat_from_campaign",
             "created_at",
             "updated_at",
             "step_count",
@@ -293,6 +295,13 @@ class CampaignCreateUpdateSerializer(serializers.ModelSerializer):
     Separate serializer for create/update that does not require nested steps.
     Steps can be managed via dedicated endpoints.
     """
+
+    def validate_repeat_every_days(self, value):
+        if value is None:
+            return None
+        if value <= 0:
+            raise serializers.ValidationError("repeat_every_days must be greater than 0.")
+        return value
 
     class Meta:
         model = Campaign

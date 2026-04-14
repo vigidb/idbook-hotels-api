@@ -1246,6 +1246,17 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
             )
         return None
 
+    def _rebuild_pipeline_and_enqueue(self, campaign, *, eta=None):
+        """
+        Keep campaign_contact rows aligned with latest audience + steps.
+        Re-scheduling should not retain stale rows from previous targeting.
+        """
+        CampaignContact.objects.filter(campaign=campaign).delete()
+        if eta is not None:
+            enqueue_campaign_contacts_task.apply_async(args=[campaign.id], eta=eta)
+        else:
+            enqueue_campaign_contacts_task.delay(campaign.id)
+
     @swagger_auto_schema(
         operation_summary="List campaigns (filters, search, pagination)",
         manual_parameters=[
@@ -1554,6 +1565,12 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
     @action(detail=True, methods=["post"])
     def schedule(self, request, pk=None):
         campaign = self.get_object()
+        if campaign.status == Campaign.Status.RUNNING:
+            return self.get_error_response(
+                message="Cannot schedule while campaign is running. Pause it first.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         err = self._dispatch_prereq_error(campaign)
         if err:
             return err
@@ -1575,11 +1592,18 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
+        now = timezone.now()
+
         campaign.schedule_time = schedule_time
         campaign.status = Campaign.Status.SCHEDULED
         campaign.save(update_fields=["schedule_time", "status", "updated_at"])
 
-        enqueue_campaign_contacts_task.delay(campaign.id)
+        # If scheduling in the future, enqueue build exactly at schedule_time.
+        # Always rebuild pipeline rows first to avoid stale audience data.
+        if schedule_time > now:
+            self._rebuild_pipeline_and_enqueue(campaign, eta=schedule_time)
+        else:
+            self._rebuild_pipeline_and_enqueue(campaign)
 
         return self.get_response(
             data={"status": "scheduled", "schedule_time": schedule_time},
@@ -1612,7 +1636,8 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         campaign.status = Campaign.Status.RUNNING
         campaign.save(update_fields=["schedule_time", "status", "updated_at"])
 
-        enqueue_campaign_contacts_task.delay(campaign.id)
+        # Rebuild from latest audience/steps before immediate dispatch.
+        self._rebuild_pipeline_and_enqueue(campaign)
         return self.get_response(data={"status": "running"}, status="success")
 
     @swagger_auto_schema(
