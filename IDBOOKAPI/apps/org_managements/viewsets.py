@@ -24,6 +24,7 @@ from rest_framework.generics import (
 )
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
 from IDBOOKAPI.utils import paginate_queryset, order_ops
+from IDBOOKAPI.csv_export import csv_http_response_from_records, MAX_EXPORT_ROWS
 
 from .models import BusinessDetail
 from apps.authentication.models import User
@@ -200,6 +201,28 @@ class BusinessDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggin
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export-csv",
+        permission_classes=[IsAuthenticated],
+    )
+    def export_csv(self, request):
+        self.log_request(request)
+        if not request.user.is_superuser:
+            return Response(
+                {"detail": "Only superusers can export data."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        self.queryset = BusinessDetail.objects.all()
+        self.business_filter_ops()
+        self.queryset = order_ops(request, self.queryset)
+        queryset = self.queryset[:MAX_EXPORT_ROWS]
+        serializer = self.get_serializer(queryset, many=True)
+        return csv_http_response_from_records(
+            serializer.data, "business-details-export.csv"
+        )
 
     def create(self, request, *args, **kwargs):
         user_id = request.user.id

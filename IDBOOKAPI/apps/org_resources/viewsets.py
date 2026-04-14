@@ -75,6 +75,7 @@ from IDBOOKAPI.utils import (
     get_date_from_string,
     order_ops,
 )
+from IDBOOKAPI.csv_export import csv_http_response_from_records, MAX_EXPORT_ROWS
 
 from IDBOOKAPI.basic_resources import DISTRICT_DATA
 from apps.authentication.models import User
@@ -90,6 +91,9 @@ from django.conf import settings
 
 from apps.authentication.utils import db_utils as auth_db_utils
 from apps.authentication.utils.authentication_utils import get_group_based_on_name
+from apps.authentication.utils.clear_user_fks_for_delete import (
+    clear_user_fks_for_hard_delete,
+)
 from apps.customer.models import Customer, Wallet, WalletTransaction
 from apps.payment_gateways.mixins.phonepay_mixins import PhonePayMixin
 
@@ -639,10 +643,9 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
 
-    def list(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-
-        # Get query parameters
+    def _filtered_company_queryset_for_request(self, request):
+        """Same filters as list (without pagination)."""
+        queryset = CompanyDetail.objects.all()
         search = request.query_params.get("search", "")
         approved = request.query_params.get("approved", None)
         is_active = request.query_params.get("is_active", None)
@@ -650,7 +653,6 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         country = request.query_params.get("country", None)
         district = request.query_params.get("district", None)
 
-        # Robust search across multiple fields
         if search:
             search_q_filter = (
                 Q(company_name__icontains=search)
@@ -665,36 +667,35 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                 | Q(contact_email_address__icontains=search)
                 | Q(registered_address__icontains=search)
             )
-            self.queryset = self.queryset.filter(search_q_filter)
+            queryset = queryset.filter(search_q_filter)
 
-        # Filter by approved status
         if approved is not None:
             if approved.lower() == "true":
-                self.queryset = self.queryset.filter(approved=True)
+                queryset = queryset.filter(approved=True)
             elif approved.lower() == "false":
-                self.queryset = self.queryset.filter(approved=False)
+                queryset = queryset.filter(approved=False)
 
-        # Filter by is_active status
         if is_active is not None:
             if is_active.lower() == "true":
-                self.queryset = self.queryset.filter(is_active=True)
+                queryset = queryset.filter(is_active=True)
             elif is_active.lower() == "false":
-                self.queryset = self.queryset.filter(is_active=False)
+                queryset = queryset.filter(is_active=False)
 
-        # Filter by state
         if state:
-            self.queryset = self.queryset.filter(state__icontains=state)
+            queryset = queryset.filter(state__icontains=state)
 
-        # Filter by country
         if country:
-            self.queryset = self.queryset.filter(country__icontains=country)
+            queryset = queryset.filter(country__icontains=country)
 
-        # Filter by district
         if district:
-            self.queryset = self.queryset.filter(district__icontains=district)
+            queryset = queryset.filter(district__icontains=district)
 
-        # Apply ordering/sorting
-        self.queryset = order_ops(request, self.queryset)
+        return order_ops(request, queryset)
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        self.queryset = self._filtered_company_queryset_for_request(request)
 
         # Apply pagination
         count, self.queryset = paginate_queryset(self.request, self.queryset)
@@ -722,6 +723,25 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export-csv",
+        permission_classes=[IsAuthenticated],
+    )
+    def export_csv(self, request):
+        self.log_request(request)
+        if not request.user.is_superuser:
+            return Response(
+                {"detail": "Only superusers can export data."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        queryset = self._filtered_company_queryset_for_request(request)[
+            :MAX_EXPORT_ROWS
+        ]
+        serializer = CompanyDetailSerializer(queryset, many=True)
+        return csv_http_response_from_records(serializer.data, "companies-export.csv")
 
     # @decorators.action(permission_classes=[IsAuthenticated])
     def retrieve(self, request, *args, **kwargs):
@@ -932,10 +952,31 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
     def destroy(self, request, pk=None):
         try:
-            instance = self.get_object()
-            company_id = instance.id
             # Soft delete by default; hard delete only when action=delete
             action_param = (request.query_params.get("action") or "").strip().lower()
+            instance = self.filter_queryset(self.get_queryset()).filter(pk=pk).first()
+            if not instance:
+                if action_param == "delete":
+                    # Idempotent hard delete: if already deleted, return success.
+                    custom_response = self.get_response(
+                        status="success",
+                        data=None,
+                        message="Company already deleted",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    self.log_response(custom_response)
+                    return custom_response
+                custom_response = self.get_error_response(
+                    message="Company not found",
+                    status="error",
+                    errors=["No CompanyDetail matches the given query."],
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                self.log_response(custom_response)
+                return custom_response
+
+            company_id = instance.id
 
             if action_param == "delete":
                 # Hard delete: remove from DB (may fail if referenced by bookings etc.)
@@ -964,6 +1005,9 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
                         if customer:
                             customer.delete()
                             print(f"Deleted customer for user: {user.email}")
+
+                        # Detach DO_NOTHING FKs (e.g. booking_booking.user_id) before deleting user
+                        clear_user_fks_for_hard_delete(user.id)
 
                         # User has only corporate access - delete the user completely
                         user_email = user.email
@@ -1600,10 +1644,9 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         self.log_response(custom_response)
         return custom_response
 
-    def list(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-
-        # Get query parameters
+    def _filtered_agent_queryset_for_request(self, request):
+        """Same filters as list (without pagination)."""
+        queryset = AgentDetail.objects.all()
         search = request.query_params.get("search", "")
         approved = request.query_params.get("approved", None)
         is_active = request.query_params.get("is_active", None)
@@ -1611,7 +1654,6 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         country = request.query_params.get("country", None)
         district = request.query_params.get("district", None)
 
-        # Robust search across multiple fields
         if search:
             search_q_filter = (
                 Q(agent_name__icontains=search)
@@ -1625,37 +1667,35 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 | Q(contact_email_address__icontains=search)
                 | Q(registered_address__icontains=search)
             )
-            self.queryset = self.queryset.filter(search_q_filter)
+            queryset = queryset.filter(search_q_filter)
 
-        # Filter by approved status
         if approved is not None:
             if approved.lower() == "true":
-                self.queryset = self.queryset.filter(approved=True)
+                queryset = queryset.filter(approved=True)
             elif approved.lower() == "false":
-                self.queryset = self.queryset.filter(approved=False)
+                queryset = queryset.filter(approved=False)
 
-        # Filter by is_active status
         if is_active is not None:
             if is_active.lower() == "true":
-                self.queryset = self.queryset.filter(is_active=True)
+                queryset = queryset.filter(is_active=True)
             elif is_active.lower() == "false":
-                self.queryset = self.queryset.filter(is_active=False)
+                queryset = queryset.filter(is_active=False)
 
-        # Filter by state
         if state:
-            self.queryset = self.queryset.filter(state__icontains=state)
+            queryset = queryset.filter(state__icontains=state)
 
-        # Filter by country
         if country:
-            self.queryset = self.queryset.filter(country__icontains=country)
+            queryset = queryset.filter(country__icontains=country)
 
-        # Filter by district
         if district:
-            self.queryset = self.queryset.filter(district__icontains=district)
+            queryset = queryset.filter(district__icontains=district)
 
-        # Apply ordering/sorting
-        from IDBOOKAPI.utils import order_ops
-        self.queryset = order_ops(request, self.queryset)
+        return order_ops(request, queryset)
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+
+        self.queryset = self._filtered_agent_queryset_for_request(request)
 
         # Apply pagination
         count, self.queryset = paginate_queryset(self.request, self.queryset)
@@ -1683,6 +1723,25 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export-csv",
+        permission_classes=[IsAuthenticated],
+    )
+    def export_csv(self, request):
+        self.log_request(request)
+        if not request.user.is_superuser:
+            return Response(
+                {"detail": "Only superusers can export data."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        queryset = self._filtered_agent_queryset_for_request(request)[
+            :MAX_EXPORT_ROWS
+        ]
+        serializer = AgentDetailSerializer(queryset, many=True)
+        return csv_http_response_from_records(serializer.data, "agent-companies-export.csv")
 
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
@@ -1800,6 +1859,7 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
             # If the user had only the agent group, delete the user as well
             if user and not user.groups.exists():
+                clear_user_fks_for_hard_delete(user.id)
                 user.delete()
 
             custom_response = self.get_response(

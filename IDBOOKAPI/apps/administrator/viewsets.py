@@ -37,6 +37,7 @@ from apps.org_managements.models import BusinessDetail
 
 from apps.authentication.utils import db_utils
 from IDBOOKAPI.utils import paginate_queryset, order_ops
+from IDBOOKAPI.csv_export import csv_http_response_from_records, MAX_EXPORT_ROWS
 from django.db.models import Q
 from django.contrib.auth.models import Group, Permission
 
@@ -158,10 +159,8 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             self.log_response(response)  # Log the response before returning
             return response
 
-    def list(self, request, *args, **kwargs):
-        self.log_request(request)  # Log the incoming request
-        queryset = self.get_queryset()
-        
+    def _filter_users_for_list(self, request, queryset):
+        """Apply the same query-param filters as list (excluding pagination)."""
         # ========== SEARCH FUNCTIONALITY (SOLID Search) ==========
         # Single search parameter that searches across multiple fields
         search = request.query_params.get("search", "").strip()
@@ -316,14 +315,18 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
             queryset = queryset.order_by("-created")
         
         # Remove duplicates that may occur from ManyToMany relationships
-        queryset = queryset.distinct()
-        
+        return queryset.distinct()
+
+    def list(self, request, *args, **kwargs):
+        self.log_request(request)  # Log the incoming request
+        queryset = self._filter_users_for_list(request, self.get_queryset())
+
         # ========== PAGINATION ==========
         count, queryset = paginate_queryset(self.request, queryset)
-        
+
         # Set queryset for serializer
         self.queryset = queryset
-        
+
         # Perform the default listing logic
         response = super().list(request, *args, **kwargs)
 
@@ -347,6 +350,25 @@ class UserViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
 
         self.log_response(custom_response)  # Log the custom response before returning
         return custom_response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export-csv",
+        permission_classes=[IsAuthenticated],
+    )
+    def export_csv(self, request):
+        self.log_request(request)
+        if not request.user.is_superuser:
+            return Response(
+                {"detail": "Only superusers can export data."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        queryset = self._filter_users_for_list(request, self.get_queryset())[
+            :MAX_EXPORT_ROWS
+        ]
+        serializer = UserAdminListSerializer(queryset, many=True)
+        return csv_http_response_from_records(serializer.data, "users-export.csv")
 
     def retrieve(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
