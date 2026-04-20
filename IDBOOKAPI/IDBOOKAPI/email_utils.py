@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, List, Optional
 
 from django.core.mail import send_mail, EmailMultiAlternatives, get_connection
@@ -6,22 +7,25 @@ from django.core.validators import validate_email
 
 
 def _is_non_production_email() -> bool:
-    env = str(getattr(settings, "ENVIRONMENT", "") or "").strip().lower()
-    return bool(getattr(settings, "DEBUG", False)) or env in {
-        "dev",
-        "development",
-        "test",
-        "testing",
-        "staging",
-    }
+    env = str(getattr(settings, "ENVIRONMENT", "") or "").strip().strip("'\"").lower()
+    # Add test markers for every non-production environment.
+    # Only prod/live variants are treated as production-safe.
+    return env not in ["prod", "production", "live"]
+
+
+def _normalize_subject_for_env(subject: str) -> str:
+    raw_subject = (subject or "").strip()
+    # Remove any legacy/stored test marker first.
+    base_subject = re.sub(r"^\s*\[(?:TEST[\]\}]?)\s*", "", raw_subject, flags=re.IGNORECASE)
+    if _is_non_production_email():
+        return f"[TEST] {base_subject}" if base_subject else "[TEST]"
+    return base_subject
 
 
 def _decorate_email_content(subject: str, message: str = "", html_message: str = ""):
+    tagged_subject = _normalize_subject_for_env(subject)
     if not _is_non_production_email():
-        return subject or "", message or "", html_message or ""
-
-    raw_subject = (subject or "").strip()
-    tagged_subject = raw_subject if raw_subject.startswith("[TEST]") else f"[TEST] {raw_subject}"
+        return tagged_subject, message or "", html_message or ""
     text_notice = (
         "TEST EMAIL NOTICE: This email is sent from IDBOOK development/test "
         "environment. It is not a real production communication."
@@ -72,6 +76,7 @@ def send_otp_email(otp, to_emails, template=None, subject=None, bcc=None):
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
     subject, body_text, body_html = _decorate_email_content(subject, template or "", template or "")
+    subject = _normalize_subject_for_env(subject)
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
@@ -103,6 +108,7 @@ def send_password_forget_email(reset_password_link, to_emails):
     )
     from_email = settings.EMAIL_HOST_USER
     subject, message, html_message = _decorate_email_content(subject, message, "")
+    subject = _normalize_subject_for_env(subject)
     status = send_mail(subject, message, from_email, to_emails, html_message=html_message)
     print("email status::", status)
 
@@ -113,6 +119,7 @@ def send_signup_link_email(signup_link, to_emails, html_content):
     ##        signup_link=signup_link)
     from_email = settings.EMAIL_HOST_USER
     subject, message, html_message = _decorate_email_content(subject, html_content, html_content)
+    subject = _normalize_subject_for_env(subject)
     status = send_mail(
         subject,
         message,
@@ -130,6 +137,7 @@ def send_welcome_email(subject, template, to_emails, bcc=None):
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
     subject, body_text, body_html = _decorate_email_content(subject, template or "", template or "")
+    subject = _normalize_subject_for_env(subject)
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
@@ -202,6 +210,7 @@ def send_booking_email(subject, booking, to_emails, html_content, bcc=None):
     if bcc:
         bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
     subject, body_text, body_html = _decorate_email_content(subject, html_content or "", html_content or "")
+    subject = _normalize_subject_for_env(subject)
     if bcc_list:
         msg = EmailMultiAlternatives(
             subject=subject,
@@ -235,6 +244,7 @@ def send_booking_email_with_attachment(subject, file, to_emails, html_content, b
     if bcc_list:
         extra["bcc"] = bcc_list
     subject, body_text, body_html = _decorate_email_content(subject, html_content or "", html_content or "")
+    subject = _normalize_subject_for_env(subject)
     msg = EmailMultiAlternatives(
         subject=subject,
         body=body_text,
@@ -251,6 +261,7 @@ def send_booking_email_with_attachment(subject, file, to_emails, html_content, b
 
 def send_email(subject, message, to_emails: list, from_email, html_message=None):
     subject, message, html_message = _decorate_email_content(subject, message or "", html_message or "")
+    subject = _normalize_subject_for_env(subject)
     status = send_mail(
         subject,
         message,
@@ -277,6 +288,7 @@ def send_email_with_smtp_config(
     subject, message, html_message = _decorate_email_content(
         subject, message or "", html_message or ""
     )
+    subject = _normalize_subject_for_env(subject)
     conn = get_connection(
         backend="django.core.mail.backends.smtp.EmailBackend",
         host=smtp["host"],

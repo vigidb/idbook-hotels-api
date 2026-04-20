@@ -583,27 +583,33 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
     def update(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
+        # Determine if this is a partial (PATCH) update. PATCH requests should
+        # only validate fields that are explicitly provided by the client.
+        partial = kwargs.get("partial", False)
+
         # Get the object to be updated
         instance = self.get_object()
 
-        # Check if company_name is provided (mandatory field)
-        company_name = request.data.get("company_name", "")
-        if not company_name or company_name.strip() == "":
-            error_list = [
-                {
-                    "field": "company_name",
-                    "error_code": "REQUIRED_FIELD",
-                    "message": "company_name is required and cannot be empty",
-                }
-            ]
-            response = self.get_error_response(
-                message="Validation Error",
-                status="error",
-                errors=error_list,
-                error_code="VALIDATION_ERROR",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-            return response
+        # Validate company_name only when it's included in the payload (PATCH)
+        # or for full updates (PUT) where it must always be present.
+        if (not partial) or ("company_name" in request.data):
+            company_name = request.data.get("company_name", "")
+            if not company_name or str(company_name).strip() == "":
+                error_list = [
+                    {
+                        "field": "company_name",
+                        "error_code": "REQUIRED_FIELD",
+                        "message": "company_name is required and cannot be empty",
+                    }
+                ]
+                response = self.get_error_response(
+                    message="Validation Error",
+                    status="error",
+                    errors=error_list,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return response
 
         error_list = self.update_corporate_verification(instance)
         if error_list:
@@ -617,7 +623,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             return response
 
         # Create an instance of your serializer with the request data and the object to be updated
-        serializer = self.get_serializer(instance, data=request.data)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
 
         if serializer.is_valid():
             # If the serializer is valid, perform the default update logic
