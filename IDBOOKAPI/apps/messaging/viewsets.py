@@ -1,5 +1,6 @@
 import re
 from typing import Any, Dict, Optional
+import django_filters
 from django.conf import settings
 from django.core import signing
 from django.core.validators import EmailValidator
@@ -63,9 +64,39 @@ from apps.messaging.services import (
     upsert_contact_from_row,
     render_template_string,
 )
-from apps.messaging.tasks import enqueue_campaign_contacts_task, send_campaign_batch_task
+from apps.messaging.tasks import (
+    enqueue_campaign_contacts_task,
+    process_due_campaign_contacts_task,
+    send_campaign_batch_task,
+)
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from IDBOOKAPI.email_utils import send_email_with_smtp_config
+
+
+class MessageLogFilter(django_filters.FilterSet):
+    """
+    Supports `step` as either:
+    - CampaignStep.id (legacy/current behavior), OR
+    - CampaignStep.order_index when `campaign` is provided (UI-friendly).
+    """
+
+    step = django_filters.NumberFilter(method="filter_step")
+
+    class Meta:
+        model = MessageLog
+        fields = ["campaign", "step", "contact", "channel", "status"]
+
+    def filter_step(self, queryset, name, value):
+        campaign_raw = self.data.get("campaign")
+        if campaign_raw in (None, ""):
+            return queryset.filter(step_id=value)
+        try:
+            campaign_id = int(campaign_raw)
+        except (TypeError, ValueError):
+            return queryset.filter(step_id=value)
+        return queryset.filter(
+            Q(step_id=value) | Q(campaign_id=campaign_id, step__order_index=value)
+        )
 
 
 class ContactViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -1664,6 +1695,45 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         return self.get_response(data={"status": "paused"}, status="success")
 
     @swagger_auto_schema(
+        method="post",
+        tags=["4. Execution (Send & Schedule)"],
+        operation_summary="Resume a paused campaign without rebuilding pipeline rows",
+        responses={
+            200: openapi.Response(
+                description="Campaign resumed",
+                examples={
+                    "application/json": {
+                        "status": "success",
+                        "data": {"status": "running"},
+                    }
+                },
+            ),
+            400: "Campaign is not paused",
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def resume(self, request, pk=None):
+        campaign = self.get_object()
+        if campaign.status != Campaign.Status.PAUSED:
+            return self.get_error_response(
+                message="Only paused campaigns can be resumed.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        err = self._dispatch_prereq_error(campaign)
+        if err:
+            return err
+
+        campaign.status = Campaign.Status.RUNNING
+        campaign.save(update_fields=["status", "updated_at"])
+
+        # Resume should continue from existing CampaignContact rows (no rebuild/reset).
+        process_due_campaign_contacts_task.delay(campaign.id)
+
+        return self.get_response(data={"status": "running"}, status="success")
+
+    @swagger_auto_schema(
         method="get",
         tags=["5. Monitoring & Analytics"],
         operation_summary="Campaign status, aggregate counters, and per-step breakdown",
@@ -1885,7 +1955,7 @@ class MessageLogViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, Lo
     http_method_names = ["get"]
     swagger_tags = ["5. Monitoring & Analytics"]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["campaign", "step", "contact", "channel", "status"]
+    filterset_class = MessageLogFilter
     ordering_fields = ["created_at", "sent_at", "status", "channel"]
     ordering = ["-created_at"]
 
