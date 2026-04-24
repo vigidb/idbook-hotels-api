@@ -70,6 +70,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "drf_yasg",
     "imagekit",
+    "django_celery_beat",
+    "django_celery_results",
     # 'django_faker',
     # our apps
     # 'api',

@@ -13,12 +13,12 @@ app.autodiscover_tasks()
 # app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
 
 environment = settings.ENVIRONMENT
-if environment == "dev":
-    email_send_queue = "dev-email-send-queue"
-    marketing_campaign_queue = "dev-marketing-campaign-queue"
-else:
-    email_send_queue = "email-send-queue"
-    marketing_campaign_queue = "marketing-campaign-queue"
+normalized_environment = str(environment or "").strip().lower()
+is_dev_environment = normalized_environment in {"dev", "development", "local", "test"}
+queue_prefix = "dev-" if is_dev_environment else ""
+
+email_send_queue = f"{queue_prefix}email-send-queue"
+marketing_campaign_queue = f"{queue_prefix}marketing-campaign-queue"
 # email_booking_queue = "email-booking-queue"
 app.conf.task_routes = {
     "apps.authentication.tasks.send_email_task": {"queue": email_send_queue},

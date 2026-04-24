@@ -20,6 +20,30 @@ from apps.messaging.services import (
 CAMPAIGN_BATCH_SIZE = 100
 
 
+def _schedule_next_due_poll(campaign_id: int) -> None:
+    """
+    Schedule a focused due-contact scan for this campaign at its next pending send time.
+    This provides a safety net when global beat polling is delayed under heavy load.
+    """
+    campaign = Campaign.objects.filter(id=campaign_id).first()
+    if not campaign or campaign.status not in (Campaign.Status.SCHEDULED, Campaign.Status.RUNNING):
+        return
+
+    now = timezone.now()
+    next_due = (
+        CampaignContact.objects.filter(
+            campaign_id=campaign_id,
+            status=CampaignContact.Status.PENDING,
+            scheduled_at__gt=now,
+        )
+        .order_by("scheduled_at")
+        .values_list("scheduled_at", flat=True)
+        .first()
+    )
+    if next_due:
+        process_due_campaign_contacts_task.apply_async(kwargs={"campaign_id": campaign_id}, eta=next_due)
+
+
 def _create_next_recurring_campaign(source: Campaign) -> None:
     """
     Clone campaign + steps for the next cycle when recurrence is enabled.
@@ -148,24 +172,26 @@ def enqueue_campaign_contacts_task(campaign_id: int) -> int:
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
         send_campaign_batch_task.delay(chunk)
+    _schedule_next_due_poll(campaign_id)
     _sync_campaign_runtime_status(campaign_id)
     return created
 
 
 @shared_task
-def process_due_campaign_contacts_task() -> int:
+def process_due_campaign_contacts_task(campaign_id: int | None = None) -> int:
     """
     Periodic task: queue batch send for PENDING campaign contacts whose scheduled_at is due.
     Register in Celery Beat (e.g. every 1 minute) so scheduled campaigns actually send.
     """
     now = timezone.now()
-    due_ids = list(
-        CampaignContact.objects.filter(
+    due_qs = CampaignContact.objects.filter(
             status=CampaignContact.Status.PENDING,
             campaign__status__in=[Campaign.Status.SCHEDULED, Campaign.Status.RUNNING],
-        )
-        .filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
-        .values_list("id", flat=True)[:1000]
+        ).filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
+    if campaign_id:
+        due_qs = due_qs.filter(campaign_id=campaign_id)
+    due_ids = list(
+        due_qs.order_by("scheduled_at", "id").values_list("id", flat=True)[:1000]
     )
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
@@ -176,8 +202,12 @@ def process_due_campaign_contacts_task() -> int:
         .values_list("campaign_id", flat=True)
         .distinct()
     )
-    for campaign_id in campaign_ids:
-        _sync_campaign_runtime_status(campaign_id)
+    for affected_campaign_id in campaign_ids:
+        _sync_campaign_runtime_status(affected_campaign_id)
+        _schedule_next_due_poll(affected_campaign_id)
+    if campaign_id and not campaign_ids:
+        # If nothing was due for this campaign yet, keep one focused poll aligned to its next due time.
+        _schedule_next_due_poll(campaign_id)
     return len(due_ids)
 
 

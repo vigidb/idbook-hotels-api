@@ -15,6 +15,9 @@ from IDBOOKAPI.email_utils import send_email as core_send_email
 from IDBOOKAPI.email_utils import send_email_with_smtp_config
 from apps.authentication.constants import CORPORATE_GROUPS, UserGroups
 from apps.authentication.models import User
+from apps.authentication.constants import ALL_GROUP_CHOICES, B2C_GROUPS
+from apps.hotels.models import Property
+from apps.org_resources.models import AgentDetail, CompanyDetail
 from apps.messaging.models import (
     Contact,
     Campaign,
@@ -96,12 +99,33 @@ def _apply_segment_tag_filters(qs: QuerySet[Contact], filters: Dict[str, Any]) -
     return qs.filter(q)
 
 
+def _as_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    return None
+
+
 def resolve_campaign_contacts(campaign: Campaign) -> QuerySet[Contact]:
     qs = Contact.objects.all()
     if campaign.target_group_type:
         qs = qs.filter(group_type=campaign.target_group_type)
 
     filters = campaign.target_filters or {}
+    registered_only = _as_bool(filters.get("registered_only"))
+    if registered_only is True:
+        qs = qs.filter(user__isnull=False)
+    elif registered_only is False:
+        qs = qs.filter(user__isnull=True)
     if city := filters.get("city"):
         qs = qs.filter(city__iexact=city)
     if country := filters.get("country"):
@@ -827,5 +851,158 @@ def upsert_contact_from_row(
     if len(update_fields) > 1:
         contact.save(update_fields=update_fields)
     return contact, False
+
+
+def upsert_contact_for_registered_user(
+    user: User, source: str = "registration_sync"
+) -> Dict[str, int]:
+    """
+    Ensure messaging contacts are synced for each group assigned to the user.
+    For B2C groups, pull details from User.
+    For corporate/agent/hotelier groups, pull details from their domain models.
+    """
+    result = {"created": 0, "updated": 0, "skipped": 0}
+    if not user:
+        result["skipped"] += 1
+        return result
+
+    all_group_values = set(dict(ALL_GROUP_CHOICES).keys())
+    user_group_names = set(user.groups.values_list("name", flat=True))
+    default_group = (getattr(user, "default_group", "") or "").strip()
+    if default_group:
+        user_group_names.add(default_group)
+    target_groups = sorted(g for g in user_group_names if g in all_group_values)
+    if not target_groups:
+        result["skipped"] += 1
+        return result
+
+    def _upsert_single(
+        *, group_type: str, name: str, phone: str, email: str, remarks: str = ""
+    ) -> None:
+        phone_norm = normalize_phone(phone or "")
+        email_norm = (email or "").strip().lower()
+        if not phone_norm and not email_norm:
+            result["skipped"] += 1
+            return
+
+        contact_qs = Contact.objects.filter(group_type=group_type)
+        if phone_norm and email_norm:
+            contact_qs = contact_qs.filter(Q(phone=phone_norm) | Q(email=email_norm))
+        elif phone_norm:
+            contact_qs = contact_qs.filter(phone=phone_norm)
+        else:
+            contact_qs = contact_qs.filter(email=email_norm)
+
+        contact = contact_qs.order_by("id").first()
+        name_value = (name or "").strip()
+        if not contact:
+            Contact.objects.create(
+                user=user,
+                name=name_value,
+                phone=phone_norm,
+                email=email_norm,
+                group_type=group_type,
+                source=source,
+                remarks=(remarks or "").strip(),
+            )
+            result["created"] += 1
+            return
+
+        update_fields = ["updated_at"]
+        if contact.user_id != user.id:
+            contact.user = user
+            update_fields.append("user")
+        if name_value and contact.name != name_value:
+            contact.name = name_value
+            update_fields.append("name")
+        if phone_norm and contact.phone != phone_norm:
+            contact.phone = phone_norm
+            update_fields.append("phone")
+        if email_norm and contact.email != email_norm:
+            contact.email = email_norm
+            update_fields.append("email")
+        if remarks and contact.remarks != remarks:
+            contact.remarks = remarks
+            update_fields.append("remarks")
+        if source and contact.source != source:
+            contact.source = source
+            update_fields.append("source")
+        if len(update_fields) > 1:
+            contact.save(update_fields=update_fields)
+            result["updated"] += 1
+        else:
+            result["skipped"] += 1
+
+    corporate_groups = set(CORPORATE_GROUPS)
+    agent_groups = {UserGroups.AGENT_GRP, UserGroups.AGENT_ADMIN}
+    hotel_groups = {UserGroups.HOTELIER_GRP, UserGroups.HTLR_ADMIN}
+
+    user_name = (
+        getattr(user, "name", "") or getattr(user, "get_full_name", lambda: "")() or ""
+    ).strip()
+    user_phone = getattr(user, "mobile_number", "") or ""
+    user_email = getattr(user, "email", "") or ""
+
+    for group_type in target_groups:
+        if group_type in B2C_GROUPS:
+            _upsert_single(
+                group_type=group_type, name=user_name, phone=user_phone, email=user_email
+            )
+            continue
+
+        if group_type in corporate_groups:
+            company = (
+                CompanyDetail.objects.filter(
+                    Q(added_user=user) | Q(business_rep=user)
+                )
+                .order_by("id")
+                .first()
+            )
+            if not company:
+                result["skipped"] += 1
+                continue
+            _upsert_single(
+                group_type=group_type,
+                name=company.company_name or company.brand_name or user_name,
+                phone=company.company_phone or company.contact_number or user_phone,
+                email=company.company_email or company.contact_email_address or user_email,
+                remarks=f"company_id={company.id}",
+            )
+            continue
+
+        if group_type in agent_groups:
+            agent = AgentDetail.objects.filter(added_user=user).order_by("id").first()
+            if not agent:
+                result["skipped"] += 1
+                continue
+            _upsert_single(
+                group_type=group_type,
+                name=agent.agent_name or user_name,
+                phone=agent.agent_phone or agent.contact_number or user_phone,
+                email=agent.agent_email or agent.contact_email_address or user_email,
+                remarks=f"agent_id={agent.id}",
+            )
+            continue
+
+        if group_type in hotel_groups:
+            properties = Property.objects.filter(managed_by=user).order_by("id")
+            if not properties.exists():
+                result["skipped"] += 1
+                continue
+            for prop in properties.iterator():
+                _upsert_single(
+                    group_type=group_type,
+                    name=prop.name or user_name,
+                    phone=prop.phone_no or user_phone,
+                    email=prop.email or user_email,
+                    remarks=f"property_id={prop.id}",
+                )
+            continue
+
+        _upsert_single(
+            group_type=group_type, name=user_name, phone=user_phone, email=user_email
+        )
+
+    return result
 
 
