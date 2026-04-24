@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load company_tags %}{% company_info as company %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -271,7 +271,7 @@
             <div class="footer-right">
                 <p>Corporate Support</p>
                 <p>📞 <a href="tel:+919218077408">+91 9218077408</a> / <a href="tel:+918800150924">+91 8800150924</a><br> ✉️ <a href="mailto:corporates@idbookhotels.com">corporates@idbookhotels.com</a><br> 🌐 <a href="https://www.idbookhotels.com?utm_source=email&utm_medium=welcome&utm_campaign=corporate_onboarding&utm_content=website_link">www.idbookhotels.com</a></p>
-                <p>📍 WeWork Vi-John Tower, 393, Phase III, Udyog Vihar, Gurugram, Haryana 122016</p>
+                <p>📍 {{ company.address.hq.line }}</p>
                 <div class="social-icons">
                     <a href="https://www.facebook.com/p/Idbook-hotels-100063459046918/?utm_source=email&utm_medium=welcome&utm_campaign=corporate_onboarding&utm_content=facebook">
                         <img src="https://cdn-icons-png.flaticon.com/512/174/174848.png" alt="Facebook">
@@ -293,9 +293,9 @@
         </div>
 
         <div class="legal-info">
-            <p>Idbook Hospitality Private Limited<br>
-            WeWork Vi-John Tower, 393, Phase III, Udyog Vihar, Gurugram, Haryana – 122016<br>
-            CIN: U74999HR2018PTC073257 | GST: 06AAECI8163K1Z9 | PAN: AAECI8163K | TAN: RTKI02839E</p>
+            <p>{{ company.legal_name }}<br>
+            {{ company.address.hq.line }}<br>
+            CIN: {{ company.registration.cin }} | PAN: {{ company.registration.pan }} | TAN: {{ company.registration.tan }}</p>
         </div>
     </div>
 </body>

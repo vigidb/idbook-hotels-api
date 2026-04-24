@@ -1,4 +1,4 @@
-<!doctype html>
+{% load company_tags %}{% company_info as company %}<!doctype html>
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
@@ -198,11 +198,11 @@
                             margin-bottom: 2px;
                         "
                     >
-                        IDBOOK HOSPITALITY PRIVATE LIMITED
+                        {{ company.legal_name|upper }}
                     </div>
-                    Mail:- partner.b2b@idbookhotels.com<br />
-                    Web:- www.idbookhotels.com<br />
-                    GSTIN No. 06AAECI8163KIZ9
+                    Mail:- {{ company.contact.partner_email }}<br />
+                    Web:- {{ company.contact.website }}<br />
+                    CIN No. {{ company.registration.cin }}
                 </div>
             </div>
 

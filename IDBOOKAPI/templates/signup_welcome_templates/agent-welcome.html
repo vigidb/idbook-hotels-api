@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load company_tags %}{% company_info as company %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -178,9 +178,9 @@
     <!-- Legal -->
     <div class="legal-info">
         <p>
-            Idbook Hospitality Private Limited<br>
-            WeWork Vi-John Tower, Gurugram – 122016<br>
-            CIN: U74999HR2018PTC073257
+            {{ company.legal_name }}<br>
+            {{ company.address.hq.line }}<br>
+            CIN: {{ company.registration.cin }} | PAN: {{ company.registration.pan }} | TAN: {{ company.registration.tan }}
         </p>
     </div>
 

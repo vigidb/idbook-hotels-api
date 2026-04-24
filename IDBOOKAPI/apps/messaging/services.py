@@ -600,7 +600,8 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
                 to_emails=[contact.email],
                 from_email=settings.EMAIL_HOST_USER,
             )
-        status = MessageLog.Status.SENT
+        # SMTP handoff success means provider accepted the message, not necessarily delivered.
+        status = MessageLog.Status.ACCEPTED
         sent_at = timezone.now()
         error_message = ""
     except Exception as exc:
@@ -619,7 +620,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         sent_at=sent_at,
     )
 
-    if status == MessageLog.Status.SENT:
+    if status in (MessageLog.Status.SENT, MessageLog.Status.ACCEPTED, MessageLog.Status.DELIVERED):
         campaign_contact.status = CampaignContact.Status.SENT
         campaign_contact.sent_at = sent_at
     else:

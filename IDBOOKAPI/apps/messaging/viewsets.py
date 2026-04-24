@@ -10,7 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from drf_yasg.utils import swagger_auto_schema
@@ -662,7 +662,7 @@ class ContactUploadSessionViewSet(viewsets.ReadOnlyModelViewSet, StandardRespons
     queryset = ContactUploadSession.objects.all().order_by("-created_at")
     serializer_class = ContactUploadSessionSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get"]
+    http_method_names = ["get", "post"]
     swagger_tags = ["1. Contacts & Segmentation"]
 
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -1929,6 +1929,171 @@ class MessageLogViewSet(viewsets.ReadOnlyModelViewSet, StandardResponseMixin, Lo
         return self.get_response(
             data=response.data,
             message="Item Retrieved",
+            status="success",
+            status_code=status.HTTP_200_OK,
+        )
+
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Ingest provider delivery events (accepted/delivered/bounced)",
+        operation_description=(
+            "Use this endpoint from provider webhooks to reconcile final delivery outcome. "
+            "Supports matching by campaign_contact_id (preferred), provider_message_id, or message_log_id."
+        ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["event"],
+            properties={
+                "event": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="accepted | delivered | bounced | deferred | failed",
+                ),
+                "campaign_contact_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "provider_message_id": openapi.Schema(type=openapi.TYPE_STRING),
+                "message_log_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "error_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "error_message": openapi.Schema(type=openapi.TYPE_STRING),
+                "provider_response": openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    additional_properties=openapi.Schema(type=openapi.TYPE_STRING),
+                ),
+            },
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="delivery-event",
+        permission_classes=[AllowAny],
+    )
+    def delivery_event(self, request):
+        token = request.headers.get("X-Messaging-Webhook-Token") or request.data.get("token")
+        expected = (getattr(settings, "MESSAGING_WEBHOOK_TOKEN", "") or "").strip()
+        if expected and token != expected:
+            return self.get_error_response(
+                message="Unauthorized webhook token",
+                status="error",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        event_raw = (request.data.get("event") or "").strip().lower()
+        event_map = {
+            "queued": MessageLog.Status.QUEUED,
+            "accepted": MessageLog.Status.ACCEPTED,
+            "sent": MessageLog.Status.SENT,
+            "delivered": MessageLog.Status.DELIVERED,
+            "deferred": MessageLog.Status.DEFERRED,
+            "bounced": MessageLog.Status.BOUNCED,
+            "failed": MessageLog.Status.FAILED,
+        }
+        mapped_status = event_map.get(event_raw)
+        if not mapped_status:
+            return self.get_error_response(
+                message="Invalid event. Use accepted/delivered/bounced/deferred/failed.",
+                status="error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message_log = None
+        message_log_id = request.data.get("message_log_id")
+        campaign_contact_id = request.data.get("campaign_contact_id")
+        provider_message_id = (request.data.get("provider_message_id") or "").strip()
+
+        if message_log_id:
+            message_log = MessageLog.objects.filter(id=message_log_id).first()
+        elif campaign_contact_id:
+            cc = CampaignContact.objects.filter(id=campaign_contact_id).first()
+            if cc:
+                message_log = (
+                    MessageLog.objects.filter(
+                        campaign_id=cc.campaign_id,
+                        step_id=cc.step_id,
+                        contact_id=cc.contact_id,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+        elif provider_message_id:
+            cc = CampaignContact.objects.filter(
+                provider_message_id=provider_message_id
+            ).first()
+            if cc:
+                message_log = (
+                    MessageLog.objects.filter(
+                        campaign_id=cc.campaign_id,
+                        step_id=cc.step_id,
+                        contact_id=cc.contact_id,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+
+        if not message_log:
+            return self.get_error_response(
+                message="Could not match delivery event to a message log",
+                status="error",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider_response = request.data.get("provider_response")
+        if not isinstance(provider_response, dict):
+            provider_response = {}
+        provider_response.update(
+            {
+                "delivery_event": event_raw,
+                "received_at": timezone.now().isoformat(),
+            }
+        )
+
+        error_code = (request.data.get("error_code") or "").strip()
+        error_message = (request.data.get("error_message") or "").strip()
+
+        with transaction.atomic():
+            message_log.status = mapped_status
+            message_log.provider_response = {
+                **(message_log.provider_response or {}),
+                **provider_response,
+            }
+            if mapped_status in (
+                MessageLog.Status.SENT,
+                MessageLog.Status.ACCEPTED,
+                MessageLog.Status.DELIVERED,
+            ) and not message_log.sent_at:
+                message_log.sent_at = timezone.now()
+            message_log.save(update_fields=["status", "provider_response", "sent_at"])
+
+            if message_log.campaign_id and message_log.step_id and message_log.contact_id:
+                cc = CampaignContact.objects.filter(
+                    campaign_id=message_log.campaign_id,
+                    step_id=message_log.step_id,
+                    contact_id=message_log.contact_id,
+                ).first()
+                if cc:
+                    if mapped_status in (
+                        MessageLog.Status.SENT,
+                        MessageLog.Status.ACCEPTED,
+                        MessageLog.Status.DELIVERED,
+                    ):
+                        cc.status = CampaignContact.Status.SENT
+                        if not cc.sent_at:
+                            cc.sent_at = timezone.now()
+                    elif mapped_status in (MessageLog.Status.BOUNCED, MessageLog.Status.FAILED):
+                        cc.status = CampaignContact.Status.FAILED
+                        cc.error_code = error_code or cc.error_code
+                        cc.error_message = error_message or cc.error_message
+                    cc.save(
+                        update_fields=[
+                            "status",
+                            "error_code",
+                            "error_message",
+                            "sent_at",
+                            "updated_at",
+                        ]
+                    )
+
+        return self.get_response(
+            data={"message_log_id": message_log.id, "status": message_log.status},
+            message="Delivery event recorded",
             status="success",
             status_code=status.HTTP_200_OK,
         )

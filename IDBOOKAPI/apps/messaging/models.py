@@ -317,7 +317,11 @@ class MessageLog(models.Model):
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
+        ACCEPTED = "accepted", "Accepted by provider"
         SENT = "sent", "Sent"
+        DELIVERED = "delivered", "Delivered"
+        BOUNCED = "bounced", "Bounced"
+        DEFERRED = "deferred", "Deferred"
         FAILED = "failed", "Failed"
 
     contact = models.ForeignKey(
