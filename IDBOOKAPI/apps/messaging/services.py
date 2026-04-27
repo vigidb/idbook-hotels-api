@@ -485,16 +485,30 @@ def send_sms_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         if response is None:
             status = MessageLog.Status.FAILED
             error_message = "No response from Fast2SMS"
+            provider_response = {"error_message": error_message}
         else:
             provider_response = response.json()
             if response.status_code != 200:
                 status = MessageLog.Status.FAILED
                 error_code = str(response.status_code)
-                error_message = provider_response.get("message") or ""
+                error_message = (
+                    provider_response.get("message")
+                    or provider_response.get("error")
+                    or f"Fast2SMS returned HTTP {response.status_code}"
+                )
+                provider_response = {
+                    **(provider_response or {}),
+                    "error_code": error_code,
+                    "error_message": error_message,
+                }
             provider_message_id = str(provider_response.get("request_id", ""))
     except Exception as exc:
         status = MessageLog.Status.FAILED
         error_message = f"Exception while sending SMS: {exc}"
+        provider_response = {
+            "error_message": error_message,
+            "exception_type": exc.__class__.__name__,
+        }
 
     provider_label = (
         f"fast2sms:{sms_prov_used.name}" if sms_prov_used else "fast2sms"
@@ -550,6 +564,16 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         campaign_contact.status = CampaignContact.Status.FAILED
         campaign_contact.error_message = "Missing email address"
         campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
+        MessageLog.objects.create(
+            contact=contact,
+            campaign=campaign_contact.campaign,
+            step=step,
+            channel=MessageLog.Channel.EMAIL,
+            status=MessageLog.Status.FAILED,
+            provider="smtp",
+            provider_response={"error_message": "Missing email address"},
+            sent_at=None,
+        )
         return
 
     # Lazy import to avoid circulars
@@ -561,8 +585,23 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         )
     except EmailTemplate.DoesNotExist:
         campaign_contact.status = CampaignContact.Status.FAILED
-        campaign_contact.error_message = f"EmailTemplate with slug '{step.template_code}' not found"
+        campaign_contact.error_message = (
+            f"EmailTemplate with slug '{step.template_code}' not found"
+        )
         campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
+        MessageLog.objects.create(
+            contact=contact,
+            campaign=campaign_contact.campaign,
+            step=step,
+            channel=MessageLog.Channel.EMAIL,
+            status=MessageLog.Status.FAILED,
+            provider="smtp",
+            provider_response={
+                "error_message": campaign_contact.error_message,
+                "template_slug": step.template_code,
+            },
+            sent_at=None,
+        )
         return
 
     variables = build_template_variables(
@@ -632,6 +671,15 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         status = MessageLog.Status.FAILED
         sent_at = None
         error_message = f"Exception while sending email: {exc}"
+        provider_response = {
+            "error_message": error_message,
+            "exception_type": exc.__class__.__name__,
+            "provider": provider_label,
+            "recipient": contact.email,
+            "template_slug": step.template_code,
+        }
+    else:
+        provider_response = {"message": "Accepted by email provider"}
 
     MessageLog.objects.create(
         contact=contact,
@@ -640,7 +688,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         channel=MessageLog.Channel.EMAIL,
         status=status,
         provider=provider_label,
-        provider_response={},
+        provider_response=provider_response,
         sent_at=sent_at,
     )
 
