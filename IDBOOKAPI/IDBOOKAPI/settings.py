@@ -336,11 +336,18 @@ FRONTEND_URL = env("FRONTEND_URL")
 INV_FE_URL = env("INV_FE_URL")
 # celery and redis server url
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")
-CELERY_RESULT_BACKEND = env("CELERY_BROKER_URL")
+# Keep Redis as broker; store task execution metadata in DB for admin observability.
+CELERY_RESULT_BACKEND = "django-db"
+# Use DB-backed beat scheduler so periodic tasks are visible/manageable in admin.
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_SERIALIZER = "json"
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+CELERY_TASK_TRACK_STARTED = True
+CELERY_RESULT_EXTENDED = True
 # email configuration
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST")
