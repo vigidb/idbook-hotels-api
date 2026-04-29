@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/idbook-postgres"
+DB_NAME="idbook_prod"
+DB_USER="idbook_prod_user"
+DB_HOST="127.0.0.1"
+DB_PORT="5432"
+DATE_TAG="$(date +%F-%H%M%S)"
+
+mkdir -p "$BACKUP_DIR"
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_DIR/${DB_NAME}-${DATE_TAG}.dump"
+
+# Keep 14 days
+find "$BACKUP_DIR" -type f -name "*.dump" -mtime +14 -delete
+
+echo "Backup complete: $BACKUP_DIR/${DB_NAME}-${DATE_TAG}.dump"

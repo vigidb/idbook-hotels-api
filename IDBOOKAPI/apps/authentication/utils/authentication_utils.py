@@ -459,7 +459,7 @@ def check_verify_attempt_limit(user_account):
         if not user_otp:
             return False, "Please generate OTP first"
 
-        max_attempts = getattr(settings, "OTP_VERIFY_MAX_ATTEMPTS", 5)
+        max_attempts = getattr(settings, "OTP_VERIFY_MAX_ATTEMPTS", 10)
         cooldown_minutes = getattr(settings, "OTP_VERIFY_COOLDOWN_MINUTES", 30)
 
         # Check if user has exceeded the maximum verification attempts

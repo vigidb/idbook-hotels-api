@@ -2911,7 +2911,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
             validated_data = serializer.validated_data
             mobile_number = validated_data["mobile_number"]
-            email = validated_data["email"]
+            email = (validated_data["email"] or "").strip().lower()
             name = validated_data["name"]
             user_group = validated_data["user_group"]
             address = validated_data.get("address", "")
@@ -2927,7 +2927,9 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
             # Reuse existing user by email/mobile (do NOT create duplicates).
             # Only error if email belongs to one user and mobile belongs to another.
-            existing_by_email = User.objects.filter(email=email).first() if email else None
+            existing_by_email = (
+                User.objects.filter(email__iexact=email).first() if email else None
+            )
             existing_by_mobile = (
                 User.objects.filter(mobile_number=mobile_number).first()
                 if mobile_number
@@ -3192,6 +3194,8 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         data = serializer.validated_data
         with transaction.atomic():
             email = data.get("email", user.email)
+            if email:
+                email = email.strip().lower()
             mobile_number = data.get("mobile_number", user.mobile_number)
             user_group = data.get("user_group")
             if not user_group:
@@ -3214,7 +3218,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 )
 
             # Keep global uniqueness on User; do not enforce "unique by group".
-            if email and User.objects.filter(email=email).exclude(id=user.id).exists():
+            if email and User.objects.filter(email__iexact=email).exclude(id=user.id).exists():
                 return self.get_error_response(
                     message="User already exists with this email",
                     status="error",

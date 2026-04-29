@@ -588,7 +588,10 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
                     agent_id = None
             
             # Update wallet transaction
-            from apps.customer.utils.db_utils import update_wallet_transaction_detail, update_wallet_recharge_details
+            from apps.customer.utils.db_utils import (
+                process_wallet_recharge_transaction_once,
+                update_wallet_recharge_details,
+            )
             payment_details = {
                 "transaction_id": razorpay_payment_id,
                 "code": "PAYMENT_SUCCESS",
@@ -601,9 +604,14 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             }
             
             self.log_info(f"Updating wallet transaction: {payment_details}")
-            # Store agent_id from notes before calling update_wallet_transaction_detail
+            # Store agent_id from notes before processing transaction status
             agent_id_from_notes = agent_id
-            user_id_from_db, company_id_from_db, agent_id_from_db = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+            txn_result = process_wallet_recharge_transaction_once(
+                merchant_transaction_id, payment_details
+            )
+            user_id_from_db = txn_result.get("user_id")
+            company_id_from_db = txn_result.get("company_id")
+            agent_id_from_db = txn_result.get("agent_id")
             self.log_info(f"Wallet transaction update result - user_id: {user_id_from_db}, company_id: {company_id_from_db}, agent_id: {agent_id_from_db}")
             
             # Prioritize agent_id: first from notes, then from database transaction
@@ -647,7 +655,11 @@ class UnifiedRazorpayWebhookView(APIView, StandardResponseMixin, LoggingMixin):
             self.log_info(f"Final values - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
             
             # Recharge wallet
-            if user_id or company_id or agent_id:
+            if txn_result.get("already_processed"):
+                self.log_info(
+                    f"Skipping duplicate wallet credit for transaction {merchant_transaction_id}; already processed"
+                )
+            elif user_id or company_id or agent_id:
                 self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
                 update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                 

@@ -1,0 +1,19 @@
+[Unit]
+Description=IDBOOK Celery Worker (Transactional Queues)
+After=network.target
+
+[Service]
+Type=simple
+User=idbook
+Group=idbook
+WorkingDirectory=/opt/idbook/idbook-hotels-api/IDBOOKAPI
+EnvironmentFile=/etc/idbook/idbook-api.env
+ExecStart=/bin/bash -lc 'if [ "$ENVIRONMENT" = "dev" ]; then QUEUES="dev-email-send-queue,airiq-token-queue,recpay-initiate-queue"; else QUEUES="email-send-queue,airiq-token-queue,recpay-initiate-queue"; fi; exec /opt/idbook/idbook-hotels-api/IDBOOKAPI/venv/bin/celery -A IDBOOKAPI worker -l info -Q "$QUEUES" --hostname=tx@%h'
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=append:/var/log/idbook/celery-tx.out.log
+StandardError=append:/var/log/idbook/celery-tx.err.log
+
+[Install]
+WantedBy=multi-user.target

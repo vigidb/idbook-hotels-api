@@ -23,6 +23,7 @@ from apps.customer.utils.db_utils import (
     update_wallet_transaction,
     update_wallet_recharge_details,
     update_wallet_transaction_detail,
+    process_wallet_recharge_transaction_once,
     add_company_wallet_amount,
     add_user_wallet_amount,
     add_agent_wallet_amount,
@@ -72,16 +73,15 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         filter_dict = {}
         user = self.request.user
 
-        # Get active group from token, fall back to default_group
-        from apps.authentication.utils.token_utils import get_user_active_group
+        # Get active group strictly from token (no fallback to user.default_group)
+        from apps.authentication.utils.token_utils import get_active_group_from_request
         from apps.authentication.constants import (
             UserGroups,
             CORPORATE_GROUPS,
             B2C_GROUPS,
         )
 
-        active_group = get_user_active_group(user, self.request)
-        default_group = active_group or user.default_group
+        active_group = get_active_group_from_request(self.request)
 
         # fetch filter parameters
         param_dict = self.request.query_params
@@ -93,11 +93,11 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         # Apply permission-based filtering based on user's active group
         # Normal users (B2C-GRP, B2C-GUEST): can only see their own customer record
-        if default_group in B2C_GROUPS:
+        if active_group in B2C_GROUPS:
             filter_dict["user"] = user.id
 
         # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see customers from their company
-        elif default_group in CORPORATE_GROUPS:
+        elif active_group in CORPORATE_GROUPS:
             # All corporate users can see all customers for their company
             if user.company_id:
                 filter_dict["user__company_id"] = user.company_id
@@ -106,7 +106,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 filter_dict["user__company_id"] = -1  # This will return empty queryset
 
         # Business users (BUSINESS-GRP, BUS-ADMIN): can see all customers (no filter)
-        elif default_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
+        elif active_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
             # No filtering - business users can see all customers
             # Allow query params to filter if provided
             if "company_id" in param_dict:
@@ -115,7 +115,7 @@ class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
                 filter_dict["user"] = param_dict["user_id"]
 
         # Hotelier/Franchise admins: no filtering (existing behavior)
-        elif default_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
+        elif active_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
             # Allow query params to filter if provided
             if "company_id" in param_dict:
                 filter_dict["user__company_id"] = param_dict["company_id"]
@@ -494,35 +494,31 @@ class WalletViewSet(
         user_id = request.user.id
         instance = None
 
-        company_id = self.request.query_params.get("company_id", "")
-        agent_id = self.request.query_params.get("agent_id", "")
-        
-        # Auto-detect agent if user is an agent and no agent_id specified
+        # Resolve wallet by active_group from current access token.
+        # This endpoint should not switch context based on query params.
         from apps.booking.utils.agent_linking_utils import get_agent_for_user
-        user_agent = get_agent_for_user(request.user)
-        
-        if agent_id:
-            # Check if user is an agent and matches the requested agent_id
-            if user_agent and user_agent.id == int(agent_id):
-                instance = self.queryset.filter(agent_id=agent_id, active=True).first()
-            elif request.user.is_superuser:
-                # Admin can access any agent wallet
-                instance = self.queryset.filter(agent_id=agent_id, active=True).first()
-            else:
-                return self.get_error_response(
-                    message="You don't have permission to access this agent wallet",
-                    status="error",
-                    errors=[],
-                    error_code="PERMISSION_DENIED",
-                    status_code=status.HTTP_403_FORBIDDEN,
-                )
-        elif user_agent and not company_id:
-            # User is an agent and no specific agent_id/company_id - use their agent wallet
-            instance = self.queryset.filter(agent_id=user_agent.id, active=True).first()
-        elif company_id:
-            instance = self.queryset.filter(company_id=company_id).first()
+        from apps.authentication.constants import UserGroups, CORPORATE_GROUPS
+
+        active_group = None
+        token = getattr(request, "auth", None)
+        if token is not None:
+            try:
+                active_group = token.get("active_group")
+            except Exception:
+                active_group = None
+
+        if not active_group:
+            active_group = getattr(request.user, "default_group", None)
+
+        if active_group in (UserGroups.AGENT_GRP, UserGroups.AGENT_ADMIN):
+            user_agent = get_agent_for_user(request.user)
+            if user_agent:
+                instance = self.queryset.filter(agent_id=user_agent.id, active=True).first()
+        elif active_group in CORPORATE_GROUPS:
+            company_id = getattr(request.user, "company_id", None)
+            if company_id:
+                instance = self.queryset.filter(company_id=company_id, active=True).first()
         else:
-            # Default to user's personal wallet
             instance = self.queryset.filter(
                 user_id=user_id, company_id__isnull=True, agent_id__isnull=True
             ).first()
@@ -941,9 +937,15 @@ class WalletViewSet(
                 }
                 
                 self.log_info(f"Updating wallet transaction with details: {payment_details}")
-                # Update wallet transaction
-                user_id, company_id, agent_id = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
-                self.log_info(f"Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}")
+                txn_result = process_wallet_recharge_transaction_once(
+                    merchant_transaction_id, payment_details
+                )
+                user_id = txn_result.get("user_id")
+                company_id = txn_result.get("company_id")
+                agent_id = txn_result.get("agent_id")
+                self.log_info(
+                    f"Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, already_processed: {txn_result.get('already_processed')}"
+                )
                 
                 # Verify the transaction was updated
                 from apps.customer.models import WalletTransaction
@@ -971,7 +973,11 @@ class WalletViewSet(
                 self.log_info(f"Final user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
                 
                 # Recharge the wallet
-                if user_id or company_id or agent_id:
+                if txn_result.get("already_processed"):
+                    self.log_info(
+                        f"Skipping duplicate wallet credit for transaction {merchant_transaction_id}; already processed"
+                    )
+                elif user_id or company_id or agent_id:
                     self.log_info(f"Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
                     wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                     self.log_info(f"Wallet recharge update result: {wallet_update_result}")
@@ -1264,9 +1270,14 @@ class WalletViewSet(
                         }
                         
                         self.log_info(f"Webhook - Updating wallet transaction with details: {payment_details}")
-                        # Store agent_id from notes before calling update_wallet_transaction_detail
+                        # Store agent_id from notes before transaction processing
                         agent_id_from_notes = agent_id
-                        user_id, company_id, agent_id_from_db = update_wallet_transaction_detail(merchant_transaction_id, payment_details)
+                        txn_result = process_wallet_recharge_transaction_once(
+                            merchant_transaction_id, payment_details
+                        )
+                        user_id = txn_result.get("user_id")
+                        company_id = txn_result.get("company_id")
+                        agent_id_from_db = txn_result.get("agent_id")
                         self.log_info(f"Webhook - Wallet transaction update result - user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id_from_db}")
                         
                         # Prioritize agent_id: first from notes, then from database transaction, then from WalletTransaction object
@@ -1314,7 +1325,11 @@ class WalletViewSet(
                         self.log_info(f"Webhook - Final user_id: {user_id}, company_id: {company_id}, agent_id: {agent_id}, amount: {amount}")
                         
                         # Recharge the wallet
-                        if user_id or company_id or agent_id:
+                        if txn_result.get("already_processed"):
+                            self.log_info(
+                                f"Webhook - Skipping duplicate wallet credit for transaction {merchant_transaction_id}; already processed"
+                            )
+                        elif user_id or company_id or agent_id:
                             self.log_info(f"Webhook - Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
                             wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                             self.log_info(f"Webhook - Wallet recharge update result: {wallet_update_result}")
@@ -1725,7 +1740,6 @@ class WalletViewSet(
 
             # Create wallet transaction entry
             wtransact_data = {
-                "user_id": user.id,
                 "amount": amount,
                 "transaction_type": "Credit",
                 "transaction_for": "wallet_recharge",
@@ -1743,6 +1757,9 @@ class WalletViewSet(
                 wtransact_data["company_id"] = company_id
             if agent_id:
                 wtransact_data["agent_id"] = agent_id
+            # Store user only for personal wallet recharges.
+            if not company_id and not agent_id:
+                wtransact_data["user_id"] = user.id
 
             # Create wallet transaction
             wallet_transaction = WalletTransaction.objects.create(**wtransact_data)
@@ -1894,6 +1911,10 @@ class WalletViewSet(
                 )
 
             # Update transaction status
+            # For company/agent wallet scopes, keep user null to avoid
+            # mixing personal and non-personal wallet transaction filters.
+            if wallet_transaction.company_id or wallet_transaction.agent_id:
+                wallet_transaction.user = None
             wallet_transaction.code = "PAYMENT_SUCCESS"
             wallet_transaction.is_transaction_success = True
             wallet_transaction.status = "Completed"
@@ -2115,99 +2136,270 @@ class WalletTransactionViewSet(
     serializer_class = WalletTransactionSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch"]
+    allowed_ordering_fields = {
+        "created",
+        "updated",
+        "amount",
+        "status",
+        "transaction_type",
+        "transaction_id",
+        "payment_medium",
+        "payment_type",
+    }
+    no_filter_values = {"", "all", "any", "*"}
+
+    def _set_scope_filter(self, filter_dict, scope, value):
+        """
+        Apply only one scope filter at a time.
+        Allowed scopes: user_id, company_id, agent_id.
+        """
+        filter_dict.pop("user_id", None)
+        filter_dict.pop("company_id", None)
+        filter_dict.pop("agent_id", None)
+        filter_dict.pop("company_id__isnull", None)
+        filter_dict.pop("agent_id__isnull", None)
+
+        if scope == "user_id":
+            filter_dict["user_id"] = value
+            # Keep user scope broad: include user-initiated personal/company/agent transactions.
+        elif scope == "company_id":
+            filter_dict["company_id"] = value
+        elif scope == "agent_id":
+            filter_dict["agent_id"] = value
 
     def wtransaction_filter_ops(self):
         filter_dict = {}
         user = self.request.user
+        params = self._validated_query_params
+        self._scope_denied_error = None
+        self._applied_filter_dict = {}
+        token_user_id = None
+        auth_header = self.request.META.get("HTTP_AUTHORIZATION", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from rest_framework_simplejwt.tokens import UntypedToken
 
-        # Get active group from token, fall back to default_group
-        from apps.authentication.utils.token_utils import get_user_active_group
+                token_payload = UntypedToken(auth_header.split(" ", 1)[1])
+                token_user_id = token_payload.get("user_id")
+            except Exception:
+                token_user_id = None
+        effective_user_id = token_user_id or user.id
+
+        # Match wallet balance scope resolution to avoid divergence.
+        # Prefer token active_group, then fallback to user's default_group.
         from apps.authentication.constants import (
             UserGroups,
             CORPORATE_GROUPS,
             B2C_GROUPS,
         )
 
-        active_group = get_user_active_group(user, self.request)
-        default_group = active_group or user.default_group
-
+        active_group = None
+        token = getattr(self.request, "auth", None)
+        if token is not None:
+            try:
+                active_group = token.get("active_group")
+            except Exception:
+                active_group = None
+        if not active_group:
+            active_group = getattr(user, "default_group", None)
         # filter by transaction type
-        transaction_type = self.request.query_params.get("transaction_type", "")
-        if transaction_type:
+        transaction_type = str(params.get("transaction_type", "")).strip()
+        if transaction_type and transaction_type.lower() not in self.no_filter_values:  
             filter_dict["transaction_type"] = transaction_type
 
-        # filter by transaction success
-        is_transaction_success = self.request.query_params.get(
-            "is_transaction_success", ""
-        )
-        if is_transaction_success:
-            filter_dict["is_transaction_success"] = is_transaction_success
+        # Filter by transaction success only when query param is explicitly provided.
+        # This avoids accidental pending-only filtering from blank/implicit values.
+        raw_success_param = self.request.query_params.get("is_transaction_success", None)
+        if raw_success_param is not None and str(raw_success_param).strip() != "":
+            is_transaction_success = params.get("is_transaction_success", None)
+            if is_transaction_success is not None:
+                filter_dict["is_transaction_success"] = is_transaction_success
 
         # status filter
-        status_param = self.request.query_params.get("status", "")
-        if status_param:
-            filter_dict["status__iexact"] = status_param
+        status_param = str(params.get("status", "")).strip()
+        if status_param and status_param.lower() not in self.no_filter_values:
+            status_normalized = status_param.lower()
+            success_aliases = {"success", "succes", "successful", "succeeded"}
+            failed_aliases = {"failed", "failure", "error", "unsuccessful"}
 
-        # fetch filter parameters
-        param_dict = self.request.query_params
+            if status_normalized in success_aliases:
+                # Wallet transactions use "Completed" for successful rows.
+                filter_dict["status__in"] = ["Completed", "Success", "SUCCESS"]
+            elif status_normalized in failed_aliases:
+                filter_dict["status__in"] = ["Failed", "FAILED", "Error"]
+            else:
+                filter_dict["status__iexact"] = status_param
+
+        transaction_for = str(params.get("transaction_for", "")).strip()
+        if transaction_for and transaction_for.lower() not in self.no_filter_values:
+            filter_dict["transaction_for__iexact"] = transaction_for
+
+        payment_type = str(params.get("payment_type", "")).strip()
+        if payment_type and payment_type.lower() not in self.no_filter_values:
+            filter_dict["payment_type__iexact"] = payment_type
+
+        payment_medium = str(params.get("payment_medium", "")).strip()
+        if payment_medium and payment_medium.lower() not in self.no_filter_values:
+            filter_dict["payment_medium__iexact"] = payment_medium
+
+        start_date = params.get("start_date")
+        if start_date:
+            filter_dict["created__date__gte"] = start_date
+
+        end_date = params.get("end_date")
+        if end_date:
+            filter_dict["created__date__lte"] = end_date
+
+        # fetch validated filter parameters
+        param_dict = params
+        requested_agent_id = param_dict.get("agent_id")
+        requested_company_id = param_dict.get("company_id")
+        requested_user_id = param_dict.get("user_id")
+
+        # Explicit company scope takes priority (when provided).
+        if requested_company_id is not None:
+            has_permission = False
+            if user.is_superuser:
+                has_permission = True
+            elif active_group in CORPORATE_GROUPS:
+                has_permission = user.company_id == requested_company_id
+            elif active_group in (
+                UserGroups.BUSINESS_GRP,
+                UserGroups.BUS_ADMIN,
+                UserGroups.HTLR_ADMIN,
+                UserGroups.FRANCH_ADMIN,
+            ):
+                has_permission = True
+
+            if not has_permission:
+                self._scope_denied_error = {
+                    "message": "You don't have permission to access this company transactions",
+                    "error_code": "PERMISSION_DENIED",
+                }
+                return
+
+            self._set_scope_filter(filter_dict, "company_id", requested_company_id)
+            self._applied_filter_dict = dict(filter_dict)
+            self.queryset = self.queryset.filter(**filter_dict)
+            search_param = params.get("search", "").strip()
+            if search_param:
+                self.queryset = self.queryset.filter(
+                    Q(transaction_id__icontains=search_param)
+                    | Q(transaction_details__icontains=search_param)
+                    | Q(code__icontains=search_param)
+                    | Q(payment_type__icontains=search_param)
+                    | Q(payment_medium__icontains=search_param)
+                )
+            return
+
+        # Deterministic default scope: when client does not explicitly request
+        # company/agent/user scope, return current user's transactions.
+        if (
+            requested_agent_id is None
+            and requested_company_id is None
+            and requested_user_id is None
+        ):
+            self._set_scope_filter(filter_dict, "user_id", effective_user_id)
+            self._applied_filter_dict = dict(filter_dict)
+            self.queryset = self.queryset.filter(**filter_dict)
+            search_param = params.get("search", "").strip()
+            if search_param:
+                self.queryset = self.queryset.filter(
+                    Q(transaction_id__icontains=search_param)
+                    | Q(transaction_details__icontains=search_param)
+                    | Q(code__icontains=search_param)
+                    | Q(payment_type__icontains=search_param)
+                    | Q(payment_medium__icontains=search_param)
+                )
+            return
+
+        # Explicit agent scope takes priority over group branching.
+        # This keeps behavior predictable for /wallet-transaction/user/?agent_id=<id>
+        if requested_agent_id is not None:
+            from apps.booking.utils.agent_linking_utils import get_agent_for_user
+
+            user_agent = get_agent_for_user(user)
+            has_permission = user.is_superuser or (
+                user_agent and user_agent.id == requested_agent_id
+            )
+            if not has_permission:
+                self._scope_denied_error = {
+                    "message": "You don't have permission to access this agent transactions",
+                    "error_code": "PERMISSION_DENIED",
+                }
+                return
+
+            # Permission granted: apply strict agent-only filtering.
+            self._set_scope_filter(filter_dict, "agent_id", requested_agent_id)
+            self._applied_filter_dict = dict(filter_dict)
+            self.queryset = self.queryset.filter(**filter_dict)
+            search_param = params.get("search", "").strip()
+            if search_param:
+                self.queryset = self.queryset.filter(
+                    Q(transaction_id__icontains=search_param)
+                    | Q(transaction_details__icontains=search_param)
+                    | Q(code__icontains=search_param)
+                    | Q(payment_type__icontains=search_param)
+                    | Q(payment_medium__icontains=search_param)
+                )
+            return
 
         # Apply permission-based filtering based on user's active group
         # B2C users (B2C-GRP, B2C-GUEST): can only see their own user wallet transactions
-        if default_group in B2C_GROUPS:
-            filter_dict["user_id"] = user.id
-            filter_dict["company_id__isnull"] = (
-                True  # Only user wallet, not company wallet
-            )
+        if active_group in B2C_GROUPS:
+            self._set_scope_filter(filter_dict, "user_id", effective_user_id)
 
         # Agent users (AGENT-ADMIN): can see their own agent wallet transactions
-        elif default_group == UserGroups.AGENT_ADMIN:
+        elif active_group in (UserGroups.AGENT_ADMIN, UserGroups.AGENT_GRP):
             from apps.booking.utils.agent_linking_utils import get_agent_for_user
             agent = get_agent_for_user(user)
             if agent:
                 # If agent_id is provided in query params, verify it matches the user's agent
                 agent_id_param = param_dict.get("agent_id", "")
                 if agent_id_param:
-                    if int(agent_id_param) == agent.id:
-                        filter_dict["agent_id"] = agent.id
+                    if agent_id_param == agent.id:
+                        self._set_scope_filter(filter_dict, "agent_id", agent.id)
                     else:
-                        # Agent trying to access another agent's transactions - deny
-                        filter_dict["agent_id"] = -1  # Return empty queryset
+                        self._scope_denied_error = {
+                            "message": "You don't have permission to access this agent transactions",
+                            "error_code": "PERMISSION_DENIED",
+                        }
+                        return
                 else:
                     # Auto-filter to agent's transactions
-                    filter_dict["agent_id"] = agent.id
+                    self._set_scope_filter(filter_dict, "agent_id", agent.id)
             else:
-                # User is AGENT-ADMIN but not linked to an AgentDetail, return empty queryset
-                filter_dict["agent_id"] = -1
+                # Fallback to user's own transactions if agent mapping is missing
+                self._set_scope_filter(filter_dict, "user_id", user.id)
 
         # Corporate users (CORP-ADMIN, CORP-EMP, CORPORATE-GRP): can see company wallet transactions
-        elif default_group in CORPORATE_GROUPS:
+        elif active_group in CORPORATE_GROUPS:
             # All corporate users can see company wallet transactions for their company
             if user.company_id:
-                filter_dict["company_id"] = user.company_id
+                self._set_scope_filter(filter_dict, "company_id", user.company_id)
             else:
-                # If user has no company_id, they shouldn't see any transactions
-                filter_dict["company_id"] = -1  # This will return empty queryset
+                # Fallback to user's own transactions when company mapping is missing
+                self._set_scope_filter(filter_dict, "user_id", user.id)
 
         # Business users (BUSINESS-GRP, BUS-ADMIN): can see all transactions
-        elif default_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
-            # No filtering - business users can see all transactions
-            # Allow query params to filter if provided
+        elif active_group in (UserGroups.BUSINESS_GRP, UserGroups.BUS_ADMIN):
+            # Apply only one requested scope filter at a time.
             if "company_id" in param_dict:
-                filter_dict["company_id"] = param_dict["company_id"]
-            if "user_id" in param_dict:
-                filter_dict["user_id"] = param_dict["user_id"]
-            if "agent_id" in param_dict:
-                filter_dict["agent_id"] = param_dict["agent_id"]
+                self._set_scope_filter(filter_dict, "company_id", param_dict["company_id"])
+            elif "agent_id" in param_dict:
+                self._set_scope_filter(filter_dict, "agent_id", param_dict["agent_id"])
+            elif "user_id" in param_dict:
+                self._set_scope_filter(filter_dict, "user_id", param_dict["user_id"])
 
         # Hotelier/Franchise admins: can see all transactions
-        elif default_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
-            # Allow query params to filter if provided
+        elif active_group in (UserGroups.HTLR_ADMIN, UserGroups.FRANCH_ADMIN):
+            # Apply only one requested scope filter at a time.
             if "company_id" in param_dict:
-                filter_dict["company_id"] = param_dict["company_id"]
-            if "user_id" in param_dict:
-                filter_dict["user_id"] = param_dict["user_id"]
-            if "agent_id" in param_dict:
-                filter_dict["agent_id"] = param_dict["agent_id"]
+                self._set_scope_filter(filter_dict, "company_id", param_dict["company_id"])
+            elif "agent_id" in param_dict:
+                self._set_scope_filter(filter_dict, "agent_id", param_dict["agent_id"])
+            elif "user_id" in param_dict:
+                self._set_scope_filter(filter_dict, "user_id", param_dict["user_id"])
 
         # For other groups or if no group matches, default to user's own transactions
         else:
@@ -2215,30 +2407,56 @@ class WalletTransactionViewSet(
             company_id = param_dict.get("company_id", "")
             agent_id = param_dict.get("agent_id", "")
             if company_id:
-                filter_dict["company_id"] = company_id
+                self._set_scope_filter(filter_dict, "company_id", company_id)
             elif agent_id:
                 # Check if user has permission to view this agent's transactions
                 from apps.booking.utils.agent_linking_utils import get_agent_for_user
                 user_agent = get_agent_for_user(user)
-                if user_agent and user_agent.id == int(agent_id):
-                    filter_dict["agent_id"] = agent_id
+                if user_agent and user_agent.id == agent_id:
+                    self._set_scope_filter(filter_dict, "agent_id", agent_id)
                 elif user.is_superuser:
-                    filter_dict["agent_id"] = agent_id
+                    self._set_scope_filter(filter_dict, "agent_id", agent_id)
                 else:
-                    filter_dict["agent_id"] = -1  # Deny access
+                    self._scope_denied_error = {
+                        "message": "You don't have permission to access this agent transactions",
+                        "error_code": "PERMISSION_DENIED",
+                    }
+                    return
             else:
                 # Default to user's own transactions
-                filter_dict["user_id"] = user.id
-                filter_dict["company_id__isnull"] = True
-                filter_dict["agent_id__isnull"] = True
+                self._set_scope_filter(filter_dict, "user_id", user.id)
 
+        self._applied_filter_dict = dict(filter_dict)
         self.queryset = self.queryset.filter(**filter_dict)
 
+        search_param = params.get("search", "").strip()
+        if search_param:
+            self.queryset = self.queryset.filter(
+                Q(transaction_id__icontains=search_param)
+                | Q(transaction_details__icontains=search_param)
+                | Q(code__icontains=search_param)
+                | Q(payment_type__icontains=search_param)
+                | Q(payment_medium__icontains=search_param)
+            )
+
     def wtransaction_order_ops(self):
-        ordering_params = self.request.query_params.get("ordering", None)
-        if ordering_params:
-            ordering_list = ordering_params.split(",")
+        ordering_params = self._validated_query_params.get("ordering", "")
+        if not ordering_params:
+            self.queryset = self.queryset.order_by("-created")
+            return
+
+        ordering_list = []
+        for ordering in ordering_params.split(","):
+            ordering = ordering.strip()
+            if not ordering:
+                continue
+            ordering_key = ordering.lstrip("-")
+            if ordering_key in self.allowed_ordering_fields:
+                ordering_list.append(ordering)
+        if ordering_list:
             self.queryset = self.queryset.order_by(*ordering_list)
+        else:
+            self.queryset = self.queryset.order_by("-created")
 
     ##    def wtransaction_pagination_ops(self):
     ##        # offset and pagination
@@ -2262,13 +2480,77 @@ class WalletTransactionViewSet(
         url_name="retrieve-wallet-balance",
     )
     def user_based_wallet_transaction(self, request):
-        user_id = request.user.id
-        # self.queryset = self.queryset.filter(user_id=user_id)
+        query_serializer = QueryFilterWalletTransactionSerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return self.get_error_response(
+                message="Invalid query parameters",
+                status="error",
+                errors=self.custom_serializer_error(query_serializer.errors),
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self._validated_query_params = query_serializer.validated_data
+        # Always use a fresh base queryset per request.
+        self.queryset = WalletTransaction.objects.all()
+
+        requested_agent_id = self._validated_query_params.get("agent_id")
+        requested_company_id = self._validated_query_params.get("company_id")
+        requested_user_id = self._validated_query_params.get("user_id")
+
+        # Hard default: if no explicit scope params are provided, always list
+        # current token user's transactions.
+        if (
+            requested_agent_id is None
+            and requested_company_id is None
+            and requested_user_id is None
+        ):
+            token_user_id = None
+            auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    from rest_framework_simplejwt.tokens import UntypedToken
+
+                    token_payload = UntypedToken(auth_header.split(" ", 1)[1])
+                    token_user_id = token_payload.get("user_id")
+                except Exception:
+                    token_user_id = None
+
+            effective_user_id = token_user_id or request.user.id
+            self.queryset = self.queryset.filter(user_id=effective_user_id)
+            self.wtransaction_order_ops()
+
+            offset = self._validated_query_params.get("offset", 0)
+            limit = self._validated_query_params.get("limit", 10)
+            count = self.queryset.count()
+            self.queryset = self.queryset[offset : offset + limit]
+
+            serializer = WalletTransactionSerializer(self.queryset, many=True)
+            return self.get_response(
+                status="success",
+                count=count,
+                data=serializer.data,
+                message="Wallet Transaction Details",
+                status_code=status.HTTP_200_OK,
+            )
+
         # filter and pagination
         self.wtransaction_filter_ops()
+        if self._scope_denied_error:
+            return self.get_error_response(
+                message=self._scope_denied_error["message"],
+                status="error",
+                errors=[],
+                error_code=self._scope_denied_error["error_code"],
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         self.wtransaction_order_ops()
-        # count = self.wtransaction_pagination_ops()
-        count, self.queryset = paginate_queryset(self.request, self.queryset)
+
+        offset = self._validated_query_params.get("offset", 0)
+        limit = self._validated_query_params.get("limit", 10)
+        count = self.queryset.count()
+        self.queryset = self.queryset[offset : offset + limit]
+
         instance = self.queryset
         serializer = WalletTransactionSerializer(instance, many=True)
         custom_response = self.get_response(

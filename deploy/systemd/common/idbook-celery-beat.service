@@ -1,0 +1,19 @@
+[Unit]
+Description=IDBOOK Celery Beat Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=idbook
+Group=idbook
+WorkingDirectory=/opt/idbook/idbook-hotels-api/IDBOOKAPI
+EnvironmentFile=/etc/idbook/idbook-api.env
+ExecStart=/opt/idbook/idbook-hotels-api/IDBOOKAPI/venv/bin/celery -A IDBOOKAPI beat -l info
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=append:/var/log/idbook/celery-beat.out.log
+StandardError=append:/var/log/idbook/celery-beat.err.log
+
+[Install]
+WantedBy=multi-user.target

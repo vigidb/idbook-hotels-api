@@ -1,0 +1,19 @@
+[Unit]
+Description=IDBOOK Daphne ASGI Service
+After=network.target
+
+[Service]
+Type=simple
+User=idbook
+Group=idbook
+WorkingDirectory=/opt/idbook/idbook-hotels-api/IDBOOKAPI
+EnvironmentFile=/etc/idbook/idbook-api.env
+ExecStart=/opt/idbook/idbook-hotels-api/IDBOOKAPI/venv/bin/daphne -b 127.0.0.1 -p 8001 IDBOOKAPI.asgi:application
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=append:/var/log/idbook/daphne.out.log
+StandardError=append:/var/log/idbook/daphne.err.log
+
+[Install]
+WantedBy=multi-user.target

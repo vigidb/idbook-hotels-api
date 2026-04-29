@@ -400,7 +400,7 @@ EMAIL_TEMPLATE_TERMS_URL = env(
 OTP_EXPIRY_MIN = int(env("OTP_EXPIRY_MIN"))
 
 # OTP verification rate limit: max attempts before cooldown, and cooldown duration (minutes)
-OTP_VERIFY_MAX_ATTEMPTS = int(env("OTP_VERIFY_MAX_ATTEMPTS", default=5))
+OTP_VERIFY_MAX_ATTEMPTS = int(env("OTP_VERIFY_MAX_ATTEMPTS", default=10))
 OTP_VERIFY_COOLDOWN_MINUTES = int(env("OTP_VERIFY_COOLDOWN_MINUTES", default=30))
 
 

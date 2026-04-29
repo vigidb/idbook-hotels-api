@@ -477,14 +477,16 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             ##            grp = auth_db_utils.get_group_by_name('CORPORATE-GRP')
             ##            role = auth_db_utils.get_role_by_name('CORP-ADMIN')
 
-            # create or update user based on company email
-            user = User.objects.filter(
-                email=company_detail.contact_email_address
-            ).first()
+            # create or update user based on company contact email (case-insensitive)
+            contact_email = (company_detail.contact_email_address or "").strip().lower()
+            if company_detail.contact_email_address != contact_email:
+                company_detail.contact_email_address = contact_email
+                company_detail.save(update_fields=["contact_email_address"])
+            user = User.objects.filter(email__iexact=contact_email).first()
             if not user:
                 user = User.objects.create(
                     name=company_detail.contact_person_name,
-                    email=company_detail.contact_email_address,
+                    email=contact_email,
                     mobile_number=company_detail.contact_number,
                     company_id=company_detail.id,
                     default_group="CORPORATE-GRP",
@@ -806,14 +808,16 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             grp = auth_db_utils.get_group_by_name("CORPORATE-GRP")
             role = auth_db_utils.get_role_by_name("CORP-ADMIN")
 
-            # create or update user based on company email
-            user = User.objects.filter(
-                email=company_detail.contact_email_address
-            ).first()
+            # create or update user based on company email (case-insensitive)
+            contact_email = (company_detail.contact_email_address or "").strip().lower()
+            if company_detail.contact_email_address != contact_email:
+                company_detail.contact_email_address = contact_email
+                company_detail.save(update_fields=["contact_email_address"])
+            user = User.objects.filter(email__iexact=contact_email).first()
             if not user:
                 user = User.objects.create(
                     name=company_detail.contact_person_name,
-                    email=company_detail.contact_email_address,
+                    email=contact_email,
                     mobile_number=company_detail.contact_number,
                     company_id=company_detail.id,
                     default_group="CORPORATE-GRP",
@@ -884,7 +888,9 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
         company_email = self.request.data.get("company_email", "")
         company_phone = self.request.data.get("company_phone", "")
         contact_number = self.request.data.get("contact_number", "")
-        contact_email_address = self.request.data.get("contact_email_address", "")
+        contact_email_address = (
+            (self.request.data.get("contact_email_address", "") or "").strip().lower()
+        )
         contact_person_name = self.request.data.get("contact_person_name", "")
 
         contact_user_update = False
@@ -922,7 +928,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
 
         instance.save()
         if contact_user_update:
-            user = User.objects.filter(email=instance.contact_email_address).first()
+            user = User.objects.filter(email__iexact=instance.contact_email_address).first()
             if not user:
                 user = User.objects.create(
                     name=instance.contact_person_name,
@@ -987,7 +993,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, Logging
             if action_param == "delete":
                 # Hard delete: remove from DB (may fail if referenced by bookings etc.)
                 # Find the user associated with this company (contact person)
-                user = User.objects.filter(email=instance.contact_email_address).first()
+                user = User.objects.filter(email__iexact=instance.contact_email_address).first()
 
                 if user:
                     # Get user's current groups and roles
@@ -1342,10 +1348,12 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
     def contact_verification(self):
         error_list = []
 
-        agent_email = self.request.data.get("agent_email", "")
+        agent_email = (self.request.data.get("agent_email", "") or "").strip().lower()
         agent_phone = self.request.data.get("agent_phone", "")
         contact_number = self.request.data.get("contact_number", "")
-        contact_email_address = self.request.data.get("contact_email_address", "")
+        contact_email_address = (
+            (self.request.data.get("contact_email_address", "") or "").strip().lower()
+        )
 
         # otp for agent email
         otp_agt_email = self.request.data.get("otp_agt_email", None)
@@ -1468,7 +1476,7 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
         # check agent email exist
         if agent_email:
-            is_exist = AgentDetail.objects.filter(agent_email=agent_email).exists()
+            is_exist = AgentDetail.objects.filter(agent_email__iexact=agent_email).exists()
             if is_exist:
                 error_list.append(
                     {
@@ -1528,16 +1536,27 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         if serializer.is_valid():
             agent_detail = serializer.save()
 
+            # Normalize stored emails to avoid case-based duplicate users/agents.
+            contact_email = (agent_detail.contact_email_address or "").strip().lower()
+            agent_email = (agent_detail.agent_email or "").strip().lower()
+            update_fields = []
+            if agent_detail.contact_email_address != contact_email:
+                agent_detail.contact_email_address = contact_email
+                update_fields.append("contact_email_address")
+            if agent_detail.agent_email != agent_email:
+                agent_detail.agent_email = agent_email
+                update_fields.append("agent_email")
+            if update_fields:
+                agent_detail.save(update_fields=update_fields)
+
             # Create or link user by contact email. Same email as a personal
             # account is allowed: we reuse that user and add agent group/role.
-            user = User.objects.filter(
-                email=agent_detail.contact_email_address
-            ).first()
+            user = User.objects.filter(email__iexact=contact_email).first()
             if not user:
                 # Create new user
                 user = User.objects.create(
                     name=agent_detail.contact_person_name,
-                    email=agent_detail.contact_email_address,
+                    email=contact_email,
                     mobile_number=agent_detail.contact_number,
                     default_group="AGENT-GRP",
                     email_verified=True,
@@ -1839,7 +1858,7 @@ class AgentDetailViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         if action == "delete":
             # Resolve the user linked to this agent (for removing group/role and optional user delete)
             user = instance.added_user or User.objects.filter(
-                email=instance.contact_email_address
+                email__iexact=instance.contact_email_address
             ).first()
             agent_grp, agent_role = get_group_based_on_name("AGENT-GRP")
 

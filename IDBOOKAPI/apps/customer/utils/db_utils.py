@@ -4,6 +4,7 @@ from datetime import datetime
 import pytz
 from decimal import Decimal
 from django.db.models import Q, Sum
+from django.db import transaction
 
 
 def create_customer_signup_entry(
@@ -392,6 +393,59 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
     
     logger.info(f"=== update_wallet_transaction_detail COMPLETED ===")
     return user_id, company_id, agent_id
+
+
+def process_wallet_recharge_transaction_once(merchant_transaction_id, payment_details):
+    """
+    Update wallet transaction status exactly once for successful recharge flows.
+    Returns metadata that callers can use to avoid duplicate wallet credits.
+    """
+    result = {
+        "user_id": None,
+        "company_id": None,
+        "agent_id": None,
+        "already_processed": False,
+        "transaction_found": False,
+    }
+
+    if not merchant_transaction_id:
+        return result
+
+    with transaction.atomic():
+        payment_obj = (
+            WalletTransaction.objects.select_for_update()
+            .filter(transaction_id=merchant_transaction_id)
+            .order_by("-created")
+            .first()
+        )
+
+        if not payment_obj:
+            return result
+
+        result["transaction_found"] = True
+        if payment_obj.user:
+            result["user_id"] = payment_obj.user.id
+        result["company_id"] = payment_obj.company_id if payment_obj.company_id else None
+        result["agent_id"] = payment_obj.agent.id if payment_obj.agent else None
+
+        incoming_success = payment_details.get("is_transaction_success") is True
+        already_success = (
+            payment_obj.is_transaction_success is True
+            and payment_obj.status == "Completed"
+        )
+
+        if incoming_success and already_success:
+            result["already_processed"] = True
+            return result
+
+        for key, value in payment_details.items():
+            if key == "transaction_id":
+                continue
+            if hasattr(payment_obj, key):
+                setattr(payment_obj, key, value)
+        payment_obj.save()
+
+    return result
 
 
 def update_wallet_recharge_details(user_id, company_id, amount, agent_id=None):

@@ -158,14 +158,28 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class QueryFilterWalletTransactionSerializer(serializers.ModelSerializer):
-    offset = serializers.IntegerField(required=False)
-    limit = serializers.IntegerField(required=False)
-    # search = serializers.CharField(required=False, help_text='Available columns: employee_id')
-
-    class Meta:
-        model = WalletTransaction
-        fields = ("transaction_type", "offset", "limit")
+class QueryFilterWalletTransactionSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(required=False, min_value=1)
+    company_id = serializers.IntegerField(required=False, min_value=1)
+    agent_id = serializers.IntegerField(required=False, min_value=1)
+    transaction_type = serializers.ChoiceField(
+        choices=["Credit", "Debit"], required=False
+    )
+    transaction_for = serializers.CharField(required=False, allow_blank=True)
+    payment_type = serializers.CharField(required=False, allow_blank=True)
+    payment_medium = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False, allow_blank=True)
+    is_transaction_success = serializers.BooleanField(required=False)
+    search = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    ordering = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Comma separated fields. Allowed: created, updated, amount, status, transaction_type, transaction_id, payment_medium, payment_type",
+    )
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, max_value=100)
 
 
 class WalletRechargeSerializer(serializers.Serializer):
