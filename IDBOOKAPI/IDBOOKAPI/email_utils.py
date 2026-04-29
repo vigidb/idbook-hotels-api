@@ -1,4 +1,7 @@
 import re
+import smtplib
+import socket
+import time
 from typing import Any, Dict, List, Optional
 
 from django.core.mail import send_mail, EmailMultiAlternatives, get_connection
@@ -289,22 +292,54 @@ def send_email_with_smtp_config(
         subject, message or "", html_message or ""
     )
     subject = _normalize_subject_for_env(subject)
-    conn = get_connection(
-        backend="django.core.mail.backends.smtp.EmailBackend",
-        host=smtp["host"],
-        port=int(smtp["port"]),
-        username=smtp["username"],
-        password=smtp["password"],
-        use_tls=bool(smtp.get("use_tls", True)),
+    timeout_seconds = int(getattr(settings, "MESSAGING_SMTP_TIMEOUT_SECONDS", 30) or 30)
+    max_attempts = int(getattr(settings, "MESSAGING_SMTP_MAX_ATTEMPTS", 3) or 3)
+    retry_delay_seconds = float(
+        getattr(settings, "MESSAGING_SMTP_RETRY_DELAY_SECONDS", 1.0) or 1.0
     )
+    max_attempts = max(1, max_attempts)
     from_addr = smtp.get("from_email") or smtp["username"]
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=message or "",
-        from_email=from_addr,
-        to=to_emails,
-        connection=conn,
-    )
-    if html_message:
-        msg.attach_alternative(html_message, "text/html")
-    return msg.send()
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        conn = get_connection(
+            backend="django.core.mail.backends.smtp.EmailBackend",
+            host=smtp["host"],
+            port=int(smtp["port"]),
+            username=smtp["username"],
+            password=smtp["password"],
+            use_tls=bool(smtp.get("use_tls", True)),
+            timeout=timeout_seconds,
+        )
+        try:
+            # Open/close explicitly so stale sockets do not poison later sends.
+            conn.open()
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body=message or "",
+                from_email=from_addr,
+                to=to_emails,
+                connection=conn,
+            )
+            if html_message:
+                msg.attach_alternative(html_message, "text/html")
+            return msg.send()
+        except (
+            smtplib.SMTPServerDisconnected,
+            smtplib.SMTPConnectError,
+            socket.timeout,
+            TimeoutError,
+        ) as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                raise
+            time.sleep(retry_delay_seconds * attempt)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if last_error:
+        raise last_error
+    return 0

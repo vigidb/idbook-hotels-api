@@ -5,8 +5,13 @@ import json
 from typing import Iterable, List, Dict, Any, Optional, Tuple
 
 import re
+import smtplib
+import socket
 from django.conf import settings
 from django.core import signing
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -560,7 +565,8 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         campaign_contact.save(update_fields=["status", "updated_at"])
         return
 
-    if not contact.email:
+    email = (contact.email or "").strip()
+    if not email:
         campaign_contact.status = CampaignContact.Status.FAILED
         campaign_contact.error_message = "Missing email address"
         campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
@@ -572,6 +578,23 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
             status=MessageLog.Status.FAILED,
             provider="smtp",
             provider_response={"error_message": "Missing email address"},
+            sent_at=None,
+        )
+        return
+    try:
+        validate_email(email)
+    except ValidationError:
+        campaign_contact.status = CampaignContact.Status.FAILED
+        campaign_contact.error_message = "Invalid email address"
+        campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
+        MessageLog.objects.create(
+            contact=contact,
+            campaign=campaign_contact.campaign,
+            step=step,
+            channel=MessageLog.Channel.EMAIL,
+            status=MessageLog.Status.FAILED,
+            provider="smtp",
+            provider_response={"error_message": "Invalid email address"},
             sent_at=None,
         )
         return
@@ -645,13 +668,60 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     provider_label = (
         f"smtp:{email_prov_used.name}" if smtp_cfg and email_prov_used else "django_email"
     )
+    throttle_provider_key = (
+        f"smtp:{email_prov_used.id}" if smtp_cfg and email_prov_used else "django_email"
+    )
+
+    # Provider-level per-second throttle to avoid SMTP disconnects/rate-limit cascades.
+    # If throttled, defer this contact for a short delay instead of failing permanently.
+    email_rate_limit_per_second = int(
+        getattr(settings, "MESSAGING_EMAIL_RATE_LIMIT_PER_SECOND", 0) or 0
+    )
+    if email_rate_limit_per_second > 0:
+        bucket = int(timezone.now().timestamp())
+        throttle_key = f"messaging:email_rate:{throttle_provider_key}:{bucket}"
+        added = cache.add(throttle_key, 1, timeout=2)
+        if added:
+            current_bucket_count = 1
+        else:
+            try:
+                current_bucket_count = cache.incr(throttle_key)
+            except ValueError:
+                cache.set(throttle_key, 1, timeout=2)
+                current_bucket_count = 1
+        if current_bucket_count > email_rate_limit_per_second:
+            defer_seconds = int(
+                getattr(settings, "MESSAGING_EMAIL_RATE_LIMIT_DEFER_SECONDS", 30) or 30
+            )
+            MessageLog.objects.create(
+                contact=contact,
+                campaign=campaign_contact.campaign,
+                step=step,
+                channel=MessageLog.Channel.EMAIL,
+                status=MessageLog.Status.DEFERRED,
+                provider=provider_label,
+                provider_response={
+                    "message": "Deferred due to provider rate throttling",
+                    "rate_limit_per_second": email_rate_limit_per_second,
+                    "observed_in_bucket": current_bucket_count,
+                    "next_retry_after_seconds": defer_seconds,
+                },
+                sent_at=None,
+            )
+            campaign_contact.status = CampaignContact.Status.PENDING
+            campaign_contact.scheduled_at = timezone.now() + timedelta(seconds=defer_seconds)
+            campaign_contact.error_message = "Deferred due to provider rate throttling"
+            campaign_contact.save(
+                update_fields=["status", "scheduled_at", "error_message", "updated_at"]
+            )
+            return
 
     try:
         if smtp_cfg:
             send_email_with_smtp_config(
                 subject=subject,
                 message=body_text,
-                to_emails=[contact.email],
+                to_emails=[email],
                 html_message=body_html,
                 smtp=smtp_cfg,
             )
@@ -660,7 +730,7 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
                 subject=subject,
                 message=body_text,
                 html_message=body_html,
-                to_emails=[contact.email],
+                to_emails=[email],
                 from_email=settings.EMAIL_HOST_USER,
             )
         # SMTP handoff success means provider accepted the message, not necessarily delivered.
@@ -668,16 +738,53 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
         sent_at = timezone.now()
         error_message = ""
     except Exception as exc:
-        status = MessageLog.Status.FAILED
+        historical_attempts = MessageLog.objects.filter(
+            campaign=campaign_contact.campaign,
+            step=step,
+            contact=contact,
+            channel=MessageLog.Channel.EMAIL,
+        ).count()
+        current_attempt = historical_attempts + 1
+        max_defer_attempts = int(
+            getattr(settings, "MESSAGING_EMAIL_DEFER_MAX_ATTEMPTS", 3) or 3
+        )
+        defer_delay_seconds = int(
+            getattr(settings, "MESSAGING_EMAIL_DEFER_DELAY_SECONDS", 120) or 120
+        )
+        transient_error = isinstance(
+            exc,
+            (
+                smtplib.SMTPServerDisconnected,
+                smtplib.SMTPConnectError,
+                socket.timeout,
+                TimeoutError,
+            ),
+        ) or any(
+            marker in str(exc).lower()
+            for marker in (
+                "connection unexpectedly closed",
+                "timed out",
+                "temporar",
+                "try again",
+                "rate limit",
+                "too many requests",
+            )
+        )
+        should_defer = transient_error and current_attempt < max(1, max_defer_attempts)
+        status = MessageLog.Status.DEFERRED if should_defer else MessageLog.Status.FAILED
         sent_at = None
         error_message = f"Exception while sending email: {exc}"
         provider_response = {
             "error_message": error_message,
             "exception_type": exc.__class__.__name__,
             "provider": provider_label,
-            "recipient": contact.email,
+            "recipient": email,
             "template_slug": step.template_code,
+            "is_transient": transient_error,
+            "attempt": current_attempt,
         }
+        if should_defer:
+            provider_response["next_retry_after_seconds"] = defer_delay_seconds * current_attempt
     else:
         provider_response = {"message": "Accepted by email provider"}
 
@@ -695,11 +802,17 @@ def send_email_for_campaign_contact(campaign_contact: CampaignContact) -> None:
     if status in (MessageLog.Status.SENT, MessageLog.Status.ACCEPTED, MessageLog.Status.DELIVERED):
         campaign_contact.status = CampaignContact.Status.SENT
         campaign_contact.sent_at = sent_at
+        campaign_contact.error_message = ""
+    elif status == MessageLog.Status.DEFERRED:
+        retry_after_seconds = int(provider_response.get("next_retry_after_seconds", 60))
+        campaign_contact.status = CampaignContact.Status.PENDING
+        campaign_contact.scheduled_at = timezone.now() + timedelta(seconds=retry_after_seconds)
+        campaign_contact.error_message = error_message
     else:
         campaign_contact.status = CampaignContact.Status.FAILED
         campaign_contact.error_message = error_message
     campaign_contact.save(
-        update_fields=["status", "error_message", "sent_at", "updated_at"]
+        update_fields=["status", "error_message", "sent_at", "scheduled_at", "updated_at"]
     )
 
 

@@ -23,3 +23,11 @@ media/
 *.env.staging
 *.env
 postman
+
+# Celery runtime state/temp files
+celerybeat-schedule
+celerybeat-schedule-*
+**/celerybeat-schedule
+**/celerybeat-schedule-*
+celery*.pid
+**/celery*.pid

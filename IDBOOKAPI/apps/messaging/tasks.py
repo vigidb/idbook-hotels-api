@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.messaging.models import Campaign, CampaignContact, CampaignStep
+from apps.messaging.models import Campaign, CampaignContact, CampaignStep, MessageLog
 from apps.messaging.services import (
     build_campaign_contacts,
     send_sms_for_campaign_contact,
@@ -18,6 +18,37 @@ from apps.messaging.services import (
 
 # Batch size for sending (keeps memory and per-task time bounded; rate limiting can be added later)
 CAMPAIGN_BATCH_SIZE = 100
+CAMPAIGN_DUE_SCAN_LIMIT = 1000
+
+
+def _claim_due_campaign_contact_ids(*, campaign_id: int | None = None, limit: int = CAMPAIGN_DUE_SCAN_LIMIT) -> list[int]:
+    """
+    Atomically claim due pending contacts by flipping status -> queued.
+    This reduces duplicate sends when multiple scheduler tasks overlap.
+    """
+    now = timezone.now()
+    due_qs = CampaignContact.objects.filter(
+        status=CampaignContact.Status.PENDING,
+        campaign__status__in=[Campaign.Status.SCHEDULED, Campaign.Status.RUNNING],
+    ).filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
+    if campaign_id:
+        due_qs = due_qs.filter(campaign_id=campaign_id)
+    due_ids = list(due_qs.order_by("scheduled_at", "id").values_list("id", flat=True)[:limit])
+    if not due_ids:
+        return []
+
+    with transaction.atomic():
+        claimed_ids = list(
+            CampaignContact.objects.filter(
+                id__in=due_ids,
+                status=CampaignContact.Status.PENDING,
+            ).values_list("id", flat=True)
+        )
+        if claimed_ids:
+            CampaignContact.objects.filter(id__in=claimed_ids).update(
+                status=CampaignContact.Status.QUEUED
+            )
+    return claimed_ids
 
 
 def _schedule_next_due_poll(campaign_id: int) -> None:
@@ -159,16 +190,7 @@ def enqueue_campaign_contacts_task(campaign_id: int) -> int:
     ):
         return 0
     created = build_campaign_contacts(campaign)
-    now = timezone.now()
-    # Queue sending for contacts that are due (scheduled_at <= now or not set)
-    due_ids = list(
-        CampaignContact.objects.filter(
-            campaign_id=campaign_id,
-            status=CampaignContact.Status.PENDING,
-        )
-        .filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
-        .values_list("id", flat=True)[: 10000]
-    )  # cap to avoid huge queues
+    due_ids = _claim_due_campaign_contact_ids(campaign_id=campaign_id, limit=10000)
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
         send_campaign_batch_task.delay(chunk)
@@ -183,16 +205,7 @@ def process_due_campaign_contacts_task(campaign_id: int | None = None) -> int:
     Periodic task: queue batch send for PENDING campaign contacts whose scheduled_at is due.
     Register in Celery Beat (e.g. every 1 minute) so scheduled campaigns actually send.
     """
-    now = timezone.now()
-    due_qs = CampaignContact.objects.filter(
-            status=CampaignContact.Status.PENDING,
-            campaign__status__in=[Campaign.Status.SCHEDULED, Campaign.Status.RUNNING],
-        ).filter(Q(scheduled_at__isnull=True) | Q(scheduled_at__lte=now))
-    if campaign_id:
-        due_qs = due_qs.filter(campaign_id=campaign_id)
-    due_ids = list(
-        due_qs.order_by("scheduled_at", "id").values_list("id", flat=True)[:1000]
-    )
+    due_ids = _claim_due_campaign_contact_ids(campaign_id=campaign_id, limit=CAMPAIGN_DUE_SCAN_LIMIT)
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
         send_campaign_batch_task.delay(chunk)
@@ -235,9 +248,39 @@ def send_campaign_batch_task(campaign_contact_ids: list[int]) -> None:
             continue
 
         if campaign_contact.step.channel == campaign_contact.step.Channel.SMS:
-            send_sms_for_campaign_contact(campaign_contact)
+            try:
+                send_sms_for_campaign_contact(campaign_contact)
+            except Exception as exc:
+                campaign_contact.status = CampaignContact.Status.FAILED
+                campaign_contact.error_message = f"Unhandled SMS send exception: {exc}"
+                campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
+                MessageLog.objects.create(
+                    contact=campaign_contact.contact,
+                    campaign=campaign_contact.campaign,
+                    step=campaign_contact.step,
+                    channel=MessageLog.Channel.SMS,
+                    status=MessageLog.Status.FAILED,
+                    provider="runtime",
+                    provider_response={"error_message": str(exc), "exception_type": exc.__class__.__name__},
+                    sent_at=None,
+                )
         elif campaign_contact.step.channel == campaign_contact.step.Channel.EMAIL:
-            send_email_for_campaign_contact(campaign_contact)
+            try:
+                send_email_for_campaign_contact(campaign_contact)
+            except Exception as exc:
+                campaign_contact.status = CampaignContact.Status.FAILED
+                campaign_contact.error_message = f"Unhandled email send exception: {exc}"
+                campaign_contact.save(update_fields=["status", "error_message", "updated_at"])
+                MessageLog.objects.create(
+                    contact=campaign_contact.contact,
+                    campaign=campaign_contact.campaign,
+                    step=campaign_contact.step,
+                    channel=MessageLog.Channel.EMAIL,
+                    status=MessageLog.Status.FAILED,
+                    provider="runtime",
+                    provider_response={"error_message": str(exc), "exception_type": exc.__class__.__name__},
+                    sent_at=None,
+                )
 
     for campaign_id in {cc.campaign_id for cc in contacts if cc.campaign_id}:
         _sync_campaign_runtime_status(campaign_id)
