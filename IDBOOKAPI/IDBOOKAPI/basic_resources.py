@@ -299,6 +299,8 @@ PAYMENT_TYPE = (
 
 PAYMENT_MEDIUM = (
     ("PHONE PAY", "PHONE PAY"),
+    ("RAZORPAY", "RAZORPAY"),
+    ("PAYMENT GATEWAY", "PAYMENT GATEWAY"),
     ("PayU", "PayU"),
     ("Idbook", "Idbook"),
     ("Hotel", "Hotel"),

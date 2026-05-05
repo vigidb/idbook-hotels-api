@@ -1,5 +1,6 @@
 from django.db import models
 from apps.authentication.models import User
+from apps.customer.wallet_owner_utils import validate_exclusive_wallet_owner
 from apps.org_resources.models import Address, CompanyDetail
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES,
@@ -152,7 +153,11 @@ class Customer(models.Model):
 class Wallet(models.Model):
 
     user = models.ForeignKey(
-        User, on_delete=models.DO_NOTHING, null=True, related_name="wallet_user"
+        User,
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="wallet_user",
     )
     company = models.ForeignKey(
         CompanyDetail,
@@ -177,6 +182,42 @@ class Wallet(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        user_id__isnull=False,
+                        company_id__isnull=True,
+                        agent_id__isnull=True,
+                    )
+                    | models.Q(
+                        user_id__isnull=True,
+                        company_id__isnull=False,
+                        agent_id__isnull=True,
+                    )
+                    | models.Q(
+                        user_id__isnull=True,
+                        company_id__isnull=True,
+                        agent_id__isnull=False,
+                    )
+                ),
+                name="customer_wallet_one_owner_scope",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        validate_exclusive_wallet_owner(
+            user_id=self.user_id,
+            company_id=self.company_id,
+            agent_id=self.agent_id,
+        )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
 
 ##    def __str__(self):
 ##        if self.user:
@@ -187,12 +228,17 @@ class Wallet(models.Model):
 
 class WalletTransaction(models.Model):
     user = models.ForeignKey(
-        User, on_delete=models.DO_NOTHING, null=True, related_name="wallet_transactions"
+        User,
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="wallet_transactions",
     )
     company = models.ForeignKey(
         CompanyDetail,
         on_delete=models.DO_NOTHING,
         null=True,
+        blank=True,
         related_name="wallet_company_transaction",
     )
     agent = models.ForeignKey(
@@ -215,7 +261,7 @@ class WalletTransaction(models.Model):
         max_length=350, null=True, blank=True, help_text="transaction id"
     )
     transaction_details = models.TextField(help_text="Transaction description")
-    other_details = models.JSONField(null=True, default=dict)
+    other_details = models.JSONField(null=True, blank=True, default=dict)
     payment_type = models.CharField(
         max_length=50, choices=PAYMENT_TYPE, default="WALLET"
     )
@@ -248,6 +294,42 @@ class WalletTransaction(models.Model):
     )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        user_id__isnull=False,
+                        company_id__isnull=True,
+                        agent_id__isnull=True,
+                    )
+                    | models.Q(
+                        user_id__isnull=True,
+                        company_id__isnull=False,
+                        agent_id__isnull=True,
+                    )
+                    | models.Q(
+                        user_id__isnull=True,
+                        company_id__isnull=True,
+                        agent_id__isnull=False,
+                    )
+                ),
+                name="customer_wallettransaction_one_owner_scope",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        validate_exclusive_wallet_owner(
+            user_id=self.user_id,
+            company_id=self.company_id,
+            agent_id=self.agent_id,
+        )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 ##    def __str__(self):

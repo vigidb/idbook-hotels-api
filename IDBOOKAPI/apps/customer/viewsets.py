@@ -1,4 +1,5 @@
 from rest_framework.views import APIView
+from decimal import Decimal
 from rest_framework.response import Response
 from rest_framework import viewsets
 from django_filters.rest_framework import DjangoFilterBackend
@@ -27,27 +28,43 @@ from apps.customer.utils.db_utils import (
     add_company_wallet_amount,
     add_user_wallet_amount,
     add_agent_wallet_amount,
+    attach_razorpay_fee_metadata,
 )
 from apps.log_management.utils.db_utils import create_wallet_payment_log
 from django.conf import settings
 
 from .serializers import (
-    CustomerSerializer,
-    WalletSerializer,
-    WalletTransactionSerializer,
-    WalletRechargeSerializer,
+    AdminWalletListQuerySerializer,
+    AdminWalletScopedTransactionQuerySerializer,
+    AdminWalletTransactionListQuerySerializer,
+    AdminWalletTransactionWriteSerializer,
     ApproveRechargeSerializer,
+    CustomerSerializer,
+    FeePreviewQuerySerializer,
     PendingRechargeSerializer,
-    QueryFilterPendingRechargeSerializer,
-)
-
-# filter serializer for swagger
-from .serializers import (
     QueryFilterCustomerSerializer,
+    QueryFilterPendingRechargeSerializer,
     QueryFilterWalletTransactionSerializer,
+    WalletAdminListSerializer,
+    WalletRechargeSerializer,
+    WalletSerializer,
+    WalletTransactionAdminSerializer,
+    WalletTransactionSerializer,
+)
+from apps.customer.wallet_admin_views import (
+    compute_wallet_ledger_balance,
+    finance_ops_admin_allowed,
+    transaction_matches_wallet,
+    wallet_transactions_scope_q,
+)
+from apps.customer.wallet_owner_utils import (
+    wallet_owner_kwargs_from_wallet,
+    validate_exclusive_wallet_owner,
 )
 from .models import Customer, Wallet, WalletTransaction
-from django.db.models import Q
+from django.db.models import Q, Sum, Count, Case, When, F, Value, DecimalField
+from django.db.models.functions import Coalesce
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 import traceback
@@ -57,6 +74,22 @@ from apps.authentication.models import User
 from django.conf import settings
 
 import base64, json
+
+
+def _is_counted_wallet_txn(status_value, success_value):
+    return str(status_value).strip().lower() == "completed" and bool(success_value) is True
+
+
+def _wallet_txn_effect(amount, transaction_type, status_value, success_value):
+    amt = Decimal(str(amount or 0))
+    if not _is_counted_wallet_txn(status_value, success_value):
+        return Decimal("0")
+    txn_type = str(transaction_type or "").strip().lower()
+    if txn_type == "credit":
+        return amt
+    if txn_type == "debit":
+        return -amt
+    return Decimal("0")
 
 
 class CustomerViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
@@ -481,7 +514,7 @@ class WalletViewSet(
     queryset = Wallet.objects.all()
     serializer_class = WalletSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "post", "put", "patch"]
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
     @action(
         detail=False,
@@ -603,7 +636,6 @@ class WalletViewSet(
             payment_medium = "PHONE PAY" if payment_channel == "PHONE PAY" else "RAZORPAY" if payment_channel == "RAZORPAY" else "PAYMENT GATEWAY"
             
             wtransact = {
-                "user_id": user.id,
                 "transaction_id": merchant_transaction_id,
                 "amount": amount,
                 "transaction_type": "Credit",
@@ -619,9 +651,11 @@ class WalletViewSet(
             if company_id:
                 wtransact["company_id"] = company_id
                 payment_log["company_id"] = company_id
-            if agent_id:
+            elif agent_id:
                 wtransact["agent_id"] = agent_id
                 payment_log["agent_id"] = agent_id
+            else:
+                wtransact["user_id"] = user.id
 
             # wallet transaction entry
             update_wallet_transaction(wtransact)
@@ -1102,6 +1136,19 @@ class WalletViewSet(
                     )
                 
                 self.log_info(f"=== RAZORPAY WALLET VERIFY SUCCESS - Payment ID: {razorpay_payment_id}, Order ID: {razorpay_order_id} ===")
+                fee_breakdown = {}
+                try:
+                    from apps.payment_gateways.utils.razorpay_fees import (
+                        actual_fee_from_payment_entity,
+                    )
+
+                    attach_razorpay_fee_metadata(razorpay_payment_id, payment_data)
+                    fee_breakdown = actual_fee_from_payment_entity(payment_data)
+                except Exception:
+                    self.log_error(
+                        "Failed to persist Razorpay fee metadata on wallet transaction",
+                        exc_info=True,
+                    )
                 return self.get_response(
                     status="success",
                     data={
@@ -1109,6 +1156,7 @@ class WalletViewSet(
                         "order_id": razorpay_order_id,
                         "amount": amount,
                         "status": "completed",
+                        "razorpay_fee": fee_breakdown,
                     },
                     message="Wallet recharged successfully",
                     status_code=status.HTTP_200_OK,
@@ -1333,7 +1381,16 @@ class WalletViewSet(
                             self.log_info(f"Webhook - Calling update_wallet_recharge_details with user_id={user_id}, company_id={company_id}, agent_id={agent_id}, amount={amount}")
                             wallet_update_result = update_wallet_recharge_details(user_id, company_id, amount, agent_id)
                             self.log_info(f"Webhook - Wallet recharge update result: {wallet_update_result}")
-                            
+                            try:
+                                attach_razorpay_fee_metadata(
+                                    razorpay_payment_id, payment_entity
+                                )
+                            except Exception:
+                                self.log_error(
+                                    "Webhook: failed to attach Razorpay fee metadata",
+                                    exc_info=True,
+                                )
+
                             # Verify wallet balance was updated
                             from apps.customer.models import Wallet
                             if agent_id:
@@ -1755,10 +1812,9 @@ class WalletViewSet(
 
             if company_id:
                 wtransact_data["company_id"] = company_id
-            if agent_id:
+            elif agent_id:
                 wtransact_data["agent_id"] = agent_id
-            # Store user only for personal wallet recharges.
-            if not company_id and not agent_id:
+            else:
                 wtransact_data["user_id"] = user.id
 
             # Create wallet transaction
@@ -1839,6 +1895,15 @@ class WalletViewSet(
                 errors=serializer.errors,
                 error_code="VALIDATION_ERROR",
                 status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to approve wallet recharges",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
             )
 
         try:
@@ -1980,7 +2045,12 @@ class WalletViewSet(
 
     @swagger_auto_schema(
         query_serializer=QueryFilterPendingRechargeSerializer,
-        operation_description="List all pending wallet recharge requests with filtering options",
+        operation_description=(
+            "List wallet recharge requests (bank transfer flow). "
+            "Use query param `status` (Pending | Completed | Failed); "
+            "omit it to default to Pending. Filter by `wallet_owner` "
+            "(b2c | company | agent), ids, dates, etc."
+        ),
         responses={200: PendingRechargeSerializer(many=True)},
     )
     @action(
@@ -1991,6 +2061,15 @@ class WalletViewSet(
     )
     def list_pending_recharges(self, request):
         try:
+            if not finance_ops_admin_allowed(request):
+                return self.get_error_response(
+                    message="You don't have permission to list pending wallet recharges",
+                    status="error",
+                    errors=[],
+                    error_code="PERMISSION_DENIED",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+
             # Validate query parameters
             query_serializer = QueryFilterPendingRechargeSerializer(
                 data=request.query_params
@@ -2006,14 +2085,30 @@ class WalletViewSet(
 
             validated_data = query_serializer.validated_data
 
-            # Base queryset for pending wallet recharges
+            # Bank / manual wallet recharge rows (status filtered below)
             queryset = (
-                WalletTransaction.objects.filter(
-                    status="Pending", transaction_for="wallet_recharge"
-                )
+                WalletTransaction.objects.filter(transaction_for="wallet_recharge")
                 .select_related("user", "company", "agent")
                 .prefetch_related("user__customer_profile")
             )
+
+            status_raw = (validated_data.get("status") or "").strip()
+            if status_raw:
+                queryset = queryset.filter(status__iexact=status_raw)
+            else:
+                queryset = queryset.filter(status__iexact="Pending")
+
+            wo = (validated_data.get("wallet_owner") or "").strip().lower()
+            if wo == "b2c":
+                queryset = queryset.filter(
+                    user_id__isnull=False,
+                    company_id__isnull=True,
+                    agent_id__isnull=True,
+                )
+            elif wo == "company":
+                queryset = queryset.filter(company_id__isnull=False)
+            elif wo == "agent":
+                queryset = queryset.filter(agent_id__isnull=False)
 
             # Apply filters
             user_id = validated_data.get("user_id")
@@ -2112,7 +2207,7 @@ class WalletViewSet(
 
             return self.get_response(
                 status="success",
-                message="Pending wallet recharge requests retrieved successfully",
+                message="Wallet recharge requests retrieved successfully",
                 count=count,
                 data=serializer.data,
                 status_code=status.HTTP_200_OK,
@@ -2128,6 +2223,714 @@ class WalletViewSet(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    def wallet_recharge_fee_preview(self, request):
+        """Estimate Razorpay processing fee; bank-transfer path has zero fee."""
+        from decimal import Decimal
+
+        from apps.payment_gateways.utils import razorpay_fees as rzfee
+
+        ser = FeePreviewQuerySerializer(data=request.query_params)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Invalid query parameters",
+                status="error",
+                errors=ser.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        amount_rupees = Decimal(str(ser.validated_data["amount"]))
+        raw_bucket = (ser.validated_data.get("bucket") or "worst_case").strip().lower()
+        disclaimer = (
+            "Estimates only; actual Razorpay fee and GST depend on the payment method "
+            "chosen at checkout. Wallet is credited the paid amount; platform costs are "
+            "tracked separately. Bank transfer with receipt and admin approval has no "
+            "processing fee."
+        )
+        bucket_map = {
+            "domestic_standard": rzfee.BUCKET_DOMESTIC_STANDARD,
+            "premium": rzfee.BUCKET_PREMIUM,
+            "international_bank": rzfee.BUCKET_INTL_BANK,
+            "rupay_credit_upi": rzfee.BUCKET_RUPAY_UPI,
+        }
+        if raw_bucket in ("worst_case", "conservative", ""):
+            default_est = rzfee.worst_case_estimate(amount_rupees)
+        elif raw_bucket in bucket_map:
+            default_est = rzfee.build_fee_estimate_response(
+                amount_rupees, bucket_map[raw_bucket]
+            )
+        else:
+            default_est = rzfee.worst_case_estimate(amount_rupees)
+
+        idbook_manual = {
+            "channel": "bank_transfer_receipt",
+            "processing_fee_rupees": "0",
+            "gst_on_fee_rupees": "0",
+            "total_fee_rupees": "0",
+            "wallet_credit_rupees": str(amount_rupees),
+        }
+
+        return self.get_response(
+            status="success",
+            count=1,
+            data={
+                "amount_rupees": str(amount_rupees),
+                "razorpay_estimate": dict(default_est),
+                "idbook_manual": idbook_manual,
+                "disclaimer": disclaimer,
+            },
+            message="Wallet recharge fee preview",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def admin_wallet_list(self, request):
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to list wallets",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        ser = AdminWalletListQuerySerializer(data=request.query_params)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Invalid query parameters",
+                status="error",
+                errors=ser.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        v = ser.validated_data
+        qs = Wallet.objects.filter(active=True).select_related("user", "company", "agent")
+
+        wo = (v.get("wallet_owner") or "").strip().lower()
+        if wo == "b2c":
+            qs = qs.filter(
+                user_id__isnull=False,
+                company_id__isnull=True,
+                agent_id__isnull=True,
+            )
+        elif wo == "company":
+            qs = qs.filter(company_id__isnull=False)
+        elif wo == "agent":
+            qs = qs.filter(agent_id__isnull=False)
+
+        uid = v.get("user_id")
+        if uid is not None:
+            qs = qs.filter(user_id=uid)
+        cid = v.get("company_id")
+        if cid is not None:
+            qs = qs.filter(company_id=cid)
+        aid = v.get("agent_id")
+        if aid is not None:
+            qs = qs.filter(agent_id=aid)
+
+        search = (v.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(user__email__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(user__mobile_number__icontains=search)
+                | Q(company__company_name__icontains=search)
+                | Q(agent__agent_name__icontains=search)
+            )
+        ordering = (v.get("ordering") or "-updated").strip()
+        allowed = {
+            "updated",
+            "-updated",
+            "created",
+            "-created",
+            "balance",
+            "-balance",
+            "id",
+            "-id",
+        }
+        if ordering not in allowed:
+            ordering = "-updated"
+        qs = qs.order_by(ordering)
+        count, page = paginate_queryset(request, qs)
+        out = WalletAdminListSerializer(page, many=True)
+        return self.get_response(
+            status="success",
+            message="Wallets retrieved successfully",
+            count=count,
+            data=out.data,
+            status_code=status.HTTP_200_OK,
+        )
+
+    def admin_wallet_dashboard_summary(self, request):
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to view wallet dashboard summary",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        wallets_qs = Wallet.objects.filter(active=True)
+        tx_qs = WalletTransaction.objects.filter(
+            status__iexact="Completed",
+            is_transaction_success=True,
+        )
+
+        wallet_agg = wallets_qs.aggregate(
+            total_wallet_balance=Coalesce(
+                Sum("balance"), Value(0), output_field=DecimalField(max_digits=24, decimal_places=6)
+            ),
+            wallets_count=Count("id"),
+        )
+        tx_agg = tx_qs.aggregate(
+            total_credit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Credit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            total_debit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Debit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            successful_transactions=Count("id"),
+        )
+
+        total_credit = tx_agg["total_credit"] or 0
+        total_debit = tx_agg["total_debit"] or 0
+        data = {
+            "wallets_count": wallet_agg["wallets_count"] or 0,
+            "total_wallet_balance": str(wallet_agg["total_wallet_balance"] or 0),
+            "total_money_in": str(total_credit),
+            "total_money_out": str(total_debit),
+            "net_flow": str(total_credit - total_debit),
+            "successful_transactions": tx_agg["successful_transactions"] or 0,
+        }
+        return self.get_response(
+            status="success",
+            count=1,
+            data=data,
+            message="Wallet dashboard summary",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def admin_wallet_funds_summary(self, request):
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to view wallet funds summary",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        ser_q = AdminWalletTransactionListQuerySerializer(data=request.query_params)
+        if not ser_q.is_valid():
+            return self.get_error_response(
+                message="Invalid query params",
+                status="error",
+                errors=ser_q.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated = ser_q.validated_data
+        tx_qs = WalletTransaction.objects.filter(
+            status__iexact="Completed",
+            is_transaction_success=True,
+        )
+        tx_qs = WalletTransactionViewSet()._apply_admin_transaction_filters(
+            tx_qs, validated
+        )
+
+        promo_credit_for = [
+            "signup_reward",
+            "booking_cashback",
+            "referral_booking",
+            "pro_member_bonus",
+        ]
+
+        agg = tx_qs.aggregate(
+            total_credit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Credit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            total_debit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Debit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            real_money_in=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(transaction_type="Credit", transaction_for__iexact="wallet_recharge"),
+                ),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            promo_credit_credited=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(transaction_type="Credit", transaction_for__in=promo_credit_for),
+                ),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            promo_credit_used=Coalesce(
+                Sum(
+                    "used_amount",
+                    filter=Q(transaction_type="Credit", transaction_for__in=promo_credit_for),
+                ),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            promo_credit_expired=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(
+                        transaction_type="Debit",
+                        transaction_for__iexact="pro_member_bonus_expiry",
+                    ),
+                ),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            successful_transactions=Count("id"),
+        )
+
+        total_credit = agg["total_credit"] or 0
+        total_debit = agg["total_debit"] or 0
+        real_money_in = agg["real_money_in"] or 0
+        promo_credit_credited = agg["promo_credit_credited"] or 0
+        promo_credit_used = agg["promo_credit_used"] or 0
+        promo_credit_expired = agg["promo_credit_expired"] or 0
+
+        data = {
+            "total_credit": str(total_credit),
+            "total_debit": str(total_debit),
+            "net_flow": str(total_credit - total_debit),
+            "real_money_in": str(real_money_in),
+            "promo_credit_credited": str(promo_credit_credited),
+            "promo_credit_used": str(promo_credit_used),
+            "promo_credit_expired": str(promo_credit_expired),
+            "unclassified_credit": str(total_credit - real_money_in - promo_credit_credited),
+            "unclassified_debit": str(total_debit - promo_credit_expired),
+            "successful_transactions": agg["successful_transactions"] or 0,
+            "start_date": str(validated.get("start_date") or ""),
+            "end_date": str(validated.get("end_date") or ""),
+        }
+        return self.get_response(
+            status="success",
+            count=1,
+            data=data,
+            message="Wallet funds summary",
+            status_code=status.HTTP_200_OK,
+        )
+
+    def admin_wallet_summary(self, request, pk=None):
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to view this wallet",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        wallet = (
+            Wallet.objects.filter(pk=pk)
+            .select_related("user", "company", "agent")
+            .first()
+        )
+        if not wallet:
+            return self.get_error_response(
+                message="Wallet not found",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        out = WalletAdminListSerializer(wallet)
+        return self.get_response(
+            status="success",
+            count=1,
+            data=out.data,
+            message="Wallet summary",
+            status_code=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path="admin",
+        url_name="wallet-admin-manage",
+    )
+    def admin_wallet_manage(self, request, pk=None):
+        from django.db import transaction as db_transaction
+
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to manage wallets",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        with db_transaction.atomic():
+            wallet = Wallet.objects.select_for_update().filter(pk=pk).first()
+            if not wallet:
+                return self.get_error_response(
+                    message="Wallet not found",
+                    status="error",
+                    errors=[],
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            if request.method == "DELETE":
+                has_ledger_rows = WalletTransaction.objects.filter(
+                    wallet_transactions_scope_q(wallet)
+                ).exists()
+                if has_ledger_rows:
+                    if not wallet.active:
+                        return self.get_response(
+                            status="success",
+                            count=1,
+                            data={"id": wallet.id, "deleted": False, "active": False},
+                            message="Wallet already inactive (ledger exists, hard delete blocked)",
+                            status_code=status.HTTP_200_OK,
+                        )
+                    wallet.active = False
+                    wallet.save(update_fields=["active", "updated"])
+                    return self.get_response(
+                        status="success",
+                        count=1,
+                        data={"id": wallet.id, "deleted": False, "active": wallet.active},
+                        message="Wallet has ledger rows; deactivated instead of hard delete",
+                        status_code=status.HTTP_200_OK,
+                    )
+                wallet_id = wallet.id
+                wallet.delete()
+                return self.get_response(
+                    status="success",
+                    count=1,
+                    data={"id": wallet_id, "deleted": True},
+                    message="Wallet deleted successfully",
+                    status_code=status.HTTP_200_OK,
+                )
+
+            def _to_nullable_int(value):
+                if value in (None, "", "null"):
+                    return None
+                try:
+                    iv = int(value)
+                except (TypeError, ValueError):
+                    raise ValueError("Owner ids must be integers or null")
+                if iv < 1:
+                    raise ValueError("Owner ids must be >= 1")
+                return iv
+
+            owner_keys = {"user_id", "company_id", "agent_id", "user", "company", "agent"}
+            owner_payload_present = any(k in request.data for k in owner_keys)
+            next_user_id = wallet.user_id
+            next_company_id = wallet.company_id
+            next_agent_id = wallet.agent_id
+
+            if owner_payload_present:
+                try:
+                    if "user_id" in request.data or "user" in request.data:
+                        next_user_id = _to_nullable_int(
+                            request.data.get("user_id", request.data.get("user"))
+                        )
+                    if "company_id" in request.data or "company" in request.data:
+                        next_company_id = _to_nullable_int(
+                            request.data.get("company_id", request.data.get("company"))
+                        )
+                    if "agent_id" in request.data or "agent" in request.data:
+                        next_agent_id = _to_nullable_int(
+                            request.data.get("agent_id", request.data.get("agent"))
+                        )
+                except ValueError as exc:
+                    return self.get_error_response(
+                        message="Validation failed",
+                        status="error",
+                        errors={"owner": [str(exc)]},
+                        error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            try:
+                validate_exclusive_wallet_owner(
+                    user_id=next_user_id,
+                    company_id=next_company_id,
+                    agent_id=next_agent_id,
+                )
+            except (DjangoValidationError, ValueError) as exc:
+                return self.get_error_response(
+                    message="Validation failed",
+                    status="error",
+                    errors={"owner": [str(exc)]},
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            owner_changed = (
+                (next_user_id != wallet.user_id)
+                or (next_company_id != wallet.company_id)
+                or (next_agent_id != wallet.agent_id)
+            )
+            if owner_changed:
+                has_ledger_rows = WalletTransaction.objects.filter(
+                    wallet_transactions_scope_q(wallet)
+                ).exists()
+                if has_ledger_rows:
+                    return self.get_error_response(
+                        message="Validation failed",
+                        status="error",
+                        errors={
+                            "owner": [
+                                "Cannot change wallet owner while ledger rows exist for current scope."
+                            ]
+                        },
+                        error_code="VALIDATION_ERROR",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            active = wallet.active
+            if "active" in request.data:
+                raw_active = request.data.get("active")
+                if isinstance(raw_active, bool):
+                    active = raw_active
+                else:
+                    active = str(raw_active).strip().lower() in {"1", "true", "yes", "on"}
+
+            wallet.user_id = next_user_id
+            wallet.company_id = next_company_id
+            wallet.agent_id = next_agent_id
+            wallet.active = active
+            try:
+                wallet.full_clean()
+                wallet.save()
+            except DjangoValidationError as exc:
+                if hasattr(exc, "message_dict"):
+                    errors = exc.message_dict
+                else:
+                    errors = {"non_field_errors": list(exc.messages)}
+                return self.get_error_response(
+                    message="Validation failed",
+                    status="error",
+                    errors=errors,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        out = WalletAdminListSerializer(wallet)
+        return self.get_response(
+            status="success",
+            count=1,
+            data=out.data,
+            message="Wallet updated successfully",
+            status_code=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["GET", "POST"],
+        url_path="admin-transactions",
+        url_name="wallet-admin-transactions",
+    )
+    def admin_wallet_transactions(self, request, pk=None):
+        """Finance admin: list or create transactions scoped to this wallet."""
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to manage wallet transactions",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        wallet = (
+            Wallet.objects.filter(pk=pk)
+            .select_related("user", "company", "agent")
+            .first()
+        )
+        if not wallet:
+            return self.get_error_response(
+                message="Wallet not found",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        if request.method == "GET":
+            ser_q = AdminWalletScopedTransactionQuerySerializer(
+                data=request.query_params
+            )
+            if not ser_q.is_valid():
+                return self.get_error_response(
+                    message="Invalid query parameters",
+                    status="error",
+                    errors=ser_q.errors,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            v = ser_q.validated_data
+            qs = WalletTransaction.objects.filter(
+                wallet_transactions_scope_q(wallet)
+            ).select_related("user", "company", "agent")
+            search = (v.get("search") or "").strip()
+            if search:
+                qs = qs.filter(
+                    Q(transaction_id__icontains=search)
+                    | Q(transaction_details__icontains=search)
+                    | Q(code__icontains=search)
+                )
+            ordering = (v.get("ordering") or "-created").strip()
+            allowed_ordering = {
+                "created",
+                "-created",
+                "updated",
+                "-updated",
+                "amount",
+                "-amount",
+                "status",
+                "-status",
+                "id",
+                "-id",
+                "transaction_type",
+                "-transaction_type",
+            }
+            if ordering not in allowed_ordering:
+                ordering = "-created"
+            qs = qs.order_by(ordering)
+            offset = v["offset"]
+            limit = v["limit"]
+            count = qs.count()
+            page = qs[offset : offset + limit]
+            out = WalletTransactionAdminSerializer(page, many=True)
+            return self.get_response(
+                status="success",
+                message="Wallet transactions",
+                count=count,
+                data=out.data,
+                status_code=status.HTTP_200_OK,
+            )
+
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            locked_wallet = (
+                Wallet.objects.select_for_update().filter(pk=wallet.pk).first()
+            )
+            if not locked_wallet:
+                return self.get_error_response(
+                    message="Wallet not found",
+                    status="error",
+                    errors=[],
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            ser = AdminWalletTransactionWriteSerializer(
+                data=request.data, context={"wallet": locked_wallet}
+            )
+            if not ser.is_valid():
+                return self.get_error_response(
+                    message="Validation failed",
+                    status="error",
+                    errors=ser.errors,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            validated = dict(ser.validated_data)
+            if not str(validated.get("code") or "").strip():
+                validated["code"] = f"WLTX-{get_unique_id_from_time(locked_wallet.pk)}"
+
+            try:
+                txn = WalletTransaction.objects.create(
+                    **wallet_owner_kwargs_from_wallet(locked_wallet),
+                    **validated,
+                )
+            except DjangoValidationError as exc:
+                return self.get_error_response(
+                    message="Validation failed",
+                    status="error",
+                    errors=getattr(
+                        exc, "message_dict", {"non_field_errors": exc.messages}
+                    ),
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            delta = _wallet_txn_effect(
+                amount=txn.amount,
+                transaction_type=txn.transaction_type,
+                status_value=txn.status,
+                success_value=txn.is_transaction_success,
+            )
+            locked_wallet.balance = (locked_wallet.balance or Decimal("0")) + delta
+            locked_wallet.save(update_fields=["balance", "updated"])
+
+        out = WalletTransactionAdminSerializer(txn)
+        return self.get_response(
+            status="success",
+            message="Wallet transaction created",
+            count=1,
+            data=out.data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="reconcile-balance",
+        url_name="wallet-reconcile-balance",
+    )
+    def admin_reconcile_wallet_balance(self, request, pk=None):
+        """Set wallet.balance from sum(Credit) - sum(Debit) over Completed successful ledger rows."""
+        from django.db import transaction as db_transaction
+
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to reconcile wallet balance",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not Wallet.objects.filter(pk=pk).exists():
+            return self.get_error_response(
+                message="Wallet not found",
+                status="error",
+                errors=[],
+                error_code="NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        with db_transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(pk=pk)
+            new_bal, cnt = compute_wallet_ledger_balance(wallet)
+            old_bal = wallet.balance
+            wallet.balance = new_bal
+            wallet.save(update_fields=["balance", "updated"])
+
+        return self.get_response(
+            status="success",
+            message="Wallet balance reconciled from ledger",
+            count=1,
+            data={
+                "previous_balance": str(old_bal),
+                "new_balance": str(new_bal),
+                "ledger_transactions_count": cnt,
+                "ledger_rule": "status=Completed and is_transaction_success=true",
+            },
+            status_code=status.HTTP_200_OK,
+        )
+
 
 class WalletTransactionViewSet(
     viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
@@ -2135,7 +2938,7 @@ class WalletTransactionViewSet(
     queryset = WalletTransaction.objects.all()
     serializer_class = WalletTransactionSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "post", "put", "patch"]
+    http_method_names = ["get", "post", "put", "patch", "delete"]
     allowed_ordering_fields = {
         "created",
         "updated",
@@ -2147,6 +2950,84 @@ class WalletTransactionViewSet(
         "payment_type",
     }
     no_filter_values = {"", "all", "any", "*"}
+
+    def _apply_admin_transaction_filters(self, qs, validated_data):
+        st = (validated_data.get("status") or "").strip()
+        if st:
+            qs = qs.filter(status__iexact=st)
+
+        tf = (validated_data.get("transaction_for") or "").strip()
+        if tf:
+            qs = qs.filter(transaction_for__iexact=tf)
+
+        tt = (validated_data.get("transaction_type") or "").strip()
+        if tt:
+            qs = qs.filter(transaction_type__iexact=tt)
+
+        pt = (validated_data.get("payment_type") or "").strip()
+        if pt:
+            qs = qs.filter(payment_type__iexact=pt)
+
+        pm = (validated_data.get("payment_medium") or "").strip()
+        if pm:
+            qs = qs.filter(payment_medium__iexact=pm)
+
+        wo = (validated_data.get("wallet_owner") or "").strip().lower()
+        if wo == "b2c":
+            qs = qs.filter(
+                user_id__isnull=False,
+                company_id__isnull=True,
+                agent_id__isnull=True,
+            )
+        elif wo == "company":
+            qs = qs.filter(company_id__isnull=False)
+        elif wo == "agent":
+            qs = qs.filter(agent_id__isnull=False)
+
+        uid = validated_data.get("user_id")
+        if uid is not None:
+            qs = qs.filter(user_id=uid)
+        cid = validated_data.get("company_id")
+        if cid is not None:
+            qs = qs.filter(company_id=cid)
+        aid = validated_data.get("agent_id")
+        if aid is not None:
+            qs = qs.filter(agent_id=aid)
+
+        start_date = validated_data.get("start_date")
+        end_date = validated_data.get("end_date")
+        if start_date:
+            qs = qs.filter(created__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(created__date__lte=end_date)
+
+        search = (validated_data.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(transaction_id__icontains=search)
+                | Q(transaction_details__icontains=search)
+                | Q(code__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(user__mobile_number__icontains=search)
+                | Q(company__company_name__icontains=search)
+                | Q(agent__agent_name__icontains=search)
+            )
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        """Block generic DELETE; finance admins use .../admin/?wallet_id= instead."""
+        return self.get_error_response(
+            message=(
+                "Deleting wallet transactions via this URL is not supported. "
+                "Use DELETE /wallet-transaction/<id>/admin/?wallet_id=<wallet_pk>."
+            ),
+            status="error",
+            errors=[],
+            error_code="METHOD_NOT_ALLOWED",
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
     def _set_scope_filter(self, filter_dict, scope, value):
         """
@@ -2561,7 +3442,264 @@ class WalletTransactionViewSet(
             status_code=status.HTTP_200_OK,  # 200 for successful retrieval
         )
         return custom_response
-    
+
+    def admin_all_transactions(self, request):
+        """List all wallet transactions (finance admin only)."""
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to list wallet transactions",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        ser = AdminWalletTransactionListQuerySerializer(data=request.query_params)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Invalid query parameters",
+                status="error",
+                errors=ser.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        v = ser.validated_data
+
+        qs = WalletTransaction.objects.all().select_related(
+            "user", "company", "agent"
+        )
+
+        qs = self._apply_admin_transaction_filters(qs, v)
+
+        ordering = (v.get("ordering") or "-created").strip()
+        allowed_ordering = {
+            "created",
+            "-created",
+            "updated",
+            "-updated",
+            "amount",
+            "-amount",
+            "status",
+            "-status",
+            "id",
+            "-id",
+            "transaction_type",
+            "-transaction_type",
+        }
+        if ordering not in allowed_ordering:
+            ordering = "-created"
+        qs = qs.order_by(ordering)
+
+        count, page = paginate_queryset(request, qs)
+        out = WalletTransactionAdminSerializer(page, many=True)
+        return self.get_response(
+            status="success",
+            message="Wallet transactions retrieved successfully",
+            count=count,
+            data=out.data,
+            status_code=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="admin/stats",
+        url_name="wallet-transaction-admin-stats",
+    )
+    def admin_transactions_stats(self, request):
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to view wallet transaction stats",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        ser = AdminWalletTransactionListQuerySerializer(data=request.query_params)
+        if not ser.is_valid():
+            return self.get_error_response(
+                message="Invalid query parameters",
+                status="error",
+                errors=ser.errors,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        v = ser.validated_data
+        qs = WalletTransaction.objects.all()
+        qs = self._apply_admin_transaction_filters(qs, v)
+
+        agg = qs.aggregate(
+            transactions_count=Count("id"),
+            total_credit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Credit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            total_debit=Coalesce(
+                Sum("amount", filter=Q(transaction_type="Debit")),
+                Value(0),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            ),
+            completed_count=Count("id", filter=Q(status__iexact="Completed")),
+            pending_count=Count("id", filter=Q(status__iexact="Pending")),
+            failed_count=Count("id", filter=Q(status__iexact="Failed")),
+            successful_count=Count("id", filter=Q(is_transaction_success=True)),
+        )
+        total_credit = agg["total_credit"] or 0
+        total_debit = agg["total_debit"] or 0
+        data = {
+            "transactions_count": agg["transactions_count"] or 0,
+            "total_credit": str(total_credit),
+            "total_debit": str(total_debit),
+            "net_flow": str(total_credit - total_debit),
+            "completed_count": agg["completed_count"] or 0,
+            "pending_count": agg["pending_count"] or 0,
+            "failed_count": agg["failed_count"] or 0,
+            "successful_count": agg["successful_count"] or 0,
+            "start_date": str(v.get("start_date") or ""),
+            "end_date": str(v.get("end_date") or ""),
+        }
+        return self.get_response(
+            status="success",
+            message="Wallet transaction stats retrieved successfully",
+            count=1,
+            data=data,
+            status_code=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["PATCH", "DELETE"],
+        url_path="admin",
+        url_name="wallet-transaction-admin-update",
+    )
+    def admin_wallet_transaction_patch(self, request, pk=None):
+        """Finance admin: PATCH partial update or DELETE; wallet_id query verifies ledger scope."""
+        if not finance_ops_admin_allowed(request):
+            return self.get_error_response(
+                message="You don't have permission to change wallet transactions",
+                status="error",
+                errors=[],
+                error_code="PERMISSION_DENIED",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        raw_wid = request.query_params.get("wallet_id")
+        try:
+            wallet_id = int(raw_wid) if raw_wid is not None else None
+        except (TypeError, ValueError):
+            wallet_id = None
+        if not wallet_id:
+            return self.get_error_response(
+                message="wallet_id query parameter is required",
+                status="error",
+                errors=[],
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            locked_wallet = (
+                Wallet.objects.select_for_update().filter(pk=wallet_id).first()
+            )
+            if not locked_wallet:
+                return self.get_error_response(
+                    message="Wallet not found",
+                    status="error",
+                    errors=[],
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            txn = WalletTransaction.objects.select_for_update().filter(pk=pk).first()
+            if not txn:
+                return self.get_error_response(
+                    message="Wallet transaction not found",
+                    status="error",
+                    errors=[],
+                    error_code="NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            if not transaction_matches_wallet(txn, locked_wallet):
+                return self.get_error_response(
+                    message="Transaction does not belong to this wallet",
+                    status="error",
+                    errors=[],
+                    error_code="WALLET_SCOPE_MISMATCH",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if request.method == "DELETE":
+                old_effect = _wallet_txn_effect(
+                    amount=txn.amount,
+                    transaction_type=txn.transaction_type,
+                    status_value=txn.status,
+                    success_value=txn.is_transaction_success,
+                )
+                txn.delete()
+                locked_wallet.balance = (locked_wallet.balance or Decimal("0")) - old_effect
+                locked_wallet.save(update_fields=["balance", "updated"])
+                return self.get_response(
+                    status="success",
+                    message="Wallet transaction deleted",
+                    count=0,
+                    data={},
+                    status_code=status.HTTP_200_OK,
+                )
+
+            ser = AdminWalletTransactionWriteSerializer(
+                txn,
+                data=request.data,
+                partial=True,
+                context={"wallet": locked_wallet},
+            )
+            if not ser.is_valid():
+                return self.get_error_response(
+                    message="Validation failed",
+                    status="error",
+                    errors=ser.errors,
+                    error_code="VALIDATION_ERROR",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            old_effect = _wallet_txn_effect(
+                amount=txn.amount,
+                transaction_type=txn.transaction_type,
+                status_value=txn.status,
+                success_value=txn.is_transaction_success,
+            )
+
+            next_amount = ser.validated_data.get("amount", txn.amount)
+            next_type = ser.validated_data.get("transaction_type", txn.transaction_type)
+            next_status = ser.validated_data.get("status", txn.status)
+            next_success = ser.validated_data.get(
+                "is_transaction_success", txn.is_transaction_success
+            )
+            new_effect = _wallet_txn_effect(
+                amount=next_amount,
+                transaction_type=next_type,
+                status_value=next_status,
+                success_value=next_success,
+            )
+
+            updated_txn = ser.save()
+            locked_wallet.balance = (locked_wallet.balance or Decimal("0")) + (
+                new_effect - old_effect
+            )
+            locked_wallet.save(update_fields=["balance", "updated"])
+
+            out = WalletTransactionAdminSerializer(updated_txn)
+            return self.get_response(
+                status="success",
+                message="Wallet transaction updated",
+                count=1,
+                data=out.data,
+                status_code=status.HTTP_200_OK,
+            )
+
     @action(
         detail=False,
         methods=["GET"],

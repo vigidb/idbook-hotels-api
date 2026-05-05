@@ -31,3 +31,7 @@ celerybeat-schedule-*
 **/celerybeat-schedule-*
 celery*.pid
 **/celery*.pid
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store

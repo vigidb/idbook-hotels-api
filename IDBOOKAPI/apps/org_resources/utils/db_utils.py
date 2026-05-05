@@ -167,7 +167,6 @@ def add_wallet_bonus_for_subscription(user_sub_obj):
                     "amount": bonus_amount,
                     "transaction_type": "Credit",
                     "transaction_details": transaction_details,
-                    "company_id": None,
                     "transaction_for": "pro_member_bonus",
                     "is_transaction_success": True,
                     "other_details": other_details,

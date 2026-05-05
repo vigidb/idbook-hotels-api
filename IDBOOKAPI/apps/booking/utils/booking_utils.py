@@ -24,6 +24,7 @@ from apps.org_managements.utils import get_active_business
 from decimal import Decimal
 from IDBOOKAPI.utils import get_unique_id_from_time
 from apps.customer.models import Wallet, WalletTransaction
+from apps.customer.wallet_owner_utils import wallet_owner_kwargs_from_wallet
 from apps.log_management.models import WalletTransactionLog
 from apps.booking.models import BookingPaymentDetail, Booking, Invoice
 from datetime import datetime, timedelta
@@ -948,11 +949,10 @@ def deduct_booking_amount(booking, company_id=None, request=None, amount=None):
             transaction_details = f"Amount debited for {booking.booking_type} \
     booking ({booking.confirmation_code})"
             wtransact_dict = {
-                "user": booking.user,
+                "company_id": company_id,
                 "amount": deduct_amount,
                 "transaction_type": "Debit",
                 "transaction_details": transaction_details,
-                "company_id": company_id,
             }
             update_wallet_transaction(wtransact_dict)
 
@@ -968,14 +968,13 @@ def deduct_booking_amount(booking, company_id=None, request=None, amount=None):
             transaction_details = f"Amount debited for {booking.booking_type} \
     booking ({booking.confirmation_code})"
             wtransact_dict = {
-                "user": booking.user,
+                "agent_id": agent_id,
                 "amount": deduct_amount,
                 "transaction_type": "Debit",
                 "transaction_details": transaction_details,
-                "agent_id": agent_id,
             }
             update_wallet_transaction(wtransact_dict)
-        
+
         return status
     else:
         # B2C or other users - deduct from personal wallet
@@ -1197,9 +1196,7 @@ def refund_wallet_payment(instance, refund_amount, cancellation_details):
             f"({instance.confirmation_code}). Reason: {refund_reason}"
         )
         WalletTransaction.objects.create(
-            user=wallet.user,
-            company=wallet.company,
-            agent=wallet.agent,
+            **wallet_owner_kwargs_from_wallet(wallet),
             amount=refund_amount,
             transaction_type="Credit",
             transaction_for="booking_refund",
@@ -1779,15 +1776,17 @@ def apply_cashback(user, booking_id, cashback_amount, transaction_details):
     other_details = {"booking_id": booking_id, "cashback_reward": True}
 
     wallet_transact_dict = {
-        "user_id": user.id,
         "amount": cashback_amount,
         "transaction_type": "Credit",
         "transaction_details": transaction_details,
-        "company_id": company_id,
         "transaction_for": "booking_cashback",
         "is_transaction_success": status,
         "other_details": other_details,
     }
+    if company_id:
+        wallet_transact_dict["company_id"] = company_id
+    else:
+        wallet_transact_dict["user_id"] = user.id
 
     update_wallet_transaction(wallet_transact_dict)
     return True

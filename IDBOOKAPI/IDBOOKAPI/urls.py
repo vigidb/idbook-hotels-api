@@ -16,7 +16,6 @@ from apps.authentication.viewsets import homepage
 from apps.org_resources.urls import router as org_resources_router
 from apps.org_managements.urls import router as org_managements_router
 from apps.holiday_package.urls import router as holiday_package_router
-from apps.customer.urls import router as customer_router
 from apps.coupons.urls import router as coupons_router
 from apps.booking.urls import router as booking_router
 from apps.hotels.urls import router as hotels_router
@@ -107,8 +106,10 @@ schema_view_messaging = get_schema_view(
 urlpatterns = [
     path("", homepage, name="welcome"),
     path("api/v1/upload-file/", ImagekitioService.as_view(), name="imagekitio service"),
-    # admin
-    re_path("admin/", admin.site.urls),
+    # Django admin must use path(), not re_path("admin/", ...): re_path compiles as re.search()
+    # without a leading ^ for URLResolver includes, so "admin/" matched INSIDE API URLs such as
+    # /api/v1/customer/wallet/admin/wallets/ and hijacked the request (302 to /admin/login/).
+    path("admin/", admin.site.urls),
     # authentication
     re_path("api/v1/", include("apps.authentication.urls")),
     # administrator (includes router URLs)
@@ -121,7 +122,7 @@ urlpatterns = [
     re_path("api/v1/org-resources/", include(org_resources_router.urls)),
     re_path("api/v1/org-managements/", include(org_managements_router.urls)),
     re_path("api/v1/holiday-package/", include(holiday_package_router.urls)),
-    re_path("api/v1/customer/", include(customer_router.urls)),
+    re_path("api/v1/customer/", include("apps.customer.urls")),
     re_path("api/v1/coupons/", include(coupons_router.urls)),
     re_path("api/v1/booking/", include("apps.booking.urls")),
     # Unified Razorpay webhook (single endpoint for all payment types)

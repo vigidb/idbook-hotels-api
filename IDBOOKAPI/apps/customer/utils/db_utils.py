@@ -66,7 +66,12 @@ def get_company_wallet_balance(company_id):
 
 def update_wallet_transaction(wtransact):
     try:
-        instance = WalletTransaction.objects.create(**wtransact)
+        from apps.customer.wallet_owner_utils import (
+            normalize_wallet_transaction_create_payload,
+        )
+
+        payload = normalize_wallet_transaction_create_payload(wtransact)
+        instance = WalletTransaction.objects.create(**payload)
     except Exception as e:
         print(e)
 
@@ -193,11 +198,15 @@ def add_user_wallet_amount(user_id, amount):
             return False
 
         wallet = Wallet.objects.filter(
-            user__id=user_id, company_id__isnull=True
+            user__id=user_id, company_id__isnull=True, agent_id__isnull=True
         ).first()
         if wallet:
             wallet.balance = wallet.balance + amount
-            wallet.save()
+            if not wallet.active:
+                wallet.active = True
+                wallet.save(update_fields=["balance", "active", "updated"])
+            else:
+                wallet.save(update_fields=["balance", "updated"])
         else:
             Wallet.objects.create(user_id=user_id, balance=amount)
     except Exception as e:
@@ -224,7 +233,11 @@ def add_company_wallet_amount(company_id, amount):
         wallet = Wallet.objects.filter(company_id=company_id).first()
         if wallet:
             wallet.balance = wallet.balance + amount
-            wallet.save()
+            if not wallet.active:
+                wallet.active = True
+                wallet.save(update_fields=["balance", "active", "updated"])
+            else:
+                wallet.save(update_fields=["balance", "updated"])
             print(
                 f"add_company_wallet_amount: Updated company wallet {company_id}, new balance: {wallet.balance}"
             )
@@ -271,7 +284,11 @@ def add_agent_wallet_amount(agent_id, amount):
         wallet = Wallet.objects.filter(agent_id=agent_id).first()
         if wallet:
             wallet.balance = wallet.balance + amount
-            wallet.save()
+            if not wallet.active:
+                wallet.active = True
+                wallet.save(update_fields=["balance", "active", "updated"])
+            else:
+                wallet.save(update_fields=["balance", "updated"])
             print(
                 f"add_agent_wallet_amount: Updated agent wallet {agent_id}, new balance: {wallet.balance}"
             )
@@ -521,3 +538,23 @@ def get_credited_referred_user(user_id):
         }
 
     return credited_user_dict
+
+
+def attach_razorpay_fee_metadata(transaction_id: str, payment_entity: dict) -> bool:
+    """
+    Merge Razorpay fee/tax/method onto WalletTransaction.other_details
+    (lookup by transaction_id, typically Razorpay payment id after capture).
+    """
+    wt = WalletTransaction.objects.filter(transaction_id=transaction_id).first()
+    if not wt:
+        return False
+    from apps.payment_gateways.utils.razorpay_fees import actual_fee_from_payment_entity
+
+    meta = actual_fee_from_payment_entity(payment_entity)
+    od = dict(wt.other_details or {})
+    rz = dict(od.get("razorpay") or {})
+    rz.update(meta)
+    od["razorpay"] = rz
+    wt.other_details = od
+    wt.save(update_fields=["other_details"])
+    return True
