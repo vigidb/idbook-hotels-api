@@ -1,6 +1,6 @@
-# Enforce exactly one of user / company / agent on Wallet and WalletTransaction.
+# Cleanup wallet ownership scope data before constraints.
 
-from django.db import migrations, models
+from django.db import migrations
 
 
 def _cleanup_wallet_owner_scope(apps, schema_editor):
@@ -54,51 +54,5 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunPython(
             _cleanup_wallet_owner_scope, migrations.RunPython.noop
-        ),
-        migrations.AddConstraint(
-            model_name="wallet",
-            constraint=models.CheckConstraint(
-                check=(
-                    models.Q(
-                        user_id__isnull=False,
-                        company_id__isnull=True,
-                        agent_id__isnull=True,
-                    )
-                    | models.Q(
-                        user_id__isnull=True,
-                        company_id__isnull=False,
-                        agent_id__isnull=True,
-                    )
-                    | models.Q(
-                        user_id__isnull=True,
-                        company_id__isnull=True,
-                        agent_id__isnull=False,
-                    )
-                ),
-                name="customer_wallet_one_owner_scope",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="wallettransaction",
-            constraint=models.CheckConstraint(
-                check=(
-                    models.Q(
-                        user_id__isnull=False,
-                        company_id__isnull=True,
-                        agent_id__isnull=True,
-                    )
-                    | models.Q(
-                        user_id__isnull=True,
-                        company_id__isnull=False,
-                        agent_id__isnull=True,
-                    )
-                    | models.Q(
-                        user_id__isnull=True,
-                        company_id__isnull=True,
-                        agent_id__isnull=False,
-                    )
-                ),
-                name="customer_wallettransaction_one_owner_scope",
-            ),
         ),
     ]
