@@ -133,7 +133,8 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("localhost", 6379)],
+            # Same Redis host as Celery is fine; use a different DB index in the URL if needed.
+            "hosts": [env("REDIS_CHANNEL_LAYER_URL", default="redis://127.0.0.1:6379/0")],
         },
     },
 }
@@ -161,6 +162,25 @@ DATABASES = {
         "PORT": env("DATABASE_PORT"),
     }
 }
+
+# API / view caching (optional). Use a dedicated Redis logical DB (see README examples).
+_redis_cache_url = env("REDIS_CACHE_URL", default="").strip()
+if _redis_cache_url:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _redis_cache_url,
+            "KEY_PREFIX": env("CACHE_KEY_PREFIX", default="idbook"),
+            "TIMEOUT": env.int("CACHE_DEFAULT_TIMEOUT", default=300),
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "idbook-locmem",
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -336,6 +356,19 @@ FRONTEND_URL = env("FRONTEND_URL")
 INV_FE_URL = env("INV_FE_URL")
 # celery and redis server url
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")
+# Tasks with no explicit route go here (dev vs prod queue names; override via env if needed).
+_is_worker_dev_queues = str(ENVIRONMENT or "").strip().lower() in {
+    "dev",
+    "development",
+    "local",
+    "test",
+}
+CELERY_TASK_DEFAULT_QUEUE = env(
+    "CELERY_TASK_DEFAULT_QUEUE",
+    default=(
+        "dev-general-queue" if _is_worker_dev_queues else "general-queue"
+    ),
+)
 # Keep Redis as broker; store task execution metadata in DB for admin observability.
 CELERY_RESULT_BACKEND = "django-db"
 # Use DB-backed beat scheduler so periodic tasks are visible/manageable in admin.
@@ -348,6 +381,13 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 CELERY_TASK_TRACK_STARTED = True
 CELERY_RESULT_EXTENDED = True
+# Performance/cost guardrails for production workers.
+CELERY_WORKER_PREFETCH_MULTIPLIER = env.int("CELERY_WORKER_PREFETCH_MULTIPLIER", default=1)
+CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int("CELERY_WORKER_MAX_TASKS_PER_CHILD", default=100)
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", default=900)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=840)
+# Keep False globally; opt-in per idempotent task if needed.
+CELERY_TASK_ACKS_LATE = env.bool("CELERY_TASK_ACKS_LATE", default=False)
 # email configuration
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST")

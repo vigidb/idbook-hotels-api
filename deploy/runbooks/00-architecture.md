@@ -17,13 +17,17 @@
 - Dev:
   - `dev-email-send-queue`
   - `dev-marketing-campaign-queue`
+  - `dev-general-queue`
 - Prod:
   - `email-send-queue`
   - `marketing-campaign-queue`
+  - `general-queue`
 
 Other queues already in project:
-- `airiq-token-queue`
-- `recpay-initiate-queue`
+- `dev-airiq-token-queue` (dev)
+- `airiq-token-queue` (prod)
+- `dev-recpay-initiate-queue` (dev)
+- `recpay-initiate-queue` (prod)
 
 ## Data flow (campaign)
 

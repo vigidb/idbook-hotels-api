@@ -952,6 +952,7 @@ def deduct_booking_amount(booking, company_id=None, request=None, amount=None):
                 "company_id": company_id,
                 "amount": deduct_amount,
                 "transaction_type": "Debit",
+                "transaction_for": "booking_confirmed",
                 "transaction_details": transaction_details,
             }
             update_wallet_transaction(wtransact_dict)
@@ -971,6 +972,7 @@ def deduct_booking_amount(booking, company_id=None, request=None, amount=None):
                 "agent_id": agent_id,
                 "amount": deduct_amount,
                 "transaction_type": "Debit",
+                "transaction_for": "booking_confirmed",
                 "transaction_details": transaction_details,
             }
             update_wallet_transaction(wtransact_dict)
@@ -1592,7 +1594,7 @@ def handle_pay_at_hotel_payment_cancellation(
             user=instance.user,
             amount=cancellation_fee,
             transaction_type="Debit",
-            transaction_for="others",
+            transaction_for="cancellation_fee",
             transaction_id=merchant_transaction_id,
             transaction_details=transaction_details,
             payment_type="WALLET",
@@ -1612,7 +1614,7 @@ def handle_pay_at_hotel_payment_cancellation(
             payment_medium="Idbook",
             amount=cancellation_fee,
             is_transaction_success=True,
-            transaction_for="others",
+            transaction_for="cancellation_fee",
             transaction_details={
                 "fee_amount": float(cancellation_fee),
                 "previous_wallet_balance": float(previous_balance),

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """Campaign Celery tasks — routed to the marketing campaign queue in IDBOOKAPI/celery.py (not the transactional email/SMS queue)."""
 
+import logging
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 from celery import shared_task
 from django.db import transaction
@@ -176,11 +179,20 @@ def _sync_campaign_runtime_status(campaign_id: int) -> None:
 @shared_task
 def enqueue_campaign_contacts_task(campaign_id: int) -> int:
     """Build CampaignContact rows for the campaign, then queue batch send tasks for due contacts."""
+    logger.info("messaging.campaign.enqueue start campaign_id=%s", campaign_id)
     campaign = Campaign.objects.filter(id=campaign_id).first()
     if not campaign:
+        logger.warning(
+            "messaging.campaign.enqueue skip campaign_id=%s reason=no_campaign", campaign_id
+        )
         return 0
     # Ignore stale ETA/queued tasks if campaign was paused/deleted/closed in the meantime.
     if campaign.status not in (Campaign.Status.SCHEDULED, Campaign.Status.RUNNING):
+        logger.info(
+            "messaging.campaign.enqueue skip campaign_id=%s reason=status status=%s",
+            campaign_id,
+            campaign.status,
+        )
         return 0
     # For scheduled campaigns, do not start early if an old ETA task fires after reschedule.
     if (
@@ -188,14 +200,27 @@ def enqueue_campaign_contacts_task(campaign_id: int) -> int:
         and campaign.schedule_time
         and campaign.schedule_time > timezone.now()
     ):
+        logger.info(
+            "messaging.campaign.enqueue skip campaign_id=%s reason=before_schedule_time schedule_time=%s",
+            campaign_id,
+            campaign.schedule_time.isoformat() if campaign.schedule_time else None,
+        )
         return 0
     created = build_campaign_contacts(campaign)
     due_ids = _claim_due_campaign_contact_ids(campaign_id=campaign_id, limit=10000)
+    batch_tasks = (len(due_ids) + CAMPAIGN_BATCH_SIZE - 1) // CAMPAIGN_BATCH_SIZE
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
         send_campaign_batch_task.delay(chunk)
     _schedule_next_due_poll(campaign_id)
     _sync_campaign_runtime_status(campaign_id)
+    logger.info(
+        "messaging.campaign.enqueue done campaign_id=%s contacts_created=%s due_claimed=%s batch_tasks=%s",
+        campaign_id,
+        created,
+        len(due_ids),
+        batch_tasks,
+    )
     return created
 
 
@@ -205,7 +230,13 @@ def process_due_campaign_contacts_task(campaign_id: int | None = None) -> int:
     Periodic task: queue batch send for PENDING campaign contacts whose scheduled_at is due.
     Register in Celery Beat (e.g. every 1 minute) so scheduled campaigns actually send.
     """
+    logger.info(
+        "messaging.campaign.due_scan start campaign_id_filter=%s limit=%s",
+        campaign_id,
+        CAMPAIGN_DUE_SCAN_LIMIT,
+    )
     due_ids = _claim_due_campaign_contact_ids(campaign_id=campaign_id, limit=CAMPAIGN_DUE_SCAN_LIMIT)
+    batch_tasks = (len(due_ids) + CAMPAIGN_BATCH_SIZE - 1) // CAMPAIGN_BATCH_SIZE
     for i in range(0, len(due_ids), CAMPAIGN_BATCH_SIZE):
         chunk = due_ids[i : i + CAMPAIGN_BATCH_SIZE]
         send_campaign_batch_task.delay(chunk)
@@ -221,16 +252,28 @@ def process_due_campaign_contacts_task(campaign_id: int | None = None) -> int:
     if campaign_id and not campaign_ids:
         # If nothing was due for this campaign yet, keep one focused poll aligned to its next due time.
         _schedule_next_due_poll(campaign_id)
+    affected = list(campaign_ids)
+    logger.info(
+        "messaging.campaign.due_scan done claimed=%s batch_tasks=%s affected_campaign_ids=%s",
+        len(due_ids),
+        batch_tasks,
+        affected[:50] + (["…"] if len(affected) > 50 else []),
+    )
     return len(due_ids)
 
 
 @shared_task
 def send_campaign_batch_task(campaign_contact_ids: list[int]) -> None:
-    contacts = CampaignContact.objects.filter(id__in=campaign_contact_ids).select_related(
+    logger.info(
+        "messaging.campaign.batch start contact_ids=%s",
+        len(campaign_contact_ids),
+    )
+    qs = CampaignContact.objects.filter(id__in=campaign_contact_ids).select_related(
         "contact", "campaign", "step"
     )
+    rows = list(qs)
     now = timezone.now()
-    for campaign_contact in contacts:
+    for campaign_contact in rows:
         # Do not process sends while campaign is paused/completed/failed/draft.
         if campaign_contact.campaign.status not in (
             Campaign.Status.SCHEDULED,
@@ -282,6 +325,14 @@ def send_campaign_batch_task(campaign_contact_ids: list[int]) -> None:
                     sent_at=None,
                 )
 
-    for campaign_id in {cc.campaign_id for cc in contacts if cc.campaign_id}:
+    sync_campaign_ids = {cc.campaign_id for cc in rows if cc.campaign_id}
+    for campaign_id in sync_campaign_ids:
         _sync_campaign_runtime_status(campaign_id)
+
+    logger.info(
+        "messaging.campaign.batch done requested=%s loaded=%s campaigns_synced=%s",
+        len(campaign_contact_ids),
+        len(rows),
+        sorted(sync_campaign_ids),
+    )
 

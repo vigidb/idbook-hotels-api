@@ -1,6 +1,7 @@
 from django.db import models
 from apps.authentication.models import User
 from apps.customer.wallet_owner_utils import validate_exclusive_wallet_owner
+from apps.customer.transaction_state import normalize_wallet_transaction_state
 from apps.org_resources.models import Address, CompanyDetail
 from IDBOOKAPI.basic_resources import (
     GENDER_CHOICES,
@@ -325,6 +326,9 @@ class WalletTransaction(models.Model):
             user_id=self.user_id,
             company_id=self.company_id,
             agent_id=self.agent_id,
+        )
+        self.status, self.is_transaction_success = normalize_wallet_transaction_state(
+            self.status, self.is_transaction_success
         )
 
     def save(self, *args, **kwargs):

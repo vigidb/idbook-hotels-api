@@ -179,10 +179,10 @@ python manage.py migrate
 Run workers from `IDBOOKAPI/` after activating your venv. Common queues:
 
 ```bash
-celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,dev-marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue
+celery -A IDBOOKAPI worker -l info -Q dev-email-send-queue,dev-marketing-campaign-queue,dev-general-queue,dev-airiq-token-queue,dev-recpay-initiate-queue
 ```
 
-(With `ENVIRONMENT=dev`; production all-queues worker: `email-send-queue,marketing-campaign-queue,airiq-token-queue,recpay-initiate-queue` — see root `README.md` § Celery.)
+(With `ENVIRONMENT=dev`; production all-queues worker: `email-send-queue,marketing-campaign-queue,general-queue,airiq-token-queue,recpay-initiate-queue` — see root `README.md` § Celery.)
 
 - Put new async work in the relevant app’s `tasks.py`.
 - If you add a new task type that needs routing/scheduling, update `IDBOOKAPI/IDBOOKAPI/celery.py`.

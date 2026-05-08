@@ -13,6 +13,7 @@ from rest_framework_simplejwt.views import (
 
 from IDBOOKAPI.img_kit import ImagekitioService
 from apps.authentication.viewsets import homepage
+from apps.administrator.admin_views import celery_queue_routing_admin_view
 from apps.org_resources.urls import router as org_resources_router
 from apps.org_managements.urls import router as org_managements_router
 from apps.holiday_package.urls import router as holiday_package_router
@@ -106,6 +107,11 @@ schema_view_messaging = get_schema_view(
 urlpatterns = [
     path("", homepage, name="welcome"),
     path("api/v1/upload-file/", ImagekitioService.as_view(), name="imagekitio service"),
+    path(
+        "admin/celery-routing/",
+        celery_queue_routing_admin_view,
+        name="admin-celery-queue-routing",
+    ),
     # Django admin must use path(), not re_path("admin/", ...): re_path compiles as re.search()
     # without a leading ^ for URLResolver includes, so "admin/" matched INSIDE API URLs such as
     # /api/v1/customer/wallet/admin/wallets/ and hijacked the request (302 to /admin/login/).

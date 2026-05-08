@@ -157,6 +157,10 @@ class WalletSerializer(serializers.ModelSerializer):
 
 
 class WalletTransactionSerializer(serializers.ModelSerializer):
+    running_balance = serializers.DecimalField(
+        max_digits=24, decimal_places=6, required=False, read_only=True
+    )
+
     class Meta:
         model = WalletTransaction
         fields = "__all__"
@@ -166,6 +170,15 @@ class WalletTransactionAdminSerializer(serializers.ModelSerializer):
     """Same as ledger row plus resolved wallet PK for admin UIs."""
 
     wallet_id = serializers.SerializerMethodField(read_only=True)
+    running_balance = serializers.DecimalField(
+        max_digits=24, decimal_places=6, required=False, read_only=True
+    )
+    wallet_running_balance = serializers.DecimalField(
+        max_digits=24, decimal_places=6, required=False, read_only=True
+    )
+    platform_running_balance = serializers.DecimalField(
+        max_digits=24, decimal_places=6, required=False, read_only=True
+    )
 
     class Meta:
         model = WalletTransaction
@@ -297,6 +310,9 @@ class AdminWalletScopedTransactionQuerySerializer(serializers.Serializer):
     )
     search = serializers.CharField(required=False, allow_blank=True)
     ordering = serializers.CharField(required=False, allow_blank=True)
+    balance_mode = serializers.ChoiceField(
+        choices=["wallet", "platform"], required=False, default="wallet"
+    )
 
 
 class AdminWalletTransactionWriteSerializer(serializers.ModelSerializer):
@@ -441,6 +457,9 @@ class AdminWalletTransactionListQuerySerializer(serializers.Serializer):
     agent_id = serializers.IntegerField(required=False, allow_null=True)
     start_date = serializers.DateField(required=False, allow_null=True)
     end_date = serializers.DateField(required=False, allow_null=True)
+    balance_mode = serializers.ChoiceField(
+        choices=["wallet", "platform"], required=False, default="wallet"
+    )
 
     def validate_wallet_owner(self, value):
         if not value or not str(value).strip():

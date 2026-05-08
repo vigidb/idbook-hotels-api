@@ -1,4 +1,6 @@
 # task
+import logging
+
 from IDBOOKAPI.celery import app as celery_idbook
 from IDBOOKAPI.email_utils import (
     partner_b2b_bcc_list,
@@ -11,11 +13,45 @@ from apps.sms_gateway.mixins.fastwosms_mixins import Fast2SmsMixin
 from apps.log_management.models import SmsOtpLog, SmsNotificationLog
 from IDBOOKAPI.basic_resources import SMS_TYPES_CHOICES
 
+logger = logging.getLogger(__name__)
+
+
+def _hint_emails(to_emails) -> str:
+    if isinstance(to_emails, str):
+        items = [to_emails]
+    elif to_emails:
+        items = list(to_emails)
+    else:
+        return "none"
+    if not items:
+        return "none"
+    first = items[0]
+    if "@" in first:
+        local, _, domain = first.partition("@")
+        masked = (local[:2] + "***") if len(local) > 2 else "***"
+        suffix = f" (+{len(items) - 1} more)" if len(items) > 1 else ""
+        return f"{masked}@{domain}{suffix}"
+    return "(masked)"
+
+
+def _mask_mobile_tail(mobile_number) -> str:
+    if not mobile_number:
+        return ""
+    s = str(mobile_number)
+    return f"***{s[-4:]}" if len(s) >= 4 else "****"
+
 
 @celery_idbook.task(bind=True)
 def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
     try:
-        print(f"Initiated Email OTP Sent Process - OTP: {otp}, Email: {to_emails}, OTP_FOR: {otp_for}, Group: {group_name}")
+        logger.info(
+            "auth.otp_email.task=start otp_for=%s group_name=%s recipients=%s celery_task_id=%s",
+            otp_for,
+            group_name,
+            _hint_emails(to_emails),
+            celery_task_id,
+        )
         email_template = get_template("email_template/otp-verification.html")
         
         # Normalize otp_for to handle both underscore and hyphen variants
@@ -80,7 +116,6 @@ def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
             "message": message,
         }
         html_content = email_template.render(context)
-        print(f"Sending OTP email to {to_emails} with subject: {subject}")
         otp_bcc = None
         if group_name in ("HOTELIER-GRP", "FRANCHISE-GRP"):
             otp_bcc = partner_b2b_bcc_list()
@@ -91,20 +126,34 @@ def send_email_task(self, otp, to_emails, otp_for="OTHER", group_name=None):
             subject=subject,
             bcc=otp_bcc,
         )
-        print(f"OTP email sent successfully to {to_emails}")
+        logger.info(
+            "auth.otp_email.task=success otp_for=%s recipients=%s celery_task_id=%s",
+            otp_for,
+            _hint_emails(to_emails),
+            celery_task_id,
+        )
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"Error in send_email_task: {str(e)}")
-        print(f"Traceback: {error_trace}")
+        logger.exception(
+            "auth.otp_email.task=failed otp_for=%s recipients=%s celery_task_id=%s error=%s",
+            otp_for,
+            _hint_emails(to_emails),
+            celery_task_id,
+            e,
+        )
         # Re-raise to let Celery handle retries
         raise
 
 
 @celery_idbook.task(bind=True)
 def send_mobile_otp_task(self, otp, mobile_number, otp_for=""):
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
     try:
-        print(f"[SMS Task] Starting OTP SMS send - otp: {otp}, mobile_number: {mobile_number}, otp_for: {otp_for}")
+        logger.info(
+            "auth.otp_sms.task=start otp_for=%s mobile=%s celery_task_id=%s",
+            otp_for,
+            _mask_mobile_tail(mobile_number),
+            celery_task_id,
+        )
         # Map otp_for to valid SMS template codes
         if otp_for == "VERIFY-GUEST":
             template_code = "VERIFY"
@@ -115,15 +164,36 @@ def send_mobile_otp_task(self, otp, mobile_number, otp_for=""):
         else:
             template_code = otp_for
         
-        print(f"[SMS Task] Mapped otp_for '{otp_for}' to template_code '{template_code}'")
-        
+        logger.debug(
+            "auth.otp_sms.template otp_for=%s template_code=%s",
+            otp_for,
+            template_code,
+        )
+
         obj = Fast2SmsMixin()
         response = obj.post_dlt_otpsms(mobile_number, otp, template_code)
-        
-        print(f"[SMS Task] SMS API response status: {response.status_code}")
-        
+
+        logger.info(
+            "auth.otp_sms.gateway_response status_code=%s otp_for=%s mobile=%s celery_task_id=%s",
+            response.status_code,
+            otp_for,
+            _mask_mobile_tail(mobile_number),
+            celery_task_id,
+        )
+
         if response.status_code != 200:
-            print(f"[SMS Task] SMS failed with status {response.status_code}. Response: {response.json() if hasattr(response, 'json') else response}")
+            logger.warning(
+                "auth.otp_sms.gateway_failure status_code=%s otp_for=%s mobile=%s body_preview=%s celery_task_id=%s",
+                response.status_code,
+                otp_for,
+                _mask_mobile_tail(mobile_number),
+                (
+                    str(response.json())[:300]
+                    if hasattr(response, "json")
+                    else str(response)[:300]
+                ),
+                celery_task_id,
+            )
             try:
                 SmsOtpLog.objects.create(
                     mobile_number=mobile_number, response=response.json() if hasattr(response, 'json') else {"error": "Invalid response"}
@@ -138,18 +208,36 @@ def send_mobile_otp_task(self, otp, mobile_number, otp_for=""):
                     response=response.json() if hasattr(response, 'json') else {"error": "Invalid response"},
                 )
             except Exception as log_error:
-                print(f"[SMS Task] Error logging SMS failure: {log_error}")
+                logger.warning(
+                    "auth.otp_sms.log_failure_write_failed error=%s celery_task_id=%s",
+                    log_error,
+                    celery_task_id,
+                    exc_info=True,
+                )
         else:
-            print(f"[SMS Task] SMS sent successfully to {mobile_number}")
+            logger.info(
+                "auth.otp_sms.task=success otp_for=%s mobile=%s celery_task_id=%s",
+                otp_for,
+                _mask_mobile_tail(mobile_number),
+                celery_task_id,
+            )
     except Exception as e:
-        print(f"[SMS Task] Exception occurred: {e}")
-        import traceback
-        print(traceback.format_exc())
+        logger.exception(
+            "auth.otp_sms.task=failed otp_for=%s mobile=%s celery_task_id=%s error=%s",
+            otp_for,
+            _mask_mobile_tail(mobile_number),
+            celery_task_id,
+            e,
+        )
 
 
 @celery_idbook.task(bind=True)
 def customer_signup_link_task(self, signup_link, name, to_emails):
-    print("Initiated Customer Signup Link Email")
+    logger.info(
+        "auth.signup_link.task=start recipients=%s celery_task_id=%s",
+        _hint_emails(to_emails),
+        getattr(getattr(self, "request", None), "id", None),
+    )
     email_template = get_template("email_template/signup-link.html")
     context = {"name": name, "sign_up_link": signup_link}
     html_content = email_template.render(context)
@@ -167,7 +255,12 @@ def customer_signup_link_task(self, signup_link, name, to_emails):
 
 @celery_idbook.task(bind=True)
 def send_signup_email_task(self, name, to_emails, group_name, extra_context=None):
-    print("Initiated Welcome Email")
+    logger.info(
+        "auth.welcome_email.task=start group_name=%s recipients=%s celery_task_id=%s",
+        group_name,
+        _hint_emails(to_emails),
+        getattr(getattr(self, "request", None), "id", None),
+    )
 
     # Decide template and subject based on group
     if group_name == "B2C-GRP":

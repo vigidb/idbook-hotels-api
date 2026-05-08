@@ -11,7 +11,7 @@
 Transactional worker:
 
 ```bash
-celery -A IDBOOKAPI worker -l info -Q email-send-queue,airiq-token-queue,recpay-initiate-queue --hostname=tx@%h
+celery -A IDBOOKAPI worker -l info -Q email-send-queue,airiq-token-queue,recpay-initiate-queue,general-queue --hostname=tx@%h
 ```
 
 Marketing worker:

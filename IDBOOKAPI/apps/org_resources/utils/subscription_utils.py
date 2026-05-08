@@ -1,5 +1,9 @@
+import logging
+
 from django.conf import settings
 from dateutil.relativedelta import relativedelta
+
+logger = logging.getLogger(__name__)
 
 from apps.org_resources.utils.db_utils import (
     fetch_rec_init_subscriptions,
@@ -255,7 +259,17 @@ def subscription_phone_pe_process(
 
 def subscription_mandate_check(current_date, payment_medium, pg_obj):
     user_subscriptions = fetch_subscription_for_mandate_check(current_date)
-    print("subscription manadate check")
+    qs_count = (
+        user_subscriptions.count()
+        if hasattr(user_subscriptions, "count")
+        else len(user_subscriptions)
+    )
+    logger.info(
+        "recurring_pay.phase=mandate_check payment_medium=%s current_date=%s subscriptions=%s",
+        payment_medium,
+        current_date.isoformat() if hasattr(current_date, "isoformat") else current_date,
+        qs_count,
+    )
 
     for user_subscription in user_subscriptions:
 
@@ -289,7 +303,13 @@ def subscription_mandate_check(current_date, payment_medium, pg_obj):
             user_subscription.last_mandate_check = current_date
             user_subscription.save()
         except Exception as e:
-            print(e)
+            logger.warning(
+                "recurring_pay.phase=mandate_check user_sub_id=%s pg_subid=%s error=%s",
+                getattr(user_subscription, "id", None),
+                getattr(user_subscription, "pg_subid", None),
+                e,
+                exc_info=True,
+            )
             user_sub_logs["error_message"] = str(e)
 
         UserSubscriptionLogs.objects.create(**user_sub_logs)
@@ -305,7 +325,17 @@ def subscription_recurring_notification(current_date, payment_medium, pg_obj):
         current_date, payment_medium=payment_medium
     )
 
-    print("user subscriptions notification ---------", user_subscriptions)
+    notify_count = (
+        user_subscriptions.count()
+        if hasattr(user_subscriptions, "count")
+        else len(user_subscriptions)
+    )
+    logger.info(
+        "recurring_pay.phase=pre_debit_notification payment_medium=%s current_date=%s subscriptions=%s",
+        payment_medium,
+        current_date.isoformat() if hasattr(current_date, "isoformat") else current_date,
+        notify_count,
+    )
 
     for user_subscription in user_subscriptions:
 
@@ -375,7 +405,12 @@ def subscription_recurring_notification(current_date, payment_medium, pg_obj):
                 SubRecurringTransaction.objects.create(**trans_dict)
 
         except Exception as e:
-            print(e)
+            logger.warning(
+                "recurring_pay.phase=pre_debit_notification user_sub_id=%s error=%s",
+                getattr(user_subscription, "id", None),
+                e,
+                exc_info=True,
+            )
             user_sub_logs["error_message"] = str(e)
 
         # logs
@@ -391,7 +426,17 @@ def subscription_recurring_debit(current_date, payment_medium, pg_obj):
         current_date, payment_medium=payment_medium
     )
 
-    print("user subscriptions debit ---------", user_subscriptions)
+    debit_count = (
+        user_subscriptions.count()
+        if hasattr(user_subscriptions, "count")
+        else len(user_subscriptions)
+    )
+    logger.info(
+        "recurring_pay.phase=debit payment_medium=%s current_date=%s subscriptions=%s",
+        payment_medium,
+        current_date.isoformat() if hasattr(current_date, "isoformat") else current_date,
+        debit_count,
+    )
 
     for user_subscription in user_subscriptions:
 
@@ -483,7 +528,12 @@ def subscription_recurring_debit(current_date, payment_medium, pg_obj):
                 sub_rec_obj.save()
 
         except Exception as e:
-            print(e)
+            logger.warning(
+                "recurring_pay.phase=debit user_sub_id=%s error=%s",
+                getattr(user_subscription, "id", None),
+                e,
+                exc_info=True,
+            )
             user_sub_logs["error_message"] = str(e)
 
         UserSubscriptionLogs.objects.create(**user_sub_logs)

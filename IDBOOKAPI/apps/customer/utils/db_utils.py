@@ -1,5 +1,6 @@
 # Customer Db Utils
 from apps.customer.models import Customer, Wallet, WalletTransaction
+from apps.customer.transaction_state import normalize_wallet_transaction_state
 from datetime import datetime
 import pytz
 from decimal import Decimal
@@ -71,6 +72,13 @@ def update_wallet_transaction(wtransact):
         )
 
         payload = normalize_wallet_transaction_create_payload(wtransact)
+        status_value = payload.get("status", "Completed")
+        success_value = payload.get("is_transaction_success", True)
+        payload["status"], payload["is_transaction_success"] = (
+            normalize_wallet_transaction_state(
+                status_value, success_value
+            )
+        )
         instance = WalletTransaction.objects.create(**payload)
     except Exception as e:
         print(e)
@@ -145,7 +153,7 @@ def deduct_wallet_balance(user_id, deduct_amount, booking=None):
                 "amount": amount_used,
                 "transaction_type": "Debit",
                 "transaction_details": f"Pro bembership wallet bonus deduction for {booking.booking_type} booking ({booking.confirmation_code})",
-                "transaction_for": "booking",
+                "transaction_for": "booking_confirmed",
                 "payment_type": "WALLET",
                 "payment_medium": "Idbook",
                 "is_transaction_success": True,
@@ -163,7 +171,7 @@ def deduct_wallet_balance(user_id, deduct_amount, booking=None):
                 "amount": regular_wallet_deduction,
                 "transaction_type": "Debit",
                 "transaction_details": f"Amount debited for {booking.booking_type} booking ({booking.confirmation_code})",
-                "transaction_for": "booking",
+                "transaction_for": "booking_confirmed",
                 "payment_type": "WALLET",
                 "payment_medium": "Idbook",
                 "is_transaction_success": True,
@@ -385,9 +393,20 @@ def update_wallet_transaction_detail(merchant_transaction_id, payment_details):
 
     # Remove transaction_id from payment_details if present to avoid updating it
     update_data = {k: v for k, v in payment_details.items() if k != "transaction_id"}
+    update_data["status"], update_data["is_transaction_success"] = (
+        normalize_wallet_transaction_state(
+            update_data.get("status"), update_data.get("is_transaction_success")
+        )
+    )
     logger.info(f"Updating transaction with data: {update_data}")
-    
-    updated_count = payment_objs.update(**update_data)
+
+    updated_count = 0
+    for obj in payment_objs:
+        for key, value in update_data.items():
+            if hasattr(obj, key):
+                setattr(obj, key, value)
+        obj.save()
+        updated_count += 1
     logger.info(f"Updated {updated_count} transaction(s)")
 
     payment_obj = payment_objs.first()

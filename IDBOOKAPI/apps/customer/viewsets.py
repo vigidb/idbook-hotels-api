@@ -62,8 +62,19 @@ from apps.customer.wallet_owner_utils import (
     validate_exclusive_wallet_owner,
 )
 from .models import Customer, Wallet, WalletTransaction
-from django.db.models import Q, Sum, Count, Case, When, F, Value, DecimalField
-from django.db.models.functions import Coalesce
+from django.db.models import (
+    Q,
+    Sum,
+    Count,
+    Case,
+    When,
+    F,
+    Value,
+    DecimalField,
+    Window,
+    CharField,
+)
+from django.db.models.functions import Coalesce, Cast, Concat
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -515,6 +526,68 @@ class WalletViewSet(
     serializer_class = WalletSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete"]
+
+    def _with_admin_running_balances_annotation(self, qs):
+        effect_expr = Case(
+            When(
+                status__iexact="Completed",
+                is_transaction_success=True,
+                transaction_type__iexact="Credit",
+                then=F("amount"),
+            ),
+            When(
+                status__iexact="Completed",
+                is_transaction_success=True,
+                transaction_type__iexact="Debit",
+                then=-F("amount"),
+            ),
+            default=Value(Decimal("0")),
+            output_field=DecimalField(max_digits=24, decimal_places=6),
+        )
+
+        scope_partition = Case(
+            When(
+                company_id__isnull=False,
+                then=Concat(
+                    Value("company:"),
+                    Cast("company_id", output_field=CharField()),
+                ),
+            ),
+            When(
+                agent_id__isnull=False,
+                then=Concat(
+                    Value("agent:"),
+                    Cast("agent_id", output_field=CharField()),
+                ),
+            ),
+            default=Concat(
+                Value("user:"),
+                Cast("user_id", output_field=CharField()),
+            ),
+            output_field=CharField(),
+        )
+
+        wallet_running_expr = Coalesce(
+            Window(
+                expression=Sum(effect_expr),
+                partition_by=[scope_partition],
+                order_by=[F("created").asc(), F("id").asc()],
+            ),
+            Value(Decimal("0")),
+        )
+        platform_running_expr = Coalesce(
+            Window(
+                expression=Sum(effect_expr),
+                order_by=[F("created").asc(), F("id").asc()],
+            ),
+            Value(Decimal("0")),
+        )
+
+        return qs.annotate(
+            wallet_running_balance=wallet_running_expr,
+            platform_running_balance=platform_running_expr,
+            running_balance=wallet_running_expr,
+        )
 
     @action(
         detail=False,
@@ -1827,7 +1900,7 @@ class WalletViewSet(
                 "company_id": company_id,
                 "agent_id": agent_id,
                 "transaction_type": "Credit",
-                "transaction_for": "Wallet_Recharge",
+                "transaction_for": "wallet_recharge",
                 "transaction_details": f"Wallet recharge of {float(amount)} with transaction id {transaction_id}",
                 "payment_type": payment_type,
                 "payment_medium": payment_medium,
@@ -2804,7 +2877,7 @@ class WalletViewSet(
             }
             if ordering not in allowed_ordering:
                 ordering = "-created"
-            qs = qs.order_by(ordering)
+            qs = self._with_admin_running_balances_annotation(qs).order_by(ordering)
             offset = v["offset"]
             limit = v["limit"]
             count = qs.count()
@@ -3339,6 +3412,177 @@ class WalletTransactionViewSet(
         else:
             self.queryset = self.queryset.order_by("-created")
 
+    def _running_balance_scope_queryset(self, request):
+        params = self._validated_query_params
+        requested_agent_id = params.get("agent_id")
+        requested_company_id = params.get("company_id")
+        requested_user_id = params.get("user_id")
+
+        if requested_company_id is not None:
+            return WalletTransaction.objects.filter(company_id=requested_company_id)
+        if requested_agent_id is not None:
+            return WalletTransaction.objects.filter(agent_id=requested_agent_id)
+        if requested_user_id is not None:
+            return WalletTransaction.objects.filter(user_id=requested_user_id)
+
+        token_user_id = None
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from rest_framework_simplejwt.tokens import UntypedToken
+
+                token_payload = UntypedToken(auth_header.split(" ", 1)[1])
+                token_user_id = token_payload.get("user_id")
+            except Exception:
+                token_user_id = None
+
+        effective_user_id = token_user_id or request.user.id
+        return WalletTransaction.objects.filter(user_id=effective_user_id)
+
+    def _attach_running_balance(self, rows, request):
+        if not rows:
+            return rows
+
+        target_ids = {row.id for row in rows}
+        running_map = {}
+        running_total = Decimal("0")
+
+        scope_qs = self._running_balance_scope_queryset(request).order_by("created", "id")
+        for row in scope_qs.only(
+            "id", "amount", "transaction_type", "status", "is_transaction_success"
+        ):
+            running_total += _wallet_txn_effect(
+                row.amount,
+                row.transaction_type,
+                row.status,
+                row.is_transaction_success,
+            )
+            if row.id in target_ids:
+                running_map[row.id] = running_total
+
+        for row in rows:
+            setattr(row, "running_balance", running_map.get(row.id, Decimal("0")))
+        return rows
+
+    def _attach_running_balance_single_scope(self, rows, scope_qs):
+        if not rows:
+            return rows
+        target_ids = {row.id for row in rows}
+        running_map = {}
+        running_total = Decimal("0")
+        for row in scope_qs.order_by("created", "id").only(
+            "id", "amount", "transaction_type", "status", "is_transaction_success"
+        ):
+            running_total += _wallet_txn_effect(
+                row.amount,
+                row.transaction_type,
+                row.status,
+                row.is_transaction_success,
+            )
+            if row.id in target_ids:
+                running_map[row.id] = running_total
+        for row in rows:
+            setattr(row, "running_balance", running_map.get(row.id, Decimal("0")))
+        return rows
+
+    def _attach_running_balance_multi_scope(self, rows, base_qs):
+        if not rows:
+            return rows
+        target_ids = {row.id for row in rows}
+        running_map = {}
+        running_totals = {}
+        for row in base_qs.order_by("created", "id").only(
+            "id",
+            "user_id",
+            "company_id",
+            "agent_id",
+            "amount",
+            "transaction_type",
+            "status",
+            "is_transaction_success",
+        ):
+            if row.company_id:
+                scope_key = ("company", row.company_id)
+            elif row.agent_id:
+                scope_key = ("agent", row.agent_id)
+            else:
+                scope_key = ("user", row.user_id)
+            running_totals[scope_key] = running_totals.get(
+                scope_key, Decimal("0")
+            ) + _wallet_txn_effect(
+                row.amount,
+                row.transaction_type,
+                row.status,
+                row.is_transaction_success,
+            )
+            if row.id in target_ids:
+                running_map[row.id] = running_totals[scope_key]
+        for row in rows:
+            setattr(row, "running_balance", running_map.get(row.id, Decimal("0")))
+        return rows
+
+    def _with_admin_running_balances_annotation(self, qs):
+        effect_expr = Case(
+            When(
+                status__iexact="Completed",
+                is_transaction_success=True,
+                transaction_type__iexact="Credit",
+                then=F("amount"),
+            ),
+            When(
+                status__iexact="Completed",
+                is_transaction_success=True,
+                transaction_type__iexact="Debit",
+                then=-F("amount"),
+            ),
+            default=Value(Decimal("0")),
+            output_field=DecimalField(max_digits=24, decimal_places=6),
+        )
+
+        scope_partition = Case(
+            When(
+                company_id__isnull=False,
+                then=Concat(
+                    Value("company:"),
+                    Cast("company_id", output_field=CharField()),
+                ),
+            ),
+            When(
+                agent_id__isnull=False,
+                then=Concat(
+                    Value("agent:"),
+                    Cast("agent_id", output_field=CharField()),
+                ),
+            ),
+            default=Concat(
+                Value("user:"),
+                Cast("user_id", output_field=CharField()),
+            ),
+            output_field=CharField(),
+        )
+
+        wallet_running_expr = Coalesce(
+            Window(
+                expression=Sum(effect_expr),
+                partition_by=[scope_partition],
+                order_by=[F("created").asc(), F("id").asc()],
+            ),
+            Value(Decimal("0")),
+        )
+        platform_running_expr = Coalesce(
+            Window(
+                expression=Sum(effect_expr),
+                order_by=[F("created").asc(), F("id").asc()],
+            ),
+            Value(Decimal("0")),
+        )
+
+        return qs.annotate(
+            wallet_running_balance=wallet_running_expr,
+            platform_running_balance=platform_running_expr,
+            running_balance=wallet_running_expr,
+        )
+
     ##    def wtransaction_pagination_ops(self):
     ##        # offset and pagination
     ##        offset = int(self.request.query_params.get('offset', 0))
@@ -3405,8 +3649,9 @@ class WalletTransactionViewSet(
             limit = self._validated_query_params.get("limit", 10)
             count = self.queryset.count()
             self.queryset = self.queryset[offset : offset + limit]
-
-            serializer = WalletTransactionSerializer(self.queryset, many=True)
+            instance = list(self.queryset)
+            instance = self._attach_running_balance(instance, request)
+            serializer = WalletTransactionSerializer(instance, many=True)
             return self.get_response(
                 status="success",
                 count=count,
@@ -3431,8 +3676,8 @@ class WalletTransactionViewSet(
         limit = self._validated_query_params.get("limit", 10)
         count = self.queryset.count()
         self.queryset = self.queryset[offset : offset + limit]
-
-        instance = self.queryset
+        instance = list(self.queryset)
+        instance = self._attach_running_balance(instance, request)
         serializer = WalletTransactionSerializer(instance, many=True)
         custom_response = self.get_response(
             status="success",
@@ -3488,7 +3733,7 @@ class WalletTransactionViewSet(
         }
         if ordering not in allowed_ordering:
             ordering = "-created"
-        qs = qs.order_by(ordering)
+        qs = self._with_admin_running_balances_annotation(qs).order_by(ordering)
 
         count, page = paginate_queryset(request, qs)
         out = WalletTransactionAdminSerializer(page, many=True)

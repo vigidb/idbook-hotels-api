@@ -333,6 +333,7 @@ AUTH_WORKFLOW = (("PENNY_DROP", "PENNY_DROP"), ("TRANSACTION", "TRANSACTION"))
 TRANSACTION_FOR = (
     ("booking_confirmed", "booking_confirmed"),
     ("booking_refund", "booking_refund"),
+    ("cancellation_fee", "cancellation_fee"),
     ("referral_booking", "referral_booking"),
     ("booking_cashback", "booking_cashback"),
     ("signup_reward", "signup_reward"),

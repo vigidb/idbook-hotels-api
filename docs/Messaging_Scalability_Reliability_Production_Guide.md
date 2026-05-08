@@ -17,10 +17,10 @@ This guide is **not** a substitute for Google’s or Fast2SMS’s current rate c
 
 Routing is defined in `IDBOOKAPI/IDBOOKAPI/celery.py`:
 
-| Environment (`ENVIRONMENT`) | Transactional email/SMS queue | Marketing / campaign queue |
-|-----------------------------|------------------------------|----------------------------|
-| **`dev`** | `dev-email-send-queue` | `dev-marketing-campaign-queue` |
-| **Non-dev (e.g. production)** | `email-send-queue` | `marketing-campaign-queue` |
+| Environment (`ENVIRONMENT`) | Transactional email/SMS queue | Marketing / campaign queue | Default (unrouted tasks) |
+|-----------------------------|------------------------------|----------------------------|----------------------------|
+| **`dev`** (and `local` / `test`) | `dev-email-send-queue` | `dev-marketing-campaign-queue` | `dev-general-queue` |
+| **Non-dev (e.g. production)** | `email-send-queue` | `marketing-campaign-queue` | `general-queue` |
 
 **Transactional queue** (OTP, booking/hotel email & SMS, org SMS, flight notifications, etc.) — time-sensitive paths stay here.
 

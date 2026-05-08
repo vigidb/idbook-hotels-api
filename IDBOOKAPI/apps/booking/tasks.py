@@ -31,6 +31,7 @@ from apps.booking.utils.invoice_utils import (
 
 from django.template.loader import get_template
 from django.conf import settings
+from django.core.cache import cache
 
 from apps.org_managements.utils import get_active_business  # get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
@@ -1482,6 +1483,12 @@ def send_booking_sms_task(self, notification_type="", params=None):
 
 @celery_idbook.task(bind=True)
 def wallet_expiry_task(self):
+    lock_key = "celery-lock:wallet-expiry-task"
+    lock_ttl_seconds = 60 * 60 * 6
+    if not cache.add(lock_key, "1", timeout=lock_ttl_seconds):
+        logger.info("Skipping wallet expiry run: previous task is still active")
+        return "skipped_locked"
+
     print("Running wallet expiry task")
     try:
         # Get current date and time in the correct timezone
@@ -1490,26 +1497,35 @@ def wallet_expiry_task(self):
         print(f"Current date and time: {current_date}")
 
         # Find all expired pro wallet transaction credits that haven't been marked as expired yet
-        expired_transactions = WalletTransaction.objects.filter(
+        expired_transactions = WalletTransaction.objects.select_related("user").filter(
             transaction_type="Credit",
             expiry_date__lte=current_date,  # Less than or equal to current time
             remaining_amount__gt=0,
             is_expired=False,  # Only get transactions that haven't been marked as expired
         )
 
-        print(f"Found {expired_transactions.count()} expired wallet transactions")
+        expired_count = expired_transactions.count()
+        print(f"Found {expired_count} expired wallet transactions")
+        if expired_count == 0:
+            return "Processed 0 expired wallet transactions"
 
-        for expired_txn in expired_transactions:
+        user_ids = list(expired_transactions.values_list("user_id", flat=True).distinct())
+        wallet_map = {
+            wallet.user_id: wallet
+            for wallet in Wallet.objects.filter(
+                user_id__in=user_ids,
+                company_id__isnull=True,
+            )
+        }
+
+        for expired_txn in expired_transactions.iterator(chunk_size=200):
             try:
                 user_id = expired_txn.user_id
                 remaining_amount = expired_txn.remaining_amount
 
                 # Get the user's wallet
-                try:
-                    wallet = Wallet.objects.get(
-                        user_id=user_id, company_id__isnull=True
-                    )
-                except Wallet.DoesNotExist:
+                wallet = wallet_map.get(user_id)
+                if not wallet:
                     print(f"Wallet not found for user_id: {user_id}")
                     continue
 
@@ -1547,11 +1563,13 @@ def wallet_expiry_task(self):
                 print(f"Error processing expired transaction {expired_txn.id}: {e}")
                 continue
 
-        return f"Processed {expired_transactions.count()} expired wallet transactions"
+        return f"Processed {expired_count} expired wallet transactions"
 
     except Exception as e:
         print(f"Error in wallet_expiry_task: {e}")
         return f"Error in wallet_expiry_task: {e}"
+    finally:
+        cache.delete(lock_key)
 
 
 @celery_idbook.task(bind=True, max_retries=3)

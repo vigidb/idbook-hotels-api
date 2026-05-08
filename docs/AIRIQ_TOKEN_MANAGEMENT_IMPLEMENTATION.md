@@ -73,7 +73,7 @@ def get_token_status(cls) -> dict
 - **Every Hour**: Status monitoring (`check_airiq_token_status_task`)
 
 **Queue Management:**
-- Dedicated `airiq-token-queue` for token management
+- Dedicated `airiq-token-queue` (prod) / `dev-airiq-token-queue` (dev/test) for token management
 - Separate from email/SMS queues for better performance
 
 ### ✅ Enhanced Token Cache Model
@@ -185,6 +185,8 @@ result = emergency_airiq_token_refresh_task.delay()
 ```bash
 # Start Celery worker for token management
 celery -A IDBOOKAPI worker -Q airiq-token-queue --loglevel=info
+# Dev/test:
+celery -A IDBOOKAPI worker -Q dev-airiq-token-queue --loglevel=info
 
 # Start Celery beat for scheduled tasks
 celery -A IDBOOKAPI beat --loglevel=info

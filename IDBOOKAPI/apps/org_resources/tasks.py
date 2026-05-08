@@ -31,12 +31,21 @@ from apps.org_resources.utils.notification_utils import (
     create_pro_member_notification,
 )
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
-import traceback, pytz
+from django.core.cache import cache
+import pytz
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @celery_idbook.task(bind=True)
 def send_enquiry_email_task(self, enquiry_id):
-    print("Enquiry Id", enquiry_id)
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
+    logger.info(
+        "enquiry_email.task=start enquiry_id=%s celery_task_id=%s",
+        enquiry_id,
+        celery_task_id,
+    )
     try:
         enquiry_obj = get_enquiry_details(enquiry_id)
         if enquiry_obj:
@@ -50,35 +59,71 @@ Message: {enquiry_message}"
             subject = "Enquiry"
             to_emails = ["support@idbookhotels.com", "sonu@idbookhotels.com"]
             send_email(subject, message, to_emails, from_email)
+            logger.info(
+                "enquiry_email.task=sent enquiry_id=%s celery_task_id=%s",
+                enquiry_id,
+                celery_task_id,
+            )
         else:
-            print("Missing enquiry id", enquiry_id)
+            logger.warning(
+                "enquiry_email.task=no_record enquiry_id=%s celery_task_id=%s",
+                enquiry_id,
+                celery_task_id,
+            )
     except Exception as e:
-        print(e)
-        print(traceback.format_exc())
+        logger.exception(
+            "enquiry_email.task=failed enquiry_id=%s celery_task_id=%s error=%s",
+            enquiry_id,
+            celery_task_id,
+            e,
+        )
 
 
 @celery_idbook.task(bind=True)
 def initiate_recurring_payment(self):
     """for recurring notification and for recurring debit"""
-    print("initiate reciurring payment")
+    lock_key = "celery-lock:initiate-recurring-payment"
+    lock_ttl_seconds = 60 * 60 * 6
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
+    if not cache.add(lock_key, "1", timeout=lock_ttl_seconds):
+        logger.info(
+            "recurring_pay.task=skipped_lock reason=overlap celery_task_id=%s",
+            celery_task_id,
+        )
+        return "skipped_locked"
 
     payment_medium = "PayU"
     pg_obj = None
 
-    timezone = pytz.timezone(settings.TIME_ZONE)
-    current_date = datetime.now(timezone)
+    try:
+        timezone = pytz.timezone(settings.TIME_ZONE)
+        current_date = datetime.now(timezone)
+        logger.info(
+            "recurring_pay.task=start celery_task_id=%s payment_medium=%s current_date=%s time_zone=%s",
+            celery_task_id,
+            payment_medium,
+            current_date.isoformat(),
+            settings.TIME_ZONE,
+        )
 
-    if payment_medium == "PayU":
-        pg_obj = PayUMixin()
-        # mandate check
-        subscription_mandate_check(current_date, payment_medium, pg_obj)
-        # notify customer atleast 48 hrs before debit
-        subscription_recurring_notification(current_date, payment_medium, pg_obj)
-        # debit the amount
-        subscription_recurring_debit(current_date, payment_medium, pg_obj)
+        if payment_medium == "PayU":
+            pg_obj = PayUMixin()
+            # mandate check
+            subscription_mandate_check(current_date, payment_medium, pg_obj)
+            # notify customer atleast 48 hrs before debit
+            subscription_recurring_notification(current_date, payment_medium, pg_obj)
+            # debit the amount
+            subscription_recurring_debit(current_date, payment_medium, pg_obj)
 
-    else:
-        pg_obj = PhonePayMixin()
+        else:
+            pg_obj = PhonePayMixin()
+        logger.info(
+            "recurring_pay.task=done celery_task_id=%s payment_medium=%s",
+            celery_task_id,
+            payment_medium,
+        )
+    finally:
+        cache.delete(lock_key)
 
 
 ##    start_date = current_date - relativedelta(days=1)
@@ -156,7 +201,13 @@ def admin_send_sms_task(self, notification_type="", params=None):
     if params is None:
         params = {}
 
-    print(f"Inside {notification_type} ADMIN SMS task")
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
+    logger.info(
+        "sms.admin.task=start notification_type=%s celery_task_id=%s params_keys=%s",
+        notification_type,
+        celery_task_id,
+        sorted(params.keys()) if params else [],
+    )
 
     try:
 
@@ -169,9 +220,18 @@ def admin_send_sms_task(self, notification_type="", params=None):
             )
 
         def send_sms(mobile, template, variables):
-            print("variables_values", variables)
+            logger.debug(
+                "sms.admin.send template=%s mobile_suffix=%s",
+                template,
+                str(mobile)[-4:] if mobile else "",
+            )
             response = send_template_sms(mobile, template, variables)
-            print(f"SMS sent with template '{template}'. Response: {response}")
+            logger.info(
+                "sms.admin.sent template=%s celery_task_id=%s response_preview=%s",
+                template,
+                celery_task_id,
+                (str(response)[:200] + "…") if response and len(str(response)) > 200 else response,
+            )
             return response
 
         def get_users_by_group_and_role(group_name, role_name):
@@ -214,7 +274,12 @@ def admin_send_sms_task(self, notification_type="", params=None):
                         )
 
     except Exception as e:
-        print(f"{notification_type} ADMIN SMS Task Error: {e}")
+        logger.exception(
+            "sms.admin.task=failed notification_type=%s celery_task_id=%s error=%s",
+            notification_type,
+            celery_task_id,
+            e,
+        )
 
     return None
 
@@ -224,7 +289,13 @@ def pro_member_send_sms_task(self, notification_type="", params=None):
     if params is None:
         params = {}
 
-    print(f"Inside {notification_type} Pro Member SMS task")
+    celery_task_id = getattr(getattr(self, "request", None), "id", None)
+    logger.info(
+        "sms.pro_member.task=start notification_type=%s celery_task_id=%s params_keys=%s",
+        notification_type,
+        celery_task_id,
+        sorted(params.keys()) if params else [],
+    )
 
     try:
 
@@ -235,13 +306,25 @@ def pro_member_send_sms_task(self, notification_type="", params=None):
             return UserSubscription.objects.filter(id=user_sub_id).first()
 
         def send_sms(mobile, template, variables):
-            print("variables_values", variables)
+            logger.debug(
+                "sms.pro_member.send template=%s mobile_suffix=%s",
+                template,
+                str(mobile)[-4:] if mobile else "",
+            )
             response = send_template_sms(mobile, template, variables)
-            print(f"SMS sent with template '{template}'. Response: {response}")
+            logger.info(
+                "sms.pro_member.sent template=%s celery_task_id=%s response_preview=%s",
+                template,
+                celery_task_id,
+                (str(response)[:200] + "…") if response and len(str(response)) > 200 else response,
+            )
             return response
 
         def shorten_link(url):
-            print("website_link", url)
+            logger.debug(
+                "sms.pro_member.shorten_link url_host=%s",
+                url.split("/")[2] if url and "://" in url else "unknown",
+            )
             return shorten_url(url)
 
         # Template logic
@@ -350,6 +433,11 @@ def pro_member_send_sms_task(self, notification_type="", params=None):
                 )
 
     except Exception as e:
-        print(f"{notification_type} Pro Member SMS Task Error: {e}")
+        logger.exception(
+            "sms.pro_member.task=failed notification_type=%s celery_task_id=%s error=%s",
+            notification_type,
+            celery_task_id,
+            e,
+        )
 
     return None
