@@ -10,11 +10,10 @@ from datetime import datetime
 from IDBOOKAPI.utils import get_current_date, last_calendar_month_day
 from django.template.loader import render_to_string
 from django.template import Context, Template
-import pdfkit
 import os, io
 from django.core.files.base import ContentFile
 from django.db.models import Sum
-from django.conf import settings
+from IDBOOKAPI.wkhtmltopdf_utils import html_to_pdf_bytes
 
 invoice_url = "https://invoice-api.idbookhotels.com"
 
@@ -1024,22 +1023,7 @@ def generate_invoice_pdf(payload, booking_id=None):
             "enable-smart-shrinking": True,
         }
 
-        # Path to wkhtmltopdf from settings, if provided
-        config = None
-        try:
-            wk_cmd = getattr(settings, "WKHTMLTOPDF_CMD", None)
-            if wk_cmd:
-                config = pdfkit.configuration(wkhtmltopdf=wk_cmd)
-        except Exception:
-            config = None
-
-        # Generate PDF
-        if config:
-            pdf_bytes = pdfkit.from_string(
-                html_content, False, options=options, configuration=config
-            )
-        else:
-            pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
         pdf_file = io.BytesIO(pdf_bytes)
 
         # Save to Invoice model FileField

@@ -517,4 +517,6 @@ SIMPLE_JWT = {
 }
 # FAKER_LOCALE = None
 # FAKER_PROVIDERS = None
-# WKHTMLTOPDF_CMD='/usr/local/bin/wkhtmltopdf'
+# HTML→PDF: wkhtmltopdf when present, else headless Chrome/Edge/Chromium (see wkhtmltopdf_utils)
+WKHTMLTOPDF_CMD = env.str("WKHTMLTOPDF_CMD", default="").strip() or None
+CHROME_CMD = env.str("CHROME_CMD", default="").strip() or None

@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.http import HttpResponse
-from django.conf import settings
-import pdfkit
+from IDBOOKAPI.wkhtmltopdf_utils import html_to_pdf_bytes
 from .models import (
     TourPackage,
     Accommodation,
@@ -19,11 +18,7 @@ class TourPackageAdmin(admin.ModelAdmin):
     def generate_pdf(self, request, queryset):
         # Generate PDF from HTML
         html_content = self.get_html_content(queryset)
-        pdf_file = pdfkit.from_string(
-            html_content,
-            False,
-            configuration={"WKHTMLTOPDF_CMD": settings.WKHTMLTOPDF_CMD},
-        )
+        pdf_file = html_to_pdf_bytes(html_content)
 
         # Set response headers
         response = HttpResponse(content_type="application/pdf")

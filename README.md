@@ -9,6 +9,7 @@ For architecture, env vars, and day-to-day patterns, see [CLAUDE.md](CLAUDE.md).
 - Python 3.11
 - PostgreSQL
 - Optional: Redis (Celery), Docker (see `IDBOOKAPI/docker-compose.yml`)
+- **HTML→PDF** (hotelier agreements, invoices, receipts): uses **wkhtmltopdf** when installed (`WKHTMLTOPDF_CMD` in `.env` if not on `PATH`), otherwise **Chrome, Edge, or Chromium** headless (`--print-to-pdf`). Set **`CHROME_CMD`** to a full browser binary path if auto-detection fails. Homebrew no longer provides `wkhtmltopdf`; use an [official build](https://wkhtmltopdf.org/downloads.html) or rely on a Chromium-based browser.
 
 ## Setup
 

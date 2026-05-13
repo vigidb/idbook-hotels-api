@@ -8,9 +8,9 @@ from .models import Invoice
 from apps.org_managements.models import BusinessDetail
 from django.template.loader import render_to_string
 from django.core.files.base import ContentFile
-import pdfkit
 import io
 import json
+from IDBOOKAPI.wkhtmltopdf_utils import html_to_pdf_bytes
 
 
 invoice_url = "https://invoice-api.idbookhotels.com"
@@ -112,7 +112,7 @@ def migrated_invoice_pdf_generation(payload, invoice_obj=None, booking_id=None):
             "enable-smart-shrinking": True,
         }
 
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
         pdf_file = io.BytesIO(pdf_bytes)
 
         file_name = f"migrated_invoice_{invoice_data['invoiceNumber']}_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.pdf"

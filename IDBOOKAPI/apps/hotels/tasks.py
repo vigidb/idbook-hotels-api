@@ -18,6 +18,7 @@ from .utils.hotel_utils import (
     send_agreement_email,
     generate_hotel_receipt_pdf,
     send_receipt_email_with_attachment,
+    service_agreement_commission_context,
 )
 from apps.org_resources.utils.notification_utils import (
     create_hotelier_booking_notifications,
@@ -402,6 +403,7 @@ def create_service_agreement_task(
                 "date": date,
                 "is_verified": is_verified,
             }
+            pdf_context.update(service_agreement_commission_context(property_id))
 
             # Add verification details if available
             if is_verified and verified_at and ip_address:
@@ -450,12 +452,22 @@ def create_service_agreement_task(
                         )
                     else:
                         # For initial agreements, send request for verification
+                        frontend = (
+                            getattr(settings, "FRONTEND_URL", None)
+                            or "https://www.idbookhotels.com"
+                        ).rstrip("/")
+                        verification_url = (
+                            f"{frontend}/hotelier-verification?token={property.verify_token}"
+                        )
                         email_context = {
                             "name": "Hotelier",
                             "property_name": property_name,
-                            "commission": "20%",
                             "token": property.verify_token,
+                            "verification_url": verification_url,
                         }
+                        email_context.update(
+                            service_agreement_commission_context(property_id)
+                        )
                         print("Initial email_context", email_context)
 
                         send_agreement_email(

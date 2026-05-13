@@ -12,11 +12,15 @@ from apps.hotels.utils.db_utils import (
     update_property_confirmed_booking,
     get_calendar_unavailable_property,
     get_dynamic_pricing_with_date_list,
+    get_property_commission,
 )
 from datetime import datetime
+from decimal import Decimal
+
+from IDBOOKAPI.company_info import COMPANY
+from IDBOOKAPI.wkhtmltopdf_utils import html_to_pdf_bytes
 from django.template.loader import render_to_string
 from django.template import Context, Template
-import pdfkit
 import os, io
 from django.conf import settings
 from django.template.loader import get_template
@@ -411,6 +415,27 @@ def process_property_confirmed_booking_total(property_id):
         print(e)
 
 
+def service_agreement_commission_context(property_id):
+    """Percent commission text for the hotelier PDF; falls back to company default."""
+    sa = COMPANY.get("service_agreement") or {}
+    default_pct = str(sa.get("default_commission_percent", "20"))
+    pct = default_pct
+    pc = get_property_commission(property_id)
+    if pc and pc.commission_type == "PERCENT" and pc.commission is not None:
+        d = Decimal(str(pc.commission))
+        if d == d.to_integral():
+            pct = str(int(d))
+        else:
+            normalized = format(d.normalize(), "f")
+            pct = normalized.rstrip("0").rstrip(".") or "0"
+    return {
+        "commission_percent_display": pct,
+        "commission_clause_i": f"i. we are working on {pct} % commission.",
+        "consideration_fee_clause": f"{pct}% per transaction.",
+        "commission": f"{pct}%",
+    }
+
+
 def generate_service_agreement_pdf(
     context, property_id=None, save_to_db=False, property_obj=None
 ):
@@ -439,8 +464,8 @@ def generate_service_agreement_pdf(
             "disable-smart-shrinking": True,
         }
 
-        # Generate PDF in memory
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        # HTML→PDF: wkhtmltopdf when present, else headless Chrome (see wkhtmltopdf_utils)
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
 
         # For verified agreements, save to database
         if save_to_db and property_obj and is_verified:
@@ -470,10 +495,10 @@ def send_agreement_email(property, pdf_content, context, is_verification=False):
     """
     # Set appropriate subject and template based on email type
     if is_verification:
-        subject = "Idbook Hotel Service Agreement Verification Confirmation"
+        subject = f"{COMPANY['legal_name']}: Hotel Service Agreement Verification Confirmation"
         template_name = "service_agreement_template/service_agreement_verification.html"
     else:
-        subject = "Idbook Hotel Service Agreement Request"
+        subject = f"{COMPANY['legal_name']}: Hotel Service Agreement Request"
         template_name = "service_agreement_template/service_agreement_request.html"
 
     to_email = property.email
@@ -547,8 +572,7 @@ def generate_hotel_receipt_pdf(context, booking_id=None, booking_obj=None):
             "quiet": None,
         }
 
-        # Generate PDF in memory
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
 
         if booking_obj:
             file_name = f"hotel_receipt_{booking_obj.reference_code}_{datetime.now().strftime('%Y_%m_%d')}.pdf"

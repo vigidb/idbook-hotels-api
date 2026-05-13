@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hotel Agreement Request - Idbook Hotels</title>
+  {% load company_tags %}{% company_info as company %}
+  <title>Hotel Agreement Request - {{ company.legal_name }}</title>
   <style>
     /* General Styles */
     body {
@@ -143,11 +144,11 @@
 
     <!-- Agreement Request Content -->
     <div class="content">
-      <h1>Welcome to Idbook hotels</h1>
+      <h1>Welcome to {{ company.legal_name }}</h1>
       
       <p>Dear {{name}},</p>
 
-      <p>Thank you for listing your property, <strong>{{property_name}}</strong>, on Idbook hotels.</p>
+      <p>Thank you for listing your property, <strong>{{property_name}}</strong>, on our platform.</p>
 
       <div class="highlight-box">
         <p><strong>📌 Commission Details:</strong></p>
@@ -159,23 +160,23 @@
       <p>To proceed, please review the attached agreement and confirm your acceptance by clicking the verification link below:</p>
 
       <div style="text-align: center; margin: 20px 0;">
-        <a href="https://www.idbookhotels.com/hotelier-verification?token={{token}}" 
+        <a href="{{ verification_url }}" 
            class="cta-button" style="color: white;">Verify & Accept Agreement</a>
       </div>
       <!-- <a href="https://www.idbookhotels.com/hotels/properties/verify-agreement/?token={{token}}" class="cta-button" style="color: white">Verify & Accept Agreement</a> -->
 
       <p>By clicking this link, you agree to the terms outlined in the attached Service Agreement.</p>
 
-      <p>If you have any questions, feel free to reach out to us at <a href="mailto:support@idbookhotels.com">support@idbookhotels.com</a>.</p>
+      <p>If you have any questions, feel free to reach out to us at <a href="mailto:{{ company.contact.support_email }}">{{ company.contact.support_email }}</a>.</p>
 
       <p>Warm regards,<br>
-      <strong>Idbook hotels</strong><br>
-      <a href="https://idbookhotels.com">www.idbookhotels.com</a></p>
+      <strong>{{ company.legal_name }}</strong><br>
+      <a href="https://{{ company.contact.website }}">https://{{ company.contact.website }}</a></p>
     </div>
 
     <!-- Footer Section -->
     <div class="footer">
-      <p>© 2025 Idbook hotels All Rights Reserved.</p>
+      <p>© {% now "Y" %} {{ company.legal_name }}. All Rights Reserved.</p>
     </div>
   </div>
 </body>

@@ -3,25 +3,51 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Service Agreement - ID BOOK TRADE & E-COMMERCE PVT.LTD.</title>
+        <title>Service Agreement - {{ company.legal_name|upper }}</title>
         <style>
+            /* Print layout: one .page = one A4 sheet (Chrome + wkhtmltopdf). */
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+            }
 
+            @page {
+                size: A4;
+                margin: 0;
+            }
+
+            html {
+                margin: 0;
+                padding: 0;
+            }
 
             body {
                 margin: 0;
                 padding: 0;
                 width: 210mm;
-                height: 297mm;
+                /* Do not fix body height — multi-page + fixed body causes extra blank sheets in Chrome */
+                background: #fff;
             }
 
             .page {
                 width: 210mm;
+                /* border-box: height includes padding → one .page fits exactly one A4 sheet */
                 height: 297mm;
+                max-height: 297mm;
                 padding: 15mm 20mm 20mm 15mm;
                 margin: 0 auto;
                 background: #fff;
                 page-break-after: always;
+                break-after: page;
                 position: relative;
+                overflow: hidden;
+            }
+
+            /* Trailing break-after always() inserts an extra empty page */
+            .page:last-of-type {
+                page-break-after: auto;
+                break-after: auto;
             }
 
             /* Page 1 Styles */
@@ -67,11 +93,28 @@
 
             .stamp {
                 text-align: right;
-                margin-top: 20px;
+                margin-top: 12px;
+                margin-bottom: 6px;
             }
 
             .stamp img {
                 width: 100px;
+            }
+
+            .stamp-fallback {
+                display: inline-block;
+                border: 2px double #000;
+                padding: 10px 16px;
+                text-align: center;
+                font-size: 10px;
+                font-weight: bold;
+                line-height: 1.35;
+                max-width: 170px;
+            }
+
+            .stamp-fallback-sub {
+                font-size: 9px;
+                font-weight: normal;
             }
 
             .footer {
@@ -172,11 +215,21 @@
                     background: none;
                     margin: 0;
                     padding: 0;
+                    width: 210mm;
                 }
 
                 .page {
                     box-shadow: none;
                     margin: 0;
+                }
+
+                /* Tighten vertical rhythm so each manual .page stays within one sheet */
+                .service-item {
+                    margin-bottom: 10px;
+                }
+
+                .service-item p {
+                    margin-bottom: 6px;
                 }
             }
         </style>
@@ -186,7 +239,7 @@
         <div class="page">
             <div class="header">
                 <img
-                    src="https://idbookhotels.s3.eu-north-1.amazonaws.com/logo/idbook+logo.png"
+                    src="{{ company.service_agreement.logo_url }}"
                     alt="Company Logo Placeholder"
                     class="logo"
                 />
@@ -216,11 +269,11 @@
 
                 <div class="party-details">
                     <p>
-                        IDBOOK TRADE & ECOMMERCE PVT LTD., a company
+                        {{ company.legal_name|upper }}, a company
                         incorporated under the laws of INDIAN CONSTITUTION,
-                        having its registered office at OPPOSITE PLOT NO.-234,
-                        FRONT OF ICICI BANK ATM, NEAR POLICE STATION, SARHAUL
-                        GURGAON (122015) (hereinafter referred to as the
+                        having its registered office at
+                        {{ company.service_agreement.contract_party_registered_office }}
+                        (hereinafter referred to as the
                         <strong>"Service Provider"</strong> which expression
                         shall unless excluded by or repugnant to the subject or
                         context be deemed to include its successors-in-interest
@@ -276,18 +329,14 @@
                     <p>(b) The Service Provider shall:</p>
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp Placeholder"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
             </div>
 
             <div class="footer">
-                Ground Floor, Front of ICICI Bank ATM Opposite Plot No. 234,<br />
-                Near Police Station Sarhaul Gurgaon, (HR) 122015<br />
-                Head Office: Gurgaon
+                {% for line in company.service_agreement.footer_lines %}
+                {{ line }}<br />
+                {% endfor %}
+                {{ company.service_agreement.head_office_footer }}
             </div>
 
             <div class="page-number">1</div>
@@ -368,7 +417,7 @@
                     </p>
                     <div class="commission-details">
                         <p class="commission-item">
-                            i. we are working on 20 % commission.
+                            {{ commission_clause_i }}
                         </p>
                         <p class="commission-item">
                             ii. The payment will be transfer to owner account at
@@ -379,7 +428,7 @@
 
                 <div class="service-item">
                     <p>
-                        (f) The Services shall be provided at Gurugram. The
+                        (f) The Services shall be provided at {{ company.service_agreement.services_location }}. The
                         Service Provider agrees and acknowledges that the
                         provision of Services hereunder may require travel to
                         different destinations and the Parties agree that the
@@ -404,12 +453,7 @@
                     </p>
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
 
                 <div class="page-number">2</div>
             </div>
@@ -420,8 +464,8 @@
             <div class="services-content">
                 <div class="service-item">
                     <p>
-                        (h) The Service Provider shall work for a minimum of: 1
-                        year for providing Services to the Client during the
+                        (h) The Service Provider shall work for a minimum of: {{ company.service_agreement.minimum_term }}
+                        for providing Services to the Client during the
                         Term of the Agreement.
                     </p>
                 </div>
@@ -430,17 +474,16 @@
                     <p>
                         (i) The Service Provider shall keep the Client informed
                         regarding the time spent on provision of Services and in
-                        the event the time spent exceeds: 1 year the fee payable
+                        the event the time spent exceeds: {{ company.service_agreement.minimum_term }} the fee payable
                         shall only be increased if prior written approval is
-                        obtained from the Client regarding time in excess of: 1
-                        year.
+                        obtained from the Client regarding time in excess of: {{ company.service_agreement.minimum_term }}.
                     </p>
                 </div>
 
                 <div class="service-item">
                     <p>
                         (j) In the event the Service Provider does not spend at
-                        least: 1 year, the fee payable shall be reduced
+                        least: {{ company.service_agreement.minimum_term }}, the fee payable shall be reduced
                         proportionately based on the actual time spent or
                         otherwise as may be agreed between the Parties.
                     </p>
@@ -466,8 +509,7 @@
                         <p>
                             (a) In consideration of the Services rendered by the
                             Service Provider, the Client shall pay to the
-                            Service Provider, the following fixed fees: 20% per
-                            transaction.
+                            Service Provider, the following fixed fees: {{ consideration_fee_clause }}
                         </p>
                     </div>
 
@@ -526,12 +568,7 @@
                     </div>
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
 
                 <div class="page-number">3</div>
             </div>
@@ -637,12 +674,7 @@
                     </div>
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
 
                 <div class="page-number">4</div>
             </div>
@@ -700,7 +732,7 @@
                         Parties hereto failing which the following shall apply:
                     </p>
                     <p>
-                        (b) The courts in GURGAON,HARYANA COURT shall have
+                        (b) The courts in {{ company.service_agreement.dispute_jurisdiction }} shall have
                         exclusive jurisdiction over any dispute, differences or
                         claims arising out of this Agreement.
                     </p>
@@ -742,12 +774,7 @@
                     {% endif %}
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
 
                 <div class="page-number">5</div>
             </div>
@@ -765,8 +792,7 @@
                         ></span>
                     </p> -->
                     <p class="address-line">
-                        Address: opposite plot no -234 ,front of icici bank atm
-                        ,near police station ,sarhaul ,gurgaon (122015),haryana
+                        Address: {{ company.service_agreement.notification_address_line }}
                     </p>
                 </div>
 
@@ -798,12 +824,7 @@
                     </p>
                 </div>
 
-                <div class="stamp">
-                    <img
-                        src="https://res.cloudinary.com/dtswa0rzu/image/upload/f_auto,q_auto/wd8y4xrqkh1e23shhq8u"
-                        alt="Company Stamp"
-                    />
-                </div>
+                {% include "service_agreement_template/_stamp.html" %}
 
                 <div class="page-number">6</div>
             </div>
