@@ -1692,6 +1692,15 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
         campaign = self.get_object()
         campaign.status = Campaign.Status.PAUSED
         campaign.save(update_fields=["status", "updated_at"])
+
+        # Return in-flight rows (claimed PENDING -> QUEUED but not yet sent) back to
+        # PENDING so they are re-dispatched on resume. Without this, rows stranded in
+        # QUEUED at pause time are never re-selected (the due scan filters PENDING only).
+        CampaignContact.objects.filter(
+            campaign=campaign,
+            status=CampaignContact.Status.QUEUED,
+        ).update(status=CampaignContact.Status.PENDING)
+
         return self.get_response(data={"status": "paused"}, status="success")
 
     @swagger_auto_schema(
@@ -1727,6 +1736,14 @@ class CampaignViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
 
         campaign.status = Campaign.Status.RUNNING
         campaign.save(update_fields=["status", "updated_at"])
+
+        # Safety net: recover any rows stranded in QUEUED (e.g. campaigns paused before
+        # the pause-time requeue fix existed). The due scan only re-selects PENDING rows,
+        # so revert these before kicking it off.
+        CampaignContact.objects.filter(
+            campaign=campaign,
+            status=CampaignContact.Status.QUEUED,
+        ).update(status=CampaignContact.Status.PENDING)
 
         # Resume should continue from existing CampaignContact rows (no rebuild/reset).
         process_due_campaign_contacts_task.delay(campaign.id)
