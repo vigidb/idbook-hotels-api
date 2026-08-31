@@ -1,0 +1,19 @@
+[Unit]
+Description=IDBOOK Django Gunicorn Service
+After=network.target
+
+[Service]
+Type=simple
+User=idbook
+Group=idbook
+WorkingDirectory=/opt/idbook/idbook-hotels-api/IDBOOKAPI
+EnvironmentFile=/etc/idbook/idbook-api.env
+ExecStart=/opt/idbook/idbook-hotels-api/IDBOOKAPI/venv/bin/gunicorn IDBOOKAPI.wsgi:application -c /opt/idbook/idbook-hotels-api/deploy/gunicorn/gunicorn.conf.py.example
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=append:/var/log/idbook/django.out.log
+StandardError=append:/var/log/idbook/django.err.log
+
+[Install]
+WantedBy=multi-user.target

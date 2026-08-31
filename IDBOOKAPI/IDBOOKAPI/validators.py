@@ -12,9 +12,9 @@ def get_filename(path):
 
 def validate_file_extension(value):
     ext = os.path.splitext(value.name)[1]
-    valid_extensions = ['.pdf', '.doc', '.docx', '.jpg', '.png', '.xlsx', '.xls']
+    valid_extensions = [".pdf", ".doc", ".docx", ".jpg", ".png", ".xlsx", ".xls"]
     if not ext.lower() in valid_extensions:
-        raise ValidationError('Unsupported file extension.')
+        raise ValidationError("Unsupported file extension.")
 
 
 def calculate_age(born):
@@ -26,4 +26,4 @@ def calculate_age(born):
 class MinAgeValidator(BaseValidator):
     compare = lambda self, a, b: calculate_age(a) < b
     message = _("Age must be at least %(limit_value)d.")
-    code = 'min_age'
+    code = "min_age"

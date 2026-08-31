@@ -9,4 +9,3 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from apps.booking.models import Booking
 from apps.booking.mixins.booking_db_mixins import CommonDbMixins
-

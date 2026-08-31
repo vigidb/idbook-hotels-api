@@ -1,5 +1,9 @@
 # SDK initialization
-from IDBOOKAPI.settings import IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, IMAGEKIT_ENDPOINT
+from IDBOOKAPI.settings import (
+    IMAGEKIT_PUBLIC_KEY,
+    IMAGEKIT_PRIVATE_KEY,
+    IMAGEKIT_ENDPOINT,
+)
 from imagekitio import ImageKit
 from imagekitio.models.UploadFileRequestOptions import UploadFileRequestOptions
 from rest_framework.views import APIView
@@ -10,12 +14,16 @@ from django.core.files.storage import FileSystemStorage
 imagekit = ImageKit(
     private_key=IMAGEKIT_PRIVATE_KEY,
     public_key=IMAGEKIT_PUBLIC_KEY,
-    url_endpoint=IMAGEKIT_ENDPOINT
+    url_endpoint=IMAGEKIT_ENDPOINT,
 )
 
 
-def upload_media_to_bucket(file_name, file_path, tags,):
-    folder = '/hotels/'
+def upload_media_to_bucket(
+    file_name,
+    file_path,
+    tags,
+):
+    folder = "/hotels/"
     webhook_url = "https://www.idbookhotels.com/"
     # extensions = [
     #     {
@@ -52,11 +60,14 @@ def upload_media_to_bucket(file_name, file_path, tags,):
 
 class ImagekitioService(APIView):
     def post(self, request, *args, **kwargs):
-        file_path = request.FILES.get('file_path')
-        file_name = request.data.get('file_name')
+        file_path = request.FILES.get("file_path")
+        file_name = request.data.get("file_name")
 
         if not file_path or not file_name:
-            return Response({'error': 'Both file_path and file_name are required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Both file_path and file_name are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         fs = FileSystemStorage()
         saved_file_path = fs.save(file_name, file_path)
@@ -66,8 +77,11 @@ class ImagekitioService(APIView):
             file_name=file_name,
         )
 
-        return Response({
-            'message': 'File uploaded successfully',
-            'saved_file_path': saved_file_path,
-            'response': response.response_metadata.raw
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "message": "File uploaded successfully",
+                "saved_file_path": saved_file_path,
+                "response": response.response_metadata.raw,
+            },
+            status=status.HTTP_201_CREATED,
+        )

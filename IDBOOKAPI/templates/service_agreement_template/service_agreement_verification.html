@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hotel Agreement Verification - Idbook Hotels</title>
+  {% load company_tags %}{% company_info as company %}
+  <title>Hotel Agreement Verification - {{ company.legal_name }}</title>
   <style>
     /* General Styles */
     body {
@@ -147,7 +148,7 @@
       
       <p>Dear {{name}},</p>
 
-      <p>Thank you for verifying your Service Agreement with Idbook hotels.</p>
+      <p>Thank you for verifying your Service Agreement with {{ company.legal_name }}.</p>
 
       <div class="verification-box">
         <p>We're pleased to confirm your acceptance of the agreement. Your property, <strong>{{property_name}}</strong>, is now <strong>active</strong> and visible to customers on our platform.</p>
@@ -165,13 +166,13 @@
       <p>We look forward to a successful partnership.</p>
 
       <p>Warm regards,<br>
-      <strong>Idbook hotels</strong><br>
-      <a href="https://idbookhotels.com">www.idbookhotels.com</a></p>
+      <strong>{{ company.legal_name }}</strong><br>
+      <a href="https://{{ company.contact.website }}">https://{{ company.contact.website }}</a></p>
     </div>
 
     <!-- Footer Section -->
     <div class="footer">
-      <p>© 2025 Idbook hotels All Rights Reserved.</p>
+      <p>© {% now "Y" %} {{ company.legal_name }}. All Rights Reserved.</p>
     </div>
   </div>
 </body>

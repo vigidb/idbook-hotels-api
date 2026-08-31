@@ -12,4 +12,3 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 
 
 from IDBOOKAPI.utils import get_unique_id_from_time
-

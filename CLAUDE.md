@@ -76,8 +76,8 @@ celery -A IDBOOKAPI beat --loglevel=info
 
 ### API Documentation
 
-- Swagger UI: `http://localhost:8000/api/v1/docs2/`
 - ReDoc: `http://localhost:8000/api/v1/docs/`
+- Swagger UI: `http://localhost:8000/api/v1/docs/swagger/`
 
 ## Architecture
 
@@ -161,19 +161,22 @@ Key environment variables:
 
 ### Background Tasks (Celery)
 
-**Queue Configuration** (`IDBOOKAPI/celery.py`):
-- Email/SMS tasks route to `email-send-queue` (production) or `dev-email-send-queue` (development)
-- Recurring payment tasks route to `recpay-initiate-queue`
+**Queue Configuration** (`IDBOOKAPI/celery.py` + `CELERY_TASK_DEFAULT_QUEUE` in `settings.py`):
+- Transactional email/SMS (OTP, booking, hotel, org, flight notifications) route to `email-send-queue` (production) or `dev-email-send-queue` (development)
+- **Marketing / messaging campaigns** (`apps.messaging.tasks.*`) route to `marketing-campaign-queue` or `dev-marketing-campaign-queue` so bulk work does not block OTP and confirmations
+- Tasks **without** an explicit route use **`general-queue`** (production) or **`dev-general-queue`** (dev/local/test); override with env **`CELERY_TASK_DEFAULT_QUEUE`** if needed
+- Recurring payment + wallet expiry tasks route to `recpay-initiate-queue` (production) or `dev-recpay-initiate-queue` (dev/local/test)
+- AirIQ token tasks route to `airiq-token-queue` (production) or `dev-airiq-token-queue` (dev/local/test)
 
 **Scheduled Tasks (Celery Beat)**:
-- Recurring payment initiation: Every 1 minute
-- Wallet expiry check: Every 30 minutes
+- Defined in **Django admin** (`django-celery-beat`); cadence is environment-specific (avoid duplicating the same task in code via `CELERY_USE_CODE_BEAT_SCHEDULE` unless intentional)
 
 **Task Locations**:
 - `apps.authentication.tasks` - OTP, signup emails
 - `apps.booking.tasks` - Booking confirmations, invoices, cancellations
 - `apps.hotels.tasks` - Hotel notifications, service agreements
 - `apps.org_resources.tasks` - Recurring payments, enquiries
+- `apps.messaging.tasks` - Campaign enqueue, batch sends, scheduled campaign drain (marketing queue)
 
 ### API Structure
 

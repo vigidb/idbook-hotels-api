@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Update on your request</title>
+    <style>
+      body {
+        font-family: "Poppins", sans-serif;
+        background-color: #f5f6fa;
+        margin: 0;
+        padding: 0;
+        color: #333;
+      }
+      .container {
+        max-width: 720px;
+        margin: 18px auto;
+        background-color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+      .header {
+        background: linear-gradient(90.11deg, #1d498d -1.97%, #3c65a4 99.93%);
+        padding: 20px;
+        text-align: center;
+        color: white;
+      }
+      .header img {
+        max-width: 150px;
+      }
+      .content {
+        padding: 22px 22px 18px;
+      }
+      .title {
+        font-size: 22px;
+        margin: 8px 0 6px;
+        text-align: center;
+        color: #1d498d;
+      }
+      .sub-heading {
+        margin: 0;
+        font-size: 14px;
+        color: #666;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .card {
+        background-color: #f7f9fc;
+        border: 1px solid #eef2f7;
+        border-radius: 10px;
+        padding: 16px;
+        margin: 16px 0;
+      }
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+        color: #1d498d;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .field {
+        flex: 1;
+        min-width: 220px;
+      }
+      .field p {
+        margin: 0 0 8px;
+        font-size: 14px;
+        color: #333;
+        line-height: 1.6;
+      }
+      .field strong {
+        color: #222;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th,
+      td {
+        padding: 10px 8px;
+        border: 1px solid #e5e9f2;
+        text-align: left;
+        font-size: 14px;
+      }
+      th {
+        background-color: #d9e2f5;
+      }
+      .highlight {
+        background: #e9f3ff;
+        border: 1px solid #d3e6ff;
+        padding: 12px;
+        border-radius: 10px;
+        margin-top: 10px;
+      }
+      .cta {
+        text-align: center;
+        margin: 18px 0 8px;
+      }
+      .cta a {
+        text-decoration: none;
+        padding: 12px 26px;
+        border-radius: 8px;
+        color: white;
+        background-color: #1d498d;
+        display: inline-block;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .cta a.secondary {
+        background: transparent;
+        border: 1px solid #1d498d;
+        color: #1d498d;
+      }
+      .footer {
+        background-color: #f5f6fa;
+        padding: 14px 18px;
+        text-align: center;
+        font-size: 12px;
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <img
+          src="https://ik.imagekit.io/idbookhotels/idbook%20logo.png?updatedAt=1726323905017"
+          alt="{{ footer_company_line|default:'Idbook Hotels' }}"
+        />
+      </div>
+
+      <div class="content">
+        {% if event_type == "QUERY_CREATED" %}
+        <div class="title">We received your request</div>
+        <p class="sub-heading">
+          Hi {{ name }}, we’ve received your {{ query_type }} enquiry. We’ll get back with a quote soon.
+        </p>
+        {% elif event_type == "QUERY_QUOTED" %}
+        <div class="title">Your quote is ready</div>
+        <p class="sub-heading">
+          Hi {{ name }}, your quoted offer is ready. Review the details below and accept to proceed.
+        </p>
+        {% elif event_type == "QUERY_ACCEPTED" %}
+        <div class="title">Quote accepted</div>
+        <p class="sub-heading">
+          Hi {{ name }}, thanks! Your quote has been accepted. We’ll now move forward with booking conversion.
+        </p>
+        {% elif event_type == "QUERY_CONVERTED_TO_BOOKING" %}
+        <div class="title">Your booking is on hold</div>
+        <p class="sub-heading">
+          Hi {{ name }}, your request has been converted into a booking. Action is needed before the hold expires.
+        </p>
+        {% elif event_type == "QUERY_COMPLETED" %}
+        <div class="title">Your request is completed</div>
+        <p class="sub-heading">
+          Hi {{ name }}, your booking request has been completed. Please complete the minimum payment before the hold expiry.
+        </p>
+        {% elif event_type == "QUERY_CANCELLED" %}
+        <div class="title">Your request is cancelled</div>
+        <p class="sub-heading">
+          Hi {{ name }}, we’ve cancelled your request. If you want to book again, submit a new enquiry whenever you’re ready.
+        </p>
+        {% elif event_type == "QUERY_ASSIGNED" %}
+        <div class="title">Assigned to our team</div>
+        <p class="sub-heading">
+          Hi {{ name }}, your enquiry is now assigned to our team. Expect an update shortly.
+        </p>
+        {% else %}
+        <div class="title">Update on your request</div>
+        <p class="sub-heading">Hi {{ name }}, here are the latest details.</p>
+        {% endif %}
+
+        <div class="card">
+          <h2>Request details</h2>
+          <div class="row">
+            <div class="field">
+              <p>
+                <strong>Reference:</strong> {{ query_reference }}
+              </p>
+              <p>
+                <strong>Type:</strong> {{ query_type }}
+              </p>
+              {% if quote_valid_till %}
+              <p>
+                <strong>Quote valid till:</strong>
+                {{ quote_valid_till|date:"d M Y, H:i" }}
+              </p>
+              {% endif %}
+            </div>
+
+            <div class="field">
+              {% if quote_amount and quote_amount > 0 %}
+              <p>
+                <strong>Quote amount:</strong> {{ quote_amount }} INR
+              </p>
+              {% endif %}
+
+              {% if event_type == "QUERY_CONVERTED_TO_BOOKING" and booking_status or event_type == "QUERY_COMPLETED" and booking_status %}
+              <p>
+                <strong>Booking status:</strong> {{ booking_status|capfirst }}
+              </p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if event_type == "QUERY_ASSIGNED" and assigned_to_name or event_type == "QUERY_ASSIGNED" and assigned_to_email or event_type == "QUERY_ASSIGNED" and assigned_to_mobile %}
+        <div class="card">
+          <h2>Assigned executive</h2>
+          <div class="row">
+            <div class="field">
+              {% if assigned_to_name %}
+              <p><strong>Name:</strong> {{ assigned_to_name }}</p>
+              {% endif %}
+              {% if assigned_to_email %}
+              <p><strong>Email:</strong> {{ assigned_to_email }}</p>
+              {% endif %}
+              {% if assigned_to_mobile %}
+              <p><strong>Contact number:</strong> {{ assigned_to_mobile }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if event_type == "QUERY_CONVERTED_TO_BOOKING" or event_type == "QUERY_COMPLETED" %}
+        <div class="card">
+          <h2>Next steps to confirm</h2>
+          <div class="highlight">
+            <p style="margin:0 0 6px; font-size:14px;">
+              <strong>Hold expiry:</strong>
+              {% if hold_end_time %}{{ hold_end_time|date:"d M Y, H:i" }}{% else %}—{% endif %}
+            </p>
+            <p style="margin:0; font-size:14px;">
+              <strong>Minimum first payment:</strong>
+              {% if minimum_first_payment_amount %}{{ minimum_first_payment_amount }} INR{% else %}—{% endif %}
+            </p>
+          </div>
+
+          {% if booking_reference_code %}
+          <p style="margin-top:10px; font-size:14px;">
+            <strong>Booking reference:</strong> {{ booking_reference_code }}
+            {% if confirmation_code %}· <strong>Confirmation code:</strong> {{ confirmation_code }}{% endif %}
+          </p>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="cta">
+          {% if event_type == "QUERY_CONVERTED_TO_BOOKING" and booking_link or event_type == "QUERY_COMPLETED" and booking_link %}
+          <a href="{{ booking_link }}">View booking</a>
+          {% elif query_link %}
+          <a class="secondary" href="{{ query_link }}">Open request</a>
+          {% endif %}
+        </div>
+
+        <div class="card" style="background:#ffffff;">
+          <h2>What happens next?</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if event_type == "QUERY_CREATED" %}
+              <tr>
+                <td>1</td>
+                <td>Our team reviews your enquiry and prepares a quote.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>When the quote is ready, we’ll notify you and show the details here.</td>
+              </tr>
+              {% elif event_type == "QUERY_QUOTED" %}
+              <tr>
+                <td>1</td>
+                <td>Review the quoted amount and validity window.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Accept the quote to proceed with booking conversion.</td>
+              </tr>
+              {% elif event_type == "QUERY_ACCEPTED" %}
+              <tr>
+                <td>1</td>
+                <td>Your acceptance is recorded. Admin will convert your request into a booking.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Once converted, you’ll get hold/payment instructions for confirmation.</td>
+              </tr>
+              {% elif event_type == "QUERY_CONVERTED_TO_BOOKING" %}
+              <tr>
+                <td>1</td>
+                <td>Complete the minimum first payment before hold expiry.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>After the minimum payment is received, the booking will be confirmed.</td>
+              </tr>
+              {% elif event_type == "QUERY_COMPLETED" %}
+              <tr>
+                <td>1</td>
+                <td>Review your booking hold expiry and complete the minimum first payment.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Once the minimum payment is received, we’ll confirm the booking.</td>
+              </tr>
+              {% elif event_type == "QUERY_CANCELLED" %}
+              <tr>
+                <td>1</td>
+                <td>Your request has been cancelled successfully.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>If you’d like to proceed again, submit a fresh enquiry.</td>
+              </tr>
+              {% elif event_type == "QUERY_ASSIGNED" %}
+              <tr>
+                <td>1</td>
+                <td>Your enquiry is assigned to our team for follow-up.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>We’ll update you with the next status as soon as possible.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="footer">
+        If you have questions, reply to this email. <br />
+        <span>© {% now "Y" %} {{ footer_company_line|default:"Idbook Hotels" }}</span>
+      </div>
+    </div>
+  </body>
+</html>
+

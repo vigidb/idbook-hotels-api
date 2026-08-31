@@ -1,0 +1,13 @@
+<div class="stamp">
+    {% if company.service_agreement.stamp_url %}
+        <img
+            src="{{ company.service_agreement.stamp_url }}"
+            alt="Common seal — {{ company.legal_name }}"
+        />
+    {% else %}
+        <div class="stamp-fallback" aria-label="Common seal">
+            {{ company.legal_name|upper }}<br />
+            <span class="stamp-fallback-sub">(Common Seal)</span>
+        </div>
+    {% endif %}
+</div>

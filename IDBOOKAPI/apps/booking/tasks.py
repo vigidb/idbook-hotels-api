@@ -1,39 +1,69 @@
 from IDBOOKAPI.celery import app as celery_idbook
-from IDBOOKAPI.email_utils import send_booking_email, send_booking_email_with_attachment
-from apps.booking.utils.db_utils import get_booking, save_invoice_to_database, update_payment_details, update_invoice_in_database
+from IDBOOKAPI.email_utils import (
+    collect_internal_booking_bcc_emails,
+    send_booking_email,
+    send_booking_email_with_attachment,
+    send_email,
+)
+from apps.booking.utils.db_utils import (
+    get_booking,
+    save_invoice_to_database,
+    update_payment_details,
+    update_invoice_in_database,
+)
 from apps.booking.utils.booking_utils import (
     generate_htmlcontext_search_booking,
     generate_context_confirmed_booking,
     generate_context_cancelled_booking,
     generate_context_completed_booking,
-    set_firstbooking_reward)
+    set_firstbooking_reward,
+)
 
 from apps.booking.utils.invoice_utils import (
-    invoice_json_data, create_invoice, get_invoice_number, update_invoice, create_invoice_number, 
-    create_invoice_response_data, generate_invoice_pdf)
+    invoice_json_data,
+    create_invoice,
+    get_invoice_number,
+    update_invoice,
+    create_invoice_number,
+    create_invoice_response_data,
+    generate_invoice_pdf,
+)
 
 from django.template.loader import get_template
 from django.conf import settings
+from django.core.cache import cache
 
-from apps.org_managements.utils import get_active_business #get_business_by_name
+from apps.org_managements.utils import get_active_business  # get_business_by_name
 from apps.org_resources.db_utils import get_company_details, create_notification
 from apps.org_resources.utils.notification_utils import (
-    wallet_minbalance_notification_template, booking_comfirmed_notification_template,
-    booking_cancelled_notification_template, booking_completed_notification_template,
-    generate_user_notification)
+    wallet_minbalance_notification_template,
+    booking_comfirmed_notification_template,
+    booking_cancelled_notification_template,
+    booking_completed_notification_template,
+    generate_user_notification,
+)
 from apps.log_management.utils.db_utils import create_booking_invoice_log
 from apps.customer.utils.db_utils import (
-    get_wallet_balance, get_company_wallet_balance, get_user_based_customer,
-    update_wallet_transaction)
+    get_wallet_balance,
+    get_company_wallet_balance,
+    get_user_based_customer,
+    update_wallet_transaction,
+)
 from apps.authentication.utils.db_utils import update_user_first_booking
 from apps.sms_gateway.mixins.fastwosms_mixins import send_template_sms
 from apps.authentication.models import User
 from apps.customer.models import Wallet, WalletTransaction
+from apps.booking.utils.contact_utils import get_booking_contact_info
 from datetime import datetime
+from apps.booking.models import Query
 import pytz
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 @celery_idbook.task(bind=True)
-def send_booking_email_task(self, booking_id, booking_type='search-booking'):
+def send_booking_email_task(self, booking_id, booking_type="search-booking"):
     print("Initiated Booking Email Process")
     print(booking_id)
     booking = get_booking(booking_id)
@@ -41,64 +71,97 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
     attachment = False
     file = None
     if booking:
-        if booking_type == 'confirmed-booking':
+        if booking_type == "confirmed-booking":
+            # Refresh booking from database to get latest invoice_id
+            booking = get_booking(booking_id)
             user_email = booking.user.email
             print("Inside Confirmd ")
             subject = "Booking Confirmed"
-            if booking.booking_type == 'HOTEL':
-                email_template = get_template('email_template/booking-confirmation.html')
-            elif booking.booking_type == 'HOLIDAYPACK':
-                email_template = get_template('email_template/booking-confirmation-holidaypack.html')
-            elif booking.booking_type == 'HOLIDAYPACK':
-                email_template = get_template('email_template/booking-confirmation-holidaypack.html')
-            elif booking.booking_type == 'VEHICLE':
-                email_template = get_template('email_template/booking-confirmation-vehicle.html')
-            elif booking.booking_type == 'FLIGHT':
-                email_template = get_template('email_template/booking-confirmation-flight.html')
+            if booking.booking_type == "HOTEL":
+                email_template = get_template(
+                    "email_template/booking-confirmation.html"
+                )
+            elif booking.booking_type == "HOLIDAYPACK":
+                email_template = get_template(
+                    "email_template/booking-confirmation-holidaypack.html"
+                )
+            elif booking.booking_type == "HOLIDAYPACK":
+                email_template = get_template(
+                    "email_template/booking-confirmation-holidaypack.html"
+                )
+            elif booking.booking_type == "VEHICLE":
+                email_template = get_template(
+                    "email_template/booking-confirmation-vehicle.html"
+                )
+            elif booking.booking_type == "FLIGHT":
+                email_template = get_template(
+                    "email_template/booking-confirmation-flight.html"
+                )
                 if booking.flight_booking and booking.flight_booking.flight_ticket:
                     file = booking.flight_booking.flight_ticket
                 attachment = True
-                
+
             context = generate_context_confirmed_booking(booking)
             print("context", context)
             html_content = email_template.render(context)
             print(user_email)
+            internal_bcc = collect_internal_booking_bcc_emails(booking)
             if attachment:
-                send_booking_email_with_attachment(subject, file, [user_email], html_content)
+                send_booking_email_with_attachment(
+                    subject, file, [user_email], html_content, bcc=internal_bcc
+                )
             else:
-                send_booking_email(subject, booking, [user_email], html_content)
+                send_booking_email(
+                    subject, booking, [user_email], html_content, bcc=internal_bcc
+                )
 
-            try:    
-            # Notification
+            try:
+                # Notification
                 send_by = None
-                #business_name = "Idbook"
-                bus_details = get_active_business() #get_business_by_name(business_name)
+                # business_name = "Idbook"
+                bus_details = (
+                    get_active_business()
+                )  # get_business_by_name(business_name)
                 if bus_details:
                     send_by = bus_details.user
 
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
-                                     'title':'', 'description':'', 'redirect_url':'',
-                                     'image_link':'', 'group_name': group_name}
-                
+                notification_dict = {
+                    "user": booking.user,
+                    "send_by": send_by,
+                    "notification_type": "BOOKING",
+                    "title": "",
+                    "description": "",
+                    "redirect_url": "",
+                    "image_link": "",
+                    "group_name": group_name,
+                }
+
                 notification_dict = booking_comfirmed_notification_template(
-                    booking.id, booking.booking_type, booking.confirmation_code,
-                    notification_dict)
+                    booking.id,
+                    booking.booking_type,
+                    booking.confirmation_code,
+                    notification_dict,
+                )
                 create_notification(notification_dict)
             except Exception as e:
-                print('Notification Error', e)
-                  
-            
+                print("Notification Error", e)
+
         else:
             try:
                 subject = "Booking Enquiry"
-                email_template = get_template('email_template/booking-search.html')
+                email_template = get_template("email_template/booking-search.html")
                 context = generate_htmlcontext_search_booking(booking)
                 html_content = email_template.render(context)
                 # corporates@idbookhotels.com
                 send_email = settings.CORPORATE_EMAIL
                 print(send_email)
-                send_booking_email(subject, booking, [send_email, 'sonu@idbookhotels.com'], html_content)
+                send_booking_email(
+                    subject,
+                    booking,
+                    [send_email, "sonu@idbookhotels.com"],
+                    html_content,
+                )
                 # check wallet balance
                 # if low, then send a notification
 
@@ -110,26 +173,278 @@ def send_booking_email_task(self, booking_id, booking_type='search-booking'):
                     if balance < 1000:
                         send_by = None
                         # business_name = "Idbook"
-                        bus_details = get_active_business() #get_business_by_name(business_name)
+                        bus_details = (
+                            get_active_business()
+                        )  # get_business_by_name(business_name)
                         if bus_details:
                             send_by = bus_details.user
-                        group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                        notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'GENERAL',
-                                             'title':'', 'description':'', 'redirect_url':'',
-                                             'image_link':'', 'group_name': group_name}
-                        notification_dict = wallet_minbalance_notification_template(balance, notification_dict)
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        notification_dict = {
+                            "user": booking.user,
+                            "send_by": send_by,
+                            "notification_type": "GENERAL",
+                            "title": "",
+                            "description": "",
+                            "redirect_url": "",
+                            "image_link": "",
+                            "group_name": group_name,
+                        }
+                        notification_dict = wallet_minbalance_notification_template(
+                            balance, notification_dict
+                        )
                         create_notification(notification_dict)
             except Exception as e:
                 print("Error in search booking email task", e)
-                    
-                        
-                    
-                    
-    
-    #send_otp_email(otp, to_emails)
+
+    # send_otp_email(otp, to_emails)
+
+
+def _safe_float(val, default=0.0) -> float:
+    try:
+        if val is None:
+            return default
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_query_link(query: Query) -> str:
+    if getattr(query, "guest_access_token", None):
+        return (
+            f"{settings.FRONTEND_URL}/queries/{query.id}/?guest_token="
+            f"{query.guest_access_token}"
+        )
+    return f"{settings.FRONTEND_URL}/queries/{query.id}/"
+
+
+def _build_booking_link(booking) -> str:
+    if getattr(booking, "guest_access_token", None):
+        return (
+            f"{settings.FRONTEND_URL}/bookings/{booking.id}/?guest_token="
+            f"{booking.guest_access_token}"
+        )
+    return f"{settings.FRONTEND_URL}/bookings/{booking.id}/"
+
 
 @celery_idbook.task(bind=True)
-def create_invoice_task(self, booking_id, pay_at_hotel=False):
+def send_query_email_task(self, query_id: int, event_type: str = "QUERY_CREATED"):
+    """
+    Send lifecycle email for query events (created/quoted/accepted/converted/assigned).
+    """
+    try:
+        query = Query.objects.select_related(
+            "raised_by", "company", "agent", "booking", "assigned_to"
+        ).get(id=query_id)
+    except Query.DoesNotExist:
+        logger.warning(
+            "Query email skipped: query not found (query_id=%s, event=%s)",
+            query_id,
+            event_type,
+        )
+        return
+
+    raised_by = getattr(query, "raised_by", None)
+    user_email = (getattr(raised_by, "email", None) or "").strip()
+    default_assignee_email = (
+        getattr(settings, "QUERY_DEFAULT_ASSIGNEE_EMAIL", "sonu@idbookhotels.com")
+        or "sonu@idbookhotels.com"
+    ).strip()
+    assigned_user = getattr(query, "assigned_to", None)
+    assigned_user_name = (getattr(assigned_user, "name", None) or "").strip()
+    assigned_user_email = (getattr(assigned_user, "email", None) or "").strip()
+    assigned_user_mobile = (
+        getattr(assigned_user, "mobile_number", None) or ""
+    ).strip()
+
+    booking = getattr(query, "booking", None)
+
+    # Quote/hold data (best-effort: template can handle missing fields).
+    quote_amount = _safe_float(getattr(query, "quote_amount", 0))
+    quote_valid_till = getattr(query, "expires_at", None)
+
+    hold_end_time = getattr(booking, "on_hold_end_time", None) if booking else None
+    min_first_payment_amount = None
+    try:
+        if booking and hasattr(booking, "minimum_first_payment_amount"):
+            min_first_payment_amount = booking.minimum_first_payment_amount()
+    except Exception:
+        min_first_payment_amount = None
+
+    context = {
+        "event_type": event_type,
+        "name": getattr(raised_by, "name", "") or "",
+        "email": user_email,
+        "mobile_number": getattr(raised_by, "mobile_number", "") or "",
+        "query_reference": getattr(query, "query_reference", "") or "",
+        "query_type": getattr(query, "query_type", "") or "",
+        "quote_amount": quote_amount,
+        "quote_valid_till": quote_valid_till,
+        "query_link": _build_query_link(query),
+        "booking_reference_code": getattr(booking, "reference_code", None) if booking else None,
+        "confirmation_code": getattr(booking, "confirmation_code", None) if booking else None,
+        "booking_link": _build_booking_link(booking) if booking else "",
+        "hold_end_time": hold_end_time,
+        "minimum_first_payment_amount": min_first_payment_amount,
+        "booking_status": getattr(booking, "status", None) if booking else None,
+        "assigned_to_name": assigned_user_name,
+        "assigned_to_email": assigned_user_email,
+        "assigned_to_mobile": assigned_user_mobile,
+    }
+
+    subjects = {
+        "QUERY_CREATED": "We received your request",
+        "QUERY_QUOTED": "Your quote is ready",
+        "QUERY_ACCEPTED": "Quote accepted - we'll proceed",
+        "QUERY_CONVERTED_TO_BOOKING": "Your booking is on hold",
+        "QUERY_ASSIGNED": "Your request is assigned to our team",
+        "QUERY_CANCELLED": "Your request has been cancelled",
+        "QUERY_COMPLETED": "Your booking request is now completed",
+    }
+    subject = subjects.get(event_type, "Update on your request")
+
+    print(
+        f"[QUERY_EMAIL] resolving recipients query_id={query_id} event={event_type} "
+        f"user_email={user_email!r} default_assignee={default_assignee_email!r} "
+        f"assigned_to={assigned_user_email!r}"
+    )
+
+    recipients = []
+    if user_email:
+        recipients.append(user_email)
+
+    # Always include internal assignee / default business contact on every
+    # query lifecycle event so the team stays informed and emails are never
+    # silently dropped when the customer has no real email address.
+    if default_assignee_email:
+        recipients.append(default_assignee_email)
+    if assigned_user_email:
+        recipients.append(assigned_user_email)
+
+    # Deduplicate while preserving order.
+    deduped_recipients = []
+    seen = set()
+    for email in recipients:
+        normalized = email.lower()
+        if normalized and normalized not in seen:
+            deduped_recipients.append(email)
+            seen.add(normalized)
+
+    if not deduped_recipients:
+        print(
+            f"[QUERY_EMAIL] skipped: no recipients query_id={query_id} event={event_type}"
+        )
+        return
+
+    try:
+        template = get_template("email_template/query-lifecycle-email.html")
+        html_content = template.render(context)
+    except Exception as exc:
+        print(
+            f"[QUERY_EMAIL] template render failed query_id={query_id} event={event_type} error={exc}"
+        )
+        logger.exception(
+            "Query email template render failed (query_id=%s, event=%s): %s",
+            query_id,
+            event_type,
+            exc,
+        )
+        # Fallback so email still goes out even if html template rendering fails.
+        html_content = (
+            f"{subject}\n\n"
+            f"Query Ref: {getattr(query, 'query_reference', '')}\n"
+            f"Event: {event_type}\n"
+        )
+
+    logger.info(
+        "Sending query email (query_id=%s, event=%s, recipients=%s, subject=%s)",
+        query_id,
+        event_type,
+        deduped_recipients,
+        subject,
+    )
+    try:
+        print(
+            f"[QUERY_EMAIL] start query_id={query_id} event={event_type} recipients={deduped_recipients} subject={subject}"
+        )
+        send_email(
+            subject=subject,
+            message=subject,
+            to_emails=deduped_recipients,
+            from_email=settings.EMAIL_HOST_USER,
+            html_message=html_content,
+        )
+        print(
+            f"[QUERY_EMAIL] success query_id={query_id} event={event_type} recipients={deduped_recipients}"
+        )
+        logger.info(
+            "Query email sent (query_id=%s, event=%s, recipients=%s)",
+            query_id,
+            event_type,
+            deduped_recipients,
+        )
+    except Exception as exc:
+        print(
+            f"[QUERY_EMAIL] failed query_id={query_id} event={event_type} recipients={deduped_recipients} error={exc}"
+        )
+        logger.exception(
+            "Query email failed (query_id=%s, event=%s, recipients=%s): %s",
+            query_id,
+            event_type,
+            deduped_recipients,
+            exc,
+        )
+
+
+@celery_idbook.task(bind=True)
+def send_query_sms_task(
+    self, query_id: int, notification_type: str = "QUERY_CREATED"
+):
+    """
+    Send SMS lifecycle for query events if an SMS template exists in DB.
+    """
+    try:
+        query = Query.objects.select_related("raised_by", "booking").get(id=query_id)
+    except Query.DoesNotExist:
+        return
+
+    raised_by = getattr(query, "raised_by", None)
+    mobile_number = getattr(raised_by, "mobile_number", None) or ""
+    if not mobile_number:
+        return
+
+    template_code_map = {
+        "QUERY_CREATED": "QUERY_CREATED",
+        "QUERY_QUOTED": "QUERY_QUOTED",
+        "QUERY_ACCEPTED": "QUERY_ACCEPTED",
+        "QUERY_CONVERTED_TO_BOOKING": "QUERY_CONVERTED_TO_BOOKING",
+        "QUERY_ASSIGNED": "QUERY_ASSIGNED",
+        "QUERY_CANCELLED": "QUERY_CANCELLED",
+        "QUERY_COMPLETED": "QUERY_COMPLETED",
+    }
+    # Only send SMS if we know a corresponding template code.
+    if notification_type not in template_code_map:
+        return
+    template_code = template_code_map[notification_type]
+
+    name = getattr(raised_by, "name", "") or ""
+    reference = getattr(query, "query_reference", "") or ""
+    booking = getattr(query, "booking", None)
+
+    if notification_type == "QUERY_QUOTED":
+        amount_or_status = _safe_float(getattr(query, "quote_amount", 0))
+    elif notification_type == "QUERY_CONVERTED_TO_BOOKING" and booking:
+        amount_or_status = getattr(booking, "status", "") or "on_hold"
+    else:
+        amount_or_status = notification_type.replace("QUERY_", "").replace("_", " ").title()
+
+    variables_values = f"{name}|{reference}|{amount_or_status}"
+    send_template_sms(mobile_number, template_code, variables_values)
+
+
+@celery_idbook.task(bind=True)
+def create_invoice_task(self, booking_id, pay_at_hotel=False, send_email=True):
     company_details = None
     customer_details = None
     print("Inside Invoice Task")
@@ -140,13 +455,15 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
             try:
                 if booking.user and booking.user.referred_code:
                     if not booking.user.first_booking:
-                        set_firstbooking_reward(booking.user.referred_code, booked_user_id=booking.user.id)
+                        set_firstbooking_reward(
+                            booking.user.referred_code, booked_user_id=booking.user.id
+                        )
                         update_user_first_booking(booking.user.id)
             except Exception as e:
                 print("Error in setting reward points", e)
-            
+
             # business_name = "Idbook"
-            bus_details = get_active_business() #get_business_by_name(business_name)
+            bus_details = get_active_business()  # get_business_by_name(business_name)
             print("booking.invoice_id", booking.invoice_id)
             if booking.user:
                 company_id = booking.company_id
@@ -161,12 +478,17 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 billed_by_id = bus_details.id if bus_details else None
                 invoice_number = create_invoice_number(billed_by_id=billed_by_id)
                 print("invoice_number", invoice_number)
-                payload = invoice_json_data(booking, bus_details,
-                                            company_details, customer_details, invoice_number, pay_at_hotel=pay_at_hotel)
-
+                payload = invoice_json_data(
+                    booking,
+                    bus_details,
+                    company_details,
+                    customer_details,
+                    invoice_number,
+                    pay_at_hotel=pay_at_hotel,
+                )
 
                 invoice = save_invoice_to_database(booking, payload, invoice_number)
-                
+
                 if invoice:
                     # Generate the PDF invoice
                     try:
@@ -177,15 +499,15 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                     booking = get_booking(booking_id)
                     booking.invoice_id = invoice_number
                     booking.save()
-                    
+
                     update_payment_details(booking, invoice)
                 # Create full response data similar to external API format
                 response_data = create_invoice_response_data(invoice, payload)
-                
+
                 invoice_log = {
-                    'booking': booking, 
-                    'status_code': 201 if invoice else 400,
-                    'response': response_data
+                    "booking": booking,
+                    "status_code": 201 if invoice else 400,
+                    "response": response_data,
                 }
                 create_booking_invoice_log(invoice_log)
 
@@ -201,15 +523,23 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 #         booking.invoice_id = invoice_number
                 #         booking.save()
 
-           
                 # invoice_log = {'booking':booking, 'status_code':response.status_code,
                 #                'response': response.json()}
                 # create_booking_invoice_log(invoice_log)
-                    
+
             else:
-                payload = invoice_json_data(booking, bus_details, company_details,
-                                            customer_details, None, invoice_action='update', pay_at_hotel=pay_at_hotel)
-                invoice = update_invoice_in_database(booking.invoice_id, payload, booking)
+                payload = invoice_json_data(
+                    booking,
+                    bus_details,
+                    company_details,
+                    customer_details,
+                    None,
+                    invoice_action="update",
+                    pay_at_hotel=pay_at_hotel,
+                )
+                invoice = update_invoice_in_database(
+                    booking.invoice_id, payload, booking
+                )
                 print("invoice", invoice)
 
                 if invoice:
@@ -220,19 +550,23 @@ def create_invoice_task(self, booking_id, pay_at_hotel=False):
                 # invoice_log = {'booking':booking, 'status_code':response.status_code,
                 #                'response': response.json()}
                 invoice_log = {
-                    'booking': booking, 
-                    'status_code': 200 if invoice else 400,
-                    'response': response_data
+                    "booking": booking,
+                    "status_code": 200 if invoice else 400,
+                    "response": response_data,
                 }
                 create_booking_invoice_log(invoice_log)
 
-            send_booking_email_task.apply_async(args=[booking_id, 'confirmed-booking'])
+            if send_email:
+                send_booking_email_task.apply_async(
+                    args=[booking_id, "confirmed-booking"]
+                )
     except Exception as e:
         print("Invoice Error", e)
-    
+
+
 @celery_idbook.task(bind=True)
 def send_cancelled_booking_task(self, booking_id):
-    """ send email and notification for cancelled booking """
+    """send email and notification for cancelled booking"""
     print("Inside cancelled booking task")
     try:
         booking = get_booking(booking_id)
@@ -240,29 +574,100 @@ def send_cancelled_booking_task(self, booking_id):
             # send cancellation email
             subject = "Booking Cancelled"
             user_email = booking.user.email
-            email_template = get_template('email_template/cancel-confirmation.html')
+
+            # Select appropriate email template based on booking type
+            if booking.booking_type == "FLIGHT":
+                email_template = get_template(
+                    "email_template/cancel-confirmation-flight.html"
+                )
+            else:
+                email_template = get_template("email_template/cancel-confirmation.html")
+
             context = generate_context_cancelled_booking(booking)
             html_content = email_template.render(context)
             send_booking_email(subject, booking, [user_email], html_content)
 
             # send notification email
             # business_name = "Idbook"
-            bus_details =  get_active_business() #get_business_by_name(business_name)
+            bus_details = get_active_business()  # get_business_by_name(business_name)
             if bus_details:
                 send_by = bus_details.user
             group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-            notification_dict = {'user':booking.user, 'send_by':send_by, 'notification_type':'BOOKING',
-                                 'title':'', 'description':'', 'redirect_url':'',
-                                 'image_link':'', 'group_name': group_name}
-            
+            notification_dict = {
+                "user": booking.user,
+                "send_by": send_by,
+                "notification_type": "BOOKING",
+                "title": "",
+                "description": "",
+                "redirect_url": "",
+                "image_link": "",
+                "group_name": group_name,
+            }
+
             notification_dict = booking_cancelled_notification_template(
-                booking.id, booking.booking_type, f'CNCL-{booking.id}',
-                notification_dict)
+                booking.id,
+                booking.booking_type,
+                f"CNCL-{booking.id}",
+                notification_dict,
+            )
             create_notification(notification_dict)
-            
+
     except Exception as e:
-        print('Cancelled Email Task', e)
-        
+        print("Cancelled Email Task", e)
+
+
+@celery_idbook.task(bind=True)
+def send_flight_booking_task(
+    self, booking_id, notification_type="confirmed", refund_amount=None
+):
+    """
+    Send flight booking notifications via SMS and email.
+    This is a wrapper task that routes to the appropriate SMS notification handler.
+
+    Args:
+        booking_id: ID of the booking
+        notification_type: Type of notification ('confirmed', 'ticket_issued', 'cancelled')
+        refund_amount: Optional refund amount for cancellation notifications
+    """
+    print(f"Initiated Flight Booking {notification_type} Process")
+
+    try:
+        booking = get_booking(booking_id)
+        if not booking or booking.booking_type != "FLIGHT":
+            print(
+                f"Flight booking not found or invalid type for booking_id: {booking_id}"
+            )
+            return
+
+        if notification_type == "confirmed":
+            # Send confirmation SMS
+            send_booking_sms_task.delay(
+                notification_type="FLIGHT_BOOKING_CONFIRMATION",
+                params={"booking_id": booking_id},
+            )
+
+        elif notification_type == "ticket_issued":
+            # Send ticket issued notification
+            send_booking_sms_task.delay(
+                notification_type="FLIGHT_TICKET_ISSUED",
+                params={"booking_id": booking_id},
+            )
+
+        elif notification_type == "cancelled":
+            # Send cancellation SMS with refund amount
+            # Use provided refund_amount, or try to get from booking, or default to 0
+            if refund_amount is None:
+                refund_amount = getattr(booking, "refund_amount", None) or 0
+            send_booking_sms_task.delay(
+                notification_type="FLIGHT_BOOKING_CANCEL",
+                params={"booking_id": booking_id, "refund_amount": refund_amount},
+            )
+
+    except Exception as e:
+        print(f"Flight Booking {notification_type} Task Error: {e}")
+        logger.error(f"Flight Booking {notification_type} Task Error: {e}")
+
+
 @celery_idbook.task(bind=True)
 def send_completed_booking_task(self, booking_id):
     print("Inside completed booking task")
@@ -273,32 +678,43 @@ def send_completed_booking_task(self, booking_id):
                 subject = "Hotel Stay Completed"
                 user_email = booking.user.email
                 print("user_email", user_email)
-                email_template = get_template('email_template/booking-complete-review.html')
+                email_template = get_template(
+                    "email_template/booking-complete-review.html"
+                )
                 print("email_template", email_template)
                 context = generate_context_completed_booking(booking)
                 html_content = email_template.render(context)
                 send_booking_email(subject, booking, [user_email], html_content)
-                
+
                 bus_details = get_active_business()
                 if bus_details:
                     send_by = bus_details.user
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                notification_dict = {'user': booking.user, 'send_by': send_by, 'notification_type': 'BOOKING',
-                                    'title': '', 'description': '', 'redirect_url': '',
-                                    'image_link': '', 'group_name': group_name}
-                
+                notification_dict = {
+                    "user": booking.user,
+                    "send_by": send_by,
+                    "notification_type": "BOOKING",
+                    "title": "",
+                    "description": "",
+                    "redirect_url": "",
+                    "image_link": "",
+                    "group_name": group_name,
+                }
+
                 notification_dict = booking_completed_notification_template(
-                    booking.id, booking.booking_type, notification_dict)
+                    booking.id, booking.booking_type, notification_dict
+                )
                 create_notification(notification_dict)
-            
+
     except Exception as e:
-        print('Completion Email Task Error:', e)
+        print("Completion Email Task Error:", e)
+
 
 @celery_idbook.task(bind=True)
-def send_booking_sms_task(self, notification_type='', params=None):
+def send_booking_sms_task(self, notification_type="", params=None):
     """
     Send SMS notification for different types of events
-    
+
     Args:
         notification_type (str): Type of notification ('cancel', 'refund', 'wallet_recharge', etc.)
         params (dict): Dictionary containing all parameters needed for the specific notification type
@@ -309,16 +725,18 @@ def send_booking_sms_task(self, notification_type='', params=None):
     print(f"Inside {notification_type} SMS task")
 
     try:
-        if notification_type == 'HOTEL_BOOKING_CANCEL':
-            booking_id = params.get('booking_id')
-            refund_amount = params.get('refund_amount', 0)
+        if notification_type == "HOTEL_BOOKING_CANCEL":
+            booking_id = params.get("booking_id")
+            refund_amount = params.get("refund_amount", 0)
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
                 mobile_number = booking.user.mobile_number
                 template_code = "HOTEL_BOOKING_CANCEL"
                 # variables_values = f"User|{booking.reference_code}|{refund_amount}"
-                variables_values = f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
+                variables_values = (
+                    f"{booking.user.name}|{booking.reference_code}|{refund_amount}"
+                )
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
@@ -329,32 +747,34 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 #     booking_id=booking.id
                 # )
 
-        elif notification_type == 'HOTEL_PAYMENT_REFUND':
-            booking_id = params.get('booking_id')
-            refund_amount = params.get('refund_amount', 0)
+        elif notification_type == "HOTEL_PAYMENT_REFUND":
+            booking_id = params.get("booking_id")
+            refund_amount = params.get("refund_amount", 0)
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
                 mobile_number = booking.user.mobile_number
                 template_code = "HOTEL_PAYMENT_REFUND"
                 # variables_values = f"User|{refund_amount}|{booking.reference_code}"
-                variables_values = f"{booking.user.name}|{refund_amount}|{booking.reference_code}"
+                variables_values = (
+                    f"{booking.user.name}|{refund_amount}|{booking.reference_code}"
+                )
 
                 print("variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 generate_user_notification(
-                    notification_type='HOTEL_PAYMENT_REFUND',
+                    notification_type="HOTEL_PAYMENT_REFUND",
                     user=booking.user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'WALLET_RECHARGE_CONFIRMATION':
-            user_id = params.get('user_id')
-            recharge_amount = params.get('recharge_amount', 0)
-            wallet_balance = params.get('wallet_balance', 0)
+        elif notification_type == "WALLET_RECHARGE_CONFIRMATION":
+            user_id = params.get("user_id")
+            recharge_amount = params.get("recharge_amount", 0)
+            wallet_balance = params.get("wallet_balance", 0)
 
             if user_id:
                 user = User.objects.get(id=user_id)
@@ -367,18 +787,18 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     print("wallet recharge variables_values", variables_values)
                     send_template_sms(mobile_number, template_code, variables_values)
                     generate_user_notification(
-                        notification_type='WALLET_RECHARGE_CONFIRMATION',
+                        notification_type="WALLET_RECHARGE_CONFIRMATION",
                         user=user,
                         variables_values=variables_values,
                         booking_id=None,
-                        group_name=group_name
+                        group_name=group_name,
                     )
 
-        elif notification_type == 'WALLET_DEDUCTION_CONFIRMATION':
-            user_id = params.get('user_id')
-            deduct_amount = params.get('deduct_amount', 0)
-            wallet_balance = params.get('wallet_balance', 0)
-            booking_id = params.get('booking_id')
+        elif notification_type == "WALLET_DEDUCTION_CONFIRMATION":
+            user_id = params.get("user_id")
+            deduct_amount = params.get("deduct_amount", 0)
+            wallet_balance = params.get("wallet_balance", 0)
+            booking_id = params.get("booking_id")
 
             if user_id:
                 user = User.objects.get(id=user_id)
@@ -394,18 +814,20 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     if booking_id:
                         booking = get_booking(booking_id)
                         if booking:
-                            group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                    
+                            group_name = (
+                                "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                            )
+
                     generate_user_notification(
-                        notification_type='WALLET_DEDUCTION_CONFIRMATION',
+                        notification_type="WALLET_DEDUCTION_CONFIRMATION",
                         user=user,
                         variables_values=variables_values,
                         booking_id=booking_id,
-                        group_name=group_name
+                        group_name=group_name,
                     )
 
-        elif notification_type == 'HOTEL_BOOKING_CONFIRMATION':
-            booking_id = params.get('booking_id')
+        elif notification_type == "HOTEL_BOOKING_CONFIRMATION":
+            booking_id = params.get("booking_id")
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
@@ -417,7 +839,9 @@ def send_booking_sms_task(self, notification_type='', params=None):
                     property_name = booking.hotel_booking.confirmed_property.name
 
                 # variables_values = f"User|{property_name}|{booking.reference_code}"
-                variables_values = f"{booking.user.name}|{property_name}|{booking.reference_code}"
+                variables_values = (
+                    f"{booking.user.name}|{property_name}|{booking.reference_code}"
+                )
 
                 print("booking confirmation variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
@@ -428,20 +852,413 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 #     booking_id=booking.id
                 # )
 
-        elif notification_type == 'PAYMENT_FAILED_INFO':
-            booking_id = params.get('booking_id', None)
-            user_id = params.get('user_id', None)
-            failed_amount = params.get('failed_amount', 0)
-            payment_purpose = params.get('payment_purpose', 'Hotel Booking')  # Default to Hotel Booking if not specified
-            
+        elif notification_type == "FLIGHT_BOOKING_CONFIRMATION":
+            booking_id = params.get("booking_id")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_CONFIRMATION"
+
+                    flight_route = ""
+                    if booking.flight_booking:
+                        flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = f"{name}|{flight_route}|{booking.reference_code}"
+
+                    print(
+                        "flight booking confirmation variables_values", variables_values
+                    )
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_BOOKING_CONFIRMATION",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_BOOKING_CANCEL":
+            booking_id = params.get("booking_id")
+            refund_amount = params.get("refund_amount", 0)
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_CANCEL"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = (
+                        f"{name}|{booking.reference_code}|{refund_amount}"
+                    )
+
+                    print(
+                        "flight booking cancellation variables_values", variables_values
+                    )
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_BOOKING_CANCEL",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_TICKET_ISSUED":
+            booking_id = params.get("booking_id")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_TICKET_ISSUED"
+
+                    flight_route = ""
+                    pnr = booking.reference_code
+                    if booking.flight_booking:
+                        flight_route = f"{booking.flight_booking.flying_from}-{booking.flight_booking.flying_to}"
+                        # Use airline PNR if available, otherwise use booking reference
+                        if booking.flight_booking.airline_pnr:
+                            pnr = booking.flight_booking.airline_pnr
+
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = f"{name}|{flight_route}|{pnr}"
+
+                    print("flight ticket issued variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_TICKET_ISSUED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_BOOKING_RESCHEDULED":
+            booking_id = params.get("booking_id")
+            new_departure = params.get("new_departure", "")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_BOOKING_RESCHEDULED"
+
+                    # Format departure datetime if not already formatted
+                    if (
+                        not new_departure
+                        and booking.flight_booking
+                        and booking.flight_booking.departure_date
+                    ):
+                        from django.utils import timezone
+
+                        dep_date = booking.flight_booking.departure_date
+                        new_departure = dep_date.strftime("%B %d, %Y %I:%M %p")
+
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = (
+                        f"{name}|{booking.reference_code}|{new_departure}"
+                    )
+
+                    print(
+                        "flight booking rescheduled variables_values", variables_values
+                    )
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_BOOKING_RESCHEDULED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_BOOKING_FAILED":
+            booking_id = params.get("booking_id", None)
+            user_id = params.get("user_id", None)
+            failure_reason = params.get("failure_reason", "payment gateway error")
+            refund_amount = params.get("refund_amount", 0)
+
             mobile_number = None
-            
+            contact_name = None
+            booking = None
+
+            if booking_id:
+                booking = get_booking(booking_id)
+                if booking:
+                    # Get contact info (mobile, name) - uses stored contact or user profile
+                    mobile_number, contact_name = get_booking_contact_info(booking)
+            elif user_id:
+                try:
+                    user = User.objects.get(id=user_id)
+                    if user and user.mobile_number:
+                        mobile_number = user.mobile_number
+                        contact_name = user.name
+                except User.DoesNotExist:
+                    print(f"User with ID {user_id} not found")
+                    return
+
+            if mobile_number:
+                template_code = "FLIGHT_BOOKING_FAILED"
+                # Use contact name if available, otherwise user name
+                name = contact_name or (
+                    booking.user.name
+                    if booking and booking.user
+                    else (user.name if "user" in locals() else "Customer")
+                )
+                variables_values = f"{name}|{failure_reason}|{refund_amount}"
+
+                print("flight booking failed variables_values", variables_values)
+                send_template_sms(mobile_number, template_code, variables_values)
+                if booking and booking.user:
+                    group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                    generate_user_notification(
+                        notification_type="FLIGHT_BOOKING_FAILED",
+                        user=booking.user,
+                        variables_values=variables_values,
+                        booking_id=booking.id,
+                        group_name=group_name,
+                    )
+
+        elif notification_type == "FLIGHT_SERVICES_ADDED":
+            booking_id = params.get("booking_id")
+            additional_charge = params.get("additional_charge", 0)
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_SERVICES_ADDED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = (
+                        f"{name}|{booking.reference_code}|{additional_charge}"
+                    )
+
+                    print("flight services added variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_SERVICES_ADDED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_HOLD_BOOKING":
+            booking_id = params.get("booking_id")
+            hold_expiry = params.get("hold_expiry", "")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_BOOKING"
+
+                    # Format hold expiry datetime if not already formatted
+                    if (
+                        not hold_expiry
+                        and booking.flight_booking
+                        and booking.flight_booking.hold_expires_at
+                    ):
+                        from django.utils import timezone
+
+                        expiry = booking.flight_booking.hold_expires_at
+                        hold_expiry = expiry.strftime("%B %d, %Y %I:%M %p")
+
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = f"{name}|{booking.reference_code}|{hold_expiry}"
+
+                    print("flight hold booking variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_HOLD_BOOKING",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_HOLD_CANCELLED":
+            booking_id = params.get("booking_id")
+            cancellation_reason = params.get("cancellation_reason", "payment timeout")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_CANCELLED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = (
+                        f"{name}|{booking.reference_code}|{cancellation_reason}"
+                    )
+
+                    print("flight hold cancelled variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_HOLD_CANCELLED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "FLIGHT_HOLD_REQUESTED":
+            booking_id = params.get("booking_id")
+            hold_expiry = params.get("hold_expiry", "")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "FLIGHT_HOLD_REQUESTED"
+
+                    # Format hold expiry datetime if not already formatted
+                    if (
+                        not hold_expiry
+                        and booking.flight_booking
+                        and booking.flight_booking.hold_expires_at
+                    ):
+                        from django.utils import timezone
+
+                        expiry = booking.flight_booking.hold_expires_at
+                        hold_expiry = expiry.strftime("%B %d, %Y %I:%M %p")
+
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = f"{name}|{booking.reference_code}|{hold_expiry}"
+
+                    print("flight hold requested variables_values", variables_values)
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="FLIGHT_HOLD_REQUESTED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "CUSTOMER_FLIGHT_HOLD_CANCELLED":
+            booking_id = params.get("booking_id")
+            booking_url = params.get("booking_url", "https://idbk.in/flights")
+
+            booking = get_booking(booking_id)
+            if booking:
+                # Get contact info (mobile, name) - uses stored contact or user profile
+                mobile_number, contact_name = get_booking_contact_info(booking)
+
+                if mobile_number:
+                    template_code = "CUSTOMER_FLIGHT_HOLD_CANCELLED"
+                    # Use contact name if available, otherwise user name
+                    name = contact_name or (
+                        booking.user.name if booking.user else "Customer"
+                    )
+                    variables_values = f"{name}|{booking.reference_code}|{booking_url}"
+
+                    print(
+                        "customer flight hold cancelled variables_values",
+                        variables_values,
+                    )
+                    send_template_sms(mobile_number, template_code, variables_values)
+                    if booking.user:
+                        group_name = (
+                            "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
+                        )
+                        generate_user_notification(
+                            notification_type="CUSTOMER_FLIGHT_HOLD_CANCELLED",
+                            user=booking.user,
+                            variables_values=variables_values,
+                            booking_id=booking.id,
+                            group_name=group_name,
+                        )
+
+        elif notification_type == "PAYMENT_FAILED_INFO":
+            booking_id = params.get("booking_id", None)
+            user_id = params.get("user_id", None)
+            failed_amount = params.get("failed_amount", 0)
+            payment_purpose = params.get(
+                "payment_purpose", "Hotel Booking"
+            )  # Default to Hotel Booking if not specified
+
+            mobile_number = None
+
             # Handle booking-related payment failures
             if booking_id:
                 booking = get_booking(booking_id)
                 if booking and booking.user.mobile_number:
                     mobile_number = booking.user.mobile_number
-            
+
             # Handle wallet-related payment failures
             elif user_id:
                 try:
@@ -451,39 +1268,41 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 except User.DoesNotExist:
                     print(f"User with ID {user_id} not found")
                     return
-            
+
             # Send SMS if we have a valid mobile number
             if mobile_number:
                 template_code = "PAYMENT_FAILED_INFO"
-                user_name = booking.user.name if booking else user.name  # Get the actual user name
+                user_name = (
+                    booking.user.name if booking else user.name
+                )  # Get the actual user name
                 variables_values = f"{user_name}|{failed_amount}|{payment_purpose}"
                 # variables_values = f"User|{failed_amount}|{payment_purpose}"
-                
+
                 print("payment failed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 generate_user_notification(
-                    notification_type='PAYMENT_FAILED_INFO',
+                    notification_type="PAYMENT_FAILED_INFO",
                     user=booking.user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name  # Pass the group_name here
+                    group_name=group_name,  # Pass the group_name here
                 )
 
-        elif notification_type == 'PAYMENT_PROCEED_INFO':
-            booking_id = params.get('booking_id', None)
-            user_id = params.get('user_id', None)
-            amount = params.get('amount', 0)
-            payment_purpose = params.get('payment_purpose', 'Hotel Booking')
-            transaction_id = params.get('transaction_id', '')
-            
+        elif notification_type == "PAYMENT_PROCEED_INFO":
+            booking_id = params.get("booking_id", None)
+            user_id = params.get("user_id", None)
+            amount = params.get("amount", 0)
+            payment_purpose = params.get("payment_purpose", "Hotel Booking")
+            transaction_id = params.get("transaction_id", "")
+
             mobile_number = None
-            
+
             if booking_id:
                 booking = get_booking(booking_id)
                 if booking and booking.user.mobile_number:
                     mobile_number = booking.user.mobile_number
-            
+
             elif user_id:
                 try:
                     user = User.objects.get(id=user_id)
@@ -493,26 +1312,30 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 except User.DoesNotExist:
                     print(f"User with ID {user_id} not found")
                     return
-            
+
             if mobile_number:
                 template_code = "PAYMENT_PROCEED_INFO"
                 # variables_values = f"User|{amount}|{payment_purpose}|{transaction_id}"
-                user_name = booking.user.name if booking else user.name  # Get the actual user name
-                variables_values = f"{user_name}|{amount}|{payment_purpose}|{transaction_id}"
-                
+                user_name = (
+                    booking.user.name if booking else user.name
+                )  # Get the actual user name
+                variables_values = (
+                    f"{user_name}|{amount}|{payment_purpose}|{transaction_id}"
+                )
+
                 print("payment processed variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 generate_user_notification(
-                    notification_type='PAYMENT_PROCEED_INFO',
+                    notification_type="PAYMENT_PROCEED_INFO",
                     user=booking.user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'PAY_AT_HOTEL_BOOKING_CONFIRMATION':
-            booking_id = params.get('booking_id')
+        elif notification_type == "PAY_AT_HOTEL_BOOKING_CONFIRMATION":
+            booking_id = params.get("booking_id")
 
             booking = get_booking(booking_id)
             if booking and booking.user.mobile_number:
@@ -523,20 +1346,25 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 if booking.hotel_booking and booking.hotel_booking.confirmed_property:
                     property_name = booking.hotel_booking.confirmed_property.name
 
-                variables_values = f"{booking.user.name}|{property_name}|{float(booking.final_amount)}"
+                variables_values = (
+                    f"{booking.user.name}|{property_name}|{float(booking.final_amount)}"
+                )
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
-                print("pay at hotel booking confirmation variables_values", variables_values)
+                print(
+                    "pay at hotel booking confirmation variables_values",
+                    variables_values,
+                )
                 send_template_sms(mobile_number, template_code, variables_values)
                 generate_user_notification(
-                    notification_type='PAY_AT_HOTEL_BOOKING_CONFIRMATION',
-                    user = booking.user,
+                    notification_type="PAY_AT_HOTEL_BOOKING_CONFIRMATION",
+                    user=booking.user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'ELIGIBILITY_LOSS_WARNING':
-            booking_id = params.get('booking_id')
+        elif notification_type == "ELIGIBILITY_LOSS_WARNING":
+            booking_id = params.get("booking_id")
 
             booking = get_booking(booking_id)
             if booking and booking.user and booking.user.mobile_number:
@@ -544,24 +1372,24 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 mobile_number = user.mobile_number
                 template_code = "ELIGIBILITY_LOSS_WARNING"
 
-                reason = params.get('reason', 'unpaid hotel charges')
-                amount = params.get('amount', 0)
+                reason = params.get("reason", "unpaid hotel charges")
+                amount = params.get("amount", 0)
 
                 variables_values = f"{user.name}|{reason}|{float(amount)}"
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
                 print("eligibility loss warning variables_values", variables_values)
                 send_template_sms(mobile_number, template_code, variables_values)
                 generate_user_notification(
-                    notification_type='ELIGIBILITY_LOSS_WARNING',
+                    notification_type="ELIGIBILITY_LOSS_WARNING",
                     user=user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'PAH_PAYMENT_CONFIRMATION':
-            booking_id = params.get('booking_id')
-            amount = params.get('amount', 0)
+        elif notification_type == "PAH_PAYMENT_CONFIRMATION":
+            booking_id = params.get("booking_id")
+            amount = params.get("amount", 0)
 
             booking = get_booking(booking_id)
             if booking and booking.user and booking.user.mobile_number:
@@ -576,18 +1404,21 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 variables_values = f"{user.name}|{float(amount)}|{property_name}"
                 group_name = "CORPORATE-GRP" if booking.company_id else "B2C-GRP"
 
-                print("Pay at hotel payment confirmation variables_values", variables_values)
+                print(
+                    "Pay at hotel payment confirmation variables_values",
+                    variables_values,
+                )
                 send_template_sms(mobile_number, template_code, variables_values)
                 generate_user_notification(
-                    notification_type='PAH_PAYMENT_CONFIRMATION',
+                    notification_type="PAH_PAYMENT_CONFIRMATION",
                     user=user,
                     variables_values=variables_values,
                     booking_id=booking.id,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'ELIGIBILITY_LOSS_NOTIFICATION':
-            user_id = params.get('user_id')
+        elif notification_type == "ELIGIBILITY_LOSS_NOTIFICATION":
+            user_id = params.get("user_id")
             if user_id:
                 user = User.objects.get(id=user_id)
                 if user and user.mobile_number:
@@ -595,21 +1426,25 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 template_code = "ELIGIBILITY_LOSS_NOTIFICATION"
 
                 # Custom message details
-                variables_values = f"{user.name}|multiple unpaid bookings|support@idbookhotels.com"
+                variables_values = (
+                    f"{user.name}|multiple unpaid bookings|support@idbookhotels.com"
+                )
                 group_name = "CORPORATE-GRP" if user.company_id else "B2C-GRP"
-                print("eligibility loss notification variables_values", variables_values)
+                print(
+                    "eligibility loss notification variables_values", variables_values
+                )
 
                 # Send the SMS
                 send_template_sms(mobile_number, template_code, variables_values)
                 generate_user_notification(
-                    notification_type='ELIGIBILITY_LOSS_NOTIFICATION',
+                    notification_type="ELIGIBILITY_LOSS_NOTIFICATION",
                     user=user,
                     variables_values=variables_values,
-                    group_name=group_name
+                    group_name=group_name,
                 )
 
-        elif notification_type == 'PAH_SPECIAL_LIMIT_OVERRIDE':
-            user_id = params.get('user_id')
+        elif notification_type == "PAH_SPECIAL_LIMIT_OVERRIDE":
+            user_id = params.get("user_id")
             if user_id:
                 user = User.objects.get(id=user_id)
                 if user and user.mobile_number:
@@ -617,18 +1452,18 @@ def send_booking_sms_task(self, notification_type='', params=None):
                 template_code = "PAH_SPECIAL_LIMIT_OVERRIDE"
 
                 user_name = user.name
-                limit = params.get('limit')
-                valid_till = params.get('valid_till')
+                limit = params.get("limit")
+                valid_till = params.get("valid_till")
 
                 variables_values = f"{user_name}|{limit}|{valid_till}"
                 group_name = "CORPORATE-GRP" if user.company_id else "B2C-GRP"
 
                 send_template_sms(mobile_number, template_code, variables_values)
                 generate_user_notification(
-                    notification_type='PAH_SPECIAL_LIMIT_OVERRIDE',
+                    notification_type="PAH_SPECIAL_LIMIT_OVERRIDE",
                     user=user,
                     variables_values=variables_values,
-                    group_name=group_name
+                    group_name=group_name,
                 )
         # elif notification_type == 'otp':
         #     mobile_number = params.get('mobile_number')
@@ -643,72 +1478,191 @@ def send_booking_sms_task(self, notification_type='', params=None):
         #     send_template_sms(mobile_number, template_code, variables_values)
 
     except Exception as e:
-        print(f'{notification_type} SMS Task Error: {e}')
+        print(f"{notification_type} SMS Task Error: {e}")
 
 
 @celery_idbook.task(bind=True)
 def wallet_expiry_task(self):
+    lock_key = "celery-lock:wallet-expiry-task"
+    lock_ttl_seconds = 60 * 60 * 6
+    if not cache.add(lock_key, "1", timeout=lock_ttl_seconds):
+        logger.info("Skipping wallet expiry run: previous task is still active")
+        return "skipped_locked"
+
     print("Running wallet expiry task")
     try:
         # Get current date and time in the correct timezone
-        india_tz = pytz.timezone('Asia/Kolkata')
+        india_tz = pytz.timezone("Asia/Kolkata")
         current_date = datetime.now(india_tz)
         print(f"Current date and time: {current_date}")
-        
+
         # Find all expired pro wallet transaction credits that haven't been marked as expired yet
-        expired_transactions = WalletTransaction.objects.filter(
-            transaction_type='Credit',
+        expired_transactions = WalletTransaction.objects.select_related("user").filter(
+            transaction_type="Credit",
             expiry_date__lte=current_date,  # Less than or equal to current time
             remaining_amount__gt=0,
-            is_expired=False  # Only get transactions that haven't been marked as expired
+            is_expired=False,  # Only get transactions that haven't been marked as expired
         )
-        
-        print(f"Found {expired_transactions.count()} expired wallet transactions")
-        
-        for expired_txn in expired_transactions:
+
+        expired_count = expired_transactions.count()
+        print(f"Found {expired_count} expired wallet transactions")
+        if expired_count == 0:
+            return "Processed 0 expired wallet transactions"
+
+        user_ids = list(expired_transactions.values_list("user_id", flat=True).distinct())
+        wallet_map = {
+            wallet.user_id: wallet
+            for wallet in Wallet.objects.filter(
+                user_id__in=user_ids,
+                company_id__isnull=True,
+            )
+        }
+
+        for expired_txn in expired_transactions.iterator(chunk_size=200):
             try:
                 user_id = expired_txn.user_id
                 remaining_amount = expired_txn.remaining_amount
-                
+
                 # Get the user's wallet
-                try:
-                    wallet = Wallet.objects.get(user_id=user_id, company_id__isnull=True)
-                except Wallet.DoesNotExist:
+                wallet = wallet_map.get(user_id)
+                if not wallet:
                     print(f"Wallet not found for user_id: {user_id}")
                     continue
-                
+
                 # Create transaction data for the debit record
                 debit_data = {
-                    'user': expired_txn.user,
-                    'amount': remaining_amount,
-                    'transaction_type': 'Debit',
-                    'transaction_details': f"Unused amount INR {float(remaining_amount)} in pro membership wallet credit of INR {float(expired_txn.amount)} is expired {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                    'transaction_for': 'pro_member_bonus_expiry',
-                    'payment_type': 'WALLET',
-                    'payment_medium': 'Idbook',
-                    'is_transaction_success': True
+                    "user": expired_txn.user,
+                    "amount": remaining_amount,
+                    "transaction_type": "Debit",
+                    "transaction_details": f"Unused amount INR {float(remaining_amount)} in pro membership wallet credit of INR {float(expired_txn.amount)} is expired {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    "transaction_for": "pro_member_bonus_expiry",
+                    "payment_type": "WALLET",
+                    "payment_medium": "Idbook",
+                    "is_transaction_success": True,
                 }
-                
+
                 # Update the wallet balance
                 if wallet.balance >= remaining_amount:
                     wallet.balance -= remaining_amount
                     wallet.save()
-                    
+
                     expired_txn.is_expired = True
                     expired_txn.save()
-                    
+
                     # Create the debit transaction record
                     update_wallet_transaction(debit_data)
-                    
-                    print(f"Successfully expired wallet credit of {remaining_amount} for user {user_id}")
+
+                    print(
+                        f"Successfully expired wallet credit of {remaining_amount} for user {user_id}"
+                    )
                 else:
-                    print(f"Insufficient wallet balance for user {user_id}. Required: {remaining_amount}, Available: {wallet.balance}")
+                    print(
+                        f"Insufficient wallet balance for user {user_id}. Required: {remaining_amount}, Available: {wallet.balance}"
+                    )
             except Exception as e:
                 print(f"Error processing expired transaction {expired_txn.id}: {e}")
                 continue
-                
-        return f"Processed {expired_transactions.count()} expired wallet transactions"
-    
+
+        return f"Processed {expired_count} expired wallet transactions"
+
     except Exception as e:
         print(f"Error in wallet_expiry_task: {e}")
         return f"Error in wallet_expiry_task: {e}"
+    finally:
+        cache.delete(lock_key)
+
+
+@celery_idbook.task(bind=True, max_retries=3)
+def issue_flight_ticket_task(self, booking_id):
+    """
+    Issue flight ticket after successful payment
+    This task is called automatically after payment confirmation
+    """
+    from django.utils import timezone
+
+    try:
+        from apps.booking.models import Booking
+        from apps.flights.services.airiq_service import airiq_service, AirIQException
+
+        # Get booking
+        booking = Booking.objects.select_related("flight_booking").get(id=booking_id)
+
+        if booking.booking_type != "FLIGHT" or not booking.flight_booking:
+            logger.error(f"Invalid booking for ticket issuance: {booking_id}")
+            return {"success": False, "error": "Invalid flight booking"}
+
+        flight_booking = booking.flight_booking
+
+        # Check if already ticketed
+        if flight_booking.status == "TICKETED" or flight_booking.ticket_numbers:
+            logger.info(f"Flight booking {booking_id} already ticketed")
+            return {"success": True, "message": "Already ticketed"}
+
+        # Check if booking has AirIQ data
+        if not all(
+            [
+                flight_booking.airiq_track_id,
+                flight_booking.airiq_pnr,
+                flight_booking.airline_pnr,
+            ]
+        ):
+            logger.error(f"Missing AirIQ data for booking {booking_id}")
+            return {"success": False, "error": "Missing AirIQ booking data"}
+
+        try:
+            # Issue ticket via AirIQ
+            ticket_response = airiq_service.issue_ticket(
+                booking_track_id=flight_booking.airiq_track_id,
+                airiq_pnr=flight_booking.airiq_pnr,
+                airline_pnr=flight_booking.airline_pnr,
+                booking_amount=float(booking.final_amount),
+            )
+
+            # Update flight booking with ticket info
+            if "TicketNumbers" in ticket_response:
+                flight_booking.ticket_numbers = ticket_response["TicketNumbers"]
+                flight_booking.status = "TICKETED"
+                flight_booking.ticketed_at = timezone.now()
+                flight_booking.save()
+
+                # Update main booking
+                booking.status = "confirmed"
+                booking.save()
+
+                logger.info(
+                    f"Flight ticket issued successfully for booking {booking_id}"
+                )
+
+                # Send ticket email
+                send_booking_email_task.delay(booking_id, "confirmed-booking")
+
+                return {
+                    "success": True,
+                    "ticket_numbers": ticket_response["TicketNumbers"],
+                    "status": "TICKETED",
+                }
+            else:
+                logger.error(f"No ticket numbers in AirIQ response: {ticket_response}")
+                return {"success": False, "error": "No ticket numbers received"}
+
+        except AirIQException as e:
+            logger.error(f"AirIQ ticket issuance failed for booking {booking_id}: {e}")
+
+            # Retry logic
+            if self.request.retries < self.max_retries:
+                logger.info(
+                    f"Retrying ticket issuance for booking {booking_id} (attempt {self.request.retries + 1})"
+                )
+                raise self.retry(
+                    countdown=60 * (2**self.request.retries)
+                )  # Exponential backoff
+            else:
+                # Mark as failed after max retries
+                flight_booking.status = "TICKET_FAILED"
+                flight_booking.save()
+
+                return {"success": False, "error": str(e), "max_retries_reached": True}
+
+    except Exception as e:
+        logger.error(f"Ticket issuance task error for booking {booking_id}: {e}")
+        return {"success": False, "error": str(e)}

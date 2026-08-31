@@ -2,6 +2,7 @@
 from .models import CompanyDetail, UserNotification
 from typing import Dict
 
+
 def get_company_details(company_id):
     try:
         company_details = CompanyDetail.objects.get(id=company_id)

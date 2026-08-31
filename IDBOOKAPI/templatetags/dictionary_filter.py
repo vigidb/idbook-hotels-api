@@ -1,10 +1,10 @@
 # dictionary
 
-from django import template 
+from django import template
 
-register = template.Library() 
+register = template.Library()
 
-@register.filter() 
+
+@register.filter()
 def get_key_based_value(dictionary, key):
-    return dictionary.get(key, '')
-
+    return dictionary.get(key, "")

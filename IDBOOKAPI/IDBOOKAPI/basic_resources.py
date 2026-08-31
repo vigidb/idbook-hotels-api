@@ -1,99 +1,201 @@
 IMAGE_TYPE_CHOICES = (
-    ('DELUXE', 'DELUXE'),
-    ('CLASSIC', 'CLASSIC'),
-    ('PREMIUM', 'PREMIUM'),
-    ('HOTEL', 'HOTEL'),
-    ('BATHROOM', 'BATHROOM'),
-    ('SURROUNDING', 'SURROUNDING'),
+    ("DELUXE", "DELUXE"),
+    ("CLASSIC", "CLASSIC"),
+    ("PREMIUM", "PREMIUM"),
+    ("HOTEL", "HOTEL"),
+    ("BATHROOM", "BATHROOM"),
+    ("SURROUNDING", "SURROUNDING"),
 )
 
 PROPERTY_TYPE = (
-    ('Hotel', 'Hotel'),
-    ('Cottage', 'Cottage'),
-    ('Villa', 'Villa'),
-    ('Cabin', 'Cabin'),
-    ('Farmstay', 'Farmstay'),
-    ('Houseboat', 'Houseboat'),
-    ('Lighthouse', 'Lighthouse'),
+    ("Hotel", "Hotel"),
+    ("Cottage", "Cottage"),
+    ("Villa", "Villa"),
+    ("Cabin", "Cabin"),
+    ("Farmstay", "Farmstay"),
+    ("Houseboat", "Houseboat"),
+    ("Lighthouse", "Lighthouse"),
 )
 
 RENTAL_FORM = (
-    ('entire place', 'entire place'),
-    ('private room', 'private room'),
-    ('share room', 'share room'),
+    ("entire place", "entire place"),
+    ("private room", "private room"),
+    ("share room", "share room"),
 )
-    
+
 
 ROOM_CHOICES = (
-    ('DELUXE', 'DELUXE'),
-    ('CLASSIC', 'CLASSIC'),
-    ('PREMIUM', 'PREMIUM'),
+    ("DELUXE", "DELUXE"),
+    ("CLASSIC", "CLASSIC"),
+    ("PREMIUM", "PREMIUM"),
 )
 
 ROOM_VIEW_CHOICES = (
-    ('SEA VIEW', 'SEA VIEW'),
-    ('RIVER VIEW', 'RIVER VIEW'),
-    ('VALLEY VIEW', 'VALLEY VIEW'),
-    ('CITY VIEW', 'CITY VIEW'),
-    ('POOL VIEW', 'POOL VIEW'),
-    ('SWIMMING POOL VIEW', 'SWIMMING POOL VIEW'),
-    ('BEACH VIEW', 'BEACH VIEW'),
-    ('MOUNTAIN VIEW', 'MOUNTAIN VIEW'),
-    ('LAKE VIEW', 'LAKE VIEW'),
-    ('TEMPLE VIEW', 'TEMPLE VIEW'),
-    ('GARDEN VIEW', 'GARDEN VIEW'),
-    ('HILL VIEW', 'HILL VIEW'),
-    ('FOREST VIEW', 'FOREST VIEW'),
-    ('TERRACE VIEW', 'TERRACE VIEW'),
-    ('BALCONY VIEW', 'BALCONY VIEW'),
-    ('JUNGLE VIEW', 'JUNGLE VIEW'),
-    ('COURTYARD VIEW', 'COURTYARD VIEW'),
-    ('PALACE VIEW', 'PALACE VIEW'),
-    ('DESERT VIEW', 'DESERT VIEW'),
-    ('NON VIEW', 'NON VIEW'),
-    
+    ("SEA VIEW", "SEA VIEW"),
+    ("RIVER VIEW", "RIVER VIEW"),
+    ("VALLEY VIEW", "VALLEY VIEW"),
+    ("CITY VIEW", "CITY VIEW"),
+    ("POOL VIEW", "POOL VIEW"),
+    ("SWIMMING POOL VIEW", "SWIMMING POOL VIEW"),
+    ("BEACH VIEW", "BEACH VIEW"),
+    ("MOUNTAIN VIEW", "MOUNTAIN VIEW"),
+    ("LAKE VIEW", "LAKE VIEW"),
+    ("TEMPLE VIEW", "TEMPLE VIEW"),
+    ("GARDEN VIEW", "GARDEN VIEW"),
+    ("HILL VIEW", "HILL VIEW"),
+    ("FOREST VIEW", "FOREST VIEW"),
+    ("TERRACE VIEW", "TERRACE VIEW"),
+    ("BALCONY VIEW", "BALCONY VIEW"),
+    ("JUNGLE VIEW", "JUNGLE VIEW"),
+    ("COURTYARD VIEW", "COURTYARD VIEW"),
+    ("PALACE VIEW", "PALACE VIEW"),
+    ("DESERT VIEW", "DESERT VIEW"),
+    ("NON VIEW", "NON VIEW"),
 )
 
 ROOM_MEASUREMENT = (
-    ('square feet', 'square feet'),
-    ('square meter', 'square meter'),
+    ("square feet", "square feet"),
+    ("square meter", "square meter"),
 )
 
 BED_TYPE_CHOICES = (
-    ('KING', 'KING'),
-    ('QUEEN', 'QUEEN'),
-    ('SINGLE', 'SINGLE'),
+    ("KING", "KING"),
+    ("QUEEN", "QUEEN"),
+    ("SINGLE", "SINGLE"),
 )
 
 BOOKING_TYPE = (
-    ('HOLIDAYPACK', 'HOLIDAYPACK'),
-    ('HOTEL', 'HOTEL'),
-    ('VEHICLE', 'VEHICLE'),
-    ('FLIGHT', 'FLIGHT'),
+    ("HOLIDAYPACK", "HOLIDAYPACK"),
+    ("HOTEL", "HOTEL"),
+    ("VEHICLE", "VEHICLE"),
+    ("FLIGHT", "FLIGHT"),
+    ("VISA", "VISA"),
+    ("EVENT", "EVENT"),
 )
 
-VEHICLE_TYPE = (
-    ('CAR', 'CAR'),
-    ('TRAVELLER', 'TRAVELLER'),
-    ('BUS', 'BUS')
-)
+VEHICLE_TYPE = (("CAR", "CAR"), ("TRAVELLER", "TRAVELLER"), ("BUS", "BUS"))
 
 FLIGHT_TRIP = (
-    ('ONE-WAY', 'ONE-WAY'),
-    ('ROUND', 'ROUND'),
+    ("ONE-WAY", "ONE-WAY"),
+    ("ROUND", "ROUND"),
 )
 
 FLIGHT_CLASS = (
-    ('ECONOMY', 'ECONOMY'),
-    ('BUSINESS', 'BUSINESS'),
-    ('FIRST', 'FIRST'),
-) 
+    ("ECONOMY", "ECONOMY"),
+    ("BUSINESS", "BUSINESS"),
+    ("FIRST", "FIRST"),
+)
+
+# =============================================================================
+# AirIQ API Specific Constants (for new flight booking integration)
+# =============================================================================
+
+# AirIQ Trip Types (compatible with their API)
+AIRIQ_TRIP_TYPE = (
+    ("O", "One-way"),
+    ("R", "Round-trip"),
+    ("Y", "Round-trip Special"),
+)
+
+# AirIQ Flight Classes (compatible with their API)
+AIRIQ_FLIGHT_CLASS = (
+    ("E", "Economy"),
+    ("P", "Premium Economy"),
+    ("B", "Business"),
+    ("F", "First"),
+)
+
+# AirIQ Fare Types
+AIRIQ_FARE_TYPE = (
+    ("N", "Normal Fare"),
+    ("C", "Corporate Fare"),
+    ("R", "Retail Fare"),
+)
+
+# Flight booking mode choices (Pre-booked vs Real-time)
+FLIGHT_BOOKING_MODE = (
+    ("REALTIME", "Real-time Booking"),
+    ("INVENTORY", "Pre-booked Inventory"),
+)
+
+# Flight booking statuses specific to AirIQ workflow
+FLIGHT_BOOKING_STATUS = (
+    ("SEARCH_COMPLETED", "Search Completed"),
+    ("FLIGHT_SELECTED", "Flight Selected"),
+    ("PRICING_COMPLETED", "Pricing Completed"),
+    ("BOOKING_INITIATED", "Booking Initiated"),
+    ("BOOKING_HELD", "Booking Held"),
+    ("BOOKING_CONFIRMED", "Booking Confirmed"),
+    ("TICKET_ISSUED", "Ticket Issued"),
+    ("BOOKING_CANCELLED", "Booking Cancelled"),
+    ("BOOKING_REFUNDED", "Booking Refunded"),
+)
+
+# Passenger types for AirIQ
+PASSENGER_TYPE = (
+    ("ADT", "Adult"),
+    ("CHD", "Child"),
+    ("INF", "Infant"),
+)
+
+# Title choices for passengers (AirIQ compatible)
+PASSENGER_TITLE = (
+    ("MR", "Mr"),
+    ("MRS", "Mrs"),
+    ("MISS", "Miss"),
+    ("MS", "Ms"),
+    ("MSTR", "Master"),
+    ("DR", "Dr"),
+)
+
+# Airline category types
+AIRLINE_CATEGORY = (
+    ("LCC", "Low Cost Carrier"),
+    ("FSC", "Full Service Carrier"),
+)
+
+# Seat types and groups (from AirIQ seatmap)
+SEAT_TYPE = (
+    ("NS", "Normal Seat"),
+    ("ES", "Emergency Seat"),
+    ("PS", "Premium Seat"),
+    ("WS", "Window Seat"),
+    ("AS", "Aisle Seat"),
+)
+
+# AirIQ Payment modes
+AIRIQ_PAYMENT_MODE = (
+    ("T", "Agent Deposit"),
+    ("C", "Credit Card"),
+    ("D", "Debit Card"),
+    ("W", "Wallet"),
+)
+
+# AirIQ API result codes
+AIRIQ_RESULT_CODES = (
+    ("1", "Success"),
+    ("0", "Failure"),
+    ("-1", "Exception"),
+    ("2", "Pending"),
+    ("-2", "Processing"),
+)
+
+# SSR (Special Service Request) categories
+SSR_CATEGORY = (
+    ("MEAL", "Meal"),
+    ("BAGGAGE", "Baggage"),
+    ("SEAT", "Seat"),
+    ("ASSURANCE", "Travel Assurance"),
+    ("PRIORITY_CHECK_IN", "Priority Check-in"),
+    ("BAGOUT", "Baggage First"),
+    ("OTHER", "Other Services"),
+)
 
 TIME_SLOTS = (
-    ('4 Hrs', '4 Hrs'),
-    ('8 Hrs', '8 Hrs'),
-    ('12 Hrs', '12 Hrs'),
-    ('24 Hrs', '24 Hrs'),
+    ("4 Hrs", "4 Hrs"),
+    ("8 Hrs", "8 Hrs"),
+    ("12 Hrs", "12 Hrs"),
+    ("24 Hrs", "24 Hrs"),
     # ('NIGHTLY', 0),
 )
 
@@ -115,13 +217,14 @@ GENDER_CHOICES = (
 )
 
 BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
-        ('pending', 'Pending'),
-        ('confirmed', 'Confirmed'),
-        ('canceled', 'Canceled'),
-        ('completed', 'Completed'),
-        ('no_show', 'No Show'),
-        ('on_hold', 'On Hold')
-    )
+    ("pending", "Pending"),
+    ("payment_pending_verification", "Payment Pending Verification"),
+    ("confirmed", "Confirmed"),
+    ("canceled", "Canceled"),
+    ("completed", "Completed"),
+    ("no_show", "No Show"),
+    ("on_hold", "On Hold"),
+)
 ##TOUR_DURATION_CHOICES = (
 ##    ("1N/2D", '1N/2D'),
 ##    (2, "2N/3D"),
@@ -143,7 +246,7 @@ BOOKING_STATUS_CHOICES = STATUS_CHOICES = (
 ##)
 
 TOUR_DURATION_CHOICES = (
-    ("1N/2D", '1N/2D'),
+    ("1N/2D", "1N/2D"),
     ("2N/3D", "2N/3D"),
     ("3N/4D", "3N/4D"),
     ("4N/5D", "4N/5D"),
@@ -179,32 +282,34 @@ TXN_TYPE_CHOICES = (
 )
 
 COUPON_TYPES = (
-        ('all', 'All Customers'),
-        ('flat', 'Flat Discount'),
-        ('employee', 'Employee Discount'),
-        ('bulk', 'Bulk Booking Discount'),
-        # Add more types as needed
+    ("all", "All Customers"),
+    ("flat", "Flat Discount"),
+    ("employee", "Employee Discount"),
+    ("bulk", "Bulk Booking Discount"),
+    # Add more types as needed
 )
 
 PAYMENT_TYPE = (
-    ('PAYMENT GATEWAY', 'PAYMENT GATEWAY'),
-    ('WALLET', 'WALLET'),
-    ('NBFC', 'NBFC'),
-    ('DIRECT', 'DIRECT'),
-    ('BANK TRANSFER', 'BANK TRANSFER'),
+    ("PAYMENT GATEWAY", "PAYMENT GATEWAY"),
+    ("WALLET", "WALLET"),
+    ("NBFC", "NBFC"),
+    ("DIRECT", "DIRECT"),
+    ("BANK TRANSFER", "BANK TRANSFER"),
 )
 
 PAYMENT_MEDIUM = (
-    ('PHONE PAY', 'PHONE PAY'),
-    ('PayU','PayU'),
-    ('Idbook', 'Idbook'),
-    ('Hotel', 'Hotel'),
+    ("PHONE PAY", "PHONE PAY"),
+    ("RAZORPAY", "RAZORPAY"),
+    ("PAYMENT GATEWAY", "PAYMENT GATEWAY"),
+    ("PayU", "PayU"),
+    ("Idbook", "Idbook"),
+    ("Hotel", "Hotel"),
     ("NEFT", "NEFT"),
-    ("RTGS", "RTGS"), 
+    ("RTGS", "RTGS"),
     ("IMPS", "IMPS"),
     ("UPI", "UPI"),
     ("NET_BANKING", "Net Banking"),
-    ('Others', 'Others')
+    ("Others", "Others"),
 )
 
 PAYMENT_STATUS_CHOICES = (
@@ -223,22 +328,19 @@ PAYMENT_METHOD_CHOICES = (
     ("Others", "Others"),
 )
 
-AUTH_WORKFLOW = (
-    ("PENNY_DROP", "PENNY_DROP"),
-    ("TRANSACTION", "TRANSACTION")
-)
-    
+AUTH_WORKFLOW = (("PENNY_DROP", "PENNY_DROP"), ("TRANSACTION", "TRANSACTION"))
+
 TRANSACTION_FOR = (
     ("booking_confirmed", "booking_confirmed"),
     ("booking_refund", "booking_refund"),
+    ("cancellation_fee", "cancellation_fee"),
     ("referral_booking", "referral_booking"),
-    ("booking_refund", "booking_refund"),
     ("booking_cashback", "booking_cashback"),
     ("signup_reward", "signup_reward"),
     ("pro_member_bonus", "pro_member_bonus"),
     ("pro_member_bonus_expiry", "pro_member_bonus_expiry"),
     ("wallet_recharge", "wallet_recharge"),
-    ("others", "others")
+    ("others", "others"),
 )
 
 KYC_STATUS_CHOICES = (
@@ -297,29 +399,32 @@ PAYMENT_GATEWAY_STATUS_CHOICES = (
 )
 
 WORKING_DAYS = (
-    ('Monday', 'Monday'),
-    ('Tuesday', 'Tuesday'),
-    ('Wednesday', 'Wednesday'),
-    ('Thursday', 'Thursday'),
-    ('Friday', 'Friday'),
-    ('Saturday', 'Saturday'),
-    ('Sunday', 'Sunday'),
+    ("Monday", "Monday"),
+    ("Tuesday", "Tuesday"),
+    ("Wednesday", "Wednesday"),
+    ("Thursday", "Thursday"),
+    ("Friday", "Friday"),
+    ("Saturday", "Saturday"),
+    ("Sunday", "Sunday"),
 )
 
 FCM_TOKEN_CHOICE = (("android", "Android"), ("ios", "IOS"), ("web", "Web"))
 
-ENQUIRY_CHOICES = (("Transaction", "Transaction"),("Withdrawal", "Withdrawal"),
-                   # ("Contest", "Contest"),
-                   # ("Mega Contest", "Mega Contest"),
-                   ("Referral", "Referral"),
-                   # ("Mega Referral", "Mega Referral"),
-                   ("Other", "Other"))
+ENQUIRY_CHOICES = (
+    ("Transaction", "Transaction"),
+    ("Withdrawal", "Withdrawal"),
+    # ("Contest", "Contest"),
+    # ("Mega Contest", "Mega Contest"),
+    ("Referral", "Referral"),
+    # ("Mega Referral", "Mega Referral"),
+    ("Other", "Other"),
+)
 
 
 DISTRICT_DATA = [
-      {
-         "state":"Andhra Pradesh",
-         "districts":[
+    {
+        "state": "Andhra Pradesh",
+        "districts": [
             "Anantapur",
             "Chittoor",
             "East Godavari",
@@ -332,12 +437,12 @@ DISTRICT_DATA = [
             "Visakhapatnam",
             "Vizianagaram",
             "West Godavari",
-            "YSR Kadapa"
-         ]
-      },
-      {
-         "state":"Arunachal Pradesh",
-         "districts":[
+            "YSR Kadapa",
+        ],
+    },
+    {
+        "state": "Arunachal Pradesh",
+        "districts": [
             "Tawang",
             "West Kameng",
             "East Kameng",
@@ -358,12 +463,12 @@ DISTRICT_DATA = [
             "Namsai",
             "Changlang",
             "Tirap",
-            "Longding"
-         ]
-      },
-      {
-         "state":"Assam",
-         "districts":[
+            "Longding",
+        ],
+    },
+    {
+        "state": "Assam",
+        "districts": [
             "Baksa",
             "Barpeta",
             "Biswanath",
@@ -396,12 +501,12 @@ DISTRICT_DATA = [
             "South Salmara-Mankachar",
             "Tinsukia",
             "Udalguri",
-            "West Karbi Anglong"
-         ]
-      },
-      {
-         "state":"Bihar",
-         "districts":[
+            "West Karbi Anglong",
+        ],
+    },
+    {
+        "state": "Bihar",
+        "districts": [
             "Araria",
             "Arwal",
             "Aurangabad",
@@ -439,18 +544,13 @@ DISTRICT_DATA = [
             "Siwan",
             "Supaul",
             "Vaishali",
-            "West Champaran"
-         ]
-      },
-      {
-         "state":"Chandigarh (UT)",
-         "districts":[
-            "Chandigarh"
-         ]
-      },
-      {
-         "state":"Chhattisgarh",
-         "districts":[
+            "West Champaran",
+        ],
+    },
+    {"state": "Chandigarh (UT)", "districts": ["Chandigarh"]},
+    {
+        "state": "Chhattisgarh",
+        "districts": [
             "Balod",
             "Baloda Bazar",
             "Balrampur",
@@ -477,25 +577,14 @@ DISTRICT_DATA = [
             "Rajnandgaon",
             "Sukma",
             "Surajpur  ",
-            "Surguja"
-         ]
-      },
-      {
-         "state":"Dadra and Nagar Haveli (UT)",
-         "districts":[
-            "Dadra & Nagar Haveli"
-         ]
-      },
-      {
-         "state":"Daman and Diu (UT)",
-         "districts":[
-            "Daman",
-            "Diu"
-         ]
-      },
-      {
-         "state":"Delhi (NCT)",
-         "districts":[
+            "Surguja",
+        ],
+    },
+    {"state": "Dadra and Nagar Haveli (UT)", "districts": ["Dadra & Nagar Haveli"]},
+    {"state": "Daman and Diu (UT)", "districts": ["Daman", "Diu"]},
+    {
+        "state": "Delhi (NCT)",
+        "districts": [
             "Central Delhi",
             "East Delhi",
             "New Delhi",
@@ -506,19 +595,13 @@ DISTRICT_DATA = [
             "South Delhi",
             "South East Delhi",
             "South West  Delhi",
-            "West Delhi"
-         ]
-      },
-      {
-         "state":"Goa",
-         "districts":[
-            "North Goa",
-            "South Goa"
-         ]
-      },
-      {
-         "state":"Gujarat",
-         "districts":[
+            "West Delhi",
+        ],
+    },
+    {"state": "Goa", "districts": ["North Goa", "South Goa"]},
+    {
+        "state": "Gujarat",
+        "districts": [
             "Ahmedabad",
             "Amreli",
             "Anand",
@@ -551,12 +634,12 @@ DISTRICT_DATA = [
             "Surendranagar",
             "Tapi (Vyara)",
             "Vadodara",
-            "Valsad"
-         ]
-      },
-      {
-         "state":"Haryana",
-         "districts":[
+            "Valsad",
+        ],
+    },
+    {
+        "state": "Haryana",
+        "districts": [
             "Ambala",
             "Bhiwani",
             "Charkhi Dadri",
@@ -578,12 +661,12 @@ DISTRICT_DATA = [
             "Rohtak",
             "Sirsa",
             "Sonipat",
-            "Yamunanagar"
-         ]
-      },
-      {
-         "state":"Himachal Pradesh",
-         "districts":[
+            "Yamunanagar",
+        ],
+    },
+    {
+        "state": "Himachal Pradesh",
+        "districts": [
             "Bilaspur",
             "Chamba",
             "Hamirpur",
@@ -595,12 +678,12 @@ DISTRICT_DATA = [
             "Shimla",
             "Sirmaur (Sirmour)",
             "Solan",
-            "Una"
-         ]
-      },
-      {
-         "state":"Jammu and Kashmir",
-         "districts":[
+            "Una",
+        ],
+    },
+    {
+        "state": "Jammu and Kashmir",
+        "districts": [
             "Anantnag",
             "Bandipore",
             "Baramulla",
@@ -622,12 +705,12 @@ DISTRICT_DATA = [
             "Samba",
             "Shopian",
             "Srinagar",
-            "Udhampur"
-         ]
-      },
-      {
-         "state":"Jharkhand",
-         "districts":[
+            "Udhampur",
+        ],
+    },
+    {
+        "state": "Jharkhand",
+        "districts": [
             "Bokaro",
             "Chatra",
             "Deoghar",
@@ -651,12 +734,12 @@ DISTRICT_DATA = [
             "Sahibganj",
             "Seraikela-Kharsawan",
             "Simdega",
-            "West Singhbhum"
-         ]
-      },
-      {
-         "state":"Karnataka",
-         "districts":[
+            "West Singhbhum",
+        ],
+    },
+    {
+        "state": "Karnataka",
+        "districts": [
             "Bagalkot",
             "Ballari (Bellary)",
             "Belagavi (Belgaum)",
@@ -686,12 +769,12 @@ DISTRICT_DATA = [
             "Udupi",
             "Uttara Kannada (Karwar)",
             "Vijayapura (Bijapur)",
-            "Yadgir"
-         ]
-      },
-      {
-         "state":"Kerala",
-         "districts":[
+            "Yadgir",
+        ],
+    },
+    {
+        "state": "Kerala",
+        "districts": [
             "Alappuzha",
             "Ernakulam",
             "Idukki",
@@ -705,12 +788,12 @@ DISTRICT_DATA = [
             "Pathanamthitta",
             "Thiruvananthapuram",
             "Thrissur",
-            "Wayanad"
-         ]
-      },
-      {
-         "state":"Lakshadweep (UT)",
-         "districts":[
+            "Wayanad",
+        ],
+    },
+    {
+        "state": "Lakshadweep (UT)",
+        "districts": [
             "Agatti",
             "Amini",
             "Androth",
@@ -720,12 +803,12 @@ DISTRICT_DATA = [
             "Kadmath",
             "Kalpeni",
             "Kilthan",
-            "Minicoy"
-         ]
-      },
-      {
-         "state":"Madhya Pradesh",
-         "districts":[
+            "Minicoy",
+        ],
+    },
+    {
+        "state": "Madhya Pradesh",
+        "districts": [
             "Agar Malwa",
             "Alirajpur",
             "Anuppur",
@@ -776,12 +859,12 @@ DISTRICT_DATA = [
             "Tikamgarh",
             "Ujjain",
             "Umaria",
-            "Vidisha"
-         ]
-      },
-      {
-         "state":"Maharashtra",
-         "districts":[
+            "Vidisha",
+        ],
+    },
+    {
+        "state": "Maharashtra",
+        "districts": [
             "Ahmednagar",
             "Akola",
             "Amravati",
@@ -817,12 +900,12 @@ DISTRICT_DATA = [
             "Thane",
             "Wardha",
             "Washim",
-            "Yavatmal"
-         ]
-      },
-      {
-         "state":"Manipur",
-         "districts":[
+            "Yavatmal",
+        ],
+    },
+    {
+        "state": "Manipur",
+        "districts": [
             "Bishnupur",
             "Chandel",
             "Churachandpur",
@@ -838,12 +921,12 @@ DISTRICT_DATA = [
             "Tamenglong",
             "Tengnoupal",
             "Thoubal",
-            "Ukhrul"
-         ]
-      },
-      {
-         "state":"Meghalaya",
-         "districts":[
+            "Ukhrul",
+        ],
+    },
+    {
+        "state": "Meghalaya",
+        "districts": [
             "East Garo Hills",
             "East Jaintia Hills",
             "East Khasi Hills",
@@ -854,12 +937,12 @@ DISTRICT_DATA = [
             "South West Khasi Hills",
             "West Garo Hills",
             "West Jaintia Hills",
-            "West Khasi Hills"
-         ]
-      },
-      {
-         "state":"Mizoram",
-         "districts":[
+            "West Khasi Hills",
+        ],
+    },
+    {
+        "state": "Mizoram",
+        "districts": [
             "Aizawl",
             "Champhai",
             "Kolasib",
@@ -867,12 +950,12 @@ DISTRICT_DATA = [
             "Lunglei",
             "Mamit",
             "Saiha",
-            "Serchhip"
-         ]
-      },
-      {
-         "state":"Nagaland",
-         "districts":[
+            "Serchhip",
+        ],
+    },
+    {
+        "state": "Nagaland",
+        "districts": [
             "Dimapur",
             "Kiphire",
             "Kohima",
@@ -883,12 +966,12 @@ DISTRICT_DATA = [
             "Phek",
             "Tuensang",
             "Wokha",
-            "Zunheboto"
-         ]
-      },
-      {
-         "state":"Odisha",
-         "districts":[
+            "Zunheboto",
+        ],
+    },
+    {
+        "state": "Odisha",
+        "districts": [
             "Angul",
             "Balangir",
             "Balasore",
@@ -918,21 +1001,16 @@ DISTRICT_DATA = [
             "Rayagada",
             "Sambalpur",
             "Sonepur",
-            "Sundargarh"
-         ]
-      },
-      {
-         "state":"Puducherry (UT)",
-         "districts":[
-            "Karaikal",
-            "Mahe",
-            "Pondicherry",
-            "Yanam"
-         ]
-      },
-      {
-         "state":"Punjab",
-         "districts":[
+            "Sundargarh",
+        ],
+    },
+    {
+        "state": "Puducherry (UT)",
+        "districts": ["Karaikal", "Mahe", "Pondicherry", "Yanam"],
+    },
+    {
+        "state": "Punjab",
+        "districts": [
             "Amritsar",
             "Barnala",
             "Bathinda",
@@ -954,12 +1032,12 @@ DISTRICT_DATA = [
             "Rupnagar",
             "Sahibzada Ajit Singh Nagar (Mohali)",
             "Sangrur",
-            "Tarn Taran"
-         ]
-      },
-      {
-         "state":"Rajasthan",
-         "districts":[
+            "Tarn Taran",
+        ],
+    },
+    {
+        "state": "Rajasthan",
+        "districts": [
             "Ajmer",
             "Alwar",
             "Banswara",
@@ -992,21 +1070,16 @@ DISTRICT_DATA = [
             "Sirohi",
             "Sri Ganganagar",
             "Tonk",
-            "Udaipur"
-         ]
-      },
-      {
-         "state":"Sikkim",
-         "districts":[
-            "East Sikkim",
-            "North Sikkim",
-            "South Sikkim",
-            "West Sikkim"
-         ]
-      },
-      {
-         "state":"Tamil Nadu",
-         "districts":[
+            "Udaipur",
+        ],
+    },
+    {
+        "state": "Sikkim",
+        "districts": ["East Sikkim", "North Sikkim", "South Sikkim", "West Sikkim"],
+    },
+    {
+        "state": "Tamil Nadu",
+        "districts": [
             "Ariyalur",
             "Chennai",
             "Coimbatore",
@@ -1038,12 +1111,12 @@ DISTRICT_DATA = [
             "Tiruvarur",
             "Vellore",
             "Viluppuram",
-            "Virudhunagar"
-         ]
-      },
-      {
-         "state":"Telangana",
-         "districts":[
+            "Virudhunagar",
+        ],
+    },
+    {
+        "state": "Telangana",
+        "districts": [
             "Adilabad",
             "Bhadradri Kothagudem",
             "Hyderabad",
@@ -1074,12 +1147,12 @@ DISTRICT_DATA = [
             "Wanaparthy",
             "Warangal (Rural)",
             "Warangal (Urban)",
-            "Yadadri Bhuvanagiri"
-         ]
-      },
-      {
-         "state":"Tripura",
-         "districts":[
+            "Yadadri Bhuvanagiri",
+        ],
+    },
+    {
+        "state": "Tripura",
+        "districts": [
             "Dhalai",
             "Gomati",
             "Khowai",
@@ -1087,12 +1160,12 @@ DISTRICT_DATA = [
             "Sepahijala",
             "South Tripura",
             "Unakoti",
-            "West Tripura"
-         ]
-      },
-      {
-         "state":"Uttarakhand",
-         "districts":[
+            "West Tripura",
+        ],
+    },
+    {
+        "state": "Uttarakhand",
+        "districts": [
             "Almora",
             "Bageshwar",
             "Chamoli",
@@ -1105,12 +1178,12 @@ DISTRICT_DATA = [
             "Rudraprayag",
             "Tehri Garhwal",
             "Udham Singh Nagar",
-            "Uttarkashi"
-         ]
-      },
-      {
-         "state":"Uttar Pradesh",
-         "districts":[
+            "Uttarkashi",
+        ],
+    },
+    {
+        "state": "Uttar Pradesh",
+        "districts": [
             "Agra",
             "Aligarh",
             "Allahabad",
@@ -1185,12 +1258,12 @@ DISTRICT_DATA = [
             "Sonbhadra",
             "Sultanpur",
             "Unnao",
-            "Varanasi"
-         ]
-      },
-      {
-         "state":"West Bengal",
-         "districts":[
+            "Varanasi",
+        ],
+    },
+    {
+        "state": "West Bengal",
+        "districts": [
             "Alipurduar",
             "Bankura",
             "Birbhum",
@@ -1211,140 +1284,134 @@ DISTRICT_DATA = [
             "Purba Medinipur (East Medinipur)",
             "Purulia",
             "South 24 Parganas",
-            "Uttar Dinajpur (North Dinajpur)"
-         ]
-      }
-   ]
+            "Uttar Dinajpur (North Dinajpur)",
+        ],
+    },
+]
 
 STATE_CHOICES = [(data["state"], data["state"]) for data in DISTRICT_DATA]
 
 COUNTRY_CHOICES = (
-   ("INDIA", "INDIA"), ("NEPAL", "NEPAL"), ("BHUTAN", "BHUTAN"), ("CHINA", "CHINA"), ("UAE", "UAE"),
-   ("MALDIVES", "MALDIVES"),
+    ("INDIA", "INDIA"),
+    ("NEPAL", "NEPAL"),
+    ("BHUTAN", "BHUTAN"),
+    ("CHINA", "CHINA"),
+    ("UAE", "UAE"),
+    ("MALDIVES", "MALDIVES"),
 )
 OTP_TYPE_CHOICES = (
-    ('MOBILE', 'MOBILE'),
-    ('EMAIL', 'EMAIL'),
+    ("MOBILE", "MOBILE"),
+    ("EMAIL", "EMAIL"),
 )
 
 CUSTOMER_GROUP = (
-    ('ORG', 'ORG'),
-    ('ADMIN', 'ADMIN'),
-    ('DEFAULT', 'DEFAULT'),
+    ("ORG", "ORG"),
+    ("ADMIN", "ADMIN"),
+    ("DEFAULT", "DEFAULT"),
 )
 
 NOTIFICATION_TYPE = (
-    ('GENERAL', 'GENERAL'),
-    ('OFFERS', 'OFFERS'),
-    ('BOOKING', 'BOOKING'),
-    ('MEMBERSHIP', 'MEMBERSHIP')
+    ("GENERAL", "GENERAL"),
+    ("OFFERS", "OFFERS"),
+    ("BOOKING", "BOOKING"),
+    ("MEMBERSHIP", "MEMBERSHIP"),
 )
 
-GST_TYPE = (
-    ('', ''),
-    ('IGST', 'IGST'),
-    ('CGST/SGST', 'CGST/SGST')
-)
+GST_TYPE = (("", ""), ("IGST", "IGST"), ("CGST/SGST", "CGST/SGST"))
 
-DISCOUNT_TYPE = (
-    ('AMOUNT', 'AMOUNT'),
-    ('PERCENT', 'PERCENT')
-)
+DISCOUNT_TYPE = (("AMOUNT", "AMOUNT"), ("PERCENT", "PERCENT"))
 
-COMMISSION_TYPE = (
-    ('AMOUNT', 'AMOUNT'),
-    ('PERCENT', 'PERCENT')
-)
+COMMISSION_TYPE = (("AMOUNT", "AMOUNT"), ("PERCENT", "PERCENT"))
 
 MATH_COMPARE_SYMBOLS = (
-    ('EQUALS', 'EQUALS'),
-    ('LESS-THAN', 'LESS-THAN'),
-    ('LESS-THAN-OR-EQUALS', 'LESS-THAN-OR-EQUALS'),
-    ('GREATER-THAN', 'GREATER-THAN'),
-    ('GREATER-THAN-OR-EQUALS', 'GREATER-THAN-OR-EQUALS'),
-    ('BETWEEN', 'BETWEEN')  
+    ("EQUALS", "EQUALS"),
+    ("LESS-THAN", "LESS-THAN"),
+    ("LESS-THAN-OR-EQUALS", "LESS-THAN-OR-EQUALS"),
+    ("GREATER-THAN", "GREATER-THAN"),
+    ("GREATER-THAN-OR-EQUALS", "GREATER-THAN-OR-EQUALS"),
+    ("BETWEEN", "BETWEEN"),
 )
 
 HOTEL_STATUS = (
-    ('Active', 'Active'),
-    ('In-Active', 'In-Active'),
-    ('In-Progress','In-Progress'),
-    ('Completed','Completed'),
+    ("Active", "Active"),
+    ("In-Active", "In-Active"),
+    ("In-Progress", "In-Progress"),
+    ("Completed", "Completed"),
 )
 
 MEAL_OPTIONS = (
-    ('Accomodation only', 'Accomodation only'),
-    ('Free Breakfast','Free Breakfast'),
-    ('Free Breakfast and Lunch', 'Free Breakfast and Lunch'),
-    ('Free Breakfast and Dinner', 'Free Breakfast and Dinner'),
-    ('Free Breakfast, Lunch and Dinner', 'Free Breakfast, Lunch and Dinner'),
-    ('Free Breakfast, Lunch, Dinner and Custom Inclusions', 'Free Breakfast, Lunch, Dinner and Custom Inclusions'),
+    ("Accomodation only", "Accomodation only"),
+    ("Free Breakfast", "Free Breakfast"),
+    ("Free Breakfast and Lunch", "Free Breakfast and Lunch"),
+    ("Free Breakfast and Dinner", "Free Breakfast and Dinner"),
+    ("Free Breakfast, Lunch and Dinner", "Free Breakfast, Lunch and Dinner"),
+    (
+        "Free Breakfast, Lunch, Dinner and Custom Inclusions",
+        "Free Breakfast, Lunch, Dinner and Custom Inclusions",
+    ),
 )
 
 EXTRA_BED_TYPE = (
-    ('Mattress', 'Mattress'),
-    ('Cot', 'Cot'),
-    ('Sofa cum bed', 'Sofa cum bed'),
-)
-    
-OTP_FOR_CHOICES = (
-    ('LOGIN', 'LOGIN'),
-    ('SIGNUP', 'SIGNUP'),
-    ('VERIFY', 'VERIFY'),
-    ('VERIFY-GUEST', 'VERIFY-GUEST'),
-    ('PASSWORD-RESET', 'PASSWORD-RESET'),
-    ('OTHER', 'OTHER')
+    ("Mattress", "Mattress"),
+    ("Cot", "Cot"),
+    ("Sofa cum bed", "Sofa cum bed"),
 )
 
-SUBSCRIPTION_TYPE = (
-    ('Monthly', 'Monthly'),
-    ('Yearly', 'Yearly')
+OTP_FOR_CHOICES = (
+    ("LOGIN", "LOGIN"),
+    ("SIGNUP", "SIGNUP"),
+    ("VERIFY", "VERIFY"),
+    ("VERIFY-GUEST", "VERIFY-GUEST"),
+    ("PASSWORD-RESET", "PASSWORD-RESET"),
+    ("OTHER", "OTHER"),
 )
+
+SUBSCRIPTION_TYPE = (("Monthly", "Monthly"), ("Yearly", "Yearly"))
 
 SMS_TYPES_CHOICES = [
-    ('HOTEL_BOOKING_CANCEL', 'Hotel Booking Cancellation'),
-    ('HOTEL_PAYMENT_REFUND', 'Hotel Payment Refund'),
-    ('WALLET_RECHARGE_CONFIRMATION', 'Wallet Recharge Confirmation'),
-    ('WALLET_DEDUCTION_CONFIRMATION', 'Wallet Deduction Confirmation'),
-    ('HOTEL_BOOKING_CONFIRMATION', 'Hotel Booking Confirmation'),
-    ('PAYMENT_FAILED_INFO', 'Payment Failed Information'),
-    ('PAYMENT_PROCEED_INFO', 'Payment Proceed Information'),
-    ('VERIFY', 'Verify OTP'),
-    ('SIGNUP', 'Signup OTP'),
-    ('LOGIN', 'Login OTP'),
-    ('HOTEL_PROPERTY_ACTIVATION', 'Property Activated'),
-    ('HOTEL_PROPERTY_DEACTIVATION', 'Property Deactivated'),
-    ('HOTELIER_BOOKING_NOTIFICATION', 'Hotelier Booking Notification'),
-    ('HOTELER_BOOKING_CANCEL_NOTIFICATION', 'Hotelier Booking Cancel Notification'),
-    ('HOTELER_PAYMENT_NOTIFICATION', 'Hotelier Payment Notification'),
-    ('HOTELIER_PROPERTY_REVIEW_NOTIFICATION', 'Property Review Notification'),
-    ('HOTEL_PROPERTY_SUBMISSION', 'Property Submission'),
-    ('other', 'Other Notification')
-] 
-    
+    ("HOTEL_BOOKING_CANCEL", "Hotel Booking Cancellation"),
+    ("HOTEL_PAYMENT_REFUND", "Hotel Payment Refund"),
+    ("WALLET_RECHARGE_CONFIRMATION", "Wallet Recharge Confirmation"),
+    ("WALLET_DEDUCTION_CONFIRMATION", "Wallet Deduction Confirmation"),
+    ("HOTEL_BOOKING_CONFIRMATION", "Hotel Booking Confirmation"),
+    ("PAYMENT_FAILED_INFO", "Payment Failed Information"),
+    ("PAYMENT_PROCEED_INFO", "Payment Proceed Information"),
+    ("VERIFY", "Verify OTP"),
+    ("SIGNUP", "Signup OTP"),
+    ("LOGIN", "Login OTP"),
+    ("HOTEL_PROPERTY_ACTIVATION", "Property Activated"),
+    ("HOTEL_PROPERTY_DEACTIVATION", "Property Deactivated"),
+    ("HOTELIER_BOOKING_NOTIFICATION", "Hotelier Booking Notification"),
+    ("HOTELER_BOOKING_CANCEL_NOTIFICATION", "Hotelier Booking Cancel Notification"),
+    ("HOTELER_PAYMENT_NOTIFICATION", "Hotelier Payment Notification"),
+    ("HOTELIER_PROPERTY_REVIEW_NOTIFICATION", "Property Review Notification"),
+    ("HOTEL_PROPERTY_SUBMISSION", "Property Submission"),
+    ("other", "Other Notification"),
+]
+
 STATUS_CHOICES = (
-    ('PI', "PI"),
-    ('Pending', 'Pending'),
-    ('Paid', 'Paid'),
-    ('Overdue', 'Overdue'),
-    ('Refunded', 'Refunded'),
-    ('Cancelled', 'Cancelled'),
-    ('Refund Pending', 'Refund Pending'),  
+    ("PI", "PI"),
+    ("Pending", "Pending"),
+    ("Paid", "Paid"),
+    ("Overdue", "Overdue"),
+    ("Refunded", "Refunded"),
+    ("Cancelled", "Cancelled"),
+    ("Refund Pending", "Refund Pending"),
 )
 
 PAYMENT_MODES = (
-    ('Cash', 'Cash'),
-    ('Card', 'Card'),
-    ('Bank Transfer', 'Bank Transfer'),
-    ('UPI', 'UPI'),
-    ('Cheque', 'Cheque'),
-    ('Other', 'Other'),
+    ("Cash", "Cash"),
+    ("Card", "Card"),
+    ("Bank Transfer", "Bank Transfer"),
+    ("UPI", "UPI"),
+    ("Cheque", "Cheque"),
+    ("Other", "Other"),
 )
 
 REFERENCE_CHOICES = (
-    ('Booking', 'Booking'),
-    ('Subscription', 'Subscription'),
-    ('Other', 'Other'),
+    ("Booking", "Booking"),
+    ("Subscription", "Subscription"),
+    ("Other", "Other"),
 )
 
 WALLET_STATUS_CHOICES = (
@@ -1355,7 +1422,7 @@ WALLET_STATUS_CHOICES = (
 )
 
 RULES_CHOICES = (
-    ('PRO_DISCOUNT', 'PRO_DISCOUNT'),
-    ('PRO_CASHBACK', 'PRO_CASHBACK'),
-    ('OTHERS', 'OTHERS'),
+    ("PRO_DISCOUNT", "PRO_DISCOUNT"),
+    ("PRO_CASHBACK", "PRO_CASHBACK"),
+    ("OTHERS", "OTHERS"),
 )

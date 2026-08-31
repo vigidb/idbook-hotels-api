@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load company_tags %}{% company_info as company %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -154,7 +154,7 @@
             <div class="footer-right">
                 <p>Central reservation</p>
                 <p>📞 <a href="tel:+918645663143">+918645663143</a> <br> ✉️ <a href="mailto:Booking@idbookhotels.com">Booking@idbookhotels.com</a><br> 🌐 <a href="https://www.idbookhotels.com">www.idbookhotels.com</a></p>
-                <p>📍 Vi-John Tower 393, Phase III, Udyog Vihar, Gurugram, Haryana 122016</p>
+                <p>📍 {{ company.address.hq.line }}</p>
                 <div class="social-icons">
                     <a href="https://www.linkedin.com">
                         <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="LinkedIn">

@@ -1,59 +1,73 @@
 from apps.booking.utils.db_utils import (
-    get_booked_room, check_room_booked_details,
-    get_booked_hotel_booking, get_total_property_confirmed_booking)
+    get_booked_room,
+    check_room_booked_details,
+    get_booked_hotel_booking,
+    get_total_property_confirmed_booking,
+)
 from apps.hotels.utils.db_utils import (
-    get_room_by_id, get_total_rooms, get_blocked_property_ids,
-    get_property_availability, update_property_confirmed_booking,
-    get_calendar_unavailable_property)
+    get_room_by_id,
+    get_total_rooms,
+    get_blocked_property_ids,
+    get_property_availability,
+    update_property_confirmed_booking,
+    get_calendar_unavailable_property,
+    get_dynamic_pricing_with_date_list,
+    get_property_commission,
+)
 from datetime import datetime
+from decimal import Decimal
+
+from IDBOOKAPI.company_info import COMPANY
+from IDBOOKAPI.wkhtmltopdf_utils import html_to_pdf_bytes
 from django.template.loader import render_to_string
 from django.template import Context, Template
-import pdfkit
 import os, io
 from django.conf import settings
 from django.template.loader import get_template
 import requests
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMessage
+from IDBOOKAPI.email_utils import partner_b2b_bcc_list
 
 
 # booked_hotel_dict = {property_id:{room_id:no_of_rooms}
 
+
 def total_room_count(confirmed_room_details):
     room_dict = {}
     for croom_details in confirmed_room_details:
-        room_id = croom_details.get('room_id', 0)
-        no_of_rooms = croom_details.get('no_of_rooms', 0)
+        room_id = croom_details.get("room_id", 0)
+        no_of_rooms = croom_details.get("no_of_rooms", 0)
 
         if room_id and no_of_rooms:
             if room_dict.get(room_id, None):
-                booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                booked_room_count = room_dict.get(room_id) + no_of_rooms
                 room_dict[room_id] = booked_room_count
             else:
                 # if room not exist, add the room id and no of rooms
                 room_dict[room_id] = no_of_rooms
     return room_dict
 
+
 def get_aggregate_confirmed_room(booked_rooms):
     room_dict = {}
     for brooms in booked_rooms:
-        confirmed_room_details = brooms.get('hotel_booking__confirmed_room_details', '')
-        
+        confirmed_room_details = brooms.get("hotel_booking__confirmed_room_details", "")
+
         for croom_details in confirmed_room_details:
-            room_id = croom_details.get('room_id', 0)
-            no_of_rooms = croom_details.get('no_of_rooms', 0)
+            room_id = croom_details.get("room_id", 0)
+            no_of_rooms = croom_details.get("no_of_rooms", 0)
 
             if room_id and no_of_rooms:
                 if room_dict.get(room_id, None):
-                    booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                    booked_room_count = room_dict.get(room_id) + no_of_rooms
                     room_dict[room_id] = booked_room_count
                 else:
                     # if room not exist, add the room id and no of rooms
                     room_dict[room_id] = no_of_rooms
     print("room dict::", room_dict)
-    return room_dict 
-        
-            
+    return room_dict
+
 
 def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
     booked_hotel_dict = {}
@@ -61,15 +75,17 @@ def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
     booked_hotel = get_booked_room(check_in, check_out, is_slot_price_enabled)
     # print(booked_hotel)
     for hotel_details in booked_hotel:
-        property_id = hotel_details.get('hotel_booking__confirmed_property_id')
-        room_id = hotel_details.get('hotel_booking__room_id')
+        property_id = hotel_details.get("hotel_booking__confirmed_property_id")
+        room_id = hotel_details.get("hotel_booking__room_id")
 
-        confirmed_room_details = hotel_details.get('hotel_booking__confirmed_room_details')
-        
+        confirmed_room_details = hotel_details.get(
+            "hotel_booking__confirmed_room_details"
+        )
+
         if property_id:
             for croom_details in confirmed_room_details:
-                room_id = croom_details.get('room_id', 0)
-                no_of_rooms = croom_details.get('no_of_rooms', 0)
+                room_id = croom_details.get("room_id", 0)
+                no_of_rooms = croom_details.get("no_of_rooms", 0)
 
                 if room_id and no_of_rooms:
                     # check property already exist
@@ -77,35 +93,40 @@ def get_booked_property(check_in, check_out, is_slot_price_enabled=False):
                         room_dict = booked_hotel_dict.get(property_id)
                         # check room exist
                         if room_dict.get(room_id, None):
-                            booked_room_count =  room_dict.get(room_id) + no_of_rooms
+                            booked_room_count = room_dict.get(room_id) + no_of_rooms
                             room_dict[room_id] = booked_room_count
                         else:
                             # if room not exist, add the room id and no of rooms
                             room_dict[room_id] = no_of_rooms
-                        
+
                         booked_hotel_dict[property_id] = room_dict
                     else:
                         # if property not added, add the property with
                         # room and no of rooms
-                        booked_hotel_dict[property_id] = {room_id:no_of_rooms}
+                        booked_hotel_dict[property_id] = {room_id: no_of_rooms}
 
-##    print("booked hotel dict::", booked_hotel_dict)
-                
+    ##    print("booked hotel dict::", booked_hotel_dict)
+
     return booked_hotel_dict
 
+
 def get_filled_property_list(check_in, check_out):
-    """ get the details of property which is booked and blocked """
+    """get the details of property which is booked and blocked"""
 
     # get booked property details
-    hotel_booking_ids, booked_property_ids = get_booked_hotel_booking(check_in, check_out, None)
+    hotel_booking_ids, booked_property_ids = get_booked_hotel_booking(
+        check_in, check_out, None
+    )
     # get blocked property details
-    blocked_ids, blocked_property_ids = get_blocked_property_ids(check_in, check_out, None)
+    blocked_ids, blocked_property_ids = get_blocked_property_ids(
+        check_in, check_out, None
+    )
 
     # merge the property ids by avoiding duplicates
     property_ids = booked_property_ids + [
-        data for data in blocked_property_ids if data not in booked_property_ids]
+        data for data in blocked_property_ids if data not in booked_property_ids
+    ]
 
-    
     # get the property availability based on booked and blocked property
     room_list = get_property_availability(property_ids, hotel_booking_ids, blocked_ids)
 
@@ -121,11 +142,15 @@ def get_filled_property_list(check_in, check_out):
 
         property_dict = available_property_dict.get(property_id, None)
         if property_dict:
-            property_dict.append({'room_id': room_id, 'available_rooms': current_available_room})
+            property_dict.append(
+                {"room_id": room_id, "available_rooms": current_available_room}
+            )
             if current_available_room > 0:
                 available_property_status[property_id] = True
         else:
-            available_property_dict[property_id] = [{'room_id': room_id, 'available_rooms': current_available_room}]
+            available_property_dict[property_id] = [
+                {"room_id": room_id, "available_rooms": current_available_room}
+            ]
             if current_available_room > 0:
                 available_property_status[property_id] = True
             else:
@@ -141,30 +166,31 @@ def get_filled_property_list(check_in, check_out):
 
     # print("dict after filtering::", available_property_dict)
     # print("non available property list::", nonavailable_property_list)
-       
+
     return nonavailable_property_list, available_property_dict
+
 
 def get_blocked_property(blocked_property_room):
     blocked_room_dict = {}
     for blocked_dict in blocked_property_room:
-        blocked_room = blocked_dict.get('blocked_room', None)
-        total_blocked_rooms = blocked_dict.get('total_blocked_rooms', None)
+        blocked_room = blocked_dict.get("blocked_room", None)
+        total_blocked_rooms = blocked_dict.get("total_blocked_rooms", None)
         if blocked_room and total_blocked_rooms:
             blocked_room_dict[blocked_room] = total_blocked_rooms
 
     return blocked_room_dict
-            
-            
-def get_available_property(booked_hotel:dict):
+
+
+def get_available_property(booked_hotel: dict):
     total_rooms = 0
     available_rooms = 0
     available_property_dict = {}
     nonavailable_property_list = []
-    
+
     for property_id in booked_hotel:
         property_availability_status = False
         room_dict = booked_hotel.get(property_id, {})
-        
+
         for room_id in room_dict:
             room_count = room_dict.get(room_id)
             # get room details
@@ -173,35 +199,37 @@ def get_available_property(booked_hotel:dict):
             if room_detail:
                 total_rooms = room_detail.no_available_rooms
                 available_rooms = total_rooms - room_count
-        
+
                 if available_rooms > 0:
                     property_availability_status = True
-                    
+
                 property_dict = available_property_dict.get(property_id, None)
                 if property_dict:
                     # property_dict[room_id] = available_rooms
-                    property_dict.append({'room_id': room_id, 'available_rooms': available_rooms})
+                    property_dict.append(
+                        {"room_id": room_id, "available_rooms": available_rooms}
+                    )
 
                 else:
                     # available_property_dict = {property_id:{room_id: available_rooms}}
-                    available_property_dict[property_id] = [{'room_id': room_id, 'available_rooms': available_rooms}]
-                        
+                    available_property_dict[property_id] = [
+                        {"room_id": room_id, "available_rooms": available_rooms}
+                    ]
+
         if not property_availability_status:
             nonavailable_property_list.append(property_id)
             available_property_dict.pop(property_id)
-           
-            
-                    
-##    print("non availability property", nonavailable_property_list)
-##    print("available rooms::", available_property_dict)
+
+    ##    print("non availability property", nonavailable_property_list)
+    ##    print("available rooms::", available_property_dict)
 
     return nonavailable_property_list, available_property_dict
-                
+
 
 def check_room_count(booked_rooms, room_confirmed_dict):
     room_rejected_list = []
     # get_total_rooms(property_id, room_id)
-##    print("booked rooms", booked_rooms)
+    ##    print("booked rooms", booked_rooms)
     room_dict = get_aggregate_confirmed_room(booked_rooms)
     for room_confirmed in room_confirmed_dict:
         confirmed_room_count = room_confirmed_dict.get(room_confirmed)
@@ -215,34 +243,156 @@ def check_room_count(booked_rooms, room_confirmed_dict):
         print("booked_room_count", booked_room_count)
         print("available rooms", available_rooms)
     return room_rejected_list
-        
-    
-        
-def check_room_availability_for_blocking(start_date, end_date, blocked_property, room_dict):
-    
-    booked_rooms = check_room_booked_details(start_date, end_date, blocked_property,
-                                             is_slot_price_enabled=True, booking_id=None)
+
+
+def check_room_availability_for_blocking(
+    start_date, end_date, blocked_property, room_dict
+):
+
+    booked_rooms = check_room_booked_details(
+        start_date,
+        end_date,
+        blocked_property,
+        is_slot_price_enabled=True,
+        booking_id=None,
+    )
     room_rejected_list = check_room_count(booked_rooms, room_dict)
     print(room_rejected_list)
     return room_rejected_list
 
+
+def get_on_hold_room_counts(start_date, end_date, property_id):
+    """Get count of rooms on hold (in booking process) for each room"""
+    from apps.booking.models import Booking
+    from apps.booking.utils.db_utils import get_booked_room
+    from datetime import datetime
+    from django.utils import timezone
+    
+    on_hold_rooms = {}
+    
+    # Get on_hold bookings that haven't expired
+    on_hold_end_time = timezone.now()
+    
+    # Check if property has slot pricing enabled
+    from apps.hotels.utils.db_utils import check_slot_price_enabled
+    is_slot_price_enabled = check_slot_price_enabled(property_id)
+    
+    # Get on_hold bookings for this property and date range
+    if is_slot_price_enabled:
+        on_hold_bookings = Booking.objects.filter(
+            status="on_hold",
+            hotel_booking__confirmed_property_id=property_id,
+            hotel_booking__confirmed_checkin_time__lt=end_date,
+            hotel_booking__confirmed_checkout_time__gt=start_date,
+            on_hold_end_time__gte=on_hold_end_time,
+        )
+    else:
+        on_hold_bookings = Booking.objects.filter(
+            status="on_hold",
+            hotel_booking__confirmed_property_id=property_id,
+            hotel_booking__confirmed_checkin_time__date__lt=end_date.date() if hasattr(end_date, 'date') else end_date,
+            hotel_booking__confirmed_checkout_time__date__gt=start_date.date() if hasattr(start_date, 'date') else start_date,
+            on_hold_end_time__gte=on_hold_end_time,
+        )
+    
+    # Count rooms on hold per room_id
+    for booking in on_hold_bookings:
+        hotel_booking = booking.hotel_booking
+        if hotel_booking and hotel_booking.confirmed_room_details:
+            # confirmed_room_details is a list of room dicts
+            if isinstance(hotel_booking.confirmed_room_details, list):
+                for room_detail in hotel_booking.confirmed_room_details:
+                    room_id = room_detail.get("room_id")
+                    no_of_rooms = room_detail.get("no_of_rooms", 0)
+                    if room_id:
+                        on_hold_rooms[room_id] = on_hold_rooms.get(room_id, 0) + no_of_rooms
+    
+    return on_hold_rooms
+
+
 def get_available_room(start_date, end_date, property_id):
-    """ Get available room based on date range
-        considering existing booking and blocked rooms"""
+    """Get available room based on date range
+    considering existing booking and blocked rooms
+    Includes pricing: dynamic pricing if available for date range, otherwise default pricing
+    Also includes on_hold room counts (rooms in booking process)
+    
+    Note: 
+    - no_booked_room only counts valid bookings: "confirmed" and "completed" statuses
+    - Excludes: "canceled", "no_show", "pending", "on_hold"
+    - on_hold rooms are shown separately in no_of_on_hold_rooms."""
+    from IDBOOKAPI.utils import get_dates_from_range
+    from apps.booking.utils.db_utils import get_confirmed_hotel_booking, get_booked_hotel_booking
+    
     room_list = []
 
-    # get booked hotel list
-    hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    # Get confirmed booking IDs (for no_booked_room count)
+    confirmed_booking_ids = get_confirmed_hotel_booking(start_date, end_date, property_id)
+    
+    # Get all booking IDs including on_hold (for current_available_room calculation)
+    all_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
+    
     # get blocked property details
     blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
 
-    #room_raw_obj = get_room_availability(start_date, end_date, property_id, list(hotel_booking_ids))
-
-    room_raw_obj = get_property_availability([property_id], hotel_booking_ids, blocked_ids)
-    for room_detail in room_raw_obj:
-        room_dict = {"id":room_detail.id, "type":room_detail.room_type, "no_available_rooms":room_detail.no_available_rooms,
-                     "no_booked_room":room_detail.no_booked_room, "no_of_blocked_rooms":room_detail.no_of_blocked_rooms,
-                     "current_available_room":room_detail.current_available_room}
+    # Get availability with confirmed bookings only (for no_booked_room)
+    room_raw_obj_confirmed = get_property_availability(
+        [property_id], confirmed_booking_ids, blocked_ids
+    )
+    
+    # Get availability with all bookings (for current_available_room)
+    room_raw_obj_all = get_property_availability(
+        [property_id], all_booking_ids, blocked_ids
+    )
+    
+    # Create a dict for quick lookup of all booking data
+    all_rooms_dict = {room.id: room for room in room_raw_obj_all}
+    
+    # Get on_hold room counts separately (for display purposes)
+    on_hold_room_counts = get_on_hold_room_counts(start_date, end_date, property_id)
+    
+    # Get date list for dynamic pricing check (exclude checkout date)
+    date_list = get_dates_from_range(start_date, end_date)
+    if len(date_list) >= 2:
+        date_list.pop()  # Remove checkout date
+    
+    for room_detail in room_raw_obj_confirmed:
+        room_id = room_detail.id
+        
+        # Get room object for default pricing
+        room_obj = get_room_by_id(room_id)
+        default_pricing = room_obj.room_price if room_obj else {}
+        
+        # Check for dynamic pricing for the date range
+        dynamic_pricing_dict = get_dynamic_pricing_with_date_list(room_id, date_list)
+        
+        # Determine pricing: use dynamic if available, otherwise default
+        # For socket response, we'll return both default and dynamic pricing info
+        # Frontend can decide which to use based on date
+        pricing_info = {
+            "default_pricing": default_pricing,
+            "has_dynamic_pricing": bool(dynamic_pricing_dict),
+            "dynamic_pricing": dynamic_pricing_dict if dynamic_pricing_dict else None,
+            "is_slot_price_enabled": room_obj.is_slot_price_enabled if room_obj else False,
+        }
+        
+        # Get on_hold room count for this room
+        no_of_on_hold_rooms = on_hold_room_counts.get(room_id, 0)
+        
+        # Get current_available_room from all bookings (includes on_hold)
+        all_room_detail = all_rooms_dict.get(room_id, room_detail)
+        
+        # no_booked_room should only count confirmed bookings
+        # current_available_room should account for both confirmed and on_hold
+        room_dict = {
+            "id": room_id,
+            "type": room_detail.room_type,
+            "no_available_rooms": room_detail.no_available_rooms,
+            "no_booked_room": room_detail.no_booked_room,  # Only confirmed bookings
+            "no_of_on_hold_rooms": no_of_on_hold_rooms,  # Separate count for on_hold
+            "no_of_blocked_rooms": room_detail.no_of_blocked_rooms,
+            "current_available_room": all_room_detail.current_available_room,  # Accounts for confirmed + on_hold
+            "pricing": pricing_info,
+        }
         room_list.append(room_dict)
     return room_list
 
@@ -252,10 +402,10 @@ def get_room_for_calendar(start_date, end_date, property_id):
     hotel_booking_ids = get_booked_hotel_booking(start_date, end_date, property_id)
     # get blocked property details
     blocked_ids = get_blocked_property_ids(start_date, end_date, property_id)
-    
+
     room_raw_obj = get_calendar_unavailable_property(hotel_booking_ids, blocked_ids)
     return room_raw_obj
-    
+
 
 def process_property_confirmed_booking_total(property_id):
     try:
@@ -263,52 +413,81 @@ def process_property_confirmed_booking_total(property_id):
         update_property_confirmed_booking(property_id, total_confirmed_booking)
     except Exception as e:
         print(e)
-    
-def generate_service_agreement_pdf(context, property_id=None, save_to_db=False, property_obj=None):
+
+
+def service_agreement_commission_context(property_id):
+    """Percent commission text for the hotelier PDF; falls back to company default."""
+    sa = COMPANY.get("service_agreement") or {}
+    default_pct = str(sa.get("default_commission_percent", "20"))
+    pct = default_pct
+    pc = get_property_commission(property_id)
+    if pc and pc.commission_type == "PERCENT" and pc.commission is not None:
+        d = Decimal(str(pc.commission))
+        if d == d.to_integral():
+            pct = str(int(d))
+        else:
+            normalized = format(d.normalize(), "f")
+            pct = normalized.rstrip("0").rstrip(".") or "0"
+    return {
+        "commission_percent_display": pct,
+        "commission_clause_i": f"i. we are working on {pct} % commission.",
+        "consideration_fee_clause": f"{pct}% per transaction.",
+        "commission": f"{pct}%",
+    }
+
+
+def generate_service_agreement_pdf(
+    context, property_id=None, save_to_db=False, property_obj=None
+):
 
     try:
-        if 'date' in context and isinstance(context['date'], datetime):
-            context['date'] = context['date'].strftime('%d-%B-%Y')
-        
+        if "date" in context and isinstance(context["date"], datetime):
+            context["date"] = context["date"].strftime("%d-%B-%Y")
+
         # Check if this is a verified agreement
-        is_verified = context.get('is_verified', False)
-        
+        is_verified = context.get("is_verified", False)
+
         # Render the HTML template with the context data
-        html_content = render_to_string('service_agreement_template/service_agreement.html', context)
-         
+        html_content = render_to_string(
+            "service_agreement_template/service_agreement.html", context
+        )
+
         # Set wkhtmltopdf options
         options = {
-            'page-size': 'A4',
-            'margin-top': '0mm',
-            'margin-right': '0mm',
-            'margin-bottom': '0mm',
-            'margin-left': '0mm',
-            'encoding': 'UTF-8',
-            'no-outline': None,
-            'disable-smart-shrinking': True
+            "page-size": "A4",
+            "margin-top": "0mm",
+            "margin-right": "0mm",
+            "margin-bottom": "0mm",
+            "margin-left": "0mm",
+            "encoding": "UTF-8",
+            "no-outline": None,
+            "disable-smart-shrinking": True,
         }
-        
-        # Generate PDF in memory
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
-        
+
+        # HTML→PDF: wkhtmltopdf when present, else headless Chrome (see wkhtmltopdf_utils)
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
+
         # For verified agreements, save to database
         if save_to_db and property_obj and is_verified:
             file_name = f"service_agreement_{property_id}_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.pdf"
 
             # Save to property's service_agreement_pdf field
-            property_obj.service_agreement_pdf.save(file_name, ContentFile(pdf_bytes), save=True)
-            
+            property_obj.service_agreement_pdf.save(
+                file_name, ContentFile(pdf_bytes), save=True
+            )
+
             print(f"Verified service agreement PDF saved to database")
             return pdf_bytes
         else:
             # Before verification, just return PDF content in memory without saving anywhere
             print("Returning PDF bytes in memory without saving")
             return pdf_bytes
-         
+
     except Exception as e:
         print(f"Error generating service agreement PDF: {str(e)}")
         raise
-    
+
+
 def send_agreement_email(property, pdf_content, context, is_verification=False):
     """
     Send service agreement email to hotelier
@@ -316,121 +495,171 @@ def send_agreement_email(property, pdf_content, context, is_verification=False):
     """
     # Set appropriate subject and template based on email type
     if is_verification:
-        subject = "Idbook Hotel Service Agreement Verification Confirmation"
-        template_name = 'service_agreement_template/service_agreement_verification.html'
+        subject = f"{COMPANY['legal_name']}: Hotel Service Agreement Verification Confirmation"
+        template_name = "service_agreement_template/service_agreement_verification.html"
     else:
-        subject = "Idbook Hotel Service Agreement Request"
-        template_name = 'service_agreement_template/service_agreement_request.html'
-    
+        subject = f"{COMPANY['legal_name']}: Hotel Service Agreement Request"
+        template_name = "service_agreement_template/service_agreement_request.html"
+
     to_email = property.email
-    
+    bcc_partner = partner_b2b_bcc_list()
+
     # Get the email template
     email_template = get_template(template_name)
     html_content = email_template.render(context)
-    
+
     # Create email
     email = EmailMessage(
         subject=subject,
         body=html_content,
         from_email=settings.EMAIL_HOST_USER,
-        to=[to_email]
+        to=[to_email],
+        bcc=bcc_partner if bcc_partner else None,
     )
     email.content_subtype = "html"
-    
+
     # Attach PDF to email
     try:
         if isinstance(pdf_content, bytes):
-            attachment_name = "service_agreement_request.pdf" if not is_verification else "service_agreement_verified.pdf"
-            email.attach(attachment_name, pdf_content, 'application/pdf')
-        
-        elif is_verification and hasattr(property, 'service_agreement_pdf') and property.service_agreement_pdf:
+            attachment_name = (
+                "service_agreement_request.pdf"
+                if not is_verification
+                else "service_agreement_verified.pdf"
+            )
+            email.attach(attachment_name, pdf_content, "application/pdf")
+
+        elif (
+            is_verification
+            and hasattr(property, "service_agreement_pdf")
+            and property.service_agreement_pdf
+        ):
             attachment_name = "service_agreement_verified.pdf"
-            email.attach(attachment_name, property.service_agreement_pdf.read(), 'application/pdf')
-        
+            email.attach(
+                attachment_name,
+                property.service_agreement_pdf.read(),
+                "application/pdf",
+            )
+
         else:
             print("No PDF content available to attach")
     except Exception as e:
         print(f"Error attaching PDF to email: {e}")
-    
+
     # Send the email
     status = email.send(fail_silently=False)
     print(f"Email send status: {status}")
 
+
 def generate_hotel_receipt_pdf(context, booking_id=None, booking_obj=None):
 
     try:
-        html_content = render_to_string('email_template/hotelier-receipt-pdf.html', context)
-         
+        html_content = render_to_string(
+            "email_template/hotelier-receipt-pdf.html", context
+        )
+
         options = {
-            'page-size': 'A4',
-            'margin-top': '10mm',
-            'margin-right': '10mm',
-            'margin-bottom': '10mm',
-            'margin-left': '10mm',
-            'encoding': 'UTF-8',
-            'no-outline': None,
-            'disable-smart-shrinking': False,
-            'zoom': 0.9,  # Scale down content slightly
-            'dpi': 300,   # Higher DPI for better readability
-            'print-media-type': None,  # Use print media styling
-            'quiet': None
+            "page-size": "A4",
+            "margin-top": "10mm",
+            "margin-right": "10mm",
+            "margin-bottom": "10mm",
+            "margin-left": "10mm",
+            "encoding": "UTF-8",
+            "no-outline": None,
+            "disable-smart-shrinking": False,
+            "zoom": 0.9,  # Scale down content slightly
+            "dpi": 300,  # Higher DPI for better readability
+            "print-media-type": None,  # Use print media styling
+            "quiet": None,
         }
-        
-        # Generate PDF in memory
-        pdf_bytes = pdfkit.from_string(html_content, False, options=options)
-        
+
+        pdf_bytes = html_to_pdf_bytes(html_content, options=options)
+
         if booking_obj:
             file_name = f"hotel_receipt_{booking_obj.reference_code}_{datetime.now().strftime('%Y_%m_%d')}.pdf"
-            booking_obj.hotel_booking.hotelier_receipt_pdf.save(file_name, ContentFile(pdf_bytes), save=True)
-            print(f"Hotel receipt PDF saved to booking {booking_obj.reference_code}'s hotelier_receipt_pdf field")
-        
+            booking_obj.hotel_booking.hotelier_receipt_pdf.save(
+                file_name, ContentFile(pdf_bytes), save=True
+            )
+            print(
+                f"Hotel receipt PDF saved to booking {booking_obj.reference_code}'s hotelier_receipt_pdf field"
+            )
+
         return pdf_bytes
-         
+
     except Exception as e:
         print(f"Error generating hotel receipt PDF: {str(e)}")
         raise
 
-def send_receipt_email_with_attachment(subject, hotel, recipient_list, html_content, pdf_content, attachment_name):
+
+def send_receipt_email_with_attachment(
+    subject,
+    hotel,
+    recipient_list,
+    html_content,
+    pdf_content,
+    attachment_name,
+    bcc=None,
+):
 
     try:
+        bcc_list = []
+        if bcc:
+            bcc_list = [x.strip() for x in bcc if x and str(x).strip()]
         message = EmailMessage(
             subject=subject,
             body=html_content,
             from_email=settings.EMAIL_HOST_USER,
-            to=recipient_list
+            to=recipient_list,
+            bcc=bcc_list if bcc_list else None,
         )
         message.content_subtype = "html"
-        
+
         # Attach the PDF directly from memory
-        message.attach(attachment_name, pdf_content, 'application/pdf')
-        
+        message.attach(attachment_name, pdf_content, "application/pdf")
+
         message.send()
         return True
     except Exception as e:
         print(f"Error sending email with attachment: {e}")
         raise
 
-def validate_slot_prices(property_instance, room_price, context_info={}):
-    if not property_instance or not property_instance.is_slot_price_enabled:
+
+def validate_slot_prices(property_instance, room_price, context_info={}, room_instance=None, is_slot_enabled=None):
+    """
+    Validate slot prices based on room-level is_slot_price_enabled flag.
+    Priority: is_slot_enabled parameter > room_instance flag > property-level flag
+    """
+    # Use explicit parameter if provided (useful for create operations)
+    if is_slot_enabled is None:
+        # Check room-level flag if room instance is provided
+        if room_instance is not None:
+            is_slot_enabled = room_instance.is_slot_price_enabled
+        # Fall back to property-level flag for backward compatibility
+        elif property_instance and property_instance.is_slot_price_enabled:
+            is_slot_enabled = True
+        else:
+            is_slot_enabled = False
+    
+    if not is_slot_enabled:
         return True, None
 
     missing_slots = []
-    price_4hrs = room_price.get('price_4hrs')
-    price_8hrs = room_price.get('price_8hrs')
-    price_12hrs = room_price.get('price_12hrs')
+    price_4hrs = room_price.get("price_4hrs")
+    price_8hrs = room_price.get("price_8hrs")
+    price_12hrs = room_price.get("price_12hrs")
 
     if not price_4hrs or float(price_4hrs or 0) <= 0:
-        missing_slots.append('4hrs')
+        missing_slots.append("4hrs")
     if not price_8hrs or float(price_8hrs or 0) <= 0:
-        missing_slots.append('8hrs')
+        missing_slots.append("8hrs")
     if not price_12hrs or float(price_12hrs or 0) <= 0:
-        missing_slots.append('12hrs')
+        missing_slots.append("12hrs")
 
     if missing_slots:
+        error_message = f'Slot prices are required for {", ".join(missing_slots)} as this room has slot pricing enabled.'
         error_details = {
             **context_info,
-            'missing_slot_prices': missing_slots,
-            'message': f'Slot prices are required for {", ".join(missing_slots)} as this property has slot pricing enabled.'
+            "missing_slot_prices": missing_slots,
+            "message": error_message,
         }
         return False, error_details
 

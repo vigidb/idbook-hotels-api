@@ -34,3 +34,4 @@ requests==2.31.0
 s3transfer==0.10.3
 selenium==4.10.0
 xhtml2pdf==0.2.11
+weasyprint

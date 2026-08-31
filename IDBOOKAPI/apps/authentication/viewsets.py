@@ -1,10 +1,12 @@
 import traceback
+import logging
 
 # django import
 from django.http import HttpResponse
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
+
 # rest framework import
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -12,22 +14,38 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.generics import (
-    CreateAPIView, ListAPIView, GenericAPIView, RetrieveAPIView, UpdateAPIView
+    CreateAPIView,
+    ListAPIView,
+    GenericAPIView,
+    RetrieveAPIView,
+    UpdateAPIView,
 )
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from IDBOOKAPI.mixins import StandardResponseMixin, LoggingMixin
-from IDBOOKAPI.email_utils import (send_otp_email, send_password_forget_email,
-                                   email_validation, get_domain)
+from IDBOOKAPI.email_utils import (
+    send_otp_email,
+    send_password_forget_email,
+    email_validation,
+    get_domain,
+)
 from IDBOOKAPI.otp_utils import generate_otp
 from IDBOOKAPI.utils import get_timediff_in_minutes, validate_mobile_number
 
 from .models import User, UserOtp, Role
 from apps.customer.models import Customer
-from .serializers import (UserSignupSerializer, LoginSerializer,
-                          UserListSerializer, UserRefferalSerializer,
-                          BilledUserSerializer)
+from .serializers import (
+    UserSignupSerializer,
+    LoginSerializer,
+    UserListSerializer,
+    UserRefferalSerializer,
+    BilledUserSerializer,
+)
+
 # from .emails import send_welcome_email
 
 from rest_framework.decorators import action
+from apps.authentication.throttles import SwitchGroupThrottle
 from rest_framework import viewsets
 from django.utils import timezone
 
@@ -35,49 +53,139 @@ from apps.org_managements.utils import get_domain_business_details
 from apps.customer.utils import db_utils as customer_db_utils
 
 from apps.authentication.tasks import (
-    send_email_task, customer_signup_link_task, send_signup_email_task)
+    send_email_task,
+    customer_signup_link_task,
+    send_signup_email_task,
+)
 
-from apps.authentication.utils import (db_utils, authentication_utils)
+from apps.authentication.utils import db_utils, authentication_utils
 
 from IDBOOKAPI.permissions import HasRoleModelPermission
 from IDBOOKAPI.utils import paginate_queryset
 from django.db import transaction
 from apps.booking.models import Booking
 from apps.customer.models import Wallet, WalletTransaction
-from apps.log_management.models import WalletTransactionLog, BookingPaymentLog, BookingInvoiceLog
+from apps.org_resources.models import CompanyDetail, AgentDetail
+from apps.hotels.models import Property
+from apps.log_management.models import (
+    WalletTransactionLog,
+    BookingPaymentLog,
+    BookingInvoiceLog,
+    UserSubscriptionLogs,
+    BookingRefundLog,
+)
 from django.db.models import Q
 
 User = get_user_model()
 
+logger = logging.getLogger(__name__)
+
 
 def homepage(request):
-    from IDBOOKAPI.settings import BASE_URL as HOST
-    return HttpResponse(f"Welcome to APIs server please visit <a href='/api/v1/docs'>{HOST}/api/v1/docs</a> or <a href='/api/v1/docs2'>{HOST}/api/v1/docs2</a> ")
+    # Use the URL you're actually visiting so docs/links work (localhost vs production).
+    base = request.build_absolute_uri("/").rstrip("/")
+
+    html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDBOOK Hotels API</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #333; }}
+        h1 {{ color: #111; margin-bottom: 0.25rem; }}
+        .subtitle {{ color: #666; margin-bottom: 1.5rem; }}
+        a {{ color: #0d6efd; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .card {{ background: #f8f9fa; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }}
+        .card h2 {{ margin: 0 0 0.5rem 0; font-size: 1rem; color: #495057; }}
+        ul {{ margin: 0.25rem 0; padding-left: 1.25rem; }}
+        code {{ background: #e9ecef; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }}
+    </style>
+</head>
+<body>
+    <h1>IDBOOK Hotels API</h1>
+    <p class="subtitle">Backend API for hotel bookings, payments, and partner operations.</p>
+
+    <div class="card">
+        <h2>API documentation</h2>
+        <ul>
+            <li><a href="/api/v1/docs/">ReDoc</a> — <code>{base}/api/v1/docs/</code> (read-only reference)</li>
+            <li><a href="/api/v1/docs/swagger/">Swagger UI</a> — <code>{base}/api/v1/docs/swagger/</code> (interactive try-it-out)</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>OpenAPI schema</h2>
+        <ul>
+            <li><a href="/api/v1/docs/.json">JSON</a> — <code>{base}/api/v1/docs/.json</code></li>
+            <li><a href="/api/v1/docs/.yaml">YAML</a> — <code>{base}/api/v1/docs/.yaml</code></li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>Base URL</h2>
+        <p><code>{base}/api/v1/</code></p>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #6c757d;">Shown from the current request. For emails/notifications, <code>BASE_URL</code> / <code>BASE_URL_</code> in the environment is used.</p>
+    </div>
+
+    <div class="card">
+        <h2>Authentication</h2>
+        <p>JWT (Bearer). Obtain tokens at <code>POST /api/v1/auth/token/</code>, refresh at <code>POST /api/v1/auth/token/refresh/</code>.</p>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #6c757d;">In Swagger UI: call <code>POST /api/v1/auth/token/</code> with <code>username</code> and <code>password</code>, copy the <code>access</code> value, then click <strong>Authorize</strong> and enter <code>Bearer &lt;access_token&gt;</code>.</p>
+    </div>
+</body>
+</html>
+"""
+    return HttpResponse(html)
 
 
 class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ["get", "post", "put", "patch"]
 
     def get_user_with_tokens(self, user):
-            
+
         refresh = RefreshToken.for_user(user)
-        data = authentication_utils.user_representation(user, refresh_token = refresh)
+        data = authentication_utils.user_representation(user, refresh_token=refresh)
 
         return data
 
-
+    @swagger_auto_schema(
+        operation_summary="Signup with OTP verification (username/password flow)",
+        operation_description=(
+            "Signup a new user into a specific group (for example B2C, B2B) using email + mobile OTPs.\n\n"
+            "Flow:\n"
+            "1. Frontend calls the OTP send endpoints (email and mobile) for SIGNUP.\n"
+            "2. User enters email/mobile OTPs.\n"
+            "3. Frontend calls this endpoint with email, mobile_number, otp, otp_mobile, password and group_name.\n"
+            "4. On success, returns JWT tokens and user representation bound to the requested group."
+        ),
+        tags=["Auth - Signup (Password + OTP)"],
+        security=[],  # public endpoint
+        request_body=UserSignupSerializer,
+        responses={
+            201: openapi.Response(
+                description="Signup successful, JWT tokens returned"
+            ),
+            400: "Validation error",
+            401: "Email already exists for this group",
+            406: "OTP or group validation error",
+        },
+    )
     def create(self, request, *args, **kwargs):
         self.log_request(request)  # Log the incoming request
 
-        email = request.data.get('email', None)
+        email = request.data.get("email", None)
         if email:
             email = email.lower().strip()
-        mobile_number = request.data.get('mobile_number', None)
-        group_name = request.data.get('group_name', 'B2C-GRP')
-        otp = request.data.get('otp', None)
-        otp_mobile = request.data.get('otp_mobile', None)
+        mobile_number = request.data.get("mobile_number", None)
+        name = request.data.get("name", None)
+        group_name = request.data.get("group_name", "B2C-GRP")
+        otp = request.data.get("otp", None)
+        otp_mobile = request.data.get("otp_mobile", None)
         user = None
 
         # Check mandatory OTP fields
@@ -89,43 +197,58 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         if errors:
             return self.get_error_response(
-                message="Email or Mobile OTP is missing", status="error",
-                errors=errors, error_code="OTP_FIELDS_REQUIRED",
-                status_code=status.HTTP_400_BAD_REQUEST)
-        accept_term = request.data.get('acceptTerms', None)
+                message="Email or Mobile OTP is missing",
+                status="error",
+                errors=errors,
+                error_code="OTP_FIELDS_REQUIRED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        accept_term = request.data.get("acceptTerms", None)
         if not accept_term:
             response = self.get_error_response(
                 message="Please accept the terms and conditions",
                 status="error",
-                errors=[{"field": "acceptTerms", "message": "Please accept the terms and conditions"}],
+                errors=[
+                    {
+                        "field": "acceptTerms",
+                        "message": "Please accept the terms and conditions",
+                    }
+                ],
                 error_code="TERMS_NOT_ACCEPTED",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             return response
 
         user_otp = None
         if otp:
             # VERIFY
-            user_otp = UserOtp.objects.filter(user_account=email, otp=otp, otp_for='SIGNUP').first()
+            user_otp = UserOtp.objects.filter(
+                user_account=email, otp=otp, otp_for="SIGNUP"
+            ).first()
             if not user_otp:
                 response = self.get_error_response(
-                    message="Invalid Email OTP", status="error",
-                    errors=[], error_code="INVALID_OTP",
-                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    message="Invalid Email OTP",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_OTP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
         if otp_mobile:
             mob_otp = UserOtp.objects.filter(
-                user_account=mobile_number, otp=otp_mobile, otp_for='SIGNUP').first()
+                user_account=mobile_number, otp=otp_mobile, otp_for="SIGNUP"
+            ).first()
             if not mob_otp:
                 response = self.get_error_response(
-                    message="Invalid Mobile OTP", status="error",
-                    errors=[], error_code="INVALID_OTP",
-                    status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    message="Invalid Mobile OTP",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_OTP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
-        
-        
         if email:
             email = email.lower().strip()
             user = User.objects.filter(email=email).first()
@@ -133,109 +256,126 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         grp, role = authentication_utils.get_group_based_on_name(group_name)
         if not grp or not role:
             response = self.get_error_response(
-                message="Group or role doesn't exist", status="error", errors=[],
-                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Group or role doesn't exist",
+                status="error",
+                errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-        # check whether existing group and email exist for the sign up type
+        # Check if user already exists and already has this group
         if user and group_name:
-##            grp_user = authentication_utils.check_email_exist_for_group(email, group_name)
-            email_grp_users= db_utils.get_userid_list(email, group=grp)
-            if email_grp_users:
-                is_role_exist = False
-                if group_name == 'B2C-GRP':
-                    # check if B2C-CUST role exist for guest user
-                    #is_role_exist = usr.roles.filter(id=role.id).exists()
-                    is_role_exist = db_utils.is_role_exist(email_grp_users, role)
-                else:
-                    is_role_exist = True
-
-                if is_role_exist:
-                    error_list = [{"field":"email", "message": "Email already exists"}]
-                    response = self.get_error_response(message="Signup Failed", status="error",
-                                                        errors=error_list,error_code="VALIDATION_ERROR",
-                                                        status_code=status.HTTP_401_UNAUTHORIZED)
-                    self.log_response(response)  # Log the response before returning
-                    return response
-
-        # check email exist for missing group name
-        if user and not group_name:
-            error_list = [{"field":"email", "message": "Email already exists."}]
-            response = self.get_error_response(message="Signup Failed", status="error",
-                                                errors=error_list,error_code="VALIDATION_ERROR",
-                                                status_code=status.HTTP_401_UNAUTHORIZED)
-            self.log_response(response)  # Log the response before returning
-            return response
-
-##        grp, role = authentication_utils.get_group_based_on_name(group_name)
-
-##        if not grp or not role:
-##            response = self.get_error_response(
-##                message="Group or role doesn't exist", status="error", errors=[],
-##                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-##            return response
+            if user.groups.filter(id=grp.id).exists():
+                error_list = [{"field": "email", "message": "Email already exists for this group"}]
+                response = self.get_error_response(
+                    message="Signup Failed",
+                    status="error",
+                    errors=error_list,
+                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+                self.log_response(response)
+                return response
 
         if mobile_number:
-##            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
+            ##            check_mobile_existing_user = authentication_utils.check_mobile_exist_for_group(mobile_number, grp)
             mobile_grp_users = db_utils.get_userid_list(mobile_number, group=grp)
             if mobile_grp_users:
-                is_role_exist = False
-                if group_name == 'B2C-GRP':
-                    # check if B2C-CUST role exist for guest user
-                    is_role_exist = db_utils.is_role_exist(mobile_grp_users, role)
-                else:
-                    is_role_exist = True
-
-                if is_role_exist:
+                if any((not user) or u["id"] != user.id for u in mobile_grp_users):
                     response = self.get_error_response(
-                        message="Mobile already exist", status="error", errors=[],
-                        error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                        message="Mobile already exist",
+                        status="error",
+                        errors=[],
+                        error_code="MOBILE_EXIST",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
                     return response
-            
-                
-            
-        if user:
-            serializer = self.get_serializer(user, data=request.data, partial=True)
-        else:
-            serializer = self.get_serializer(data=request.data)
-            
-        #serializer = self.get_serializer(data=request.data)
 
-        if serializer.is_valid():
-            if not user:
-                user = serializer.save()
-                customer_id = user.id
-                # save customer profile with user id
-                Customer.objects.create(user_id=customer_id, active=True)
-            else:
-                user = serializer.save()
-                
+        # If user exists, update it directly (don't use serializer to avoid validation issues)
+        if user:
+            # User exists - update fields and add group/role
+            if name and not user.name:
+                user.name = name
+            if mobile_number and not user.mobile_number:
+                user.mobile_number = mobile_number
             
-##            # set groups and roles
-##            grp = db_utils.get_group_by_name('B2C-GRP')
-##            role = db_utils.get_role_by_name('B2C-CUST')
-##
-            if grp:
+            if grp and not user.groups.filter(id=grp.id).exists():
                 user.groups.add(grp)
-            if role:
+            if role and not user.roles.filter(id=role.id).exists():
                 user.roles.add(role)
             user.default_group = group_name
             user.email_verified = True
             user.mobile_verified = True
             user.save()
             authentication_utils.add_signup_bonus(user, group_name, role)
+        else:
+            # User doesn't exist - create new user using serializer
+            # Double-check email doesn't exist (race condition protection)
+            if email:
+                final_check = User.objects.filter(email=email).first()
+                if final_check:
+                    # User was created between checks - add group instead
+                    if grp and not final_check.groups.filter(id=grp.id).exists():
+                        final_check.groups.add(grp)
+                    if role and not final_check.roles.filter(id=role.id).exists():
+                        final_check.roles.add(role)
+                    final_check.default_group = group_name
+                    final_check.email_verified = True
+                    final_check.mobile_verified = True
+                    final_check.save()
+                    authentication_utils.add_signup_bonus(final_check, group_name, role)
+                    user = final_check
+                else:
+                    # Create new user
+                    serializer = self.get_serializer(data=request.data)
+                    if serializer.is_valid():
+                        user = serializer.save()
+                        customer_id = user.id
+                        # save customer profile with user id
+                        Customer.objects.create(user_id=customer_id, active=True)
+                        
+                        if grp and not user.groups.filter(id=grp.id).exists():
+                            user.groups.add(grp)
+                        if role and not user.roles.filter(id=role.id).exists():
+                            user.roles.add(role)
+                        user.default_group = group_name
+                        user.email_verified = True
+                        user.mobile_verified = True
+                        user.save()
+                        authentication_utils.add_signup_bonus(user, group_name, role)
+                    else:
+                        # Serializer validation failed
+                        error_list = []
+                        errors = serializer.errors
+                        for field_name, field_errors in serializer.errors.items():
+                            for ferror in field_errors:
+                                error_list.append({"field": field_name, "message": ferror})
 
+                        response = self.get_error_response(
+                            message="Signup Failed",
+                            status="error",
+                            errors=error_list,
+                            error_code="VALIDATION_ERROR",
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                        )
+                        self.log_response(response)
+                        return response
 
-##            user = authentication_utils.add_group_based_on_signup(user, group_name)
+        if user:
+
+            ##            user = authentication_utils.add_group_based_on_signup(user, group_name)
             # userlist_serializer = UserListSerializer(user)
-            
+
             # send welcome email
-            send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email], group_name])
+            send_signup_email_task.apply_async(
+                args=[user.get_full_name(), [user.email], group_name]
+            )
             # send_signup_email_task.apply_async(args=[user.get_full_name(), [user.email]])
             # generate token
             refresh = RefreshToken.for_user(user)
             # user representation
-            data = authentication_utils.user_representation(user, refresh_token = refresh)
+            data = authentication_utils.user_representation(user, refresh_token=refresh)
 
             if user.email:
                 db_utils.reset_otp_counter(user.email)
@@ -247,7 +387,7 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
                 status="success",
                 message="Signup successful",
                 status_code=status.HTTP_200_OK,
-                )
+            )
             self.log_response(response)  # Log the response before returning
             return response
         else:
@@ -255,49 +395,75 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
             errors = serializer.errors
             for field_name, field_errors in serializer.errors.items():
                 for ferror in field_errors:
-                    error_list.append({"field":field_name, "message": ferror})
+                    error_list.append({"field": field_name, "message": ferror})
 
-            response = self.get_error_response(message="Signup Failed", status="error",
-                                                    errors=error_list,error_code="VALIDATION_ERROR",
-                                                    status_code=status.HTTP_401_UNAUTHORIZED)
+            response = self.get_error_response(
+                message="Signup Failed",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
             self.log_response(response)  # Log the response before returning
             return response
 
-        
-    @action(detail=False, methods=['POST'], url_path='customer/signup-link', url_name='customer-signup-link',
-            permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="customer/signup-link",
+        url_name="customer-signup-link",
+        permission_classes=[IsAuthenticated],
+    )
     def customer_signup_link(self, request):
         company_user = request.user
-        email = request.data.get('email', '')
-        gender = request.data.get('gender', '')
-        mobile_number = request.data.get('mobile_number', '')
-        name = request.data.get('name', '')
-        employee_id = request.data.get('employee_id', '')
-        group_name = request.data.get('group_name', 'DEFAULT')
-        department = request.data.get('department', '')
-        
+        email = request.data.get("email", "")
+        gender = request.data.get("gender", "")
+        mobile_number = request.data.get("mobile_number", "")
+        name = request.data.get("name", "")
+        employee_id = request.data.get("employee_id", "")
+        group_name = request.data.get("group_name", "DEFAULT")
+        department = request.data.get("department", "")
+
         company_id = company_user.company_id
 
         if not company_id:
-            response = self.get_error_response(message="The user is not associated with any company.", status="error",
-                                               errors=[], error_code="COMPANY_MISSING",
-                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            response = self.get_error_response(
+                message="The user is not associated with any company.",
+                status="error",
+                errors=[],
+                error_code="COMPANY_MISSING",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
             return response
-            
-        
+
         user = User.objects.filter(email=email).first()
         if not user:
-            user = User.objects.create(email=email, company_id=company_id, mobile_number=mobile_number, name=name)
-            customer = customer_db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
-                                                             employee_id=employee_id, group_name=group_name,
-                                                             department=department)
+            user = User.objects.create(
+                email=email,
+                company_id=company_id,
+                mobile_number=mobile_number,
+                name=name,
+            )
+            customer = customer_db_utils.create_customer_signup_entry(
+                user,
+                added_user=company_user,
+                gender=gender,
+                employee_id=employee_id,
+                group_name=group_name,
+                department=department,
+            )
         else:
             customer = customer_db_utils.check_customer_exist(user.id)
             if not customer:
-                customer = customer_db_utils.create_customer_signup_entry(user, added_user=company_user, gender=gender,
-                                                                 employee_id=employee_id, group_name=group_name,
-                                                                 department=department)
-            #user.category = 'CL-CUST'
+                customer = customer_db_utils.create_customer_signup_entry(
+                    user,
+                    added_user=company_user,
+                    gender=gender,
+                    employee_id=employee_id,
+                    group_name=group_name,
+                    department=department,
+                )
+            # user.category = 'CL-CUST'
             user.company_id = company_id
             user.save()
 
@@ -306,7 +472,9 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
 
         customer_signup_link = f"{settings.FRONTEND_URL}/signup-link/?token={customer_signup_token}&email={email}"
         print(customer_signup_link)
-        customer_signup_link_task.apply_async(args=[customer_signup_link, name, [email]])
+        customer_signup_link_task.apply_async(
+            args=[customer_signup_link, name, [email]]
+        )
 
         response = self.get_response(
             status="success",
@@ -315,72 +483,86 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         )
         return response
 
-    @action(detail=False, methods=['POST'], url_path='customer/signup-link/process', url_name='customer-signup-link-process',
-            permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="customer/signup-link/process",
+        url_name="customer-signup-link-process",
+        permission_classes=[IsAuthenticated],
+    )
     def customer_signup_link_process(self, request):
         user = request.user
-        name = request.data.get('name')
-        email = request.data.get('email')
-        password = request.data.get('password', '')
-        mobile_number = request.data.get('mobile_number', '')
+        name = request.data.get("name")
+        email = request.data.get("email")
+        password = request.data.get("password", "")
+        mobile_number = request.data.get("mobile_number", "")
 
         token_email = user.email
         if not token_email == email:
-            response = self.get_error_response(message="Email Mismatch", status="error",
-                                               errors=[], error_code="EMAIL_MISMATCH",
-                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            response = self.get_error_response(
+                message="Email Mismatch",
+                status="error",
+                errors=[],
+                error_code="EMAIL_MISMATCH",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
             return response
 
         user.name = name
         if password:
             user.set_password(password)
-        user.category = 'CL-CUST'
+        user.category = "CL-CUST"
         user.mobile_number = mobile_number
-        user.default_group = 'CORPORATE-GRP'
+        user.default_group = "CORPORATE-GRP"
         user.save()
 
-        grp = db_utils.get_group_by_name('CORPORATE-GRP')
-        role = db_utils.get_role_by_name('CORP-EMP')
+        grp = db_utils.get_group_by_name("CORPORATE-GRP")
+        role = db_utils.get_role_by_name("CORP-EMP")
 
         if grp:
             user.groups.add(grp)
         if role:
             user.roles.add(role)
 
-##        profile_picture = ''
-##        customer_profile = user.customer_profile
-##        if user.customer_profile:
-##            profile_picture = customer_profile.profile_picture
-##            employee_id = customer_profile.employee_id
-##
-##
-##        user_data = {'id': user.id,
-##                     'mobile_number': user.mobile_number if user.mobile_number else '',
-##                     'email': user.email if user.email else '',
-##                     'name': user.get_full_name(),
-##                     'category': user.category,
-##                     'roles': [],
-##                     'permissions': []}
-            
-        refresh = RefreshToken.for_user(user)
-        data = authentication_utils.user_representation(user, refresh_token = refresh)
+        ##        profile_picture = ''
+        ##        customer_profile = user.customer_profile
+        ##        if user.customer_profile:
+        ##            profile_picture = customer_profile.profile_picture
+        ##            employee_id = customer_profile.employee_id
+        ##
+        ##
+        ##        user_data = {'id': user.id,
+        ##                     'mobile_number': user.mobile_number if user.mobile_number else '',
+        ##                     'email': user.email if user.email else '',
+        ##                     'name': user.get_full_name(),
+        ##                     'category': user.category,
+        ##                     'roles': [],
+        ##                     'permissions': []}
 
-##        data = {'refreshToken': str(refresh),
-##                'accessToken': str(refresh.access_token),
-##                'expiresIn': 0,
-##                'user': user_data,
-##                }
+        refresh = RefreshToken.for_user(user)
+        data = authentication_utils.user_representation(user, refresh_token=refresh)
+
+        ##        data = {'refreshToken': str(refresh),
+        ##                'accessToken': str(refresh.access_token),
+        ##                'expiresIn': 0,
+        ##                'user': user_data,
+        ##                }
 
         response = self.get_response(
-            data = data,
+            data=data,
             status="success",
             message="Signup Process Success.",
-            status_code=status.HTTP_201_CREATED)
+            status_code=status.HTTP_201_CREATED,
+        )
         return response
-        
 
-    @action(detail=False, methods=['POST'], url_path='customer', url_name='customer-signup',
-            permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="customer",
+        url_name="customer-signup",
+        permission_classes=[IsAuthenticated],
+    )
     def company_based_customer_signup(self, request):
         user = request.user
         user_id = user.id
@@ -388,208 +570,365 @@ class UserCreateAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMix
         if serializer.is_valid() and user_id:
             user_serializer = serializer.save()
             user_serializer.company_id = user.company_id
-            user_serializer.category = 'CL-CUST'
+            user_serializer.category = "CL-CUST"
             user_serializer.save()
-            
+
             customer_id = user_serializer.id
             Customer.objects.create(user_id=customer_id, added_user=user)
-    
 
-            data = {'user': serializer.data}
+            data = {"user": serializer.data}
             response = self.get_response(
                 data=data,
                 status="success",
                 message="Signup successful",
-                status_code=status.HTTP_200_OK
-                )
+                status_code=status.HTTP_200_OK,
+            )
             return response
         else:
             error_list = []
             errors = serializer.errors
             for field_name, field_errors in serializer.errors.items():
                 for ferror in field_errors:
-                    error_list.append({"field":field_name, "message": ferror})
+                    error_list.append({"field": field_name, "message": ferror})
 
-            response = self.get_error_response(message="Signup Failed", status="error",
-                                               errors=error_list,error_code="VALIDATION_ERROR",
-                                               status_code=status.HTTP_401_UNAUTHORIZED)
+            response = self.get_error_response(
+                message="Signup Failed",
+                status="error",
+                errors=error_list,
+                error_code="VALIDATION_ERROR",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
             return response
 
-    @action(detail=False, methods=['POST'], url_path='email/generate-otp',
-            url_name='generate-email-otp')
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="email/generate-otp",
+        url_name="generate-email-otp",
+    )
     def generate_email_otp(self, request):
         """Need to delete the code"""
         try:
-            to_email = request.data.get('email', '')
+            to_email = request.data.get("email", "")
             valid = email_validation(to_email)
             if not valid:
-                response = self.get_error_response(message="Invalid Email", status="error",
-                                                   errors=[], error_code="INVALID_EMAIL",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="Invalid Email",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_EMAIL",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
             # Check if user has exceeded OTP generation limit
-            can_generate, error_message = authentication_utils.check_otp_generation_limit(to_email)
+            can_generate, error_message = (
+                authentication_utils.check_otp_generation_limit(to_email)
+            )
             if not can_generate:
                 response = self.get_error_response(
                     message=error_message,
-                    status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                    status="error",
+                    errors=[],
+                    error_code="OTP_LIMIT_EXCEEDED",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
                 return response
-            
+
             # generate otp
             otp = generate_otp(no_digits=4)
             # delete any previous otp for the user account
             # UserOtp.objects.filter(user_account=to_email).delete()
             # save otp
             # Use the same process as in the working example
-            authentication_utils.email_generate_otp_process(otp, to_email, 'PASSWORD_RESET')
+            authentication_utils.email_generate_otp_process(
+                otp, to_email, "PASSWORD_RESET"
+            )
             # send email
             # send_otp_email(otp, [to_email])
             # send_email_task.apply_async(args=[otp, [to_email]])
-            
-            response = self.get_response(data={}, status="success",
-                                         message="OTP Success",
-                                         status_code=status.HTTP_200_OK)
+
+            response = self.get_response(
+                data={},
+                status="success",
+                message="OTP Success",
+                status_code=status.HTTP_200_OK,
+            )
         except Exception as e:
             print(e)
-            response = self.get_error_response(message="Internal server error. Please try again later.",
-                                               status="error",
-                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
-                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            response = self.get_error_response(
+                message="Internal server error. Please try again later.",
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         return response
 
-    
-    
-
-    @action(detail=False, methods=['POST'], url_path='buser/email-otp',
-            url_name='buser-email-otp-signup')
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="buser/email-otp",
+        url_name="buser-email-otp-signup",
+    )
     def email_otp_based_buser_signup(self, request):
         try:
-            email = request.data.get('email', '')
-            mobile_number = request.data.get('mobile_number', '')
-            name = request.data.get('name', '')
-            otp = request.data.get('otp', None)
+            email = request.data.get("email", "")
+            mobile_number = request.data.get("mobile_number", "")
+            name = request.data.get("name", "")
+            otp = request.data.get("otp", None)
             business_id, category = "", ""
-            referred_code = request.data.get('referred_code', '')
+            referred_code = request.data.get("referred_code", "")
 
             valid = email_validation(email)
             if not valid:
-                response = self.get_error_response(message="Invalid Email", status="error",
-                                                   errors=[], error_code="INVALID_EMAIL",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="Invalid Email",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_EMAIL",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
             if not otp:
-                response = self.get_error_response(message="OTP Missing", status="error",
-                                                   errors=[], error_code="OTP_MISSING",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="OTP Missing",
+                    status="error",
+                    errors=[],
+                    error_code="OTP_MISSING",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
-            
-            
             user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
             if user_otp:
                 current_time = timezone.now()
                 timediff = current_time - user_otp.created
-                timediff_in_minutes = timediff.total_seconds()/60
+                timediff_in_minutes = timediff.total_seconds() / 60
 
                 if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-                    response = self.get_error_response(message="OTP Expired", status="error",
-                                                   errors=[], error_code="OTP_EXPIRED",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    response = self.get_error_response(
+                        message="OTP Expired",
+                        status="error",
+                        errors=[],
+                        error_code="OTP_EXPIRED",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
                 else:
                     check_existing_user = User.objects.filter(email=email).first()
                     if check_existing_user:
                         data = self.get_user_with_tokens(check_existing_user)
-                        response = self.get_response(data=data, status="success",
-                                                     message="Login successful",
-                                                     status_code=status.HTTP_200_OK)
+                        response = self.get_response(
+                            data=data,
+                            status="success",
+                            message="Login successful",
+                            status_code=status.HTTP_200_OK,
+                        )
                     else:
                         domain_name = get_domain(email)
-                        if domain_name == 'idbookhotels.com':
+                        if domain_name == "idbookhotels.com":
                             bdetails = get_domain_business_details(domain_name)
                             if bdetails:
                                 business_id = bdetails.id
                         if business_id:
                             category = "B-CUST"
-                            new_user = User.objects.create(name=name, email=email, mobile_number=mobile_number,
-                                                           business_id=business_id, category=category,
-                                                           referred_code=referred_code, default_group='B2C-GRP')
+                            new_user = User.objects.create(
+                                name=name,
+                                email=email,
+                                mobile_number=mobile_number,
+                                business_id=business_id,
+                                category=category,
+                                referred_code=referred_code,
+                                default_group="B2C-GRP",
+                            )
                         else:
                             category = "B-CUST"
-                            new_user = User.objects.create(name=name, email=email,
-                                                           mobile_number=mobile_number,
-                                                           category=category, referred_code=referred_code,
-                                                           default_group='B2C-GRP')
+                            new_user = User.objects.create(
+                                name=name,
+                                email=email,
+                                mobile_number=mobile_number,
+                                category=category,
+                                referred_code=referred_code,
+                                default_group="B2C-GRP",
+                            )
                         # set groups and roles
-                        grp = db_utils.get_group_by_name('B2C-GRP')
-                        role = db_utils.get_role_by_name('B2C-CUST')
+                        grp = db_utils.get_group_by_name("B2C-GRP")
+                        role = db_utils.get_role_by_name("B2C-CUST")
 
                         if grp:
                             new_user.groups.add(grp)
                         if role:
                             new_user.roles.add(role)
-                            
+
                         data = self.get_user_with_tokens(new_user)
-                        response = self.get_response(data=data, status="success",
-                                                     message="Signup successful",
-                                                     status_code=status.HTTP_200_OK)
+                        response = self.get_response(
+                            data=data,
+                            status="success",
+                            message="Signup successful",
+                            status_code=status.HTTP_200_OK,
+                        )
             else:
-                response = self.get_error_response(message="Invalid Credentials", status="error",
-                                                   errors=[], error_code="INVALID_CREDENTIALS",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="Invalid Credentials",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_CREDENTIALS",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
         except Exception as e:
             print(e)
-            response = self.get_error_response(message="Internal server error. Please try again later.",
-                                               status="error",
-                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
-                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
+            response = self.get_error_response(
+                message="Internal server error. Please try again later.",
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         return response
-        
 
 
 class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
     serializer_class = LoginSerializer
 
+    @swagger_auto_schema(
+        operation_summary="Login with username/password (multi‑group aware)",
+        operation_description=(
+            "Primary username/password login endpoint.\n\n"
+            "- Accepts username (email or phone), password, and optional group_name/active_group.\n"
+            "- If email/mobile verification is pending, this will trigger OTPs and respond with HTTP 307 and "
+            "`verification_required` payload instead of tokens.\n"
+            "- On success, returns JWT access/refresh and user representation including active_group."
+        ),
+        tags=["Auth - Login (Password)"],
+        security=[],  # public login; JWT not required to call
+        request_body=LoginSerializer,
+        responses={
+            200: openapi.Response(description="Login successful, JWT tokens returned"),
+            307: openapi.Response(
+                description=(
+                    "Email/mobile verification required, OTPs sent. "
+                    "Client should guide user through OTP verification flow."
+                )
+            ),
+            400: "Invalid credentials or mobile verification required",
+            401: "Authentication failed",
+        },
+    )
     def post(self, request):
         self.log_request(request)  # Log the incoming request
 
-        username = request.data.get('username', '')
+        username = request.data.get("username", "")
         # If it's an email, normalize it to lowercase
         if "@" in username:
-            request.data['username'] = username.lower()
+            request.data["username"] = username.lower()
         serializer = self.get_serializer(data=request.data)
         # serializer.is_valid(raise_exception=True)
         if serializer.is_valid():
-            user = serializer.validated_data['user']
-            refresh = RefreshToken.for_user(user)
-##            data = [serializer.data,
-##                    {
-##                        'refresh': str(refresh),
-##                        'access': str(refresh.access_token)
-##                     }
-##                    ]
-##            data = {'refreshToken': str(refresh),
-##                    'accessToken': str(refresh.access_token),
-##                    'expiresIn': 0,
-##                    'user': serializer.data,
-##                    }
+            user = serializer.validated_data["user"]
+            # Check if email or mobile verification is required
+            needs_email_verification = not user.email_verified and user.email
+            needs_mobile_verification = not user.mobile_verified
+            
+            if needs_email_verification or needs_mobile_verification:
+                verification_data = {
+                    "redirect": True,
+                    "verification_required": [],
+                }
+                
+                # Handle email verification - generate separate OTP
+                if needs_email_verification:
+                    email = user.email
+                    if email and email_validation(email):
+                        email_otp = generate_otp(no_digits=4)
+                        authentication_utils.email_generate_otp_process(
+                            email_otp, email, "LOGIN", group_name=request.data.get("group_name")
+                        )
+                        verification_data["verification_required"].append("email")
+                        verification_data["email"] = email
+                
+                # Handle mobile verification - generate separate OTP
+                if needs_mobile_verification:
+                    mobile = (
+                        user.mobile_number
+                        or request.data.get("mobile_number")
+                        or request.data.get("username")
+                    )
+
+                    if not mobile or not validate_mobile_number(mobile):
+                        # If mobile is required but not provided, return error
+                        if not user.mobile_number:
+                            response = self.get_error_response(
+                                message="Mobile verification required. Please add a valid mobile number.",
+                                status="error",
+                                errors=[],
+                                error_code="MOBILE_VERIFICATION_REQUIRED",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+                            self.log_response(response)
+                            return response
+                    else:
+                        mobile_otp = generate_otp(no_digits=4)
+                        authentication_utils.mobile_generate_otp_process(
+                            mobile_otp, mobile, "LOGIN"
+                        )
+                        verification_data["verification_required"].append("mobile")
+                        verification_data["mobile_number"] = mobile
+
+                # Build appropriate message
+                if needs_email_verification and needs_mobile_verification:
+                    message = "Email and mobile verification required. OTPs sent to both."
+                elif needs_email_verification:
+                    message = "Email verification required. OTP sent."
+                else:
+                    message = "Mobile verification required. OTP sent."
+
+                response = self.get_response(
+                    data=verification_data,
+                    status="error",
+                    message=message,
+                    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                )
+                self.log_response(response)
+                return response
+            # Use custom token with active_group support
+            from apps.authentication.tokens import CustomRefreshToken
+
+            # Get active_group from request if provided, otherwise use group_name, otherwise use default
+            active_group = request.data.get("active_group", None)
+            if not active_group:
+                # If active_group not provided, use group_name if provided
+                active_group = request.data.get("group_name", None)
+            refresh = CustomRefreshToken.for_user(user, active_group=active_group)
+            ##            data = [serializer.data,
+            ##                    {
+            ##                        'refresh': str(refresh),
+            ##                        'access': str(refresh.access_token)
+            ##                     }
+            ##                    ]
+            ##            data = {'refreshToken': str(refresh),
+            ##                    'accessToken': str(refresh.access_token),
+            ##                    'expiresIn': 0,
+            ##                    'user': serializer.data,
+            ##                    }
 
             data = authentication_utils.user_representation(user, refresh_token=refresh)
+            # Add active_group to response
+            if refresh.get("active_group"):
+                data["user"]["active_group"] = refresh["active_group"]
             # Reset OTP counter after successful login
             if user.email:
                 db_utils.reset_otp_counter(user.email)
             if user.mobile_number:
                 db_utils.reset_otp_counter(user.mobile_number)
-            
+
             response = self.get_response(
                 data=data,
                 status="success",
                 message="Login successful",
                 status_code=status.HTTP_200_OK,
-                )
+            )
             self.log_response(response)  # Log the response before returning
             return response
         else:
@@ -598,27 +937,31 @@ class LoginAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
             errors = serializer.errors
             for field_name, field_errors in serializer.errors.items():
                 for ferror in field_errors:
-                    if ferror == 'account_inactive':
+                    if ferror == "account_inactive":
                         message = "Your account is locked or inactive. Please contact support."
                         ferror = message
                         error_code = "ACCOUNT_INACTIVE"
-                    elif ferror == 'credentials_error':
+                    elif ferror == "credentials_error":
                         message = "Invalid email or password"
                         ferror = message
                         error_code = "INVALID_CREDENTIALS"
                     else:
                         message = ferror
                         error_code = "INVALID_CREDENTIALS"
-                    error_list.append({"field":field_name, "message": ferror})
+                    error_list.append({"field": field_name, "message": ferror})
 
-            response = self.get_error_response(message=message, status="error",
-                                                    errors=error_list,error_code=error_code,
-                                                    status_code=status.HTTP_401_UNAUTHORIZED)
-##            response = self.get_response(
-##                data=[serializer.data],
-##                message=errors['non_field_errors'][0],
-##                status_code=status.HTTP_401_UNAUTHORIZED,
-##                is_error=True)
+            response = self.get_error_response(
+                message=message,
+                status="error",
+                errors=error_list,
+                error_code=error_code,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+            ##            response = self.get_response(
+            ##                data=[serializer.data],
+            ##                message=errors['non_field_errors'][0],
+            ##                status_code=status.HTTP_401_UNAUTHORIZED,
+            ##                is_error=True)
             self.log_response(response)  # Log the response before returning
             return response
 
@@ -628,7 +971,7 @@ class LogoutAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
 
     def post(self, request):
         self.log_request(request)  # Log the incoming request
-        refresh_token = request.data.get('refresh_token')
+        refresh_token = request.data.get("refresh_token")
 
         if refresh_token:
             try:
@@ -638,416 +981,887 @@ class LogoutAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
                 response = self.get_response(
                     message="Something went wrong",
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    is_error=True)
+                    is_error=True,
+                )
                 self.log_response(response)  # Log the response before returning
                 return response
         response = self.get_response(
             message="Successfully logged out",
             status_code=status.HTTP_200_OK,
-            )
+        )
         self.log_response(response)  # Log the response before returning
         return response
 
-class OtpBasedUserEntryAPIView(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+
+class OtpBasedUserEntryAPIView(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
-    http_method_names = ['get', 'post', 'put', 'patch']
-    
-    @action(detail=False, methods=['POST'], url_path='signup',
-            url_name='otp-signup')
+    http_method_names = ["get", "post", "put", "patch"]
+
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="OTP-based signup (single endpoint)",
+        operation_description=(
+            "OTP-first signup flow using mobile/email and group_name.\n\n"
+            "Typical flow:\n"
+            "1. Frontend calls OTP send endpoint for SIGNUP (mobile/email).\n"
+            "2. User enters OTP.\n"
+            "3. Frontend calls this endpoint with email, mobile_number, name, otp, group_name and optional referred_code.\n"
+            "4. On success, user is created/attached to the group and tokens are returned."
+        ),
+        tags=["Auth - Signup (OTP only)"],
+        security=[],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "email": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format="email",
+                    description="User email (optional but recommended)",
+                ),
+                "mobile_number": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="User mobile number (required, validated)",
+                ),
+                "name": openapi.Schema(
+                    type=openapi.TYPE_STRING, description="Display name"
+                ),
+                "otp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="OTP received by the user for SIGNUP",
+                ),
+                "referred_code": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional referral code",
+                ),
+                "group_name": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Target group identifier (e.g. B2C-GRP, B2B-GRP)",
+                    default="B2C-GRP",
+                ),
+            },
+            required=["mobile_number", "otp", "group_name"],
+        ),
+        responses={
+            200: openapi.Response(
+                description="Signup/login successful, JWT tokens and user data returned"
+            ),
+            400: "Invalid data",
+            406: "OTP, email or group validation error",
+        },
+    )
+    @action(detail=False, methods=["POST"], url_path="signup", url_name="otp-signup")
     def otp_based_user_signup(self, request):
-        
-        email = request.data.get('email', '')
-        mobile_number = request.data.get('mobile_number', '')
-        name = request.data.get('name', '')
-        otp = request.data.get('otp', None)
-        referred_code = request.data.get('referred_code', '')
-        group_name = request.data.get("group_name", 'B2C-GRP')
+
+        email = request.data.get("email", "")
+        if email:
+            email = email.lower().strip()
+        mobile_number = request.data.get("mobile_number", "")
+        name = request.data.get("name", "")
+        otp = request.data.get("otp", None)
+        referred_code = request.data.get("referred_code", "")
+        group_name = request.data.get("group_name", "B2C-GRP")
 
         valid = email_validation(email)
         if not valid:
-            response = self.get_error_response(message="Invalid Email", status="error",
-                                               errors=[], error_code="INVALID_EMAIL",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Invalid Email",
+                status="error",
+                errors=[],
+                error_code="INVALID_EMAIL",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
         if not otp:
-            response = self.get_error_response(message="OTP Missing", status="error",
-                                               errors=[], error_code="OTP_MISSING",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Missing",
+                status="error",
+                errors=[],
+                error_code="OTP_MISSING",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
         is_mb_valid = validate_mobile_number(mobile_number)
         if not is_mb_valid:
-            response = self.get_error_response(message="Invalid Mobile Number", status="error",
-                                               errors=[], error_code="INVALID_NUMBER",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Invalid Mobile Number",
+                status="error",
+                errors=[],
+                error_code="INVALID_NUMBER",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         user_otp = db_utils.get_user_otp_details(email, mobile_number, otp)
         # user_otp = UserOtp.objects.filter(user_account=email, otp=otp).first()
         if not user_otp:
             response = self.get_error_response(
-                message="Invalid Credentials", status="error",
-                errors=[], error_code="INVALID_CREDENTIALS",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Invalid Credentials",
+                status="error",
+                errors=[],
+                error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         # check whether otp expired or not
         current_time = timezone.now()
         timediff = current_time - user_otp.created
-        timediff_in_minutes = timediff.total_seconds()/60
+        timediff_in_minutes = timediff.total_seconds() / 60
 
         if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-            response = self.get_error_response(message="OTP Expired", status="error",
-                                           errors=[], error_code="OTP_EXPIRED",
-                                           status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Expired",
+                status="error",
+                errors=[],
+                error_code="OTP_EXPIRED",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-        # check whether email already exist or not
-        check_existing_user = User.objects.filter(email=email).first()
-        if check_existing_user:
-            response = self.get_error_response(
-                message="Email already exist", status="error", errors=[],
-                error_code="EMAIL_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-            return response
+        # Normalize email and check whether email already exists (globally unique)
+        if email:
+            email = email.lower().strip()
+        check_existing_user = User.objects.filter(email=email).first() if email else None
 
         # group and roles
         grp, role = authentication_utils.get_group_based_on_name(group_name)
         if not grp or not role:
             response = self.get_error_response(
-                message="Group or role doesn't exist", status="error", errors=[],
-                error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Group or role doesn't exist",
+                status="error",
+                errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-        #check whether mobile already exist or not
-        check_mobile_existing_user = User.objects.filter(mobile_number=mobile_number, groups=grp).first()
-        if check_mobile_existing_user:
-            response = self.get_error_response(
-                message="Mobile already exist", status="error", errors=[],
-                error_code="MOBILE_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
-            return response
+        # Check if user already exists and already has this group
+        if check_existing_user:
+            if check_existing_user.groups.filter(id=grp.id).exists():
+                response = self.get_error_response(
+                    message="Email already exists for this group",
+                    status="error",
+                    errors=[{"field": "email", "message": "Email already exists for this group"}],
+                    error_code="EMAIL_ALREADY_EXISTS_FOR_GROUP",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return response
+
+        # check whether mobile already exist or not (within the same group)
+        # First check if mobile exists globally (to prevent duplicates)
+        if mobile_number:
+            mobile_user_global = User.objects.filter(mobile_number=mobile_number).first()
+            if mobile_user_global:
+                # If mobile exists but it's a different user than the email user, that's an error
+                if check_existing_user and mobile_user_global.id != check_existing_user.id:
+                    response = self.get_error_response(
+                        message="Mobile number is already associated with a different account",
+                        status="error",
+                        errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                        error_code="MOBILE_EXISTS_DIFFERENT_USER",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
+                    return response
+                # If mobile exists and it's the same user, check group
+                if mobile_user_global.groups.filter(id=grp.id).exists():
+                    response = self.get_error_response(
+                        message="Mobile already exists for this group",
+                        status="error",
+                        errors=[{"field": "mobile_number", "message": "Mobile already exists for this group"}],
+                        error_code="MOBILE_EXIST",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
+                    return response
+
+        # If user exists, add group/role and return (DO NOT CREATE DUPLICATE)
+        if check_existing_user:
+            # User exists but doesn't have this group - add it
+            if grp and not check_existing_user.groups.filter(id=grp.id).exists():
+                check_existing_user.groups.add(grp)
+            if role and not check_existing_user.roles.filter(id=role.id).exists():
+                check_existing_user.roles.add(role)
             
+            # Update user details if needed
+            if name and not check_existing_user.name:
+                check_existing_user.name = name
+            if mobile_number and not check_existing_user.mobile_number:
+                check_existing_user.mobile_number = mobile_number
+            
+            check_existing_user.default_group = group_name
+            check_existing_user.email_verified = True
+            check_existing_user.mobile_verified = True
+            check_existing_user.save()
 
-        # create user
+            data = authentication_utils.generate_refresh_token(
+                check_existing_user, active_group=group_name
+            )
+            response = self.get_response(
+                data=data,
+                status="success",
+                message="Signup successful - Group added to existing account",
+                status_code=status.HTTP_200_OK,
+            )
+            return response
+
+        # Only create new user if email doesn't exist globally
+        # Double-check to prevent race conditions
+        if email:
+            final_check = User.objects.filter(email=email).first()
+            if final_check:
+                # User was created between checks - add group instead
+                if grp and not final_check.groups.filter(id=grp.id).exists():
+                    final_check.groups.add(grp)
+                if role and not final_check.roles.filter(id=role.id).exists():
+                    final_check.roles.add(role)
+                final_check.default_group = group_name
+                final_check.email_verified = True
+                final_check.mobile_verified = True
+                final_check.save()
+                
+                data = authentication_utils.generate_refresh_token(
+                    final_check, active_group=group_name
+                )
+                response = self.get_response(
+                    data=data,
+                    status="success",
+                    message="Signup successful - Group added to existing account",
+                    status_code=status.HTTP_200_OK,
+                )
+                return response
+
+        # create new user only if email doesn't exist
         new_user = User.objects.create(
-            name=name, email=email, mobile_number=mobile_number,
-            referred_code=referred_code, default_group=group_name,
-            email_verified=True)
+            name=name,
+            email=email,
+            mobile_number=mobile_number,
+            referred_code=referred_code,
+            default_group=group_name,
+            email_verified=True,
+            mobile_verified=True,
+        )
         Customer.objects.create(user_id=new_user.id, active=True)
-        
-##        # set groups and roles
-##        grp = db_utils.get_group_by_name('B2C-GRP')
-##        role = db_utils.get_role_by_name('B2C-CUST')
+
+        ##        # set groups and roles
+        ##        grp = db_utils.get_group_by_name('B2C-GRP')
+        ##        role = db_utils.get_role_by_name('B2C-CUST')
 
         if grp:
             new_user.groups.add(grp)
         if role:
             new_user.roles.add(role)
-            
-        # data = self.get_user_with_tokens(new_user)
-        
-        data = authentication_utils.generate_refresh_token(new_user)
-        response = self.get_response(data=data, status="success",
-                                     message="Signup successful",
-                                     status_code=status.HTTP_200_OK)
-        return response
-    
 
-    @action(detail=False, methods=['POST'], url_path='login',
-            url_name='otp-login')
+        # data = self.get_user_with_tokens(new_user)
+
+        data = authentication_utils.generate_refresh_token(new_user)
+        response = self.get_response(
+            data=data,
+            status="success",
+            message="Signup successful",
+            status_code=status.HTTP_200_OK,
+        )
+        return response
+
+    @action(detail=False, methods=["POST"], url_path="login", url_name="otp-login")
     def otp_based_user_login(self, request):
 
-        username = request.data.get('username', '')
+        username = request.data.get("username", "")
         if "@" in username:
             username = username.lower()
-        user_id = request.data.get('user_id', None)
-        otp = request.data.get('otp', None)
-        group_name = request.data.get("group_name", 'B2C-GRP')
+        user_id = request.data.get("user_id", None)
+        otp = request.data.get("otp", None)
+        group_name = request.data.get("group_name", "B2C-GRP")
+        active_group = request.data.get(
+            "active_group", None
+        )  # Get active_group from request
 
         if not username:
             response = self.get_error_response(
-                message="Missing username", status="error",
-                errors=[], error_code="INVALID_PARAM",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Missing username",
+                status="error",
+                errors=[],
+                error_code="INVALID_PARAM",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         # Check if user has exceeded login attempt limit
-        can_attempt, error_message = authentication_utils.check_login_attempt_limit(username)
+        can_attempt, error_message = authentication_utils.check_login_attempt_limit(
+            username
+        )
         if not can_attempt:
             response = self.get_error_response(
                 message=error_message,
-                status="error", errors=[], error_code="LOGIN_LIMIT_EXCEEDED",
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                status="error",
+                errors=[],
+                error_code="LOGIN_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
             return response
-        
+
         # Increment login attempts before processing
         db_utils.increment_login_attempts(username)
 
         # get the otp details
-        user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for='LOGIN').first()
+        user_otp = UserOtp.objects.filter(
+            user_account=username, otp=otp, otp_for="LOGIN"
+        ).first()
         if not user_otp:
             response = self.get_error_response(
-                message="Invalid Credentials", status="error",
-                errors=[], error_code="INVALID_CREDENTIALS",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Invalid Credentials",
+                status="error",
+                errors=[],
+                error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
-            
+
         # get the time difference
         current_time = timezone.now()
-        timediff_in_minutes = get_timediff_in_minutes(
-            user_otp.created, current_time)
+        timediff_in_minutes = get_timediff_in_minutes(user_otp.created, current_time)
 
         if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-            response = self.get_error_response(message="OTP Expired", status="error",
-                                               errors=[], error_code="OTP_EXPIRED",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Expired",
+                status="error",
+                errors=[],
+                error_code="OTP_EXPIRED",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         grp, role = authentication_utils.get_group_based_on_name(group_name)
         if not grp:
             response = self.get_error_response(
-                message="Group doesn't exist", status="error", errors=[],
-                error_code="GROUP_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Group doesn't exist",
+                status="error",
+                errors=[],
+                error_code="GROUP_NOT_EXIST",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-##        user_detail = db_utils.get_user_details(user_id, username)
+        ##        user_detail = db_utils.get_user_details(user_id, username)
         user_detail = db_utils.get_group_based_user_details(grp, username)
         if not user_detail:
             response = self.get_error_response(
-                message="Invalid user details", status="error",
-                errors=[], error_code="INVALID_CREDENTIALS",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Invalid user details",
+                status="error",
+                errors=[],
+                error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
         user_detail.default_group = group_name
         user_detail.save()
         db_utils.reset_otp_counter(username)
-        data = authentication_utils.generate_refresh_token(user_detail)
-        response = self.get_response(data=data, status="success",
-                                     message="Login successful",
-                                     status_code=status.HTTP_200_OK)
+        # Use active_group from request if provided, otherwise use group_name
+        active_group = active_group or group_name
+        data = authentication_utils.generate_refresh_token(
+            user_detail, active_group=active_group
+        )
+        response = self.get_response(
+            data=data,
+            status="success",
+            message="Login successful",
+            status_code=status.HTTP_200_OK,
+        )
         return response
 
-    @action(detail=False, methods=['POST'], url_path='generate-otp',
-            url_name='generate-otp')
+    @action(
+        detail=False, methods=["POST"], url_path="generate-otp", url_name="generate-otp"
+    )
     def generate_otp(self, request):
         try:
-            username = request.data.get('username', None)
-            otp_for = request.data.get('otp_for', None)
-            group_name = request.data.get('group_name', '')
-            if username and '@' in username:
+            username = request.data.get("username", None)
+            otp_for = request.data.get("otp_for", None)
+            group_name = request.data.get("group_name", "")
+            user_id = request.data.get("user_id", None)  # For Google auth cases
+            if username and "@" in username:
                 username = username.lower()
-            
+
             if not username:
-                response = self.get_error_response(message="Missing username", status="error",
-                                                   errors=[], error_code="INVALID_PARAM",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="Missing username",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_PARAM",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
             if not otp_for:
-                response = self.get_error_response(message="Missing otp_for", status="error",
-                                                   errors=[], error_code="INVALID_PARAM",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                response = self.get_error_response(
+                    message="Missing otp_for",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_PARAM",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
-            
             # check whether user name is based on email
             # or mobile number
             is_mb_valid = validate_mobile_number(username)
             if is_mb_valid:
-                medium_type = 'mobile'
+                medium_type = "mobile"
             else:
                 is_email_valid = email_validation(username)
                 if is_email_valid:
-                    medium_type = 'email'
+                    medium_type = "email"
                 else:
-                    response = self.get_error_response(message="Invalid Username", status="error",
-                                                   errors=[], error_code="INVALID_USERNAME",
-                                                   status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    response = self.get_error_response(
+                        message="Invalid Username",
+                        status="error",
+                        errors=[],
+                        error_code="INVALID_USERNAME",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
+                    return response
+            
+            # Handle Google authentication cases - validate mobile uniqueness if user_id provided
+            # Note: We don't save the mobile number here, only validate it will be unique
+            if user_id and is_mb_valid and otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                try:
+                    user = User.objects.get(id=user_id)
+                    # Check if mobile is already taken by another user in the same group
+                    if group_name:
+                        grp, role = authentication_utils.get_group_based_on_name(group_name)
+                        if grp:
+                            mobile_user = User.objects.filter(
+                                mobile_number=username, groups=grp
+                            ).exclude(id=user_id).first()
+                            if mobile_user:
+                                response = self.get_error_response(
+                                    message="Mobile number is already associated with another account",
+                                    status="error",
+                                    errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                                    error_code="MOBILE_EXISTS",
+                                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                                )
+                                return response
+                except User.DoesNotExist:
+                    response = self.get_error_response(
+                        message="User not found",
+                        status="error",
+                        errors=[],
+                        error_code="USER_NOT_FOUND",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
                     return response
             grp = None
             if group_name:
-                # group and roles
+                # group and roles - for OTP generation, we only need the group
+                # Role will be validated during actual signup
                 grp, role = authentication_utils.get_group_based_on_name(group_name)
-                if not grp or not role:
+                if not grp:
                     response = self.get_error_response(
-                        message="Group or role doesn't exist", status="error", errors=[],
-                        error_code="GROUP_ROLE_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                        message="Group doesn't exist",
+                        status="error",
+                        errors=[],
+                        error_code="GROUP_NOT_EXIST",
+                        status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    )
                     return response
+                # Note: Role is optional for OTP generation, will be validated during signup
 
-            user_objs = db_utils.get_userid_list(username, group=grp)
-            
-            # allow B2C-GRP sign up for guest user
-            is_role_exist = False
-            if group_name == 'B2C-GRP':
-                # check if B2C-CUST role exist for guest user
-                is_role_exist = db_utils.is_role_exist(user_objs, role)
+            # For Google auth cases, skip duplicate checks since user already exists
+            if otp_for not in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                user_objs = db_utils.get_userid_list(username, group=grp)
+
+                # allow B2C-GRP sign up for guest user
+                is_role_exist = False
+                if group_name == "B2C-GRP":
+                    # check if B2C-CUST role exist for guest user
+                    is_role_exist = db_utils.is_role_exist(user_objs, role)
+                else:
+                    if user_objs:
+                        is_role_exist = True
+
+                if otp_for == "LOGIN":
+                    if not user_objs:
+                        group_hint = f" for {group_name}" if group_name else ""
+                        response = self.get_error_response(
+                            message=f"No account found with this {medium_type}{group_hint}. Please check your credentials or sign up.",
+                            status="error",
+                            errors=[
+                                {
+                                    "field": "username",
+                                    "message": f"No user found with this {medium_type} in the selected group.",
+                                }
+                            ],
+                            error_code="USER_NOT_FOUND",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                        )
+                        return response
+                elif otp_for == "SIGNUP":
+                    if is_role_exist:
+                        response = self.get_error_response(
+                            message=f"User {medium_type} is already associated with the account!",
+                            status="error",
+                            errors=[],
+                            error_code="USERNAME_DUPLICATE",
+                            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                        )
+                        return response
             else:
-                if user_objs:
-                    is_role_exist = True
-                
-                
-            if otp_for == 'LOGIN':
-                if not user_objs:
-                    response = self.get_error_response(
-                        message="Invalid User Credentials!",
-                        status="error", errors=[], error_code="MISSING_USERNAME",
-                        status_code=status.HTTP_406_NOT_ACCEPTABLE)
-                    return response
-            elif otp_for == 'SIGNUP':
-                if is_role_exist:
-                    response = self.get_error_response(
-                        message=f"User {medium_type} is already associated with the account!",
-                        status="error", errors=[], error_code="USERNAME_DUPLICATE",
-                        status_code=status.HTTP_406_NOT_ACCEPTABLE)
-                    return response
-            
+                # For Google auth, user_objs not needed
+                user_objs = []
+
             # Check if user has exceeded OTP generation limit
-            can_generate, error_message = authentication_utils.check_otp_generation_limit(username)
+            can_generate, error_message = (
+                authentication_utils.check_otp_generation_limit(username)
+            )
             if not can_generate:
                 response = self.get_error_response(
                     message=error_message,
-                    status="error", errors=[], error_code="OTP_LIMIT_EXCEEDED",
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                    status="error",
+                    errors=[],
+                    error_code="OTP_LIMIT_EXCEEDED",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
                 return response
 
             # generate otp
             otp = generate_otp(no_digits=4)
 
-            if medium_type == 'email':
-                authentication_utils.email_generate_otp_process(otp, username, otp_for)
-            elif medium_type == 'mobile':
+            if medium_type == "email":
+                # Pass group_name for SIGNUP to personalize email
+                group_name_for_otp = group_name if otp_for == "SIGNUP" else None
+                authentication_utils.email_generate_otp_process(otp, username, otp_for, group_name_for_otp)
+            elif medium_type == "mobile":
                 authentication_utils.mobile_generate_otp_process(otp, username, otp_for)
-            
-            data = {'user_list': user_objs}
-            response = self.get_response(data=data, status="success",
-                                         message="OTP Success",
-                                         status_code=status.HTTP_200_OK)
+
+            data = {"user_list": user_objs}
+            if user_id and otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+                data["user_id"] = user_id
+            response = self.get_response(
+                data=data,
+                status="success",
+                message="OTP Success",
+                status_code=status.HTTP_200_OK,
+            )
         except Exception as e:
             print(traceback.format_exc())
             print(e)
-            response = self.get_error_response(message="Internal server error. Please try again later.",
-                                               status="error",
-                                               errors=[],error_code="INTERNAL_SERVER_ERROR",
-                                               status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            response = self.get_error_response(
+                message="Internal server error. Please try again later.",
+                status="error",
+                errors=[],
+                error_code="INTERNAL_SERVER_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         return response
 
-
-    @action(detail=False, methods=['POST'], url_path='verify-otp',
-            url_name='verify-otp')
+    @action(
+        detail=False, methods=["POST"], url_path="verify-otp", url_name="verify-otp"
+    )
     def verify_otp(self, request):
 
-        username = request.data.get('username', '')
-        otp = request.data.get('otp', None)
-        otp_for = request.data.get('otp_for', None)
+        username = request.data.get("username", "")
+        otp = request.data.get("otp", None)
+        otp_for = request.data.get("otp_for", None)
 
         if not username:
-            response = self.get_error_response(message="Missing username", status="error",
-                                               errors=[], error_code="INVALID_PARAM",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Missing username",
+                status="error",
+                errors=[],
+                error_code="INVALID_PARAM",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         if not otp_for:
-            response = self.get_error_response(message="Missing otp_for", status="error",
-                                               errors=[], error_code="INVALID_PARAM",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Missing otp_for",
+                status="error",
+                errors=[],
+                error_code="INVALID_PARAM",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-        can_attempt, error_message = authentication_utils.check_verify_attempt_limit(username)
+        can_attempt, error_message = authentication_utils.check_verify_attempt_limit(
+            username
+        )
         if not can_attempt:
             response = self.get_error_response(
                 message=error_message,
-                status="error", errors=[], error_code="VERIFY_LIMIT_EXCEEDED",
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                status="error",
+                errors=[],
+                error_code="VERIFY_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
             return response
-        
+
         # Increment verification attempts before processing
         db_utils.increment_verify_attempts(username)
-        
+
+        # Lookup: case-insensitive for email so "Vighnesha@..." matches "vighnesha@..."
+        account_lookup = db_utils._user_account_lookup(username)
+
         # get the otp details
-        user_otp = UserOtp.objects.filter(user_account=username, otp=otp, otp_for=otp_for).first()
+        # For Google auth cases, check both the original otp_for and VERIFY
+        # since the OTP was stored with GOOGLE-SIGNUP/GOOGLE-LOGIN but template uses VERIFY
+        if otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+            # First try with the original otp_for value (GOOGLE-SIGNUP or GOOGLE-LOGIN)
+            user_otp = UserOtp.objects.filter(
+                **account_lookup, otp=otp, otp_for=otp_for
+            ).first()
+            # If not found, also try with VERIFY (in case user sends VERIFY in request)
+            if not user_otp:
+                user_otp = UserOtp.objects.filter(
+                    **account_lookup, otp=otp, otp_for="VERIFY"
+                ).first()
+            # Last resort: check for any OTP with matching username and OTP value
+            # (only for Google auth to handle edge cases)
+            if not user_otp:
+                user_otp = UserOtp.objects.filter(
+                    **account_lookup, otp=otp
+                ).order_by('-created').first()
+        else:
+            # For other cases, use the otp_for as provided
+            user_otp = UserOtp.objects.filter(
+                **account_lookup, otp=otp, otp_for=otp_for
+            ).first()
+        
         if not user_otp:
             response = self.get_error_response(
-                message="Invalid Credentials", status="error",
-                errors=[], error_code="INVALID_CREDENTIALS",
-                status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Invalid Credentials",
+                status="error",
+                errors=[],
+                error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
-            
+
         # get the time difference
         current_time = timezone.now()
-        timediff_in_minutes = get_timediff_in_minutes(
-            user_otp.created, current_time)
+        timediff_in_minutes = get_timediff_in_minutes(user_otp.created, current_time)
 
         if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-            response = self.get_error_response(message="OTP Expired", status="error",
-                                               errors=[], error_code="OTP_EXPIRED",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Expired",
+                status="error",
+                errors=[],
+                error_code="OTP_EXPIRED",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         data = {}
-        if otp_for == 'VERIFY-GUEST':
+        
+        # Handle VERIFY-GUEST case
+        if otp_for == "VERIFY-GUEST":
             grp, role = authentication_utils.get_group_based_on_name("B2C-GRP")
             if not grp:
                 response = self.get_error_response(
-                    message="Group doesn't exist", status="error", errors=[],
-                    error_code="GROUP_NOT_EXIST", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                    message="Group doesn't exist",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_NOT_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
                 return response
 
             user_detail = db_utils.get_group_based_user_details(grp, username)
             if user_detail:
                 data = authentication_utils.generate_refresh_token(user_detail)
-
         
+        # Handle LOGIN case - update verification status
+        elif otp_for == "LOGIN":
+            group_name = request.data.get("group_name", "B2C-GRP")
+            grp, role = authentication_utils.get_group_based_on_name(group_name)
+            if not grp:
+                response = self.get_error_response(
+                    message="Group doesn't exist",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_NOT_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return response
+
+            user_detail = db_utils.get_group_based_user_details(grp, username)
+            if not user_detail:
+                response = self.get_error_response(
+                    message="User not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                return response
+            
+            # Check if username is email or mobile and update verification status accordingly
+            is_mobile = validate_mobile_number(username)
+            is_email = email_validation(username)
+            
+            if is_mobile:
+                # Verify mobile
+                user_detail.mobile_verified = True
+                if not user_detail.mobile_number:
+                    user_detail.mobile_number = username
+            elif is_email:
+                # Verify email
+                user_detail.email_verified = True
+                if not user_detail.email:
+                    user_detail.email = username.lower()
+            
+            user_detail.save()
+            
+            # Generate tokens
+            active_group = request.data.get("active_group", None) or group_name
+            data = authentication_utils.generate_refresh_token(user_detail, active_group=active_group)
+        
+        # Handle GOOGLE-SIGNUP and GOOGLE-LOGIN cases
+        elif otp_for in ["GOOGLE-SIGNUP", "GOOGLE-LOGIN"]:
+            # Get user_id from request (required for Google auth cases)
+            user_id = request.data.get("user_id")
+            if not user_id:
+                response = self.get_error_response(
+                    message="User ID is required for Google authentication",
+                    status="error",
+                    errors=[],
+                    error_code="USER_ID_REQUIRED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                return response
+            
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                response = self.get_error_response(
+                    message="User not found",
+                    status="error",
+                    errors=[],
+                    error_code="USER_NOT_FOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                return response
+            
+            # Check if username is a mobile number
+            is_mobile = validate_mobile_number(username)
+            
+            # Save mobile number only after successful OTP verification
+            if is_mobile:
+                # Check if mobile is already taken by another user in the same group
+                group_name = request.data.get("group_name", user.default_group or "B2C-GRP")
+                if group_name:
+                    grp, role = authentication_utils.get_group_based_on_name(group_name)
+                    if grp:
+                        mobile_user = User.objects.filter(
+                            mobile_number=username, groups=grp
+                        ).exclude(id=user_id).first()
+                        if mobile_user:
+                            response = self.get_error_response(
+                                message="Mobile number is already associated with another account",
+                                status="error",
+                                errors=[{"field": "mobile_number", "message": "Mobile number already exists"}],
+                                error_code="MOBILE_EXISTS",
+                                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                            )
+                            return response
+                
+                # Save mobile number after verification
+                user.mobile_number = username
+                user.mobile_verified = True
+            
+            # Mark email as verified
+            # Note: If Google OAuth already verified the email, this was set during signup/login
+            # This ensures email_verified is True after mobile verification completes
+            # (Google OAuth typically only provides email if it's verified)
+            user.email_verified = True
+            user.save()
+            
+            # Ensure Customer exists
+            customer = Customer.objects.filter(user_id=user.id).first()
+            if not customer:
+                Customer.objects.create(user_id=user.id, active=True)
+            
+            # Get group_name from request if provided, otherwise use user's default group
+            group_name = request.data.get("group_name", user.default_group or "B2C-GRP")
+            
+            # Generate tokens
+            data = authentication_utils.generate_refresh_token(user, active_group=group_name)
+
         db_utils.reset_otp_counter(username)
-        response = self.get_response(data=data, status="success",
-                                     message="Otp Verification Success",
-                                     status_code=status.HTTP_200_OK)
+        response = self.get_response(
+            data=data,
+            status="success",
+            message="Otp Verification Success",
+            status_code=status.HTTP_200_OK,
+        )
         return response
 
-        
 
-    
-
-
-class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
+class PasswordProcessViewSet(
+    viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin
+):
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
 
-    @action(detail=False, methods=['POST'], url_path='otp-reset', url_name='password-otp-reset',
-            permission_classes=[])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="otp-reset",
+        url_name="password-otp-reset",
+        permission_classes=[],
+    )
     def otp_based_password_reset(self, request):
-        email = request.data.get('email', '')
-        password = request.data.get('password', None)
-        otp = request.data.get('otp', None)
-        
+        email = request.data.get("email", "")
+        password = request.data.get("password", None)
+        otp = request.data.get("otp", None)
+
         valid = email_validation(email)
         if not valid:
-            response = self.get_error_response(message="Invalid Email", status="error",
-                                               errors=[], error_code="INVALID_EMAIL",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Invalid Email",
+                status="error",
+                errors=[],
+                error_code="INVALID_EMAIL",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
-        
+
         if not otp:
-            response = self.get_error_response(message="OTP Missing", status="error",
-                                               errors=[], error_code="OTP_MISSING",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Missing",
+                status="error",
+                errors=[],
+                error_code="OTP_MISSING",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         if not password:
-            response = self.get_error_response(message="Password Missing", status="error",
-                                               errors=[], error_code="PASSWORD_MISSING",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Password Missing",
+                status="error",
+                errors=[],
+                error_code="PASSWORD_MISSING",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-            
         # Check if user has exceeded password reset attempt limit
-        can_attempt, error_message = authentication_utils.check_pwd_reset_attempt_limit(email)
+        can_attempt, error_message = authentication_utils.check_pwd_reset_attempt_limit(
+            email
+        )
         if not can_attempt:
             response = self.get_error_response(
                 message=error_message,
-                status="error", errors=[], error_code="PWD_RESET_LIMIT_EXCEEDED",
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+                status="error",
+                errors=[],
+                error_code="PWD_RESET_LIMIT_EXCEEDED",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
             return response
-        
+
         # Increment password reset attempts before processing
         db_utils.increment_pwd_reset_attempts(email)
 
@@ -1055,71 +1869,97 @@ class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
         print(user_otp)
 
         if not user_otp:
-            response = self.get_error_response(message="Invalid Credentials", status="error",
-                                               errors=[], error_code="INVALID_CREDENTIALS",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="Invalid Credentials",
+                status="error",
+                errors=[],
+                error_code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
-        
+
         current_time = timezone.now()
         timediff = current_time - user_otp.created
-        timediff_in_minutes = timediff.total_seconds()/60
+        timediff_in_minutes = timediff.total_seconds() / 60
 
         if timediff_in_minutes >= settings.OTP_EXPIRY_MIN:
-            response = self.get_error_response(message="OTP Expired", status="error",
-                                           errors=[], error_code="OTP_EXPIRED",
-                                           status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="OTP Expired",
+                status="error",
+                errors=[],
+                error_code="OTP_EXPIRED",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
         user = User.objects.filter(email=email).first()
         if not user:
-            response = self.get_error_response(message="User Not Found", status="error",
-                                               errors=[], error_code="USER_MISSING",
-                                               status_code=status.HTTP_406_NOT_ACCEPTABLE)
+            response = self.get_error_response(
+                message="User Not Found",
+                status="error",
+                errors=[],
+                error_code="USER_MISSING",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
-            
-        
+
         user.set_password(password)
         user.save()
         db_utils.reset_otp_counter(email)
         response = self.get_response(
-            data={}, status="success", message="Password has been successfully reset. Please login",
+            data={},
+            status="success",
+            message="Password has been successfully reset. Please login",
             status_code=status.HTTP_201_CREATED,
-            )
+        )
         return response
 
-    @action(detail=False, methods=['POST'], url_path='profile-reset', url_name='password-otp-reset',
-            permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="profile-reset",
+        url_name="password-otp-reset",
+        permission_classes=[IsAuthenticated],
+    )
     def profile_password_reset(self, request):
         user = request.user
-        password = request.data.get('password', '')
-        old_password = request.data.get('old_password', '')
+        password = request.data.get("password", "")
+        old_password = request.data.get("old_password", "")
         token = request.auth
 
-        if '' in (user, password, old_password):
+        if "" in (user, password, old_password):
             response = self.get_error_response(
-                message="Missing Fields", status="error", errors=[],
-                        error_code="INVALID_FIELDS", status_code=status.HTTP_406_NOT_ACCEPTABLE)
+                message="Missing Fields",
+                status="error",
+                errors=[],
+                error_code="INVALID_FIELDS",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
             return response
 
-        
         try:
             user = User.objects.get(id=user.id)
-            
+
             if not user.check_password(old_password):
                 response = self.get_error_response(
-                    message="Invalid Password", status="error", errors=[],
-                    error_code="INVALID_PASSWORD", status_code=status.HTTP_401_UNAUTHORIZED)
-                
+                    message="Invalid Password",
+                    status="error",
+                    errors=[],
+                    error_code="INVALID_PASSWORD",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+
                 return response
-                
+
             user.set_password(password)
             user.save()
 
             response = self.get_response(
-                data={}, status="success",
+                data={},
+                status="success",
                 message="Password has been successfully reset.",
                 status_code=status.HTTP_201_CREATED,
-                )
+            )
             self.log_response(response)  # Log the response before returning
             return response
         except Exception as e:
@@ -1127,15 +1967,16 @@ class PasswordProcessViewSet(viewsets.ModelViewSet, StandardResponseMixin, Loggi
             response = self.get_response(
                 message="Something went wrong",
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                is_error=True)
+                is_error=True,
+            )
             self.log_response(response)  # Log the response before returning
             return response
-    
+
 
 class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin):
     def post(self, request):
         self.log_request(request)  # Log the incoming request
-        email = request.data.get('email')
+        email = request.data.get("email")
 
         if email:
             try:
@@ -1149,19 +1990,20 @@ class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin)
                 send_password_forget_email(reset_password_link, [email])
 
                 # Send reset password email
-##                send_mail(
-##                    'Reset Password',
-##                    f'Click the following link to reset your password: {reset_password_link}',
-##                    settings.DEFAULT_FROM_EMAIL,
-##                    [email],
-##                    fail_silently=False,
-##                )
+            ##                send_mail(
+            ##                    'Reset Password',
+            ##                    f'Click the following link to reset your password: {reset_password_link}',
+            ##                    settings.DEFAULT_FROM_EMAIL,
+            ##                    [email],
+            ##                    fail_silently=False,
+            ##                )
 
             except User.DoesNotExist:
                 response = self.get_response(
                     message="User not found",
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    is_error=True)
+                    is_error=True,
+                )
                 self.log_response(response)  # Log the response before returning
                 return response
 
@@ -1169,215 +2011,415 @@ class ForgotPasswordAPIView(GenericAPIView, StandardResponseMixin, LoggingMixin)
         response = self.get_response(
             message="If the provided email exists, a password reset link has been sent to your email address.",
             status_code=status.HTTP_200_OK,
-            )
+        )
         self.log_response(response)  # Log the response before returning
         return response
 
 
 class ResetPasswordAPIView(APIView, StandardResponseMixin, LoggingMixin):
     permission_classes = (IsAuthenticated,)
-    
+
     def post(self, request):
         self.log_request(request)  # Log the incoming request
         user = request.user
-        #token = request.data.get('token')
-        password = request.data.get('password', '')
-        old_password = request.data.get('old_password', '')
+        # token = request.data.get('token')
+        password = request.data.get("password", "")
+        old_password = request.data.get("old_password", "")
         token = request.auth
 
-        
         if user and password:
             try:
-##                token_obj = RefreshToken(token)
-##                user_id = token_obj.get('user_id')
+                ##                token_obj = RefreshToken(token)
+                ##                user_id = token_obj.get('user_id')
                 user = User.objects.get(id=user.id)
-                
+
                 if not user.check_password(old_password):
                     response = self.get_error_response(
-                        message="Invalid Password", status="error", errors=[],
-                        error_code="INVALID_PASSWORD", status_code=status.HTTP_401_UNAUTHORIZED)
-                    
+                        message="Invalid Password",
+                        status="error",
+                        errors=[],
+                        error_code="INVALID_PASSWORD",
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    )
+
                     return response
-                    
+
                 user.set_password(password)
                 user.save()
 
                 # Blacklist the token used for password reset
                 # token.blacklist()
                 response = self.get_response(
-                    data={}, status="success",
+                    data={},
+                    status="success",
                     message="Password has been successfully reset.",
                     status_code=status.HTTP_200_OK,
-                    )
+                )
                 self.log_response(response)  # Log the response before returning
                 return response
             except Exception:
                 response = self.get_response(
                     message="Something went wrong",
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    is_error=True)
+                    is_error=True,
+                )
                 self.log_response(response)  # Log the response before returning
                 return response
 
         response = self.get_error_response(
-            message="Invalid token or missing password", status="error", errors=[],
-            error_code="INVALID_CREDENTIALS", status_code=status.HTTP_401_UNAUTHORIZED)
+            message="Invalid token or missing password",
+            status="error",
+            errors=[],
+            error_code="INVALID_CREDENTIALS",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
         self.log_response(response)  # Log the response before returning
         return response
 
+
 class ResetPasswordTokenAPIView(APIView, StandardResponseMixin, LoggingMixin):
     permission_classes = (IsAuthenticated,)
-    
+
     def post(self, request):
         self.log_request(request)  # Log the incoming request
         user = request.user
-        #token = request.data.get('token')
-        password = request.data.get('password')
+        # token = request.data.get('token')
+        password = request.data.get("password")
         token = request.auth
-        
+
         if user and password:
             try:
-##                token_obj = RefreshToken(token)
-##                user_id = token_obj.get('user_id')
+                ##                token_obj = RefreshToken(token)
+                ##                user_id = token_obj.get('user_id')
                 user = User.objects.get(id=user.id)
                 user.set_password(password)
                 user.save()
 
                 # Blacklist the token used for password reset
                 # token.blacklist()
-                response = self.get_response(data={}, status="success",
-                                         message="Password has been successfully reset.",
-                                         status_code=status.HTTP_200_OK)
-                
+                response = self.get_response(
+                    data={},
+                    status="success",
+                    message="Password has been successfully reset.",
+                    status_code=status.HTTP_200_OK,
+                )
+
                 self.log_response(response)  # Log the response before returning
                 return response
             except Exception:
                 response = self.get_response(
                     message="Something went wrong",
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    is_error=True)
+                    is_error=True,
+                )
                 self.log_response(response)  # Log the response before returning
                 return response
 
         response = self.get_response(
             message="Invalid token or missing password",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            is_error=True)
+            is_error=True,
+        )
         self.log_response(response)  # Log the response before returning
         return response
-
 
 
 class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserListSerializer
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    http_method_names = ["get", "post", "put", "patch", "delete"]
 
-    @action(detail=True, methods=['delete'], url_path='delete_user',
-            permission_classes=[IsAuthenticated], url_name='delete-user')
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="ensure-linked-entities",
+        permission_classes=[IsAuthenticated],
+        url_name="ensure-linked-entities",
+    )
+    def ensure_linked_entities(self, request):
+        """
+        Ensure group-specific entity rows exist for the current user.
+
+        Use this for cases where a user already belongs to CORPORATE-GRP / AGENT-GRP
+        but their `CompanyDetail` / `AgentDetail` was never created (or was deleted).
+        This endpoint is idempotent.
+        """
+        from apps.authentication.utils.token_utils import get_user_active_group
+        from apps.org_resources.utils.group_entity_utils import (
+            ensure_agent_detail_for_user,
+            ensure_company_detail_for_user,
+        )
+
+        user = request.user
+        active_group = get_user_active_group(user, request)
+        group_name = active_group or getattr(user, "default_group", None)
+
+        company = None
+        agent = None
+        if group_name == "CORPORATE-GRP":
+            company = ensure_company_detail_for_user(user)
+        elif group_name == "AGENT-GRP":
+            agent = ensure_agent_detail_for_user(user)
+
+        return Response(
+            {
+                "status": "success",
+                "message": "Linked entities ensured",
+                "data": {
+                    "active_group": group_name,
+                    "company_id": company.id if company else getattr(user, "company_id", None),
+                    "agent_id": agent.id if agent else None,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path="delete_user",
+        permission_classes=[IsAuthenticated],
+        url_name="delete-user",
+    )
     def delete_user(self, request, pk=None):
         try:
             user = self.get_object()
+            user_email = user.email
+            user_phone_number = user.mobile_number
+            user_id = user.id
 
             with transaction.atomic():
-                
+                # ========== DELETE LOGS FIRST (they reference other models) ==========
+                # Delete booking-related logs
                 BookingInvoiceLog.objects.filter(booking__user=user).delete()
                 BookingPaymentLog.objects.filter(booking__user=user).delete()
-                Booking.objects.filter(user=user).delete()
-
-                # Delete Wallet-related data
-                Wallet.objects.filter(user=user).delete()
-                WalletTransaction.objects.filter(user=user).delete()
+                BookingRefundLog.objects.filter(booking__user=user).delete()
+                
+                # Delete user subscription logs (must be deleted before UserSubscription)
+                from apps.org_resources.models import UserSubscription
+                user_subscriptions = UserSubscription.objects.filter(user=user)
+                
+                # Delete logs that reference user subscriptions
+                UserSubscriptionLogs.objects.filter(user=user).delete()
+                for user_sub in user_subscriptions:
+                    UserSubscriptionLogs.objects.filter(user_sub=user_sub).delete()
+                
+                # Delete wallet transaction logs
                 WalletTransactionLog.objects.filter(user=user).delete()
+                
+                # ========== DELETE SUBSCRIPTIONS ==========
+                # Delete user subscriptions (after logs are deleted)
+                user_subscriptions.delete()
+                
+                # ========== DELETE BOOKINGS ==========
+                # Delete bookings (after logs are deleted)
+                Booking.objects.filter(user=user).delete()
+                
+                # ========== DELETE WALLET-RELATED DATA ==========
+                WalletTransaction.objects.filter(user=user).delete()
+                Wallet.objects.filter(user=user).delete()
+                
+                # ========== DETACH COMPANY REFERENCES BEFORE USER DELETE ==========
+                # Deleting the user will CASCADE-delete CompanyDetail rows where this user is
+                # added_user/business_rep. Null out any nullable FKs pointing to those companies
+                # to avoid DB FK violations (e.g. WalletTransaction.company).
+                try:
+                    from apps.org_resources.models import CompanyDetail
+                    companies_for_user = CompanyDetail.objects.filter(
+                        Q(added_user=user) | Q(business_rep=user)
+                    )
+                    if companies_for_user.exists():
+                        company_ids = list(companies_for_user.values_list("id", flat=True))
+                        Wallet.objects.filter(company_id__in=company_ids).update(company=None)
+                        WalletTransaction.objects.filter(company_id__in=company_ids).update(company=None)
+                        WalletTransactionLog.objects.filter(company_id__in=company_ids).update(company=None)
+                except Exception as company_error:
+                    print(f"Warning: Could not clear company references: {company_error}")
 
+                # ========== DELETE CUSTOMER PROFILE ==========
+                from apps.customer.models import Customer
+                Customer.objects.filter(user=user).delete()
+                # Also handle cases where user is the added_user
+                Customer.objects.filter(added_user=user).update(added_user=None)
+                
+                # ========== DELETE PROPERTY-RELATED DATA (if user manages/added properties) ==========
+                try:
+                    from apps.hotels.models import Property, PayAtHotelSpendLimit
+                    from apps.booking.models import HotelBooking
+                    # Get properties managed by or added by this user
+                    properties_managed = Property.objects.filter(managed_by=user)
+                    properties_added = Property.objects.filter(added_by=user)
+                    all_properties = (properties_managed | properties_added).distinct()
+
+                    # Clear HotelBooking.confirmed_property so Property can be CASCADE-deleted when user is deleted
+                    if all_properties.exists():
+                        property_ids = list(all_properties.values_list("id", flat=True))
+                        HotelBooking.objects.filter(confirmed_property_id__in=property_ids).update(
+                            confirmed_property=None
+                        )
+
+                    # Delete PayAtHotelSpendLimit records that reference these properties
+                    # This must be done BEFORE deleting properties due to DO_NOTHING constraint
+                    for property in all_properties:
+                        PayAtHotelSpendLimit.objects.filter(property=property).delete()
+
+                    # Properties will be automatically deleted due to CASCADE on managed_by/added_by
+                except Exception as prop_error:
+                    # If Property model doesn't exist or has different structure, continue
+                    print(f"Warning: Could not delete property-related data: {prop_error}")
+
+                # ========== CLEAR AGENT REFERENCES (AgentDetail CASCADE-deleted when user is deleted) ==========
+                try:
+                    from apps.org_resources.models import AgentDetail
+                    agents_for_user = AgentDetail.objects.filter(added_user=user)
+                    if agents_for_user.exists():
+                        agent_ids = list(agents_for_user.values_list("id", flat=True))
+                        Wallet.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                        WalletTransaction.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                        WalletTransactionLog.objects.filter(agent_id__in=agent_ids).update(agent=None)
+                except Exception as agent_error:
+                    print(f"Warning: Could not clear agent references: {agent_error}")
+
+                # ========== DELETE OTHER USER-RELATED DATA ==========
+                # Delete OTP records
+                UserOtp.objects.filter(
+                    Q(user_account=user_email) | Q(user_account=user_phone_number)
+                ).delete()
+                
+                # Clear ManyToMany relationships
+                user.groups.clear()
+                user.roles.clear()
+                user.user_permissions.clear()
+                
+                # ========== DELETE USER ==========
                 # Finally, delete the user
-                user_email = user.email
-                user_phone_number = user.mobile_number
                 user.delete()
-                print(f"Deleted user with ID: {user.id}, Email: {user_email}, Phone: {user_phone_number}")
+                print(
+                    f"Deleted user with ID: {user_id}, Email: {user_email}, Phone: {user_phone_number}"
+                )
 
             return Response(
                 {
-                    'detail': 'User and related data deleted successfully.',
-                    'email': user_email,
-                    'phone_number': user_phone_number
+                    "detail": "User and related data deleted successfully.",
+                    "email": user_email,
+                    "phone_number": user_phone_number,
                 },
-                status=status.HTTP_204_NO_CONTENT
+                status=status.HTTP_204_NO_CONTENT,
             )
-        
-        except Exception as e:
-            return Response({'detail': f'Error deleting user: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['GET'], url_path='detail',
-            permission_classes=[IsAuthenticated],
-            url_name='user-profile-detail')
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error deleting user: {str(e)}")
+            print(f"Traceback: {error_trace}")
+            return Response(
+                {"detail": f"Error deleting user: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="detail",
+        permission_classes=[IsAuthenticated],
+        url_name="user-profile-detail",
+    )
     def get_user_profile_detail(self, request):
 
         user = request.user
-        #print("customer profile", user.customer_profile.all())
+        # print("customer profile", user.customer_profile.all())
         userlist_serializer = UserListSerializer(user)
-        response = self.get_response(data=userlist_serializer.data, status="success",
-                                     message="Profile Retrieved",
-                                     status_code=status.HTTP_200_OK)
+        response = self.get_response(
+            data=userlist_serializer.data,
+            status="success",
+            message="Profile Retrieved",
+            status_code=status.HTTP_200_OK,
+        )
         return response
 
-    @action(detail=False, methods=['GET'], url_path='referral',
-            permission_classes=[IsAuthenticated],
-            url_name='referral-link')
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="referral",
+        permission_classes=[IsAuthenticated],
+        url_name="referral-link",
+    )
     def get_referral_link(self, request):
         user = request.user
         referral_code = user.referral
 
-        if user.default_group == 'B2C-GRP':
-            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
-        elif user.default_group == 'BUSINESS-GRP':
-            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
-        elif user.default_group == 'CORPORATE-GRP':
+        if user.default_group == "B2C-GRP":
+            signup_link = (
+                f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+            )
+        elif user.default_group == "BUSINESS-GRP":
+            signup_link = (
+                f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+            )
+        elif user.default_group == "CORPORATE-GRP":
             signup_link = f"{settings.FRONTEND_URL}/corporate-register/?referral_code={referral_code}"
         else:
-            signup_link = f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+            signup_link = (
+                f"{settings.FRONTEND_URL}/signup/?referral_code={referral_code}"
+            )
 
         data = {"signup_link": signup_link}
 
-        response = self.get_response(data=data, status="success",
-                                     message="Referral Link",
-                                     status_code=status.HTTP_200_OK)
+        response = self.get_response(
+            data=data,
+            status="success",
+            message="Referral Link",
+            status_code=status.HTTP_200_OK,
+        )
         return response
 
-    @action(detail=False, methods=['GET'], url_path='referral/summary',
-            permission_classes=[IsAuthenticated],
-            url_name='referral-summary')
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="referral/summary",
+        permission_classes=[IsAuthenticated],
+        url_name="referral-summary",
+    )
     def get_referral_summary(self, request):
-        user_id = request.query_params.get('user', None)
+        user_id = request.query_params.get("user", None)
         if not user_id:
             user = request.user
             user_id = user.id
-        else:  
+        else:
             user = User.objects.filter(id=user_id).first()
 
         if not user or not user_id:
             response = self.get_error_response(
-                message="Invalid User", status="error",
-                errors=[],error_code="INVALID_USER",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Invalid User",
+                status="error",
+                errors=[],
+                error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
-            
+
         referral = user.referral
 
         if not referral:
             response = self.get_error_response(
-                message="Missing referral code", status="error",
-                errors=[],error_code="MISSING_REFERRAL_CODE",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Missing referral code",
+                status="error",
+                errors=[],
+                error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
-            
-        referred_users = list(User.objects.filter(
-            referred_code=referral).values_list('id', flat=True))
+
+        referred_users = list(
+            User.objects.filter(referred_code=referral).values_list("id", flat=True)
+        )
 
         no_of_referred_users = len(referred_users)
         referred_users.append(-1)
 
-        total_amount, credited_user_list = customer_db_utils.get_referral_bonus(referred_users, user_id)
+        total_amount, credited_user_list = customer_db_utils.get_referral_bonus(
+            referred_users, user_id
+        )
         if total_amount is None:
             total_amount = 0
         else:
@@ -1385,40 +2427,56 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
         no_of_credited_users = len(credited_user_list)
 
-        data = {"no_of_referred_users":no_of_referred_users,
-                "no_of_credited_user":no_of_credited_users,
-                "total_credited_amount": total_amount}
+        data = {
+            "no_of_referred_users": no_of_referred_users,
+            "no_of_credited_user": no_of_credited_users,
+            "total_credited_amount": total_amount,
+        }
 
-        response = self.get_response(data=data, count=1, status="success",
-                                     message="Referral Summary",
-                                     status_code=status.HTTP_200_OK)
+        response = self.get_response(
+            data=data,
+            count=1,
+            status="success",
+            message="Referral Summary",
+            status_code=status.HTTP_200_OK,
+        )
         return response
 
-    @action(detail=False, methods=['GET'], url_path='referral/users',
-            permission_classes=[IsAuthenticated],
-            url_name='referral-users')
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="referral/users",
+        permission_classes=[IsAuthenticated],
+        url_name="referral-users",
+    )
     def get_referral_user(self, request):
-        user_id = request.query_params.get('user', None)
+        user_id = request.query_params.get("user", None)
         if not user_id:
             user = request.user
             user_id = user.id
-        else:  
+        else:
             user = User.objects.filter(id=user_id).first()
 
         if not user or not user_id:
             response = self.get_error_response(
-                message="Invalid User", status="error",
-                errors=[],error_code="INVALID_USER",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Invalid User",
+                status="error",
+                errors=[],
+                error_code="INVALID_USER",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
-            
+
         referral = user.referral
 
         if not referral:
             response = self.get_error_response(
-                message="Missing referral code", status="error",
-                errors=[],error_code="MISSING_REFERRAL_CODE",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Missing referral code",
+                status="error",
+                errors=[],
+                error_code="MISSING_REFERRAL_CODE",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return response
 
         referred_users = User.objects.filter(referred_code=referral)
@@ -1426,73 +2484,144 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
         count, referred_users = paginate_queryset(self.request, referred_users)
 
         credited_user_dict = customer_db_utils.get_credited_referred_user(user_id)
-        context={'credited_user_dict': credited_user_dict}
+        context = {"credited_user_dict": credited_user_dict}
 
         serializer = UserRefferalSerializer(referred_users, many=True, context=context)
 
-##        referred_users = referred_users.values(
-##            'id','name', 'email','first_booking')
-##
-##        data = {"referred_list":}
+        ##        referred_users = referred_users.values(
+        ##            'id','name', 'email','first_booking')
+        ##
+        ##        data = {"referred_list":}
 
-        response = self.get_response(data=serializer.data, count=count, status="success",
-                                     message="Referral User List",
-                                     status_code=status.HTTP_200_OK)
+        response = self.get_response(
+            data=serializer.data,
+            count=count,
+            status="success",
+            message="Referral User List",
+            status_code=status.HTTP_200_OK,
+        )
         return response
-    
-    
-    @action(detail=False, methods=['POST'], url_path='default/group',
-            permission_classes=[IsAuthenticated],
-            url_name='default-group')
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="default/group",
+        permission_classes=[IsAuthenticated],
+        url_name="default-group",
+    )
     def update_default_group(self, request):
+        self.log_request(request)
         instance = self.request.user
         user_groups = []
-        
+
         try:
-            user_groups = [ugroups.get('name', '') for ugroups in instance.groups.values('name')]
+            user_groups = [
+                ugroups.get("name", "") for ugroups in instance.groups.values("name")
+            ]
         except Exception as e:
-            print(e)   
-        
-        default_group = request.data.get('default_group', None)
-            
+            logger.error(f"Error getting user groups: {str(e)}", exc_info=True)
+
+        default_group = request.data.get("default_group", None)
+
         if instance:
             if not default_group:
                 custom_response = self.get_error_response(
-                    message="Missing default group", status="error",
-                    errors=[],error_code="GROUP_MISSING",
-                    status_code=status.HTTP_404_NOT_FOUND)
+                    message="Missing default group",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                self.log_response(custom_response)
                 return custom_response
 
             if not default_group in user_groups:
                 custom_response = self.get_error_response(
-                    message="Group Not Mapped", status="error",
-                    errors=[],error_code="GROUP_MISSING",
-                    status_code=status.HTTP_404_NOT_FOUND)
+                    message="Group Not Mapped",
+                    status="error",
+                    errors=[],
+                    error_code="GROUP_MISSING",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+                self.log_response(custom_response)
                 return custom_response
-            
+
             instance.default_group = default_group
             instance.save()
-            custom_response = self.get_response(
-                status='success',
-                data=[],  # Use the data from the default response
-                message="Default Group Updated",
-                status_code=status.HTTP_200_OK,  # 200 for successful retrieval
+
+            # Generate new tokens with updated default_group as active_group (same format as login)
+            from apps.authentication.tokens import CustomRefreshToken
+
+            try:
+                refresh = CustomRefreshToken.for_user(
+                    instance, active_group=default_group
+                )
+
+                # Invalidate cached groups (user might have switched contexts)
+                from apps.authentication.utils.group_utils import (
+                    invalidate_user_groups_cache,
+                )
+
+                invalidate_user_groups_cache(instance.id)
+
+                # Get user representation with new tokens (same format as login)
+                data = authentication_utils.user_representation(
+                    instance, refresh_token=refresh
+                )
+                # Add active_group to response (matching login endpoint format)
+                if refresh.get("active_group"):
+                    data["user"]["active_group"] = refresh["active_group"]
+                else:
+                    data["user"]["active_group"] = default_group
+
+                logger.info(
+                    f"User {instance.id} updated default group to: {default_group}"
+                )
+
+                custom_response = self.get_response(
+                    data=data,
+                    status="success",
+                    message="Default Group Updated",
+                    status_code=status.HTTP_200_OK,
+                )
+                self.log_response(custom_response)
+                return custom_response
+
+            except Exception as e:
+                logger.error(
+                    f"Error generating tokens for user {instance.id}: {str(e)}",
+                    exc_info=True,
+                )
+                return self.get_error_response(
+                    message="Failed to update default group. Please try again.",
+                    status="error",
+                    errors=[],
+                    error_code="UPDATE_GROUP_ERROR",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
             custom_response = self.get_error_response(
-                message="User Not Found", status="error",
-                errors=[],error_code="USER_MISSING",
-                status_code=status.HTTP_404_NOT_FOUND)
-        return custom_response
-        
-    @action(detail=False, methods=['POST'], url_path='update-groups-roles',
-            permission_classes=[IsAuthenticated],
-            url_name='update-groups-roles')
+                message="User Not Found",
+                status="error",
+                errors=[],
+                error_code="USER_MISSING",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+            self.log_response(custom_response)
+            return custom_response
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="update-groups-roles",
+        permission_classes=[IsAuthenticated],
+        url_name="update-groups-roles",
+    )
     def update_user_groups_roles(self, request):
         self.log_request(request)
-        
-        user_id = request.data.get('user_id', None)
-        
+
+        user_id = request.data.get("user_id", None)
+
         if user_id:
             # if not request.user.is_staff and not request.user.is_superuser:
             #     response = self.get_error_response(
@@ -1504,7 +2633,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             #     )
             #     self.log_response(response)
             #     return response
-                
+
             try:
                 user = User.objects.get(id=user_id)
             except User.DoesNotExist:
@@ -1513,7 +2642,7 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     status="error",
                     errors=[],
                     error_code="USER_NOT_FOUND",
-                    status_code=status.HTTP_404_NOT_FOUND
+                    status_code=status.HTTP_404_NOT_FOUND,
                 )
                 self.log_response(response)
                 return response
@@ -1523,103 +2652,247 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                 status="error",
                 errors=[],
                 error_code="USER_ID_REQUIRED",
-                status_code=status.HTTP_400_BAD_REQUEST
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
             self.log_response(response)
             return response
-                
-        users_groups = request.data.get('users_groups', [])
-        users_roles = request.data.get('users_roles', [])
-        removal_groups = request.data.get('removal_groups', [])
-        removal_roles = request.data.get('removal_roles', [])
-        
-        current_groups = list(user.groups.values_list('name', flat=True))
-        current_roles = list(user.roles.values_list('name', flat=True))
-        
-        if (all(group in current_groups for group in users_groups) and 
-            all(role in current_roles for role in users_roles) and
-            not removal_groups and not removal_roles):
+
+        users_groups = request.data.get("users_groups", [])
+        users_roles = request.data.get("users_roles", [])
+        removal_groups = request.data.get("removal_groups", [])
+        removal_roles = request.data.get("removal_roles", [])
+
+        current_groups = list(user.groups.values_list("name", flat=True))
+        current_roles = list(user.roles.values_list("name", flat=True))
+
+        if (
+            all(group in current_groups for group in users_groups)
+            and all(role in current_roles for role in users_roles)
+            and not removal_groups
+            and not removal_roles
+        ):
             response = self.get_response(
                 data=[],
                 status="success",
                 message="Already existed.",
-                status_code=status.HTTP_200_OK
+                status_code=status.HTTP_200_OK,
             )
             self.log_response(response)
             return response
-        
+
         if removal_groups:
-            remaining_groups = [group for group in current_groups if group not in removal_groups]
+            remaining_groups = [
+                group for group in current_groups if group not in removal_groups
+            ]
             if not remaining_groups and not users_groups:
                 response = self.get_error_response(
                     message="At least one group and role required",
                     status="error",
                     errors=[],
                     error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 self.log_response(response)
                 return response
-                
+
             for group_name in removal_groups:
                 group = db_utils.get_group_by_name(group_name)
                 if group and group in user.groups.all():
                     user.groups.remove(group)
-                    
+
         if removal_roles:
-            remaining_roles = [role for role in current_roles if role not in removal_roles]
+            remaining_roles = [
+                role for role in current_roles if role not in removal_roles
+            ]
             if not remaining_roles and not users_roles:
                 response = self.get_error_response(
                     message="At least one group and role required",
                     status="error",
                     errors=[],
                     error_code="VALIDATION_ERROR",
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
                 self.log_response(response)
                 return response
-                
+
             for role_name in removal_roles:
                 role = db_utils.get_role_by_name(role_name)
                 if role and role in user.roles.all():
                     user.roles.remove(role)
-        
+
         # Add new groups
         for group_name in users_groups:
             if group_name not in current_groups:
                 group = db_utils.get_group_by_name(group_name)
                 if group:
                     user.groups.add(group)
-        
+
         # Add new roles
         for role_name in users_roles:
             if role_name not in current_roles:
                 role = db_utils.get_role_by_name(role_name)
                 if role:
                     user.roles.add(role)
-        
+
         user.refresh_from_db()
-        updated_groups = list(user.groups.values_list('name', flat=True))
-        updated_roles = list(user.roles.values_list('name', flat=True))
-        
+        updated_groups = list(user.groups.values_list("name", flat=True))
+        updated_roles = list(user.roles.values_list("name", flat=True))
+
+        # Invalidate cached groups since they've changed
+        from apps.authentication.utils.group_utils import invalidate_user_groups_cache
+
+        invalidate_user_groups_cache(user.id)
+
         response_data = {
             "user_id": user.id,
             "email": user.email,
             "groups": updated_groups,
-            "roles": updated_roles
+            "roles": updated_roles,
         }
-        
+
         response = self.get_response(
             data=response_data,
             status="success",
             message="User groups and roles updated successfully",
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
         self.log_response(response)
         return response
 
-    @action(detail=False, methods=['post'], url_path='billed-to-user',
-        permission_classes=[IsAuthenticated], url_name='billed-to-user')
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="switch-group",
+        permission_classes=[IsAuthenticated],
+        url_name="switch-group",
+        throttle_classes=[SwitchGroupThrottle],
+    )
+    def switch_active_group(self, request):
+        """
+        Switch active group and get new tokens with the selected group.
+        This allows users to have different active groups in different sessions.
+
+        Security:
+        - Validates user belongs to requested group (from database)
+        - Validates user account is active
+        - Logs all group switch attempts
+
+        Request Body:
+            - active_group: Group name to switch to (required)
+
+        Returns:
+            New tokens with active_group claim set
+        """
+        self.log_request(request)
+
+        user = request.user
+        active_group = request.data.get("active_group")
+
+        # Input validation
+        if not active_group:
+            logger.warning(
+                f"User {user.id} attempted group switch without active_group"
+            )
+            return self.get_error_response(
+                message="active_group is required",
+                status="error",
+                errors=[
+                    {"field": "active_group", "message": "active_group is required"}
+                ],
+                error_code="MISSING_ACTIVE_GROUP",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate active_group format (basic validation)
+        if not isinstance(active_group, str) or len(active_group) > 50:
+            logger.warning(
+                f"User {user.id} provided invalid active_group format: {active_group}"
+            )
+            return self.get_error_response(
+                message="Invalid active_group format",
+                status="error",
+                errors=[{"field": "active_group", "message": "Invalid format"}],
+                error_code="INVALID_FORMAT",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate that user belongs to this group (from database for security, no cache)
+        from apps.authentication.utils.group_utils import validate_user_group_membership
+
+        is_valid, error_msg = validate_user_group_membership(
+            user, active_group, use_cache=False
+        )
+
+        if not is_valid:
+            logger.warning(
+                f"User {user.id} attempted to switch to invalid group '{active_group}': {error_msg}"
+            )
+            return self.get_error_response(
+                message=error_msg or f"User does not belong to group: {active_group}",
+                status="error",
+                errors=[
+                    {
+                        "field": "active_group",
+                        "message": error_msg or f"Invalid group: {active_group}",
+                    }
+                ],
+                error_code="INVALID_GROUP",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate new tokens with active_group
+        from apps.authentication.tokens import CustomRefreshToken
+
+        try:
+            refresh = CustomRefreshToken.for_user(user, active_group=active_group)
+
+            # Invalidate cached groups (user might have switched contexts)
+            from apps.authentication.utils.group_utils import (
+                invalidate_user_groups_cache,
+            )
+
+            invalidate_user_groups_cache(user.id)
+
+            # Get user representation with new tokens (same format as login)
+            data = authentication_utils.user_representation(user, refresh_token=refresh)
+            # Add active_group to response (matching login endpoint format)
+            if refresh.get("active_group"):
+                data["user"]["active_group"] = refresh["active_group"]
+            else:
+                data["user"]["active_group"] = active_group
+
+            logger.info(
+                f"User {user.id} successfully switched to group: {active_group}"
+            )
+
+            response = self.get_response(
+                data=data,
+                status="success",
+                message=f"Active group switched to {active_group}",
+                status_code=status.HTTP_200_OK,
+            )
+            self.log_response(response)
+            return response
+
+        except Exception as e:
+            logger.error(
+                f"Error switching group for user {user.id}: {str(e)}", exc_info=True
+            )
+            return self.get_error_response(
+                message="Failed to switch group. Please try again.",
+                status="error",
+                errors=[],
+                error_code="SWITCH_GROUP_ERROR",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="billed-to-user",
+        permission_classes=[IsAuthenticated],
+        url_name="billed-to-user",
+    )
     def billed_to_user(self, request):
         """
         Create a new user with group and role assignment for billing purposes
@@ -1629,34 +2902,65 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
             serializer = BilledUserSerializer(data=request.data)
             if not serializer.is_valid():
                 return self.get_error_response(
-                    message="Invalid request data", 
-                    status="error", 
+                    message="Invalid request data",
+                    status="error",
                     errors=serializer.errors,
-                    error_code="INVALID_DATA", 
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    error_code="INVALID_DATA",
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             validated_data = serializer.validated_data
-            mobile_number = validated_data['mobile_number']
-            email = validated_data['email']
-            name = validated_data['name']
-            user_group = validated_data['user_group']
+            mobile_number = validated_data["mobile_number"]
+            email = (validated_data["email"] or "").strip().lower()
+            name = validated_data["name"]
+            user_group = validated_data["user_group"]
+            address = validated_data.get("address", "")
+            state = validated_data.get("state", "")
+            gstin = validated_data.get("gstin", "")
+            pan_number = validated_data.get("pan_number", "")
+            company_name = validated_data.get("company_name", "")
+            agency_name = validated_data.get("agency_name", "")
+            company_email = validated_data.get("company_email", "") or email
+            company_phone = validated_data.get("company_phone", "") or mobile_number
+            agent_email = validated_data.get("agent_email", "") or email
+            agent_phone = validated_data.get("agent_phone", "") or mobile_number
 
-            # Check if user already exists with same email or mobile
-            existing_user = User.objects.filter(
-                Q(email=email) | Q(mobile_number=mobile_number)
-            ).first()
-            
-            if existing_user:
+            # Reuse existing user by email/mobile (do NOT create duplicates).
+            # Only error if email belongs to one user and mobile belongs to another.
+            existing_by_email = (
+                User.objects.filter(email__iexact=email).first() if email else None
+            )
+            existing_by_mobile = (
+                User.objects.filter(mobile_number=mobile_number).first()
+                if mobile_number
+                else None
+            )
+            if (
+                existing_by_email
+                and existing_by_mobile
+                and existing_by_email.id != existing_by_mobile.id
+            ):
                 return self.get_error_response(
-                    message="User already exists with this email or mobile number",
+                    message="Email and mobile belong to different users",
                     status="error",
                     errors=[],
-                    error_code="USER_ALREADY_EXISTS",
-                    status_code=status.HTTP_409_CONFLICT
+                    error_code="USER_CONFLICT",
+                    status_code=status.HTTP_409_CONFLICT,
                 )
 
+            existing_user = existing_by_email or existing_by_mobile
+
             # Get group and role based on user_group
+            # Invoice clients support only these groups
+            if user_group not in ("B2C-GRP", "CORPORATE-GRP", "AGENT-GRP"):
+                return self.get_error_response(
+                    message="This client type is not supported in invoice clients",
+                    status="error",
+                    errors=[],
+                    error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
             grp, role = authentication_utils.get_group_based_on_name(user_group)
             if not grp or not role:
                 return self.get_error_response(
@@ -1664,26 +2968,154 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
                     status="error",
                     errors=[],
                     error_code="GROUP_ROLE_NOT_EXIST",
-                    status_code=status.HTTP_406_NOT_ACCEPTABLE
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
                 )
 
-            # Create user within transaction
             with transaction.atomic():
-                # Create the user
-                user = User.objects.create(
-                    email=email,
-                    mobile_number=mobile_number,
-                    name=name,
-                    first_name=name.split(' ')[0] if name else '',
-                    last_name=' '.join(name.split(' ')[1:]) if len(name.split(' ')) > 1 else '',
-                    default_group=user_group,
-                    is_active=True
+                # Create or update the user (single user row across groups)
+                if existing_user:
+                    user = existing_user
+                    user.email = email or user.email
+                    user.mobile_number = mobile_number or user.mobile_number
+                    user.name = name or user.name
+                    user.first_name = user.name.split(" ")[0] if user.name else ""
+                    user.last_name = (
+                        " ".join(user.name.split(" ")[1:])
+                        if user.name and len(user.name.split(" ")) > 1
+                        else ""
+                    )
+                    user.is_active = True
+                    user.save()
+                else:
+                    user = User.objects.create(
+                        email=email,
+                        mobile_number=mobile_number,
+                        name=name,
+                        first_name=name.split(" ")[0] if name else "",
+                        last_name=(
+                            " ".join(name.split(" ")[1:])
+                            if len(name.split(" ")) > 1
+                            else ""
+                        ),
+                        is_active=True,
+                    )
+
+                # Ensure customer profile exists (used for billing fields even for other groups)
+                customer, _ = Customer.objects.get_or_create(
+                    user_id=user.id,
+                    defaults={
+                        "active": True,
+                        "address": address,
+                        "state": state,
+                        "gstin": gstin,
+                        "pan_card_number": pan_number,
+                    },
                 )
+                # Update billing fields if provided
+                if address is not None:
+                    customer.address = address
+                if state is not None:
+                    customer.state = state
+                if gstin is not None:
+                    customer.gstin = gstin
+                if pan_number is not None:
+                    customer.pan_card_number = pan_number
+                customer.active = True
+                customer.save()
 
-                # Create customer profile
-                Customer.objects.create(user_id=user.id, active=True)
+                # Create/link group-specific profile objects
+                if user_group == "CORPORATE-GRP":
+                    # Only create a new company if user has no linked one.
+                    company = (
+                        CompanyDetail.objects.filter(id=user.company_id).first()
+                        if getattr(user, "company_id", None)
+                        else None
+                    )
+                    if not company:
+                        company = CompanyDetail.objects.filter(company_email=company_email).first()
+                    if not company:
+                        company = CompanyDetail.objects.create(
+                            added_user=user,
+                            business_rep=user,
+                            company_name=(company_name or name),
+                            company_email=company_email,
+                            company_phone=company_phone,
+                            registered_address=address,
+                            state=state or "",
+                            gstin_no=gstin or "",
+                            pan_no=pan_number or "",
+                            approved=True,
+                            is_active=True,
+                        )
+                    else:
+                        if company_name:
+                            company.company_name = company_name
+                        if validated_data.get("company_email") is not None:
+                            company.company_email = company_email
+                        if validated_data.get("company_phone") is not None:
+                            company.company_phone = company_phone
+                        company.registered_address = address or company.registered_address
+                        company.state = state or company.state
+                        company.gstin_no = gstin or company.gstin_no
+                        company.pan_no = pan_number or company.pan_no
+                        # Ensure linked to this user if missing
+                        if not company.business_rep_id:
+                            company.business_rep = user
+                        if not company.added_user_id:
+                            company.added_user = user
+                        company.save()
+                    if getattr(user, "company_id", None) != company.id:
+                        user.company_id = company.id
+                        user.save(update_fields=["company_id"])
 
-                # Assign group and role
+                elif user_group == "AGENT-GRP":
+                    # Only create a new agent if user has no linked agent profile.
+                    agent = AgentDetail.objects.filter(added_user=user).order_by("-id").first()
+                    if not agent:
+                        agent = AgentDetail.objects.filter(contact_email_address=email).first()
+                    if not agent:
+                        agent = AgentDetail.objects.create(
+                            added_user=user,
+                            agent_name=(agency_name or name),
+                            agent_email=agent_email,
+                            agent_phone=agent_phone,
+                            contact_person_name=name,
+                            contact_email_address=email,
+                            contact_number=mobile_number,
+                            registered_address=address,
+                            state=state or "",
+                            gstin_no=gstin or "",
+                            pan_no=pan_number or "",
+                            approved=True,
+                            is_active=True,
+                        )
+                    else:
+                        if agency_name:
+                            agent.agent_name = agency_name
+                        if validated_data.get("agent_email") is not None:
+                            agent.agent_email = agent_email
+                        if validated_data.get("agent_phone") is not None:
+                            agent.agent_phone = agent_phone
+                        agent.registered_address = address or agent.registered_address
+                        agent.state = state or agent.state
+                        agent.gstin_no = gstin or agent.gstin_no
+                        agent.pan_no = pan_number or agent.pan_no
+                        if not agent.added_user_id:
+                            agent.added_user = user
+                        agent.save()
+                    # IMPORTANT: Do NOT set Customer.primary_agent for an agent user.
+                    # primary_agent is meant to link a *customer* to their agent, not to define the agent's own profile.
+
+                elif user_group == "HOTELIER-GRP" or user_group == "BUSINESS-GRP":
+                    return self.get_error_response(
+                        message="This client type is not supported in invoice clients",
+                        status="error",
+                        errors=[],
+                        error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Assign group and role (do not clear existing memberships)
                 if grp:
                     user.groups.add(grp)
                 if role:
@@ -1691,105 +3123,606 @@ class UserProfileViewset(viewsets.ModelViewSet, StandardResponseMixin, LoggingMi
 
                 # Prepare response data
                 user_data = {
-                    'id': user.id,
-                    'email': user.email,
-                    'mobile_number': user.mobile_number,
-                    'name': user.name,
-                    'user_group': user_group,
-                    'groups': [{'id': grp.id, 'name': grp.name}] if grp else [],
-                    'roles': [{'id': role.id, 'name': role.name}] if role else [],
-                    'default_group': user.default_group,
-                    'created': user.created,
-                    'is_active': user.is_active
+                    "id": user.id,
+                    "email": user.email,
+                    "mobile_number": user.mobile_number,
+                    "name": user.name,
+                    "user_group": user_group,
+                    "groups": [{"id": grp.id, "name": grp.name}] if grp else [],
+                    "roles": [{"id": role.id, "name": role.name}] if role else [],
+                    "default_group": user.default_group,
+                    "created": user.created,
+                    "is_active": user.is_active,
+                    "customer_details": {
+                        "address": address,
+                        "state": state,
+                        "GSTIN": gstin,
+                        "PAN": pan_number,
+                    },
                 }
 
                 return Response(
                     {
-                        'status': 'success',
-                        'message': 'User created successfully for billing',
-                        'data': user_data
+                        "status": "success",
+                        "message": "User created successfully for billing",
+                        "data": user_data,
                     },
-                    status=status.HTTP_201_CREATED
+                    status=status.HTTP_201_CREATED,
                 )
 
         except Exception as e:
             return Response(
                 {
-                    'status': 'error',
-                    'message': f'Error creating billed user: {str(e)}',
-                    'data': {}
+                    "status": "error",
+                    "message": f"Error creating billed user: {str(e)}",
+                    "data": {},
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="billed-to-user",
+        permission_classes=[IsAuthenticated],
+        url_name="billed-to-user-update",
+    )
+    def update_billed_to_user(self, request, pk=None):
+        """
+        Update billed client details by user id.
+        """
+        user = User.objects.filter(id=pk).first()
+        if not user:
+            return self.get_error_response(
+                message="User not found",
+                status="error",
+                errors=[],
+                error_code="USER_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = BilledUserSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return self.get_error_response(
+                message="Invalid request data",
+                status="error",
+                errors=serializer.errors,
+                error_code="INVALID_DATA",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        with transaction.atomic():
+            email = data.get("email", user.email)
+            if email:
+                email = email.strip().lower()
+            mobile_number = data.get("mobile_number", user.mobile_number)
+            user_group = data.get("user_group")
+            if not user_group:
+                # Infer from current group membership; fallback to B2C
+                group_names = set(user.groups.values_list("name", flat=True))
+                if "CORPORATE-GRP" in group_names:
+                    user_group = "CORPORATE-GRP"
+                elif "AGENT-GRP" in group_names:
+                    user_group = "AGENT-GRP"
+                else:
+                    user_group = "B2C-GRP"
+
+            if user_group not in ("B2C-GRP", "CORPORATE-GRP", "AGENT-GRP"):
+                return self.get_error_response(
+                    message="This client type is not supported in invoice clients",
+                    status="error",
+                    errors=[],
+                    error_code="CLIENT_TYPE_NOT_SUPPORTED",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Keep global uniqueness on User; do not enforce "unique by group".
+            if email and User.objects.filter(email__iexact=email).exclude(id=user.id).exists():
+                return self.get_error_response(
+                    message="User already exists with this email",
+                    status="error",
+                    errors=[],
+                    error_code="EMAIL_ALREADY_EXISTS",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+            if mobile_number and User.objects.filter(mobile_number=mobile_number).exclude(id=user.id).exists():
+                return self.get_error_response(
+                    message="User already exists with this mobile number",
+                    status="error",
+                    errors=[],
+                    error_code="MOBILE_ALREADY_EXISTS",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+
+            user.name = data.get("name", user.name)
+            user.email = email
+            user.mobile_number = mobile_number
+            user.first_name = user.name.split(" ")[0] if user.name else ""
+            user.last_name = " ".join(user.name.split(" ")[1:]) if user.name and len(user.name.split(" ")) > 1 else ""
+            user.save()
+
+            customer, _ = Customer.objects.get_or_create(user_id=user.id, defaults={"active": True})
+            if "address" in data:
+                customer.address = data.get("address") or ""
+            if "state" in data:
+                customer.state = data.get("state") or ""
+            if "gstin" in data:
+                customer.gstin = data.get("gstin") or ""
+            if "pan_number" in data:
+                customer.pan_card_number = data.get("pan_number") or ""
+            customer.active = True
+            customer.save()
+
+            # Ensure group-specific links exist and are updated
+            if user_group == "CORPORATE-GRP":
+                company_name = data.get("company_name", "")
+                company_email = data.get("company_email", "") or email
+                company_phone = data.get("company_phone", "") or mobile_number
+
+                company = (
+                    CompanyDetail.objects.filter(id=user.company_id).first()
+                    if getattr(user, "company_id", None)
+                    else None
+                )
+                if not company:
+                    company = CompanyDetail.objects.filter(company_email=company_email).first()
+                if not company:
+                    company = CompanyDetail.objects.create(
+                        added_user=user,
+                        business_rep=user,
+                        company_name=(company_name or user.name or user.email or ""),
+                        company_email=company_email,
+                        company_phone=company_phone,
+                        registered_address=(customer.address or ""),
+                        state=(customer.state or ""),
+                        gstin_no=(customer.gstin or ""),
+                        pan_no=(customer.pan_card_number or ""),
+                        approved=True,
+                        is_active=True,
+                    )
+                else:
+                    if company_name:
+                        company.company_name = company_name
+                    if data.get("company_email") is not None:
+                        company.company_email = company_email
+                    if data.get("company_phone") is not None:
+                        company.company_phone = company_phone
+                    company.registered_address = customer.address or company.registered_address
+                    company.state = customer.state or company.state
+                    company.gstin_no = customer.gstin or company.gstin_no
+                    company.pan_no = customer.pan_card_number or company.pan_no
+                    if not company.business_rep_id:
+                        company.business_rep = user
+                    if not company.added_user_id:
+                        company.added_user = user
+                    company.save()
+                if user.company_id != company.id:
+                    user.company_id = company.id
+                    user.save(update_fields=["company_id"])
+
+            elif user_group == "AGENT-GRP":
+                agency_name = data.get("agency_name", "")
+                agent_email = data.get("agent_email", "") or email
+                agent_phone = data.get("agent_phone", "") or mobile_number
+
+                agent = AgentDetail.objects.filter(added_user=user).order_by("-id").first()
+                if not agent:
+                    agent = AgentDetail.objects.filter(contact_email_address=email).first()
+                if not agent:
+                    agent = AgentDetail.objects.create(
+                        added_user=user,
+                        agent_name=(agency_name or user.name or ""),
+                        agent_email=agent_email,
+                        agent_phone=agent_phone,
+                        contact_person_name=(user.name or ""),
+                        contact_email_address=email,
+                        contact_number=mobile_number,
+                        registered_address=(customer.address or ""),
+                        state=(customer.state or ""),
+                        gstin_no=(customer.gstin or ""),
+                        pan_no=(customer.pan_card_number or ""),
+                        approved=True,
+                        is_active=True,
+                    )
+                else:
+                    if agency_name:
+                        agent.agent_name = agency_name
+                    if data.get("agent_email") is not None:
+                        agent.agent_email = agent_email
+                    if data.get("agent_phone") is not None:
+                        agent.agent_phone = agent_phone
+                    agent.contact_person_name = user.name or agent.contact_person_name
+                    agent.contact_email_address = email
+                    agent.contact_number = mobile_number
+                    agent.registered_address = customer.address or agent.registered_address
+                    agent.state = customer.state or agent.state
+                    agent.gstin_no = customer.gstin or agent.gstin_no
+                    agent.pan_no = customer.pan_card_number or agent.pan_no
+                    if not agent.added_user_id:
+                        agent.added_user = user
+                    agent.save()
+                # IMPORTANT: Do NOT set Customer.primary_agent for an agent user.
+
+            grp, role = authentication_utils.get_group_based_on_name(user_group)
+            if grp:
+                user.groups.add(grp)
+            if role:
+                user.roles.add(role)
+
+        return Response(
+            {
+                "status": "success",
+                "message": "Billed user updated successfully",
+                "data": {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "mobile_number": user.mobile_number,
+                    "user_group": user_group,
+                    "customer_details": {
+                        "address": customer.address or "",
+                        "state": customer.state or "",
+                        "GSTIN": customer.gstin or "",
+                        "PAN": customer.pan_card_number or "",
+                    },
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, LoggingMixin):
     queryset = User.objects.all()
     serializer_class = UserListSerializer
-    http_method_names = ['get', 'post', 'put', 'patch']
+    http_method_names = ["get", "post", "put", "patch"]
 
-    @action(detail=False, methods=['POST'], url_path='google',
-            permission_classes=[],
-            url_name='google')
+    @swagger_auto_schema(
+        method="post",
+        operation_summary="Google login/signup (per group)",
+        operation_description=(
+            "Authenticate or signup a user using a Google ID token, optionally binding them to a given group.\n\n"
+            "Flow:\n"
+            "1. Frontend obtains Google ID token from Google SDK.\n"
+            "2. Frontend calls this endpoint with id_token, optional group_name, mobile_number and referred_code.\n"
+            "3. If the email already exists in the given group, this acts as LOGIN and returns tokens.\n"
+            "4. If not, this acts as SIGNUP into that group and returns tokens."
+        ),
+        tags=["Auth - Social (Google)"],
+        security=[],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "id_token": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Google ID token from client-side Google auth",
+                ),
+                "group_name": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Target group identifier (e.g. B2C-GRP, B2B-GRP)",
+                    default="B2C-GRP",
+                ),
+                "mobile_number": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional mobile number to attach to user within the group",
+                ),
+                "referred_code": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional referral code",
+                ),
+            },
+            required=["id_token"],
+        ),
+        responses={
+            200: openapi.Response(
+                description="Google auth successful, JWT tokens and user representation returned"
+            ),
+            400: "Missing or invalid token / email",
+            406: "Group or mobile validation error",
+        },
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="google",
+        permission_classes=[],
+        url_name="google",
+    )
     def google_based_authentication(self, request):
-        gtoken = request.data.get('id_token', None)
-        referred_code = request.data.get('referred_code', '')
+        gtoken = request.data.get("id_token", None)
+        referred_code = request.data.get("referred_code", "")
+        group_name = request.data.get("group_name", "B2C-GRP")
+        mobile_number = request.data.get("mobile_number", "")
 
         if not gtoken:
             custom_response = self.get_error_response(
-                message="Missing token", status="error",
-                errors=[],error_code="TOKEN_MISSING",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Missing token",
+                status="error",
+                errors=[],
+                error_code="TOKEN_MISSING",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
-        
-        token_status, name, email = authentication_utils.validate_google_token(gtoken)
+
+        token_status, name, email, email_verified = authentication_utils.validate_google_token(gtoken)
         if not token_status:
             custom_response = self.get_error_response(
-                message="Invalid token", status="error",
-                errors=[],error_code="INVALID_TOKEN",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Invalid token",
+                status="error",
+                errors=[],
+                error_code="INVALID_TOKEN",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
 
         if not email:
             custom_response = self.get_error_response(
-                message="Missing Email", status="error",
-                errors=[],error_code="MISSING_EMAIL",
-                status_code=status.HTTP_400_BAD_REQUEST)
+                message="Missing Email",
+                status="error",
+                errors=[],
+                error_code="MISSING_EMAIL",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
             return custom_response
-            
+
         email = email.lower()
+        # Use Google's email_verified status if available, otherwise default to True
+        # (Google OAuth typically only returns email if it's verified, but we check the field)
+        google_email_verified = email_verified if email_verified else True
+        grp, role = authentication_utils.get_group_based_on_name(group_name)
+        if not grp or not role:
+            custom_response = self.get_error_response(
+                message="Group or role doesn't exist",
+                status="error",
+                errors=[],
+                error_code="GROUP_ROLE_NOT_EXIST",
+                status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            )
+            return custom_response
+
+        # mobile uniqueness only within target group
+        if mobile_number:
+            mobile_group_user = User.objects.filter(
+                mobile_number=mobile_number, groups=grp
+            ).first()
+            if mobile_group_user:
+                custom_response = self.get_error_response(
+                    message="Mobile already exist",
+                    status="error",
+                    errors=[],
+                    error_code="MOBILE_EXIST",
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                )
+                return custom_response
+
         check_existing_user = User.objects.filter(email=email).first()
         if check_existing_user:
-            data = authentication_utils.generate_refresh_token(check_existing_user)
-            response = self.get_response(data=data, status="success",
-                                         message="Login successful",
-                                         status_code=status.HTTP_200_OK)
+            # User exists - handle login or signup to new group
+            user_has_group = check_existing_user.groups.filter(id=grp.id).exists()
+            
+            # If user already has this group, this is a LOGIN
+            if user_has_group:
+                # Update user details if needed
+                if name and not check_existing_user.name:
+                    check_existing_user.name = name
+                if (
+                    mobile_number
+                    and not check_existing_user.mobile_number
+                    and validate_mobile_number(mobile_number)
+                ):
+                    check_existing_user.mobile_number = mobile_number
+                
+                # Use Google's email verification status
+                check_existing_user.email_verified = google_email_verified
+                check_existing_user.default_group = group_name
+                check_existing_user.save()
+                
+                # Ensure Customer exists for login
+                customer = Customer.objects.filter(user_id=check_existing_user.id).first()
+                if not customer:
+                    Customer.objects.create(user_id=check_existing_user.id, active=True)
+                
+                # Check mobile verification
+                if not check_existing_user.mobile_verified:
+                    mobile = check_existing_user.mobile_number
+                    if not mobile or not validate_mobile_number(mobile):
+                        # Mobile number is missing - return clear response for frontend
+                        custom_response = self.get_response(
+                            data={
+                                "mobile_required": True,
+                                "user_id": check_existing_user.id,
+                                "user_email": check_existing_user.email,
+                                "has_mobile": False,
+                                "mobile_number": None,
+                            },
+                            status="error",
+                            message="Mobile number is required. Please add your mobile number to complete authentication.",
+                            status_code=status.HTTP_200_OK,
+                        )
+                        return custom_response
+
+                    # Mobile exists but not verified - send OTP
+                    otp = generate_otp(no_digits=4)
+                    authentication_utils.mobile_generate_otp_process(
+                        otp, mobile, "LOGIN"
+                    )
+                    response = self.get_response(
+                        data={
+                            "mobile_required": True,
+                            "mobile_verification_required": True,
+                            "user_id": check_existing_user.id,
+                            "user_email": check_existing_user.email,
+                            "has_mobile": True,
+                            "mobile_number": mobile,
+                            "otp_sent": True,
+                        },
+                        status="error",
+                        message="Mobile verification required. OTP sent to your mobile number.",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    return response
+
+                # Login successful - generate tokens
+                data = authentication_utils.generate_refresh_token(
+                    check_existing_user, active_group=group_name
+                )
+                response = self.get_response(
+                    data=data,
+                    status="success",
+                    message="Login successful",
+                    status_code=status.HTTP_200_OK,
+                )
+                return response
+            
+            # User exists but doesn't have this group - this is SIGNUP to new group
+            # Attach group/role if missing
+            if grp and not check_existing_user.groups.filter(id=grp.id).exists():
+                check_existing_user.groups.add(grp)
+            if role and not check_existing_user.roles.filter(id=role.id).exists():
+                check_existing_user.roles.add(role)
+
+            # Update user details if needed
+            if name and not check_existing_user.name:
+                check_existing_user.name = name
+            check_existing_user.default_group = group_name
+            # Use Google's email verification status
+            check_existing_user.email_verified = google_email_verified
+            if (
+                mobile_number
+                and not check_existing_user.mobile_number
+                and validate_mobile_number(mobile_number)
+            ):
+                check_existing_user.mobile_number = mobile_number
+            check_existing_user.save()
+            
+            # Ensure Customer exists
+            customer = Customer.objects.filter(user_id=check_existing_user.id).first()
+            if not customer:
+                Customer.objects.create(user_id=check_existing_user.id, active=True)
+
+            # Add signup bonus for new group signup
+            authentication_utils.add_signup_bonus(check_existing_user, group_name, role)
+
+            if not check_existing_user.mobile_verified:
+                mobile = check_existing_user.mobile_number
+                if not mobile or not validate_mobile_number(mobile):
+                    # Mobile number is missing - return clear response for frontend
+                    custom_response = self.get_response(
+                        data={
+                            "mobile_required": True,
+                            "user_id": check_existing_user.id,
+                            "user_email": check_existing_user.email,
+                            "has_mobile": False,
+                            "mobile_number": None,
+                        },
+                        status="error",
+                        message="Mobile number is required. Please add your mobile number to complete signup.",
+                        status_code=status.HTTP_200_OK,
+                    )
+                    return custom_response
+
+                # Mobile exists but not verified - send OTP
+                otp = generate_otp(no_digits=4)
+                authentication_utils.mobile_generate_otp_process(
+                    otp, mobile, "LOGIN"
+                )
+                response = self.get_response(
+                    data={
+                        "mobile_required": True,
+                        "mobile_verification_required": True,
+                        "user_id": check_existing_user.id,
+                        "user_email": check_existing_user.email,
+                        "has_mobile": True,
+                        "mobile_number": mobile,
+                        "otp_sent": True,
+                    },
+                    status="error",
+                    message="Mobile verification required. OTP sent to your mobile number.",
+                    status_code=status.HTTP_200_OK,
+                )
+                return response
+
+            data = authentication_utils.generate_refresh_token(
+                check_existing_user, active_group=group_name
+            )
+            response = self.get_response(
+                data=data,
+                status="success",
+                message="Signup successful - Group added to existing account",
+                status_code=status.HTTP_200_OK,
+            )
             return response
 
-
-        # for new user 
+        # for new user
+        # Use Google's email_verified status from the token response
+        # If Google says email is verified, we trust it; otherwise we may need to verify
         new_user = User.objects.create(
-            name=name, email=email, mobile_number="",
-            referred_code=referred_code, default_group='B2C-GRP')
+            name=name,
+            email=email,
+            mobile_number=mobile_number,
+            referred_code=referred_code,
+            default_group=group_name,
+            email_verified=google_email_verified,  # Use Google's email verification status
+            mobile_verified=False,
+        )
         Customer.objects.create(user_id=new_user.id, active=True)
-        
-        # set groups and roles
-        grp = db_utils.get_group_by_name('B2C-GRP')
-        role = db_utils.get_role_by_name('B2C-CUST')
 
         if grp:
             new_user.groups.add(grp)
         if role:
             new_user.roles.add(role)
 
-        authentication_utils.add_signup_bonus(new_user, 'B2C-GRP', role)
+        authentication_utils.add_signup_bonus(new_user, group_name, role)
 
-        
-        data = authentication_utils.generate_refresh_token(new_user)
-        
-        response = self.get_response(data=data, status="success",
-                                     message="Signup successful",
-                                     status_code=status.HTTP_200_OK)
+        if not new_user.mobile_verified:
+            mobile = new_user.mobile_number
+            if not mobile or not validate_mobile_number(mobile):
+                # Mobile number is missing - return clear response for frontend
+                custom_response = self.get_response(
+                    data={
+                        "mobile_required": True,
+                        "user_id": new_user.id,
+                        "user_email": new_user.email,
+                        "has_mobile": False,
+                        "mobile_number": None,
+                    },
+                    status="error",
+                    message="Mobile number is required. Please add your mobile number to complete signup.",
+                    status_code=status.HTTP_200_OK,
+                )
+                return custom_response
+
+            # Mobile exists but not verified - send OTP
+            otp = generate_otp(no_digits=4)
+            authentication_utils.mobile_generate_otp_process(otp, mobile, "LOGIN")
+            response = self.get_response(
+                data={
+                    "mobile_required": True,
+                    "mobile_verification_required": True,
+                    "user_id": new_user.id,
+                    "user_email": new_user.email,
+                    "has_mobile": True,
+                    "mobile_number": mobile,
+                    "otp_sent": True,
+                },
+                status="error",
+                message="Mobile verification required. OTP sent to your mobile number.",
+                status_code=status.HTTP_200_OK,
+            )
+            return response
+
+        data = authentication_utils.generate_refresh_token(
+            new_user, active_group=group_name
+        )
+
+        response = self.get_response(
+            data=data,
+            status="success",
+            message="Signup successful",
+            status_code=status.HTTP_200_OK,
+        )
         return response
+
 
 
 # class ForgotPasswordView(APIView):
@@ -1832,3 +3765,110 @@ class SocialAuthentication(viewsets.ModelViewSet, StandardResponseMixin, Logging
 #                     RETURN_RESPONSE['RESULT']:  {"email": email}
 #                 })
 
+
+class PermissionCheckAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    """API endpoint to check if user has a specific permission"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        self.log_request(request)
+        permission_code = request.query_params.get("permission")
+        business_id = request.query_params.get("business_id")
+        
+        if not permission_code:
+            response = self.get_response(
+                data=None,
+                message="permission parameter is required",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                is_error=True,
+            )
+            self.log_response(response)
+            return response
+        
+        business = None
+        if business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        
+        from apps.authentication.utils.permission_utils import has_permission
+        has_perm = has_permission(request.user, permission_code, business)
+        
+        response = self.get_response(
+            data={"has_permission": has_perm, "permission": permission_code},
+            message="Permission check completed",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response
+
+
+class UserPermissionsAPIView(APIView, StandardResponseMixin, LoggingMixin):
+    """API endpoint to get all permissions for a user in a business"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        self.log_request(request)
+        business_id = request.query_params.get("business_id")
+        
+        business = None
+        if business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        elif request.user.business_id:
+            try:
+                from apps.org_managements.models import BusinessDetail
+                business = BusinessDetail.objects.get(id=request.user.business_id)
+            except BusinessDetail.DoesNotExist:
+                pass
+        
+        from apps.authentication.utils.permission_utils import (
+            get_user_permissions,
+            get_user_roles_for_business,
+        )
+        
+        permissions = get_user_permissions(request.user, business)
+        user_roles = get_user_roles_for_business(request.user, business)
+        
+        roles_data = [
+            {
+                "id": ur.role.id,
+                "name": ur.role.name,
+                "short_code": ur.role.short_code,
+                "region": ur.region,
+                "association_id": ur.association_id,
+            }
+            for ur in user_roles
+        ]
+        
+        # Get scopes
+        regions = set()
+        association_ids = set()
+        for ur in user_roles:
+            if ur.region:
+                regions.add(ur.region)
+            if ur.association_id:
+                association_ids.add(str(ur.association_id))
+        
+        scopes = {
+            "regions": sorted(list(regions)),
+            "association_ids": sorted(list(association_ids)),
+        }
+        
+        response = self.get_response(
+            data={
+                "permissions": permissions,
+                "roles": roles_data,
+                "scopes": scopes,
+                "business_id": business.id if business else None,
+            },
+            message="User permissions retrieved",
+            status_code=status.HTTP_200_OK,
+        )
+        self.log_response(response)
+        return response

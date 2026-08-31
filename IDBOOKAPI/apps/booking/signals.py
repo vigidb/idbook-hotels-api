@@ -3,7 +3,7 @@ from django.db.models.signals import (
         post_save, pre_save, post_delete)
 from django.dispatch import receiver
 
-from .models import Booking, Review
+from .models import Booking, Review, BookingPaymentDetail
 
 from apps.booking.tasks import (
         send_booking_email_task, create_invoice_task,
@@ -125,4 +125,34 @@ def check_booking_status(sender, instance:Booking, **kwargs):
                 #         send_cancelled_booking_task.apply_async(args=[booking_id])
 	
 
+
+@receiver(post_save, sender=BookingPaymentDetail)
+def handle_flight_payment_success(sender, instance: BookingPaymentDetail, **kwargs):
+    """
+    Automatically issue flight ticket after successful payment
+    """
+    try:
+        # Only process for successful flight booking payments
+        if (instance.is_transaction_success and 
+            instance.booking and 
+            instance.booking.booking_type == 'FLIGHT' and 
+            instance.booking.flight_booking):
+            
+            flight_booking = instance.booking.flight_booking
+            
+            # Check if ticket not already issued
+            if (flight_booking.status in ['CONFIRMED', 'HELD'] and 
+                not flight_booking.ticket_numbers and 
+                flight_booking.airiq_pnr):
+                
+                # Queue ticket issuance task
+                from apps.booking.tasks import issue_flight_ticket_task
+                issue_flight_ticket_task.delay(instance.booking.id)
+                
+                print(f"Queued flight ticket issuance for booking {instance.booking.id}")
+                
+    except Exception as e:
+        print(f"Error in flight payment success handler: {e}")
+        import traceback
+        print(traceback.format_exc())
 

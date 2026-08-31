@@ -15,16 +15,18 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.security.websocket import AllowedHostsOriginValidator
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'IDBOOKAPI.settings')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "IDBOOKAPI.settings")
 
 asgi_application = get_asgi_application()
 
 
 from apps.socket_com.routing import websocket_urlpatterns
 
-application = ProtocolTypeRouter({
-    "https": asgi_application,
-    "websocket": AllowedHostsOriginValidator(
+application = ProtocolTypeRouter(
+    {
+        "http": asgi_application,  # Changed from "https" to "http" for development
+        "websocket": AllowedHostsOriginValidator(
             AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
-    ),
-})
+        ),
+    }
+)

@@ -1,7 +1,10 @@
 from apps.hotels.utils.db_utils import (
-    get_property_bank_details, bulk_create_property_payout_details,
-    bulk_update_property_payout_details, update_property_payout_error_details,
-    payout_prop_booking_aggregate)
+    get_property_bank_details,
+    bulk_create_property_payout_details,
+    bulk_update_property_payout_details,
+    update_property_payout_error_details,
+    payout_prop_booking_aggregate,
+)
 from apps.booking.utils.db_utils import get_hotelier_amount_payout
 from apps.log_management.utils.db_utils import create_hotelier_payout_log
 
@@ -15,19 +18,20 @@ import traceback, pytz
 
 from datetime import datetime
 
+
 def get_booking_payout_details(property_id):
     prop_booking_obj = get_hotelier_amount_payout(property_id)
-    # payat_hotel_deducted_commission_amount 
-    booking_ids = list(prop_booking_obj.values_list('id', flat=True))
+    # payat_hotel_deducted_commission_amount
+    booking_ids = list(prop_booking_obj.values_list("id", flat=True))
 
     final_payout_amount = payout_prop_booking_aggregate(prop_booking_obj)
-##
-##    hotelier_amount_dict = prop_booking_obj.aggregate(
-##        total=Sum('commission_info__hotelier_amount'))
-##    hotelier_amount = hotelier_amount_dict.get('total')
+    ##
+    ##    hotelier_amount_dict = prop_booking_obj.aggregate(
+    ##        total=Sum('commission_info__hotelier_amount'))
+    ##    hotelier_amount = hotelier_amount_dict.get('total')
 
     return prop_booking_obj, booking_ids, final_payout_amount
-    
+
 
 def get_payout_property_details(property_ids):
     payout_payload_list = []
@@ -36,21 +40,23 @@ def get_payout_property_details(property_ids):
     payment_medium = "PayU"
 
     prop_bank_obj = get_property_bank_details(property_ids)
-    
-    batch_id = "%s" %("BATCH")
-    batch_id  = get_unique_id_from_time(batch_id)
+
+    batch_id = "%s" % ("BATCH")
+    batch_id = get_unique_id_from_time(batch_id)
 
     for indx, prop_bank in enumerate(prop_bank_obj):
-        property_id = prop_bank.get('id')
-        account_number = prop_bank.get('property_bank__account_number')
-        ifsc_code = prop_bank.get('property_bank__ifsc')
+        property_id = prop_bank.get("id")
+        account_number = prop_bank.get("property_bank__account_number")
+        ifsc_code = prop_bank.get("property_bank__ifsc")
 
-        prop_booking_obj, booking_ids, final_payout_amount = get_booking_payout_details(property_id)
+        prop_booking_obj, booking_ids, final_payout_amount = get_booking_payout_details(
+            property_id
+        )
 
         if booking_ids:
 
-            merchant_ref_id = "%s%d" %("TX", indx)
-            merchant_ref_id  = get_unique_id_from_time(merchant_ref_id)
+            merchant_ref_id = "%s%d" % ("TX", indx)
+            merchant_ref_id = get_unique_id_from_time(merchant_ref_id)
 
             payload = {
                 "disableApprovalFlow": True,
@@ -64,39 +70,43 @@ def get_payout_property_details(property_ids):
                 "batchId": batch_id,
                 "merchantRefId": merchant_ref_id,
                 "paymentType": transaction_type,
-                "retry": False
-                }
+                "retry": False,
+            }
 
             payout_payload_list.append(payload)
 
             # property payout details
-            property_payout_dict={
-                "payout_property_id":property_id,
-                "amount":hotelier_amount,
-                "transaction_id":merchant_ref_id,
-                "batch_id":batch_id,
-                "transaction_type":transaction_type,
+            property_payout_dict = {
+                "payout_property_id": property_id,
+                "amount": hotelier_amount,
+                "transaction_id": merchant_ref_id,
+                "batch_id": batch_id,
+                "transaction_type": transaction_type,
                 "booking_list": booking_ids,
-                "payment_medium":payment_medium,
-                "initiate_status":True
-                }
+                "payment_medium": payment_medium,
+                "initiate_status": True,
+            }
             property_payout_list.append(property_payout_dict)
 
     print(payout_payload_list)
     return payout_payload_list, property_payout_list, batch_id
 
+
 def process_initiate_payout_data_error(error_data, current_date):
     payout_error_ids = []
     for edata in error_data:
-        tnx_id = edata.get('merchantRefId', '')
-        message = edata.get('error', '')
+        tnx_id = edata.get("merchantRefId", "")
+        message = edata.get("error", "")
         payout_data = {
-            "initiate_status":400, "initiate_message": message,
-            "initiate_response": error_data, "initiate_date":current_date}
+            "initiate_status": 400,
+            "initiate_message": message,
+            "initiate_response": error_data,
+            "initiate_date": current_date,
+        }
         payout_id = update_property_payout_error_details(tnx_id, payout_data)
         payout_error_ids.append(payout_id)
     return payout_error_ids
-    
+
 
 def initiate_payout(payload, property_payout_list, payment_medium, batch_id):
 
@@ -107,12 +117,12 @@ def initiate_payout(payload, property_payout_list, payment_medium, batch_id):
     current_date = datetime.now(timezone)
     hotelier_payout_log = {}
 
-    if payment_medium == 'PayU':
+    if payment_medium == "PayU":
         payout_obj = PayUPayOutMixin()
         response = payout_obj.initiate_transfer_api(payload)
         response_data = response.json()
 
-        payu_status = response_data.get('status', '')
+        payu_status = response_data.get("status", "")
         if payu_status == 0:
             response_status = 200
         elif payu_status == 1:
@@ -120,70 +130,77 @@ def initiate_payout(payload, property_payout_list, payment_medium, batch_id):
         else:
             response_status = 400
 
-        hotelier_payout_log = {"batch_id":batch_id, "payout_status":response_status,
-                               "payout_response":response_data}
+        hotelier_payout_log = {
+            "batch_id": batch_id,
+            "payout_status": response_status,
+            "payout_response": response_data,
+        }
         create_hotelier_payout_log(hotelier_payout_log)
-        
 
     payout_pk_list = []
     if property_payout_list:
-        prop_payout_obj = bulk_create_property_payout_details(
-            property_payout_list)
+        prop_payout_obj = bulk_create_property_payout_details(property_payout_list)
         # fetch payout ids to update
         payout_pk_list = [obj.id for obj in prop_payout_obj]
 
     # print("response data", response_data)
-    #response_status = response_data.get('status', '')
-    
+    # response_status = response_data.get('status', '')
+
     if response_status == 200:
         print("success")
         payout_update_data = {
-            "initiate_status":response_status, "initiate_message": response_data.get('msg', ''),
-            "initiate_response": response_data, "initiate_date":current_date}
+            "initiate_status": response_status,
+            "initiate_message": response_data.get("msg", ""),
+            "initiate_response": response_data,
+            "initiate_date": current_date,
+        }
         print("payout list::", payout_pk_list)
         bulk_update_property_payout_details(payout_pk_list, payout_update_data)
 
-        payout_response = {'status':'success', 'payout_success_list': payout_pk_list,
-                           'payout_error_list':[]}
+        payout_response = {
+            "status": "success",
+            "payout_success_list": payout_pk_list,
+            "payout_error_list": [],
+        }
 
         return payout_response
     elif response_status == 206:
-        error_data = response_data.get('data', [])
+        error_data = response_data.get("data", [])
         payout_error_ids = process_initiate_payout_data_error(error_data, current_date)
         # get success list
         payout_success_list = list(set(payout_pk_list) - set(payout_error_ids))
         if payout_success_list:
             payout_update_data = {
-                "initiate_status":response_status, "initiate_message": response_data.get('msg', ''),
-                "initiate_response": response_data, "initiate_date":current_date}
+                "initiate_status": response_status,
+                "initiate_message": response_data.get("msg", ""),
+                "initiate_response": response_data,
+                "initiate_date": current_date,
+            }
             bulk_update_property_payout_details(payout_success_list, payout_update_data)
 
-        payout_response = {'status':'partial_success', 'payout_success_list': payout_success_list,
-                           'payout_error_list':payout_error_ids}
+        payout_response = {
+            "status": "partial_success",
+            "payout_success_list": payout_success_list,
+            "payout_error_list": payout_error_ids,
+        }
 
         return payout_response
-            
+
     else:
         payout_update_data = {
-            "initiate_status":400, "initiate_message": response_data.get('msg', ''),
-            "initiate_response": response_data, "initiate_date":current_date}
+            "initiate_status": 400,
+            "initiate_message": response_data.get("msg", ""),
+            "initiate_response": response_data,
+            "initiate_date": current_date,
+        }
         print("payout list::", payout_pk_list)
 
         bulk_update_property_payout_details(payout_pk_list, payout_update_data)
 
-        payout_response = {'status':'error', 'payout_success_list': [],
-                           'payout_error_list':payout_pk_list}
+        payout_response = {
+            "status": "error",
+            "payout_success_list": [],
+            "payout_error_list": payout_pk_list,
+        }
 
         return payout_response
-
-        
-        
-        
-        
-
-        
-    
-        
-        
-        
-        

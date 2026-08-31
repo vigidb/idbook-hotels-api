@@ -5,27 +5,53 @@ from django.contrib.auth import authenticate
 from IDBOOKAPI.img_kit import upload_media_to_bucket
 from IDBOOKAPI.utils import format_custom_id, find_state
 
-from .models import (Property, Gallery, Room, Rule,
-                     Inclusion, FinancialDetail, HotelAmenityCategory,
-                     HotelAmenity, RoomAmenityCategory, RoomAmenity,
-                     PropertyGallery, RoomGallery, PropertyBankDetails,
-                     PolicyDetails, PropertyLandmark)
-from .models import (BlockedProperty, PayAtHotelSpendLimit,
-                     MonthlyPayAtHotelEligibility, PropertyPayoutDetails)
+from .models import (
+    Property,
+    Gallery,
+    Room,
+    Rule,
+    Inclusion,
+    FinancialDetail,
+    HotelAmenityCategory,
+    HotelAmenity,
+    RoomAmenityCategory,
+    RoomAmenity,
+    PropertyGallery,
+    RoomGallery,
+    PropertyBankDetails,
+    PolicyDetails,
+    PropertyLandmark,
+)
+from .models import (
+    BlockedProperty,
+    PayAtHotelSpendLimit,
+    MonthlyPayAtHotelEligibility,
+    PropertyPayoutDetails,
+)
 from apps.hotels.submodels.raw_sql_models import CalendarRoom
 from apps.hotels.submodels.related_models import (
-  DynamicRoomPricing, TopDestinations, PropertyCommission, 
-  TrendingPlaces)
+    DynamicRoomPricing,
+    TopDestinations,
+    PropertyCommission,
+    TrendingPlaces,
+)
 
 
 from ..org_resources.models import UploadedMedia
 from ..org_resources.serializers import UploadedMediaSerializer
 
 from apps.hotels.utils.db_utils import (
-    get_property_featured_image, get_rooms_by_property, get_starting_room_price,
-    get_slot_based_starting_room_price, get_property_gallery,
-    get_dynamic_pricing_with_date_list, is_property_favorite)
+    get_property_featured_image,
+    get_rooms_by_property,
+    get_starting_room_price,
+    get_slot_based_starting_room_price,
+    get_property_gallery,
+    get_dynamic_pricing_with_date_list,
+    is_property_favorite,
+)
 from apps.hotels.utils.db_utils import get_property_count_by_location
+from apps.booking.utils.markup_utils import AgentMarkupCalculator
+from decimal import Decimal
 
 from django.conf import settings
 
@@ -34,34 +60,39 @@ class PropertyGallerySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PropertyGallery
-        fields = '__all__'
+        fields = "__all__"
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        representation["media"] = (
+            f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        )
         return representation
 
 
 class PropertyNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Property
-        fields = ('id', 'name', 'title')
-        
+        fields = ("id", "name", "title")
+
+
 class PropertySerializer(serializers.ModelSerializer):
     custom_id = serializers.ReadOnlyField()
+
     class Meta:
         model = Property
-        fields = '__all__'
+        fields = "__all__"
 
     def create(self, validated_data):
-        user = self.context['request'].user
-        slug = self.context['slug']
+        user = self.context["request"].user
+        slug = self.context["slug"]
         property_instance = Property(**validated_data)
         property_instance.added_by = user
         property_instance.slug = slug
         property_instance.save()
         return property_instance
+
 
 ##    def update(self, instance, validated_data):
 ##        slug = self.context['slug']
@@ -71,6 +102,7 @@ class PropertySerializer(serializers.ModelSerializer):
 ##             instance, validated_data)
 ##        return instance
 
+
 class PropertyListSerializer(serializers.ModelSerializer):
     # dynamic_price = serializers.ReadOnlyField()
     lowest_price = serializers.ReadOnlyField()
@@ -78,80 +110,140 @@ class PropertyListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = ('id','name', 'title', 'property_type',
-                  'rental_form', 'review_star', 'review_count',
-                  'additional_fields', 'area_name',
-                  'city_name', 'state', 'country', 'rating',
-                  'status', 'current_page', 'address', 'starting_price_details',
-                  'amenity_details', 'policies', 'is_slot_price_enabled',
-                  'property_size', 'property_measurement_type', 'slug',
-                  'lowest_price', 'pay_at_hotel')
-        
+        fields = (
+            "id",
+            "name",
+            "title",
+            "property_type",
+            "rental_form",
+            "review_star",
+            "review_count",
+            "additional_fields",
+            "area_name",
+            "city_name",
+            "state",
+            "country",
+            "rating",
+            "status",
+            "current_page",
+            "address",
+            "starting_price_details",
+            "amenity_details",
+            "policies",
+            "is_slot_price_enabled",
+            "property_size",
+            "property_measurement_type",
+            "slug",
+            "lowest_price",
+            "pay_at_hotel",
+        )
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        landmarks = instance.landmarks.values('id', 'landmark', 'distance')
-        representation['landmarks'] = list(landmarks)
+        landmarks = instance.landmarks.values("id", "landmark", "distance")
+        representation["landmarks"] = list(landmarks)
         available_property_dict = self.context.get("available_property_dict", {})
         favorite_list = self.context.get("favorite_list", [])
         nonavailable_property_list = self.context.get("nonavailable_property_list", [])
-        #print("available property dict::", available_property_dict)
+        # print("available property dict::", available_property_dict)
         if instance:
             gallery = None
-##            property_id = instance.get('id', None)
+            ##            property_id = instance.get('id', None)
             property_id = instance.id
             if property_id:
-                
-##                gallery = get_property_featured_image(property_id)
-##            if gallery and gallery.media:
-##                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
-##            else:
-##                representation['featured_image'] = ""
+
+                ##                gallery = get_property_featured_image(property_id)
+                ##            if gallery and gallery.media:
+                ##                representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+                ##            else:
+                ##                representation['featured_image'] = ""
 
                 gallery_property = get_property_gallery(property_id)
 
                 if gallery_property:
-                    property_gallery = list(gallery_property.filter(active=True).values(
-                        'id','media', 'caption', 'featured_image'))
+                    property_gallery = list(
+                        gallery_property.filter(active=True).values(
+                            "id", "media", "caption", "featured_image"
+                        )
+                    )
                     for gallery in property_gallery:
                         # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
-                        gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
-                    representation['property_gallery'] = property_gallery
+                        gallery["media"] = (
+                            f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
+                        )
+                    representation["property_gallery"] = property_gallery
                 else:
-                    representation['property_gallery'] = []
+                    representation["property_gallery"] = []
 
             avail_prop = available_property_dict.get(property_id, None)
             if avail_prop:
-                representation['available_room_after_booking'] = avail_prop
+                representation["available_room_after_booking"] = avail_prop
             else:
-                representation['available_room_after_booking'] = []
+                representation["available_room_after_booking"] = []
 
             if property_id in favorite_list:
-                representation['favorite'] = True
+                representation["favorite"] = True
             else:
-                representation['favorite'] = False
+                representation["favorite"] = False
 
             if property_id:
                 starting_room_price = get_starting_room_price(property_id)
-                representation['starting_room_price'] = starting_room_price
+                representation["starting_room_price"] = starting_room_price
                 # starting_price_list = get_slot_based_starting_room_price(property_id)
                 # representation['starting_price_list'] = starting_price_list
 
             if property_id in nonavailable_property_list:
-                representation['available'] = False
+                representation["available"] = False
             else:
-                representation['available'] = True
+                representation["available"] = True
 
-            user_booking_request_details = self.context.get("user_booking_request_details", {})
-            representation['user_booking_request_details'] = user_booking_request_details
+            user_booking_request_details = self.context.get(
+                "user_booking_request_details", {}
+            )
+            representation["user_booking_request_details"] = (
+                user_booking_request_details
+            )
 
             complete_pricing_details = self.context.get("complete_pricing_details", {})
-    
-            if property_id in complete_pricing_details:
-                representation['complete_price_details'] = complete_pricing_details[property_id]
-            else:
-                representation['complete_price_details'] = {'status': 'not_calculated'}
 
-        return representation     
+            if property_id in complete_pricing_details:
+                representation["complete_price_details"] = complete_pricing_details[
+                    property_id
+                ]
+            else:
+                representation["complete_price_details"] = {"status": "not_calculated"}
+
+            # Agent-specific: add agent_pricing (markup) when request user is an agent
+            agent_detail = self.context.get("agent_detail")
+            if agent_detail and property_id:
+                lowest = representation.get("lowest_price")
+                starting = representation.get("starting_room_price", 0)
+                base_lowest = Decimal(str(lowest if lowest is not None else 0))
+                base_starting = Decimal(str(starting if starting is not None else 0))
+
+                markup_lowest = AgentMarkupCalculator.get_agent_markup(
+                    agent_detail.id, base_lowest
+                )
+                markup_starting = AgentMarkupCalculator.get_agent_markup(
+                    agent_detail.id, base_starting
+                )
+
+                representation["agent_pricing"] = {
+                    "markup_percent": markup_lowest.get("markup_percent"),
+                    "markup_amount": float(markup_lowest.get("markup_amount", 0)),
+                    "markup_type": markup_lowest.get("markup_type"),
+                    "net_lowest_price": float(base_lowest),
+                    "lowest_price_with_markup": float(markup_lowest.get("final_price", base_lowest)),
+                    "net_starting_room_price": float(base_starting),
+                    "starting_room_price_with_markup": float(
+                        markup_starting.get("final_price", base_starting)
+                    ),
+                }
+            else:
+                representation["agent_pricing"] = None
+
+        return representation
+
 
 ##    def create(self, validated_data):
 ##        user = self.context['request'].user
@@ -170,149 +262,225 @@ class PropertyListSerializer(serializers.ModelSerializer):
 class RoomGallerySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomGallery
-        fields = '__all__'
+        fields = "__all__"
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        representation["media"] = (
+            f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+        )
         return representation
+
 
 class RoomNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ('id', 'name', 'room_type')
+        fields = ("id", "name", "room_type")
+
 
 class RoomBlockSelectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ('id', 'name', 'room_type')
+        fields = ("id", "name", "room_type")
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         room_blocked_status = self.context.get("room_blocked_status", {})
         return representation
-        
+
+
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = '__all__'
+        fields = "__all__"
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        
+
         if instance and instance.gallery_room:
-            room_gallery = list(instance.gallery_room.filter(active=True).values(
-                'id','media', 'caption', 'featured_image'))
+            room_gallery = list(
+                instance.gallery_room.filter(active=True).values(
+                    "id", "media", "caption", "featured_image"
+                )
+            )
             for gallery in room_gallery:
                 # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
-                gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
-            representation['room_gallery'] = room_gallery
+                gallery["media"] = (
+                    f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
+                )
+            representation["room_gallery"] = room_gallery
         else:
-            representation['room_gallery'] = []
-            
-        return representation 
-            
-            
+            representation["room_gallery"] = []
+
+        return representation
+
 
 class PropertyRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ('id','name', 'room_type', 'room_view',
-                  'no_available_rooms', 'room_price',
-                  'room_occupancy', 'is_slot_price_enabled',
-                  'room_size', 'room_measurement_type',
-                  'meal_options', 'is_smoking_allowed',
-                  'extra_bed_type', 'is_extra_bed_available')
+        fields = (
+            "id",
+            "name",
+            "description",
+            "room_type",
+            "room_view",
+            "no_available_rooms",
+            "room_price",
+            "room_occupancy",
+            "is_slot_price_enabled",
+            "room_size",
+            "room_measurement_type",
+            "meal_options",
+            "is_smoking_allowed",
+            "extra_bed_type",
+            "is_extra_bed_available",
+            "amenity_details",
+        )
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
             if instance.gallery_room:
-##                gallery = instance.gallery_room.filter(featured_image=True).first() 
-##                if gallery and gallery.media:
-##                    representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
-##                else:
-##                    representation['featured_image'] = ""
-                room_gallery = list(instance.gallery_room.filter(active=True).values(
-                    'id', 'media', 'caption', 'featured_image'))
+                ##                gallery = instance.gallery_room.filter(featured_image=True).first()
+                ##                if gallery and gallery.media:
+                ##                    representation['featured_image'] = settings.MEDIA_URL + str(gallery.media)
+                ##                else:
+                ##                    representation['featured_image'] = ""
+                room_gallery = list(
+                    instance.gallery_room.filter(active=True).values(
+                        "id", "media", "caption", "featured_image"
+                    )
+                )
                 for gallery in room_gallery:
                     # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
-                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
-                representation['room_gallery'] = room_gallery
+                    gallery["media"] = (
+                        f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
+                    )
+                representation["room_gallery"] = room_gallery
             else:
-                representation['room_gallery'] = []
+                representation["room_gallery"] = []
 
             date_list = self.context.get("date_list", [])
             if date_list:
                 room_id = instance.id
                 date_price_dict = get_dynamic_pricing_with_date_list(room_id, date_list)
-                representation['dynamic_room_price'] = date_price_dict
+                representation["dynamic_room_price"] = date_price_dict
             else:
-                representation['dynamic_room_price'] = {}
-            
+                representation["dynamic_room_price"] = {}
 
-        return representation 
+        return representation
+
 
 class PropertyRetrieveSerializer(serializers.ModelSerializer):
     # dynamic_price = serializers.ReadOnlyField()
     lowest_price = serializers.ReadOnlyField()
-    
 
-##    property_room = PropertyRoomSerializer(many=True)
+    ##    property_room = PropertyRoomSerializer(many=True)
 
     property_room = serializers.SerializerMethodField()
+
     def get_property_room(self, obj):
         date_list = self.context.get("date_list", [])
         active_property_room = obj.property_room.filter(active=True)
         return PropertyRoomSerializer(
-            active_property_room, many=True,
-            context={"date_list": date_list}).data
-        
+            active_property_room, many=True, context={"date_list": date_list}
+        ).data
+
     class Meta:
         model = Property
-        exclude = ('legal_document', )
+        exclude = ("legal_document",)
 
-##    def fetch_rooms(self, property_id):
-##        available_room_after_booking = self.context.get("available_room_after_booking", {}))
-##        rooms = get_rooms_by_property(property_id)
-##        serializer = PropertyRoomSerializer(
-##            rooms, many=True, context={
-##                'available_room_after_booking': available_room_after_booking})
-##        
-##        return serializer.data
+    ##    def fetch_rooms(self, property_id):
+    ##        available_room_after_booking = self.context.get("available_room_after_booking", {}))
+    ##        rooms = get_rooms_by_property(property_id)
+    ##        serializer = PropertyRoomSerializer(
+    ##            rooms, many=True, context={
+    ##                'available_room_after_booking': available_room_after_booking})
+    ##
+    ##        return serializer.data
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
+            # Get the request user from context
+            request = self.context.get("request", None)
+            user = request.user if request and hasattr(request, "user") else None
+            
+            # Check if user has permission to see sensitive fields
+            # Show fields if: user is superuser OR user is the property manager OR user is the property creator
+            can_see_sensitive_fields = False
+            if user and user.is_authenticated:
+                if (user.is_superuser or 
+                    instance.managed_by == user or 
+                    instance.added_by == user):
+                    can_see_sensitive_fields = True
+            
+            # List of sensitive fields that should be hidden from general users
+            sensitive_fields = [
+                "added_by",           # Property creator
+                "managed_by",          # Property manager
+                "business_rep",       # Business representative (account manager)
+                "service_agreement_pdf",  # Service agreement PDF
+                "verify_token",       # Verification token
+                "is_svc_agreement_verified",  # Agreement verification status
+                "verified_at",        # Verification timestamp
+                "verified_ip",        # Verification IP address
+            ]
+            
+            # Remove sensitive fields if user doesn't have permission
+            if not can_see_sensitive_fields:
+                for field in sensitive_fields:
+                    representation.pop(field, None)
+            
+            # Format business_rep if it exists
+            if instance.business_rep:
+                representation["business_rep"] = {
+                    "id": instance.business_rep.id,
+                    "name": instance.business_rep.name,
+                    "email": instance.business_rep.email,
+                    "mobile_number": instance.business_rep.mobile_number,
+                }
+            else:
+                representation["business_rep"] = None
+            
             # property gallery
-##            room_details = self.fetch_rooms(instance.id)
-##            representation['property_room'] = room_details
+            ##            room_details = self.fetch_rooms(instance.id)
+            ##            representation['property_room'] = room_details
             landmarks = instance.landmarks.all()
-            representation["landmarks"] = PropertyLandmarkSerializer(landmarks, many=True).data
+            representation["landmarks"] = PropertyLandmarkSerializer(
+                landmarks, many=True
+            ).data
             for landmark in representation["landmarks"]:
                 landmark.pop("property", None)
-            
+
             if instance.gallery_property:
-                property_gallery = list(instance.gallery_property.filter(
-                    active=True).values('id','media', 'caption', 'featured_image'))
+                property_gallery = list(
+                    instance.gallery_property.filter(active=True).values(
+                        "id", "media", "caption", "featured_image"
+                    )
+                )
                 for gallery in property_gallery:
                     # gallery['media'] = settings.MEDIA_URL + str(gallery.get('media', ''))
-                    gallery['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
-                representation['property_gallery'] = property_gallery
+                    gallery["media"] = (
+                        f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(gallery.get('media', ''))}"
+                    )
+                representation["property_gallery"] = property_gallery
             else:
-                representation['property_gallery'] = []
+                representation["property_gallery"] = []
 
             # legal document
             if instance.legal_document:
-                representation['legal_document'] = settings.MEDIA_URL + str(instance.legal_document)
-            representation['favorite'] = False
+                representation["legal_document"] = settings.MEDIA_URL + str(
+                    instance.legal_document
+                )
+            representation["favorite"] = False
             user_id = self.context.get("user_id", None)
             if user_id:
                 is_favorite = is_property_favorite(user_id, instance.id)
                 if is_favorite:
-                    representation['favorite'] = True
-        
+                    representation["favorite"] = True
+
         return representation
 
 
@@ -320,54 +488,59 @@ class GallerySerializer(serializers.ModelSerializer):
     # property = PropertySerializer(read_only=True)
     # room = RoomSerializer(read_only=True)
     media = UploadedMediaSerializer(read_only=True)
+
     class Meta:
         model = Gallery
-        fields = '__all__'
+        fields = "__all__"
 
     def create(self, validated_data):
-        user = self.context['request'].user
-        request_data = self.context['request'].data
+        user = self.context["request"].user
+        request_data = self.context["request"].data
 
-        file_name = request_data.get('file_name', [])
-        file_path = self.context['request'].FILES.get('file_path')
-        tags = request_data.get('tags', [])
+        file_name = request_data.get("file_name", [])
+        file_path = self.context["request"].FILES.get("file_path")
+        tags = request_data.get("tags", [])
 
         if file_path:
-            res = upload_media_to_bucket(file_name=file_name, file_path=file_path, tags=tags)
+            res = upload_media_to_bucket(
+                file_name=file_name, file_path=file_path, tags=tags
+            )
 
             media_instance = UploadedMedia(
-                file_id=res['fileId'],
+                file_id=res["fileId"],
                 title=file_name.title(),
                 file_name=file_name,
-                url=res['url'],
-                thumbnail_url=res['thumbnailUrl'],
+                url=res["url"],
+                thumbnail_url=res["thumbnailUrl"],
                 # tags=res['tags'],
                 tags=tags,
-                size=res['size'],
-                height=res['height'],
-                width=res['width'],
-                type=res['fileType'],
-                version_id=res['versionInfo']['id'],
-                version_name=res['versionInfo']['name'],
+                size=res["size"],
+                height=res["height"],
+                width=res["width"],
+                type=res["fileType"],
+                version_id=res["versionInfo"]["id"],
+                version_name=res["versionInfo"]["name"],
                 user=user,
-                active=True
+                active=True,
             )
             media_instance.save()
 
-            property_data = request_data.get('property')
-            room_data = request_data.get('room')
+            property_data = request_data.get("property")
+            room_data = request_data.get("room")
 
             if property_data:
                 property_instance = Property.objects.get(id=property_data)
                 gallery_instance = Gallery(
-                    added_by=user, media=media_instance, property=property_instance)
+                    added_by=user, media=media_instance, property=property_instance
+                )
                 gallery_instance.save()
                 return gallery_instance
 
             elif room_data:
                 room_instance = Room.objects.get(id=room_data)
                 gallery_instance = Gallery(
-                    added_by=user, media=media_instance, room=room_instance)
+                    added_by=user, media=media_instance, room=room_instance
+                )
                 gallery_instance.save()
                 return gallery_instance
 
@@ -378,19 +551,19 @@ class GallerySerializer(serializers.ModelSerializer):
 class RuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rule
-        fields = '__all__'
+        fields = "__all__"
 
 
 class InclusionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inclusion
-        fields = '__all__'
+        fields = "__all__"
 
 
 class FinancialDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = FinancialDetail
-        fields = '__all__'
+        fields = "__all__"
 
 
 ##class ReviewSerializer(serializers.ModelSerializer):
@@ -398,45 +571,56 @@ class FinancialDetailSerializer(serializers.ModelSerializer):
 ##        model = Review
 ##        fields = '__all__'
 
+
 class HotelAmenitySerializer(serializers.ModelSerializer):
     class Meta:
         model = HotelAmenity
-        fields = '__all__'
+        fields = "__all__"
+
 
 class HotelAmenityCategorySerializer(serializers.ModelSerializer):
     hotel_amenity = HotelAmenitySerializer(read_only=True, many=True)
+
     class Meta:
         model = HotelAmenityCategory
-        fields = ('id', 'title', 'active', 'hotel_amenity')
+        fields = ("id", "title", "active", "hotel_amenity")
+
 
 class RoomAmenitySerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomAmenity
-        fields = ('id', 'title', 'active', 'detail')
+        fields = ("id", "title", "active", "detail")
+
 
 class RoomAmenityCategorySerializer(serializers.ModelSerializer):
     room_amenity = RoomAmenitySerializer(read_only=True, many=True)
+
     class Meta:
         model = RoomAmenityCategory
-        fields = ('id', 'title', 'active', 'room_amenity')
+        fields = ("id", "title", "active", "room_amenity")
+
 
 class PropertyBankDetailsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyBankDetails
-        fields = '__all__'
+        fields = "__all__"
+
 
 class BlockedPropertySerializer(serializers.ModelSerializer):
     blocked_property = PropertyNameSerializer(read_only=True)
     blocked_room = RoomNameSerializer(read_only=True)
+
     class Meta:
         model = BlockedProperty
-        fields = '__all__'
+        fields = "__all__"
+
 
 class CalendarRoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CalendarRoom
-        fields = '__all__'
+        fields = "__all__"
+
 
 ##    def to_representation(self, instance):
 ##        representation = super().to_representation(instance)
@@ -444,26 +628,35 @@ class CalendarRoomSerializer(serializers.ModelSerializer):
 ##            room_id = instance.room_id
 ##        return representation
 
+
 class DynamicRoomPricingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DynamicRoomPricing
-        fields = '__all__'
+        fields = "__all__"
+
 
 class PolicySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PolicyDetails
-        fields = '__all__'
+        fields = "__all__"
+
 
 class TopDestinationsSerializer(serializers.ModelSerializer):
     class Meta:
         model = TopDestinations
-        fields = ('id', 'location_name','display_name',
-                  'media', 'no_of_hotels', 'active')
+        fields = (
+            "id",
+            "location_name",
+            "display_name",
+            "media",
+            "no_of_hotels",
+            "active",
+        )
 
     def create(self, validated_data):
-        location_name = validated_data.get('location_name')
+        location_name = validated_data.get("location_name")
         total_count = get_property_count_by_location(location_name)
         topdst_instance = TopDestinations(**validated_data)
         topdst_instance.no_of_hotels = total_count
@@ -471,24 +664,29 @@ class TopDestinationsSerializer(serializers.ModelSerializer):
         return topdst_instance
 
     def update(self, instance, validated_data):
-        location_name = validated_data.get('location_name', '')
+        location_name = validated_data.get("location_name", "")
         total_count = get_property_count_by_location(location_name)
-        validated_data['no_of_hotels'] = total_count
-        instance = super(TopDestinationsSerializer,self).update(
-             instance, validated_data)
+        validated_data["no_of_hotels"] = total_count
+        instance = super(TopDestinationsSerializer, self).update(
+            instance, validated_data
+        )
         return instance
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
-            representation['media'] =  f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+            representation["media"] = (
+                f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+            )
 
         return representation
+
 
 class PropertyLandmarkSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyLandmark
-        fields = ['id', 'property', 'landmark', 'distance']
+        fields = ["id", "property", "landmark", "distance"]
+
 
 class PropertyCommissionSerializer(serializers.ModelSerializer):
     commission = serializers.FloatField(required=True)
@@ -496,87 +694,129 @@ class PropertyCommissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PropertyCommission
-        fields = '__all__'
+        fields = "__all__"
 
     def create(self, validated_data):
         # Auto-generate code if not provided
-        if not validated_data.get('code'):
-            property_obj = validated_data.get('property_comm')
-            validated_data['code'] = f"Idb_comm_{property_obj.id}"
+        if not validated_data.get("code"):
+            property_obj = validated_data.get("property_comm")
+            validated_data["code"] = f"Idb_comm_{property_obj.id}"
         return super().create(validated_data)
-    
+
+
 class TrendingPlacesSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrendingPlaces
-        fields = ('id', 'location_name', 'display_name', 
-                  'media', 'no_of_hotels', 'active')
-    
+        fields = (
+            "id",
+            "location_name",
+            "display_name",
+            "media",
+            "no_of_hotels",
+            "active",
+        )
+
     def create(self, validated_data):
-        location_name = validated_data.get('location_name')
+        location_name = validated_data.get("location_name")
         total_count = get_property_count_by_location(location_name)
         trending_place_instance = TrendingPlaces(**validated_data)
         trending_place_instance.no_of_hotels = total_count
         trending_place_instance.save()
         return trending_place_instance
-    
+
     def update(self, instance, validated_data):
-        location_name = validated_data.get('location_name', '')
+        location_name = validated_data.get("location_name", "")
         total_count = get_property_count_by_location(location_name)
-        validated_data['no_of_hotels'] = total_count
+        validated_data["no_of_hotels"] = total_count
         instance = super(TrendingPlacesSerializer, self).update(
-             instance, validated_data)
+            instance, validated_data
+        )
         return instance
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         if instance:
-            representation['media'] = f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+            representation["media"] = (
+                f"{settings.CDN}{settings.PUBLIC_MEDIA_LOCATION}/{str(instance.media)}"
+            )
         return representation
+
 
 class PayAtHotelSpendLimitSerializer(serializers.ModelSerializer):
     class Meta:
         model = PayAtHotelSpendLimit
-        fields = '__all__'
+        fields = "__all__"
 
     def validate(self, data):
-        if data.get('start_limit') is not None and data.get('end_limit') is not None and data.get('spend_limit') is not None:
-            start = data['start_limit']
-            end = data['end_limit']
+        if (
+            data.get("start_limit") is not None
+            and data.get("end_limit") is not None
+            and data.get("spend_limit") is not None
+        ):
+            start = data["start_limit"]
+            end = data["end_limit"]
 
             if end < start:
-                raise serializers.ValidationError("End limit cannot be less than start limit")
+                raise serializers.ValidationError(
+                    "End limit cannot be less than start limit"
+                )
 
             if PayAtHotelSpendLimit.objects.filter(
-                start_limit__lte=end,
-                end_limit__gte=start
+                start_limit__lte=end, end_limit__gte=start
             ).exists():
-                raise serializers.ValidationError("Overlapping booking range already exists")
+                raise serializers.ValidationError(
+                    "Overlapping booking range already exists"
+                )
 
-        elif data.get('pro_spend_limit') is not None and data.get('pro_level') is not None:
-            if data.get('property') or data.get('start_limit') or data.get('end_limit'):
-                raise serializers.ValidationError("For pro spend limit, only pro_spend_limit and pro_level should be provided")
-            
-            if PayAtHotelSpendLimit.objects.filter(pro_level=data['pro_level']).exists():
-                raise serializers.ValidationError({"pro_level": "Spend limit for this pro level already exists"})
+        elif (
+            data.get("pro_spend_limit") is not None
+            and data.get("pro_level") is not None
+        ):
+            if data.get("property") or data.get("start_limit") or data.get("end_limit"):
+                raise serializers.ValidationError(
+                    "For pro spend limit, only pro_spend_limit and pro_level should be provided"
+                )
 
-        elif data.get('property_spend_limit') is not None and data.get('property') is not None:
-            if data.get('start_limit') or data.get('end_limit') or data.get('pro_level'):
-                raise serializers.ValidationError("For hotelier spend limit, only property_spend_limit and property should be provided")
+            if PayAtHotelSpendLimit.objects.filter(
+                pro_level=data["pro_level"]
+            ).exists():
+                raise serializers.ValidationError(
+                    {"pro_level": "Spend limit for this pro level already exists"}
+                )
 
-            if PayAtHotelSpendLimit.objects.filter(property=data['property']).exists():
-                raise serializers.ValidationError({"property": "Spend limit for this property already exists"})
+        elif (
+            data.get("property_spend_limit") is not None
+            and data.get("property") is not None
+        ):
+            if (
+                data.get("start_limit")
+                or data.get("end_limit")
+                or data.get("pro_level")
+            ):
+                raise serializers.ValidationError(
+                    "For hotelier spend limit, only property_spend_limit and property should be provided"
+                )
+
+            if PayAtHotelSpendLimit.objects.filter(property=data["property"]).exists():
+                raise serializers.ValidationError(
+                    {"property": "Spend limit for this property already exists"}
+                )
 
         else:
-            raise serializers.ValidationError("Provide valid fields for either range-based, pro, or hotelier spend limit")
+            raise serializers.ValidationError(
+                "Provide valid fields for either range-based, pro, or hotelier spend limit"
+            )
 
         return data
+
 
 class MonthlyPayAtHotelEligibilitySerializer(serializers.ModelSerializer):
     class Meta:
         model = MonthlyPayAtHotelEligibility
-        fields = '__all__'
+        fields = "__all__"
+
 
 class PropertyPayoutDetailsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyPayoutDetails
-        fields = '__all__'
+        fields = "__all__"

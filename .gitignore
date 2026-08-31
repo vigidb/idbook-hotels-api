@@ -22,3 +22,16 @@ media/
 *.env.test
 *.env.staging
 *.env
+postman
+
+# Celery runtime state/temp files
+celerybeat-schedule
+celerybeat-schedule-*
+**/celerybeat-schedule
+**/celerybeat-schedule-*
+celery*.pid
+**/celery*.pid
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store

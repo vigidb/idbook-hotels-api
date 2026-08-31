@@ -3,28 +3,29 @@ from rest_framework import status
 import logging
 
 
-
-def generate_response(data=None, message="", status_code='', is_error=False, status='', count=0):
+def generate_response(
+    data=None, message="", status_code="", is_error=False, status="", count=0
+):
     if data is None:
         data = []
     response = {
-        'status': status,
+        "status": status,
         # 'code': status_code,
-        'message': message,
-        'count': count,
-        'data': data
+        "message": message,
+        "count": count,
+        "data": data,
     }
     return Response(response, status=status_code)
+
 
 def generate_error_response(errors, message, error_code, status, status_code):
     response = {
-        'status': status,
-        'message': message,
-        'errors': errors,
-        'errorCode':error_code
+        "status": status,
+        "message": message,
+        "errors": errors,
+        "errorCode": error_code,
     }
     return Response(response, status=status_code)
-
 
 
 class StandardResponseMixin:
@@ -32,15 +33,28 @@ class StandardResponseMixin:
         error_list = []
         for field_name, field_errors in serializer_errors.items():
             for ferror in field_errors:
-                error_list.append({"field":field_name, "message": ferror})
+                error_list.append({"field": field_name, "message": ferror})
         return error_list
 
-    
-    def get_response(self, data=None, message="", status_code=status.HTTP_200_OK, is_error=False, status='', count=0):
+    def get_response(
+        self,
+        data=None,
+        message="",
+        status_code=status.HTTP_200_OK,
+        is_error=False,
+        status="",
+        count=0,
+    ):
         return generate_response(data, message, status_code, is_error, status, count)
 
-    def get_error_response(self, message="", status='', errors=[],
-                           error_code="", status_code=status.HTTP_401_UNAUTHORIZED):
+    def get_error_response(
+        self,
+        message="",
+        status="",
+        errors=[],
+        error_code="",
+        status_code=status.HTTP_401_UNAUTHORIZED,
+    ):
         return generate_error_response(errors, message, error_code, status, status_code)
 
 
@@ -48,15 +62,42 @@ class LoggingMixin:
     logger = logging.getLogger(__name__)
 
     def log_request(self, request):
-        user_info = f"User: {request.user}" if request.user.is_authenticated else "Anonymous User"
+        user_info = (
+            f"User: {request.user}"
+            if getattr(request, "user", None) and request.user.is_authenticated
+            else "Anonymous User"
+        )
         self.logger.info(
             f"Request: {request.method} {request.get_full_path()} | {user_info}"
         )
 
     def log_response(self, response):
-        self.logger.info(
-            f"Response: {response.status_code}"
-        )
+        self.logger.info(f"Response: {getattr(response, 'status_code', '')}")
+
+    # Convenience helpers used across viewsets
+    def log_info(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.info(message, extra=extra)
+        else:
+            self.logger.info(message)
+
+    def log_error(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.error(message, extra=extra)
+        else:
+            self.logger.error(message)
+
+    def log_warning(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.warning(message, extra=extra)
+        else:
+            self.logger.warning(message)
+
+    def log_debug(self, message: str, extra: dict | None = None):
+        if extra:
+            self.logger.debug(message, extra=extra)
+        else:
+            self.logger.debug(message)
 
     # def log_request(self, request):
     #     self.logger.info(

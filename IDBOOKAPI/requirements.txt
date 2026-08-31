@@ -24,6 +24,8 @@ django-appconf
 django-cors-headers
 django-environ
 # django-faker
+django-celery-beat
+django-celery-results
 django-filter
 django-imagekit
 django-localflavor
@@ -32,6 +34,9 @@ djangorestframework
 djangorestframework-simplejwt
 drf-tracking
 drf-yasg
+channels
+channels-redis
+daphne
 exceptiongroup
 fake-factory
 Faker
